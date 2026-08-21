@@ -80,7 +80,9 @@ graph TD
 
 ### `cmd/gsr-helper`
 
-エントリポイント。フラグ解析、設定の読み込み、能力判定、`tea.Program` の起動と panic からの端末復元を行う。ロジックを持たない。
+エントリポイント。フラグ解析、設定の読み込み、能力判定、色を使うかの判定、`tea.Program` の起動（代替スクリーン）と panic からの端末復元を行う。ロジックを持たない。
+
+色を使うかは `NO_COLOR` / `--no-color` / 非 TTY から**ここで 1 つの値に決めて**親 Model に渡す。判定箇所を分散させない。背景の明暗は起動後に端末へ問い合わせるため、親 Model が受け持つ（[アーキテクチャ設計](../architecture/overview.md#起動シーケンスと能力判定)）。
 
 | フラグ | 意味 |
 |-------|------|
@@ -249,19 +251,21 @@ bubbletea の Model 群。**内部を Atomic Design で階層化する。** 部�
 
 | サブパッケージ | 階層 | 責務 |
 |--------------|------|------|
-| `ui`（`app.go`） | 親 Model | 検出結果と `Caps` を保持し、page を切り替える。3 秒ごとの再検出を駆動する |
+| `ui`（`app.go`） | 親 Model | 検出結果・`Caps`・端末サイズ・背景の明暗を保持し、page を切り替える。3 秒ごとの再検出を駆動する。キーの配送（最上位のモーダルへ渡す）を担う |
 | `ui/page` | page | タブ 1 枚。organism を構成し、キー入力をドメイン層の `tea.Cmd` に変換する |
 | `ui/template` | template | 画面共通の枠（ヘッダ / タブ / 本体 / 状態行 / フッタ、モーダル、2 ペイン）。中身を知らない |
-| `ui/organism` | organism | ローカル状態を持つ部品。一覧（`Table`）、確認ダイアログ（`Confirm`）、ログペイン、進捗、`huh` フォーム |
-| `ui/molecule` | molecule | 1 行 / 1 区画の描画。純粋関数 |
+| `ui/organism` | organism | ローカル状態を持つ部品。一覧（`Table` = `bubbles/table` のラッパー）、確認ダイアログ（`Confirm`）、ログペイン（`viewport`）、進捗（`spinner` / `progress`）、`huh` フォーム |
+| `ui/molecule` | molecule | 1 行 / 1 区画の描画。行はセル列（`[]string`）を返す。純粋関数 |
 | `ui/atom` | atom | 最小の表示単位。純粋関数 |
-| `ui/token` | token | 色・記号・幅の定数。色と記号を対で定義し、`NO_COLOR` の縮退をここに閉じる |
+| `ui/keymap` | keymap | キー定義とヘルプ文言（`bubbles/key.Binding`）。page と `organism.Help` が読む |
+| `ui/token` | token | 色・記号・幅。色は背景の明暗で解決し、色を使わない場合の縮退をここに閉じる。`huh.Theme` もここで組み立てる |
 
-- タブ間で共有する状態は親のみが持つ。page が独自に検出処理を走らせることはしない。
+- タブ間で共有する状態は親のみが持つ。page が独自に検出処理を走らせることはしない。端末サイズも親が持ち、`template.BodySize` で算出した領域を page 経由で organism に渡す。
 - 一覧と確認ダイアログはそれぞれ `organism.Table` / `organism.Confirm` の 1 実装に統一する。個別のダイアログを追加しないことで「確認を経ない破壊的操作の経路を作らない」を構造として守る。
 - 操作の起点は複数あるが（一覧の直接キー / 詳細画面の操作リスト / Jobs タブ、[FR-45〜FR-47](../requirements/functional.md)）、いずれも同じ `organism.Confirm` を経る。選択肢を並べる UI は `organism.ChoiceList` の 1 実装に統一する。
-- キーマップは有効・無効の判定を含めて一元管理する。可否の判断は page がドメイン層（`svc.CanControl` など）に問い合わせ、`atom.KeyHint` は受け取った可否と理由を描くだけとする。
-- `atom` / `molecule` / `template` は bubbletea を import しない。
+- キーの定義は `ui/keymap` に集約する。可否の判断は page がドメイン層（`svc.CanControl` など）に問い合わせ、`atom.KeyHint` は受け取った可否と理由を描くだけとする。`?` の全キー一覧は `bubbles/help` に描かせるが、フッタは無効キーをグレーアウトする必要があるため自前で描く。
+- キーは最上位のモーダルにのみ配り、入力中（絞り込み・フィルタ・フォーム）はグローバルキーを解釈しない（[TUI コンポーネント設計](../ui/atomic-design.md#キー入力の配送)）。
+- `atom` / `molecule` / `template` は bubbletea / bubbles を import しない。
 
 ## 主要な interface 一覧
 
@@ -284,7 +288,8 @@ interface はこの 3 つに留める。ドメインごとの interface は、�
 | コマンド発行を伴う処理 | 各ドメインで `Executor` のテスト実装に差し替え、発行コマンド列を検証 |
 | マスク処理 | `internal/exec`。キー名ベースと値一致ベースの両方 |
 | UI の表示部品（`atom` / `molecule` / `template`） | 各パッケージ。純粋関数として期待文字列と比較する（[TUI コンポーネント設計](../ui/atomic-design.md#テストの配置)） |
-| UI の状態を持つ部品（`organism` / `page`） | 各パッケージ。キー入力列に対する状態遷移と発行される `tea.Msg` / `tea.Cmd` を検証 |
+| UI の状態を持つ部品（`organism` / `page`） | 各パッケージ。キー入力列に対する状態遷移と発行される `tea.Msg` / `tea.Cmd` を検証。入力モード中にグローバルキーを解釈しないこと、モーダル表示中に背後へキーが流れないことを含める |
+| キー定義（`keymap`） | `internal/ui/keymap`。すべてのキーに説明文があること、同一画面でキーが重複していないこと |
 
 ## 改訂履歴
 
@@ -294,3 +299,4 @@ interface はこの 3 つに留める。ドメインごとの interface は、�
 | 1.1 | 2026-08-21 | `internal/ui` を Atomic Design の階層構成に置き換え、UI 内部の依存規則とテスト配置を追加 | UI 層の部品分割を [TUI コンポーネント設計](../ui/atomic-design.md) として定義したため |
 | 1.2 | 2026-08-21 | `Check` interface に `Startup()` を追加 | 起動時の前提チェック（FR-44）を doctor のレジストリと共通の実装で扱うため |
 | 1.3 | 2026-08-21 | 操作の起点が複数でも `Confirm` / `ChoiceList` は 1 実装に統一することを明記 | FR-45〜FR-47 で操作の入口を増やしたため。入口ごとに確認の実装が分かれることを防ぐ |
+| 1.4 | 2026-08-21 | `ui/keymap` を追加。organism と `bubbles` 部品の対応、キーの配送、端末サイズと色の所有者、`cmd` での色判定を明記 | キー定義の置き場所と `bubbles` の使い方が仕様として未定義だったため。キーの二重解釈とサイズの渡し忘れを構造で防ぐ |

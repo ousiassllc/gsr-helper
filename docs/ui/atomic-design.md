@@ -17,16 +17,17 @@ Atomic Design は Web UI 向けの分類だが、本 TUI では次のように�
 
 | 階層 | TUI での定義 | 状態 | 型 |
 |------|------------|------|-----|
-| token | 色・記号・幅・余白の定数。atom の土台 | なし | 定数 / `lipgloss.Style` |
+| token | 色・記号・幅・余白。色は背景の明暗を引数に取って解決する | なし | 定数 / `func(dark bool) lipgloss.Style` |
+| keymap | キーとヘルプ文言の定義。`bubbles/key.Binding` の集約 | なし | `key.Binding` / `key.Map` |
 | atom | それ以上分解すると意味を失う最小の表示単位 | なし | `func(...) string` |
 | molecule | atom を並べた「意味のある 1 行 / 1 区画」 | なし | `func(...) string` |
 | organism | カーソル・選択・スクロール・入力などのローカル状態を持つ部品 | ローカル状態 | `tea.Model` |
 | template | 画面共通の枠。中身を知らず領域の配分だけを行う | サイズのみ | `func(...) string` |
 | page | タブ 1 枚。ドメイン層の呼び出しとキー入力の解釈を担う | 画面状態 | `tea.Model` |
 
-token は Atomic Design 本来の 5 階層には含まれないが、`screens.md` の設計原則 4（色に依存しない）と列の省略順を 1 箇所に集約するために独立させる。
+token と keymap は Atomic Design 本来の 5 階層には含まれない。token は `screens.md` の設計原則 4（色に依存しない）と列の省略順を、keymap は「キーとその説明文」を 1 箇所に集約するために独立させる。キー定義が page ごとに散ると、フッタ・ヘルプ・詳細画面の操作リストで説明文が食い違う。
 
-親 Model（`ui.App`）は階層の外に置く。検出結果・`Caps`・現在のタブ・モーダルの重なりを保持し、page を切り替える唯一の主体である。
+親 Model（`ui.App`）は階層の外に置く。検出結果・`Caps`・端末サイズ・背景の明暗・現在のタブ・モーダルの重なりを保持し、page を切り替える唯一の主体である。
 
 ### 階層の決め方
 
@@ -41,17 +42,20 @@ graph TD
     Q3 -->|Yes| Tmpl[template]
     Q3 -->|No| Q4{他の部品を組み合わせている?}
     Q4 -->|Yes| Mol[molecule]
-    Q4 -->|No| Q5{色・記号・幅などの定数?}
-    Q5 -->|Yes| Tok[token]
-    Q5 -->|No| Atom[atom]
+    Q4 -->|No| Q5{キーの定義と説明文?}
+    Q5 -->|Yes| Key[keymap]
+    Q5 -->|No| Q6{色・記号・幅などの定数?}
+    Q6 -->|Yes| Tok[token]
+    Q6 -->|No| Atom[atom]
 ```
 
 ## ディレクトリ構成
 
 ```
 internal/ui/
-  app.go        親 Model（ページ切替・検出結果・Caps・Tick）
+  app.go        親 Model（ページ切替・検出結果・Caps・端末サイズ・背景の明暗・Tick）
   token/        色・記号・幅・余白の定数
+  keymap/       キー定義とヘルプ文言（key.Binding）
   atom/         最小の表示単位（純粋関数）
   molecule/     atom を並べた 1 行 / 1 区画（純粋関数）
   organism/     ローカル状態を持つ部品（tea.Model）
@@ -74,6 +78,7 @@ graph TD
     Mol[molecule]
     Atom[atom]
     Tok[token]
+    Key[keymap]
 
     Domain[ドメイン層<br/>runner / svc / disk / logs / doctor / config / setup]
     Bub[bubbles / huh]
@@ -82,24 +87,29 @@ graph TD
     App --> Tmpl
     Page --> Tmpl
     Page --> Org
+    Page --> Key
     Page -.->|tea.Cmd 内で呼ぶ| Domain
     Org --> Mol
     Org --> Bub
+    Org --> Key
     Mol --> Atom
     Atom --> Tok
     Tmpl --> Tok
+    Key --> Bub
 ```
 
 ### 依存の規則
 
 | 規則 | 理由 |
 |------|------|
-| `token` は何も import しない（`lipgloss` を除く） | 最下層。全体から参照されるため |
+| `token` は `lipgloss` と `huh` のみ import する | 最下層。`huh` は例外で、フォームの配色を `huh.Theme` に流し込むために必要（後述の「`Form` と huh」）。色の定義を token の外に作らないことを優先する |
+| `keymap` は `bubbles/key` のみ import する | token と並ぶ最下層。キー定義が他の階層に依存すると参照方向が壊れる |
 | `atom` は `token` のみに依存する | 表示単位を単体でテストできる状態に保つ |
 | `molecule` は `atom` / `token` のみ。**molecule 同士は参照しない** | 同階層参照を許すと階層が意味を失う。共通化したい場合は atom に降ろすか organism に上げる |
-| `organism` は `molecule` / `atom` / `token` と `bubbles` / `huh` を使う | スクロール・テキスト入力・フォームの実装は既存ライブラリに委ねる |
+| `organism` は `molecule` / `atom` / `token` / `keymap` と `bubbles` / `huh` を使う | 一覧・スクロール・テキスト入力・フォームの実装は既存ライブラリに委ねる |
 | `template` は `token` のみ。`organism` / `page` を import しない | 枠が中身を知ると、画面ごとに枠が分岐する |
-| `atom` / `molecule` / `template` は **bubbletea を import しない** | 純粋関数に保ち、期待文字列との比較でテストできるようにする |
+| `atom` / `molecule` / `template` は **bubbletea / bubbles を import しない** | 純粋関数に保ち、期待文字列との比較でテストできるようにする |
+| `keymap` を読むのは `page` と `organism.Help` のみ。`atom` / `molecule` にはキー文字列・説明・可否・理由をプリミティブに落として渡す | 「molecule 以下は表示用の値のみを受け取る」規則と揃える。`atom.KeyHint` の入力を単純な文字列に保ち、`key.Binding` の組み立てなしにテストできる |
 | ドメインの型（`runner.Runner` など）は `organism` 以上でのみ扱う | 表示部品がドメインモデルの変更に引きずられない。molecule 以下は表示用の構造体とプリミティブのみを受け取る |
 | ドメイン層を `tea.Cmd` で呼ぶのは `page` のみ | 副作用の発生点を 1 階層に閉じる |
 | 上位から下位への飛び越し参照（`page` → `atom` など）は許容する | 中間層に意味のない中継を作らない |
@@ -118,6 +128,8 @@ graph TD
 | `ColorMuted` | 補足情報・グレーアウト |
 | `ColorAccent` | カーソル位置・選択行 |
 | `ColorDanger` | 破壊的操作の警告文 |
+
+**各トークンは明背景用と暗背景用の 2 値を持つ。** token は定数の集合ではなく `token.Styles(dark bool) Styles` として解決する。白背景の端末で `ColorMuted` の補足情報が読めなくなることを防ぐためである。
 
 ### 記号
 
@@ -141,7 +153,18 @@ graph TD
 
 **状態を表すトークンは、必ず色と記号の対で定義する。** 色だけで区別する状態を作らない（`screens.md` の設計原則 4）。
 
-`NO_COLOR` / `--no-color` / 非 TTY のときは、token 層でスタイルを素通しの実装に差し替える。atom 以上はこの分岐を持たない。
+### 背景の明暗と NO_COLOR
+
+色の解決に必要な入力は 2 つある。どちらも **親 Model が保持し、下位へ渡す**。token 側に環境を読む処理を置かない。
+
+| 入力 | 取得元 | 扱い |
+|------|-------|------|
+| 背景の明暗 | 起動時に端末の背景色を問い合わせ、応答の `tea.Msg` から判定する | 親 Model が保持し、`token.Styles(dark)` の引数として page → organism → molecule / atom へ渡す。応答が得られない端末では暗背景として扱う |
+| 色を使うか | `NO_COLOR` / `--no-color` / 非 TTY | `cmd/gsr-helper` が判定して親 Model に渡す。無効時は `token.Styles` が素通しのスタイルを返す |
+
+`NO_COLOR` の判定を `cmd` に置くのは、`--no-color` フラグとの合流点を 1 箇所にするためである。`lipgloss` 自身もカラープロファイルを判定するが、**本ツールの表示可否はこの 1 つの値で決める**。判定箇所が 2 つあると、片方だけ効いた状態を追えなくなる。
+
+素通しのスタイルでも記号は残る。色と記号を対で定義しているため、`NO_COLOR` でも状態は判別できる。スピナーのアニメーションは静止した記号に差し替える。
 
 ### 幅
 
@@ -151,6 +174,7 @@ graph TD
 | `WidthMin` | 60 | これを下回ると表示不能とする（[画面仕様](screens.md#端末幅による列の省略)） |
 | `ColumnsAlways` | `NAME` / `SVC` / `JOB` | 常に表示する列 |
 | `ColumnDropOrder` | `_WORK` → `VERSION` → `MANAGED` → `SCOPE` | 幅が足りない場合に落とす順 |
+| `Column` | 見出しと幅の組 | 列の定義。`organism.Table` が `table.Column` に変換する |
 
 列の省略は `molecule.ColumnHeader` と `molecule.RunnerRow` が同じトークンを参照して判断する。ヘッダと行の桁がずれることを防ぐ。
 
@@ -174,7 +198,9 @@ graph TD
 | `Cell` | 文字列・幅・寄せ | 幅を揃えた 1 セル | 全一覧 |
 | `Divider` | 幅・見出し | `─ 孤児ユニット ─────` | Runners / Config |
 
-`Cell` は日本語を含む表の桁ずれを防ぐための atom。**文字列の表示幅の計算（`go-runewidth`）はここに閉じる。** 上位の階層は「どの列を何文字幅で置くか」を決めるだけで、幅そのものを数えない。
+`Cell` は日本語を含む表の桁ずれを防ぐための atom。**文字列の表示幅の計算は `lipgloss.Width` に一本化し、この atom に閉じる。** 上位の階層は「どの列を何文字幅で置くか」を決めるだけで、幅そのものを数えない。
+
+幅を測る実装を 2 つ持たないこと。`bubbles/table` も列幅の調整に `lipgloss` の幅計算を使うため、別のライブラリで数えた幅を混ぜると絵文字や結合文字を含む行で桁が 1 つずれる。この理由から `go-runewidth` は依存に加えない（[非機能要件の依存ライブラリ](../requirements/non-functional.md#依存ライブラリ)）。
 
 `KeyHint` は可否と理由を受け取って描くだけで、**可否の判断はしない**（後述の「操作可否の判定」）。
 
@@ -182,13 +208,13 @@ graph TD
 
 | molecule | 内容 | 対応する画面 |
 |----------|------|------------|
-| `ColumnHeader` | 一覧の列見出し。幅トークンに従って列を落とす | 全一覧 |
-| `RunnerRow` | runner 1 行（名前 / スコープ / 起動方式 / サービス / ジョブ / バージョン / `_work`） | Runners |
-| `OrphanRow` | 孤児ユニット 1 行（[FR-05](../requirements/functional.md)） | Runners |
-| `JobRow` | 実行中ジョブ 1 行 | Jobs |
-| `DiskTargetRow` | 削除候補 1 行（選択状態・サイズ・ファイル数・パス・選択不可の理由） | Disk |
+| `ColumnHeader` | 一覧の列定義（見出しと幅）。幅トークンに従って列を落とす | 全一覧 |
+| `RunnerRow` | runner 1 行のセル列（名前 / スコープ / 起動方式 / サービス / ジョブ / バージョン / `_work`） | Runners |
+| `OrphanRow` | 孤児ユニット 1 行のセル列（[FR-05](../requirements/functional.md)） | Runners |
+| `JobRow` | 実行中ジョブ 1 行のセル列 | Jobs |
+| `DiskTargetRow` | 削除候補 1 行のセル列（選択状態・サイズ・ファイル数・パス・選択不可の理由） | Disk |
 | `FSSummaryLine` | ファイルシステム要約（使用率・inode・閾値超過） | Disk / ヘッダ |
-| `DoctorRow` | 診断結果 1 行 | Doctor |
+| `DoctorRow` | 診断結果 1 行のセル列 | Doctor |
 | `LogLine` | ログ 1 行（`ERROR` / `WARN` の強調、フィルタ一致のハイライト） | Logs |
 | `SettingRow` | 設定項目 1 行（項目名・現在値・注意書き） | Config |
 | `DiffLine` | 差分 1 行（`-` / `+` / 変更なし） | Config |
@@ -204,33 +230,61 @@ graph TD
 
 ## organism 一覧
 
-| organism | ローカル状態 | 責務 |
-|----------|------------|------|
-| `Table` | カーソル位置・選択集合・スクロール・絞り込み文字列 | 一覧の共通実装。区画（セクション）に対応する |
-| `LogPane` | ペインの選択・viewport 位置・追従の ON/OFF・フィルタ | Logs の 2 ペイン。追従・手動スクロールでの解除・`G` での再開 |
-| `Confirm` | なし（既定はキャンセル） | 破壊的操作の共通ダイアログ |
-| `Detail` | スクロール位置 | Doctor の詳細、runner の詳細（情報部分） |
-| `ProgressList` | 進捗の受信状態 | 一括処理の逐次表示と結果報告（[FR-15](../requirements/functional.md)） |
-| `DrainWaiter` | 経過時間・対象ジョブ | ドレイン待機。制約の注記と `esc` でのキャンセル |
-| `DiffApproval` | なし（既定はキャンセル） | 差分＋バックアップパスの提示と承認 |
-| `ChoiceList` | カーソル位置 | Setup のメニュー、反映方法の選択、**詳細画面の操作リスト** |
-| `Form` | `huh.Form` | フォームのラッパー。検証エラーの表示位置を統一する |
-| `Help` | スクロール位置 | `?` の全キー一覧 |
-| `ErrorBanner` | なし | 失敗の表示 |
+| organism | ローカル状態 | 使う既存部品 | 責務 |
+|----------|------------|------------|------|
+| `Table` | カーソル位置・選択集合・絞り込み文字列 | `bubbles/table`（区画ごとに 1 つ）/ `textinput` | 一覧の共通実装。区画（セクション）に対応する |
+| `LogPane` | ペインの選択・追従の ON/OFF・フィルタ | `bubbles/viewport` / `textinput` | Logs の 2 ペイン。追従・手動スクロールでの解除・`G` での再開 |
+| `Confirm` | なし（既定はキャンセル） | — | 破壊的操作の共通ダイアログ |
+| `Detail` | スクロール位置 | `bubbles/viewport` | Doctor の詳細、runner の詳細（情報部分） |
+| `ProgressList` | 進捗の受信状態 | `bubbles/spinner` / `progress` | 一括処理の逐次表示と結果報告（[FR-15](../requirements/functional.md)） |
+| `DrainWaiter` | 対象ジョブ | `bubbles/stopwatch` / `spinner` | ドレイン待機。経過時間の計時、制約の注記と `esc` でのキャンセル |
+| `DiffApproval` | なし（既定はキャンセル） | — | 差分＋バックアップパスの提示と承認 |
+| `ChoiceList` | カーソル位置 | — | Setup のメニュー、反映方法の選択、**詳細画面の操作リスト** |
+| `Form` | `huh.Form` | `huh` | フォームのラッパー。テーマの適用と検証エラーの表示位置を統一する |
+| `Help` | スクロール位置 | `bubbles/help`（`FullHelpView`） | `?` の全キー一覧 |
+| `ErrorBanner` | なし | — | 失敗の表示 |
+
+スクロール・計時・アニメーションを自前で実装しない。上の表で「—」の部品は、いずれも既存部品に対応するものがないか、対応させると要件を満たせないものである（`ChoiceList` は区切り線と無効項目の理由表示を持つため）。
+
+### `bubbles/progress` を使う範囲
+
+進捗バーは **全体件数が事前に確定する処理に限る**。一括追加（`n` 台中 `m` 台完了）と、選択済み対象のクリーンアップがこれに当たる。
+
+ディスク集計とドレイン待機ではバーを使わず、`spinner` と `stopwatch` で「動いていること」と経過時間のみを示す。ドレイン待機は待ち時間が無制限（[FR-07](../requirements/functional.md)）で、集計は対象ごとに判明順で埋まるため、分母を示すと完了時期を約束する表示になってしまう。
 
 ### `Table` を 1 つに統一する
 
-Runners / Jobs / Disk / Doctor の 4 タブは、いずれもカーソル移動・複数選択・ページ送り・絞り込みという同じ操作を持つ（[画面仕様のキーマップ](screens.md#一覧runners--jobs--disk--doctor)）。`Table` は行の描画を外から受け取る形にし、キー処理を 1 箇所に集約する。
+Runners / Jobs / Disk / Doctor の 4 タブは、いずれもカーソル移動・複数選択・ページ送り・絞り込みという同じ操作を持つ（[画面仕様のキーマップ](screens.md#一覧runners--jobs--disk--doctor)）。`Table` は **`bubbles/table` のラッパー**とし、キー処理を 1 箇所に集約する。
 
 ```go
-// Table は一覧の共通実装。行の描画は呼び出し側の molecule に委ねる。
-type Table[T any] struct { /* カーソル・選択・スクロール・絞り込み */ }
+// Table は一覧の共通実装。bubbles/table のラッパーであり、
+// 区画（セクション）ごとに table.Model を 1 つ持つ。
+type Table[T any] struct {
+    sections []section[T]     // 区画ごとの table.Model と行データ
+    focus    int              // キー入力を受け取る区画
+    checked  map[string]bool   // 選択集合。キーは行の識別子
+    filter   textinput.Model  // 絞り込み
+}
 
-// RenderRow は 1 行を描く。molecule の関数をそのまま渡す。
-type RenderRow[T any] func(item T, width int, cursor bool, checked bool) string
+// RenderRow は 1 行をセルの列に変換する。molecule の関数をそのまま渡す。
+// []string から table.Row への変換は Table が行う。
+type RenderRow[T any] func(item T, cols []token.Column, checked bool) []string
 ```
 
-区画（セクション）に対応させ、Runners タブの孤児ユニットを下部の別区画として扱う。区画ごとに操作可否を設定できるようにし、Disk タブでジョブ実行中の `_work` を選択不可にする（[FR-31](../requirements/functional.md)）。
+ジェネリクスは維持する。page はドメインの型のまま行を渡し、セル列への変換は molecule が担う。molecule が返すのは `[]string` であり、`table.Row` への変換は `Table` の側で行う（molecule は `bubbles` を import しないという規則を保つため）。列定義も同様に、molecule が `token.Column` を組み立て、`Table` が `table.Column` に変換する。
+
+`bubbles/table` は行を `table.Row` として持ち、カーソル移動・スクロール・列幅の調整を担う。本ツールが必要とする残りは `Table` が受け持つ。
+
+| 機能 | 担当 |
+|------|------|
+| カーソル移動 / スクロール / 列幅の調整 / 横スクロール | `bubbles/table` |
+| 区画（複数の `table.Model` を縦に並べる） | `Table` |
+| 区画をまたぐカーソル移動（末尾で `j` を押すと次の区画の先頭へ） | `Table`。キーはフォーカス中の区画にのみ流す |
+| 複数選択 | `Table`。選択状態は `checked` が持ち、`atom.Checkbox` の結果を先頭セルとして `table.Row` に載せる |
+| 行ごとの選択不可と理由の表示 | `Table`。理由は行末のセルに載せ、選択キーを無視する |
+| 絞り込み | `Table`。`textinput` の内容で行データを絞り、`SetRows` で差し替える |
+
+区画は Runners タブの孤児ユニットを下部の別区画として扱うために使う。区画ごとに操作可否を設定できるようにし、Disk タブでジョブ実行中の `_work` を選択不可にする（[FR-31](../requirements/functional.md)）。
 
 ### 詳細画面の操作リストは `ChoiceList` を使う
 
@@ -259,6 +313,26 @@ type ConfirmInput struct {
 ```
 
 破壊的操作の確認を組み立てる経路をこの 1 つに限定することで、「確認を経ない削除経路は設けない」（[FR-30](../requirements/functional.md)）を構造として守る。`enter` はキャンセル側に割り当てる（`screens.md` のキーマップ）。個別のダイアログ organism を追加しない。
+
+### `Form` と huh
+
+`Form` は `huh.Form` のラッパーである。`huh` はキー処理・検証・レイアウトを自分で持つため、ラッパーの責務は次の 3 点に限る。
+
+| 責務 | 扱い |
+|------|------|
+| テーマの適用 | `token` が組み立てた `huh.Theme` を渡す。フォームだけ配色が浮くことを防ぐ。`NO_COLOR` の縮退も同じ経路で伝わる |
+| 完了・中断の通知 | フォームの状態が完了に変わった時点で、入力値を載せた `tea.Msg` を page へ返す。page はそれを受けてドメイン層の `tea.Cmd` を発行する。`Form` 自身はドメインを呼ばない |
+| 中断の確認 | `esc` を受けたとき、入力済みの項目が 1 つ以上あれば `Confirm` を重ねて破棄の可否を問う。入力が空なら即座に前の画面へ戻る |
+
+`esc` で即座に破棄しないのは、`n`（追加）の一括ウィザードのように入力項目が多い画面で、打ち間違いによる `esc` が入力全体を失わせるためである。破棄の確認にも `Confirm` を使い、確認ダイアログの実装を増やさない。
+
+### `Help` と `bubbles/help`
+
+`?` の全キー一覧は `bubbles/help` の `FullHelpView` に描かせる。列組みと折り返しを自前で持たないためである。
+
+**フッタ（`molecule.KeyBar`）には使わない。** `bubbles/help` は無効な `key.Binding` をキーごと非表示にする設計であり、「キーを消さずグレーアウトして理由を示す」（[画面仕様の無効な操作の表示](screens.md#無効な操作の表示)）と両立しない。フッタは `keymap` の定義から `atom.KeyHint` で描く。
+
+つまり `keymap` の定義は 2 つの経路で使われる。`?` のヘルプは `bubbles/help` が、フッタと詳細画面の操作リストは `atom.KeyHint` / `molecule.ActionRow` が読む。キーと説明文の出どころが 1 つである限り、両者は食い違わない。
 
 ## template 一覧
 
@@ -315,11 +389,46 @@ page は検出結果を保持しない。タブ間で共有する状態は親の
 | 状態 | 所有者 |
 |------|-------|
 | 検出結果 / `Caps` / 現在のタブ / モーダルの重なり | 親 Model（`app`） |
+| 端末サイズ / 背景の明暗 / 色を使うか | 親 Model（`app`） |
 | カーソル位置 / 選択 / スクロール / フィルタ | organism |
+| フォーカス（入力中か、どの区画・ペインか） | organism |
 | 入力途中のフォーム値 | `organism.Form` |
 | ドメイン処理の進行中フラグ・直近のエラー | page |
 
 **下位が上位の状態を書き換えない。** organism は `tea.Msg` を返して page に通知し、page は必要に応じて親へ伝播させる。
+
+### 端末サイズの配り方
+
+サイズの真実を 1 箇所に集める。`bubbles` の部品（`table` / `viewport`）は自分の幅と高さを持つため、渡し忘れると描画が崩れたまま気付きにくい。
+
+1. 親 Model がリサイズの `tea.Msg` を受け、幅と高さを保持する
+2. 親が `template.BodySize` で本体領域を算出し、現在の page に渡す
+3. page が organism に領域を渡す。`bubbles` の部品を持つ organism は、そこで自分の部品のサイズを更新する
+4. organism / molecule / atom は端末サイズを自分で問い合わせない
+
+幅が `token.WidthMin` を下回る場合の縮退は `template.Frame` が行い、page より下は関与しない。
+
+### キー入力の配送
+
+キーを二重に解釈しないための規則を定める。`bubbles/textinput` や `huh` は与えられたキーをそのまま文字として扱うため、配送の規則がないと **絞り込みを打っている最中に `q` で終了する** ような事故が起きる。
+
+| 順序 | 配送先 | 規則 |
+|------|-------|------|
+| 1 | 親 Model | `ctrl+c` はどの状態でも親が処理して終了する。以降の階層には渡さない |
+| 2 | 最上位のモーダル | モーダルが 1 枚以上あるとき、キーは**最上位の 1 枚にのみ**渡す。背後の page には届かない |
+| 3 | 現在のタブの page | モーダルが無いとき。page がグローバルキー（`1`〜`7` / `tab` / `r` / `?` / `q` / `esc`）を先に判定し、残りを organism に渡す |
+| 4 | 入力中の部品 | 入力モードのときは `ctrl+c` を除く**すべてのキー**をその部品へ渡す。page はグローバルキーを解釈しない |
+
+**入力モード**とは、`organism.Table` の絞り込み・`organism.LogPane` のフィルタ・`organism.Form` のいずれかが入力を受け付けている状態を指す。
+
+| 項目 | 定め |
+|------|------|
+| 開始 | `/`（絞り込み・フィルタ）、フォームを開いたとき |
+| 確定 | `enter` |
+| 取消 | `esc`。`Form` では入力済みなら破棄の確認を挟む（前述の「`Form` と huh」） |
+| 表示 | 入力中であることを状態行に出す。グローバルキーが効かない状態を画面に示さないと、無反応に見える |
+
+モーダルを背後に流さないのは、確認ダイアログを開いたまま別のタブへ移動したり、確認中に打った `x` が背後の一覧で別の停止操作として解釈されることを防ぐためである。状態の組み合わせを増やさないことで、テストで網羅できる範囲に保つ。
 
 ### 操作可否の判定
 
@@ -350,20 +459,21 @@ page は検出結果を保持しない。タブ間で共有する状態は親の
 | 追加中の進捗 | `Frame` | `ProgressList` | `ProgressRow` |
 | 削除の確認 | `Modal` | `Confirm` | — |
 | ドレイン待機 | `Modal` | `DrainWaiter` | — |
-| ヘルプ | `Modal` | `Help` | `KeyBar` |
+| ヘルプ | `Modal` | `Help` | —（`bubbles/help` が描く） |
 
 ## テストの配置
 
-階層ごとにテストの方法が決まる。`atom` / `molecule` / `template` が bubbletea を import しないのは、この表の左半分を単純な関数呼び出しで書けるようにするためである。
+階層ごとにテストの方法が決まる。`atom` / `molecule` / `template` が bubbletea / bubbles を import しないのは、この表の左半分を単純な関数呼び出しで書けるようにするためである。
 
 | 階層 | テスト方法 |
 |------|-----------|
-| `token` | 状態を表すトークンが色と記号の対で揃っていること。`NO_COLOR` でスタイルが素通しになること |
+| `token` | 状態を表すトークンが色と記号の対で揃っていること。明背景・暗背景の両方に値があること。色が無効なときスタイルが素通しになること |
+| `keymap` | すべてのキーに説明文があること。同一画面のキーが重複していないこと |
 | `atom` | 期待文字列との比較。幅・全角・境界値（0 バイト、極端な経過時間、空パス） |
-| `molecule` | 期待文字列との比較。幅を変えたときの列の省略順、`ColumnHeader` と各行の桁が揃うこと |
-| `organism` | キー入力列を与えて状態遷移と発行される `tea.Msg` を検証する。描画結果は検証しない |
+| `molecule` | 期待文字列・期待セル列との比較。幅を変えたときの列の省略順、列定義と各行のセル数が一致すること |
+| `organism` | キー入力列を与えて状態遷移と発行される `tea.Msg` を検証する。**入力モード中にグローバルキーを解釈しないこと**を含める。描画結果は検証しない |
 | `template` | 幅・高さから算出される領域。`WidthMin` 未満の縮退 |
-| `page` | キー入力に対して期待するドメイン呼び出し（`tea.Cmd`）が発行されるかを検証する。ドメインは `Executor` のテスト実装で差し替える |
+| `page` | キー入力に対して期待するドメイン呼び出し（`tea.Cmd`）が発行されるかを検証する。**モーダル表示中に背後へキーが流れないこと**を含める。ドメインは `Executor` のテスト実装で差し替える |
 
 画面全体を描画したスナップショットテストは行わない（[非機能要件](../requirements/non-functional.md#テスト方針)）。部品単位の期待値テストはこれに含めない。
 
@@ -371,8 +481,10 @@ page は検出結果を保持しない。タブ間で共有する状態は親の
 
 1. 決定フローで階層を決める
 2. 同階層に同義の部品がないか確認する。特に `Table` と `Confirm` は増やさない
-3. token を追加する場合は色と記号を対で追加する
-4. `screens.md` の該当画面の表記を更新し、本書の「画面と部品の対応」に行を追加する
+3. `bubbles` / `huh` に対応する部品がないか確認する。スクロール・計時・アニメーション・テキスト入力は自前で書かない
+4. token を追加する場合は色と記号を対で、色は明背景・暗背景の対で追加する
+5. キーを追加する場合は `keymap` に定義を置き、説明文を同時に書く
+6. `screens.md` の該当画面の表記を更新し、本書の「画面と部品の対応」に行を追加する
 
 ## 改訂履歴
 
@@ -380,3 +492,4 @@ page は検出結果を保持しない。タブ間で共有する状態は親の
 |----|------|---------|---------|
 | 1.0 | 2026-08-21 | 新規作成 | 初版 |
 | 1.1 | 2026-08-21 | `molecule.ActionRow` を追加。詳細画面の操作リストを `organism.ChoiceList` の再利用として定義 | 操作の起点を増やす FR-45〜FR-47 に対応するため。専用の organism を作らず既存部品で構成する |
+| 1.2 | 2026-08-21 | `keymap` 階層を追加。`organism` と `bubbles` / `huh` の対応を明示（`Table` は `bubbles/table` のラッパー、`?` のヘルプは `bubbles/help`）。キー入力の配送・入力モード・端末サイズの配り方・背景の明暗による色の解決・`huh.Theme` の適用を定義。幅計算を `lipgloss.Width` に一本化 | Charm 各ライブラリの使い方が仕様として未定義で、キーの二重解釈・サイズの渡し忘れ・配色とキー定義の二重管理が実装時に事故として現れる箇所だったため |
