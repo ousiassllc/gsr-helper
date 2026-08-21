@@ -40,7 +40,7 @@ stateDiagram-v2
     Runners --> Logs: 4 / l
     Runners --> Doctor: 5
     Runners --> Config: 6 / e
-    Runners --> Setup: 7 / a
+    Runners --> Setup: 7 / n
 
     Jobs --> Runners: 1
     Disk --> Runners: 1
@@ -49,7 +49,7 @@ stateDiagram-v2
     Config --> Runners: 1 / esc
     Setup --> Runners: 1 / esc
 
-    Runners --> Confirm: s / x / d / r / D
+    Runners --> Confirm: x / X / R / D / u
     Confirm --> Runners: 実行 or キャンセル
 
     Setup --> Progress: 実行
@@ -249,3 +249,4 @@ graph LR
 | 1.0 | 2026-08-21 | 新規作成 | 初版 |
 | 1.1 | 2026-08-21 | doctor に `/proc` の `hidepid` チェックを追加 | セキュリティ設計で、runner 登録時にトークンがプロセス引数として他ユーザーから読める制約が判明したため |
 | 1.2 | 2026-08-21 | doctor にトークンスコープのチェックを追加 | org レベルの runner 管理に `admin:org` が必要で、`gh` の既定スコープでは不足することが判明したため |
+| 1.3 | 2026-08-21 | 画面遷移図のキー表記を画面仕様と統一 | 追加が `a`→`n`、確認を経る操作が `x/X/R/D/u` に確定したため |
