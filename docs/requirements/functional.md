@@ -187,6 +187,7 @@ runner は既定で GitHub による自動更新が有効なため、本機能�
 |------|------|
 | 認証・権限 | `.credentials` / `.runner` のパーミッションと所有者 |
 | 認証・権限 | `/proc` の `hidepid` 設定。未設定の場合、runner 登録時にプロセス引数として渡るトークンを他ユーザーから読み取れる（[セキュリティ設計](../architecture/security.md#プロセス引数からのトークン読み取り既知の制約)） |
+| 認証・権限 | GitHub トークンの保有スコープ。org レベルの runner 管理には `admin:org` が必要で、`gh auth login` の既定では付与されない（[外部インターフェース](../api/external-interfaces.md#必要なトークンスコープ)） |
 | ネットワーク | `github.com:443`、`api.github.com`、`*.actions.githubusercontent.com`、`pkg-containers`、results-receiver への到達性、プロキシ環境変数の整合 |
 | 時刻 | NTP 同期状態と時刻ずれ（トークン認証の失敗要因） |
 | リソース | ディスク残量、inode 残量、`/tmp` 容量、メモリ、swap |
@@ -247,3 +248,4 @@ graph LR
 |----|------|---------|---------|
 | 1.0 | 2026-08-21 | 新規作成 | 初版 |
 | 1.1 | 2026-08-21 | doctor に `/proc` の `hidepid` チェックを追加 | セキュリティ設計で、runner 登録時にトークンがプロセス引数として他ユーザーから読める制約が判明したため |
+| 1.2 | 2026-08-21 | doctor にトークンスコープのチェックを追加 | org レベルの runner 管理に `admin:org` が必要で、`gh` の既定スコープでは不足することが判明したため |
