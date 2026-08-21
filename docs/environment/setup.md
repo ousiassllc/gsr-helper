@@ -64,6 +64,8 @@ make hooks     # Git Hooks の登録
 make check     # format / vet / lint / linterly / test を通して確認
 ```
 
+`make hooks` は**入れ子の git worktree 内では実行しない**。登録はメインの作業ツリーで一度行えば全 worktree に効き、`lefthook.yml` を持たないブランチで実行するとテンプレートが生成される。詳細は [Git Hooks](#git-hooks) を参照。
+
 ### 開発ツールのバージョン管理
 
 開発ツールは `go.mod` の tool ディレクティブで管理する。バージョンが `go.mod` / `go.sum` に固定されるため、CI と手元で lint 結果がずれない。
@@ -80,14 +82,16 @@ go get -tool github.com/evilmartians/lefthook
 
 ## タスクランナー
 
-lint / test / build のコマンド列を Makefile に集約し、**CI・Git Hooks・手元の 3 経路から同じターゲットを呼ぶ**。コマンドの二重管理を防ぐことが目的である。
+lint / test / build のコマンド列を Makefile に集約し、**CI と手元は同じ Makefile ターゲットを呼ぶ**。コマンドの二重管理を防ぐことが目的である。
+
+**Git Hooks は make を経由しない。** pre-commit の `fmt` は `{staged_files}` へのスコープが必要で、モジュール全体を対象にする `make fmt`（= `go fmt ./...`）では表現できないためである。そのため `lefthook.yml` は `gofmt -w {staged_files}` / `go tool golangci-lint run` / `go tool linterly check` / `go test ./...` を直接呼ぶ。スコープの制約が無い `lint` / `linterly` / `test` を make ターゲット経由に寄せるかは未決着であり、**Issue #18 で決着させる**。
 
 | ターゲット | 内容 |
 |-----------|------|
 | `make help` | ターゲット一覧を表示（既定） |
 | `make tools` | 依存モジュールと開発ツールの取得 |
 | `make fmt` | `go fmt ./...` でモジュール内のパッケージを整形する |
-| `make fmt-check` | 未整形のファイルがあれば失敗する（CI / hooks 用） |
+| `make fmt-check` | `gofmt -l` の対象を `go list -f '{{.Dir}}' ./...` で解決したモジュール内パッケージに限定し、未整形のファイルがあれば失敗する（CI 用） |
 | `make vet` | `go vet ./...` |
 | `make lint` | `golangci-lint run` |
 | `make linterly` | 行数チェック |
@@ -158,6 +162,13 @@ check: fmt-check vet lint linterly test ## すべてのチェックを実行す�
 
 `permissions` は `contents: read` のみを与える。CI はリポジトリへの書き込みを行わない。
 
+`concurrency` はグループを `ci-${{ github.ref }}` とし、`cancel-in-progress: true` を指定する。
+
+- `github.ref` は `main` への push が `refs/heads/main`、PR が `refs/pull/<番号>/merge` になるため、**push と PR でグループが衝突しない**（実測）。
+- concurrency は run 単位で効くため、**同一 run 内の `lint` / `test` / `build` の 3 ジョブは互いをキャンセルしない**。
+- PR に追加 push すると同じ PR の前の run がキャンセルされ、runner が即座に解放される。**オンラインの runner が限られる self-hosted 環境では、待ち行列の膨張を抑える効果が大きい**。
+- 副作用として、`main` に短時間で 2 コミットを連続 push すると先行の run がキャンセルされ、**中間コミットの CI 結果が残らない**。この見直しは Issue #16 で扱う。
+
 ### ワークフロー定義
 
 `.github/workflows/ci.yml`:
@@ -213,6 +224,8 @@ jobs:
 ```
 
 `actions/setup-go` はモジュールとビルドのキャッシュを既定で有効にするため、`cache` の明示指定は不要。
+
+`lint` ジョブは `make check` を 1 step で呼ばず、`make fmt-check` / `make vet` / `make lint` / `make linterly` を**個別の step として列挙する**。どのチェックで落ちたかが run の一覧から分かるためである。そのぶん「実行すべきチェックの集合」が Makefile の `check` と CI の step 列の 2 箇所に存在するため、**`check` にターゲットを追加する際は CI の step も更新する**必要がある。
 
 **初版では `build` ジョブが失敗する。** `make build` の対象である `cmd/gsr-helper` がまだ存在しないためで（実測: `go build` が exit 1、`make` が exit 2）、CI 設定の不備ではない。エントリポイントは Issue #3 の成果物であり、#3 で解消する。それまで **`build` を required status check に指定しない**。
 
@@ -321,7 +334,11 @@ formatters:
 - **抑制は行単位で行い、必ず理由を書く。** `//nolint:gosec // 引数は runner ディレクトリ配下であることを検証済み` のように、なぜ安全かを書く。ファイル単位・パッケージ単位の抑制は使わない。
 - **`gosec` の G204（可変引数での外部コマンド実行）は `internal/exec` に集中する。** 外部プロセス実行は Executor 1 本に集約する設計（[アーキテクチャ設計](../architecture/overview.md#外部コマンドの実行)）のため、抑制箇所も 1 箇所に収まる。ドメイン層に G204 の抑制が現れた場合は、**抑制ではなく設計違反**として `exec` 層経由に直す。
 - **現時点で `internal/runner/systemd.go` の `systemctl show` 呼び出しに G204 の抑制が 1 箇所ある（前項の方針に反する暫定措置）。** 集約先の `internal/exec`（Issue #3 の成果物）が未実装で、`Executor` 経由に書き換える先がまだ無いためである。#3 で `Executor` 経由に置き換え、この抑制を除去する。
-- 抑制が増えてきた場合は `.golangci.yml` の `exclusions` にルールとして書き、経緯をこのドキュメントに残す。
+- **テストファイル（`_test.go`）に対する `errcheck` / `gosec` の除外は、上記「ファイル単位・パッケージ単位の抑制は使わない」方針の明示的な例外である。** `.golangci.yml` の `exclusions.rules` で `path: _test\.go` に対して除外している。テストではエラーの取り扱い（後片付けの `Close` など）とパス操作（一時ディレクトリ配下のパス組み立て）を緩め、テストの記述量を抑えることが目的である。本番コードのパス検証とエラー処理の厳しさは落とさない。**この 2 リンター・`_test.go` 限定以外の除外は `exclusions` に追加しない。**
+- **`gosec` の G304（変数を使ったファイル読み取り）の抑制 4 件は、方針上許容する恒久的な抑制である。** 対象は `internal/runner/config.go` の 3 件（`.runner` / `bin/runnerversion` / `.service` の読み取り）と `internal/runner/procs.go` の 1 件（`/proc/<PID>/cmdline` の読み取り）。いずれもパスが「探索済みのディレクトリ + 固定名」で組み立てられており、パスに外部入力が入らない。集約先が未実装であることによる G204 の暫定抑制とは性質が異なり、除去の予定はない。
+  - `config.go` の 3 件は `Discover` が解決した runner ディレクトリを起点とする。`LoadConfig` は exported であり `dir` は呼び出し側が渡すため、これは事前条件として doc コメントと nolint の理由に明記している。
+  - `procs.go` の 1 件は `/proc/<PID>/cmdline` で、`<PID>` は `strconv.Atoi` で数値であることを検証済みのものだけを使う。
+- 抑制がさらに増えてきた場合は `.golangci.yml` の `exclusions` にルールとして書き、経緯をこのドキュメントに残す。
 
 ### go vet
 
@@ -364,6 +381,7 @@ language: ja
 - **上限はデフォルト値のまま使う。** 上限に当たった場合は数値を上げるのではなく、分割を検討する。分割できない正当な理由がある場合のみ、理由をこのドキュメントに記録してから変更する。
 - `warning_threshold: 10` は**行数ではなくパーセント**である。上限 300 行に対して `300 × (1 + 10 / 100) = 330` 行が境界になり、301〜330 行は `warn`、331 行以上が `error` になる。上限を超えた時点で即座に失敗させず、分割の猶予を持たせるための設定である。
 - `count_mode: all`（コメント・空行を含む全行を数える）は変更しない。
+- `language: ja` は出力メッセージの言語指定である。
 
 `.linterlyignore`:
 
@@ -382,7 +400,9 @@ go.sum
 .sweep/
 ```
 
-`default_excludes: true` は `.git/` や `dist/` 等を自動で除外するが、その既定リストに `go.mod` / `go.sum` / `*.md` / `.sweep/` は含まれないため、この 4 つは明示的に追記している。**linterly は `.gitignore` を読まない**（除外は `default_excludes` と `.linterlyignore` だけで決まる）ため、gitignore 済みのツール生成物も明示的に書く必要がある。
+`default_excludes: true` は `.git/` や `dist/` 等を自動で除外するが、その既定リストに `go.mod` / `go.sum` / `*.md` / `.sweep/` は含まれないため、この 4 つは明示的に追記している。**linterly は `.gitignore` を読まない**（除外は `default_excludes` と `.linterlyignore` だけで決まる）。したがって `.linterlyignore` に明示的に書く必要があるのは**`default_excludes` の既定リストに無いもの**だけであり、gitignore 済みかどうかは判断基準にならない。
+
+たとえば作業用 worktree の置き場である `.claude/` は、`.idea/` / `.vscode/` / `.cursor/` / `.gemini/` と並ぶ AI・エディタの作業ディレクトリとして既定リストに**含まれる**ため、`.linterlyignore` への追記は不要である。実測では `.claude/worktrees/` 配下に 501 行のファイルを置いても検出されず `linterly check` は exit 0 で、`--no-default-excludes` を付けた場合のみ `error` になった。`.gitignore` に `.claude/worktrees/` を追加しているのは git の追跡から外すためであって、linterly のためではない。
 
 - `go.mod` / `go.sum` は自動生成の依存マニフェストであり、行数を人が管理する対象ではない。tool ディレクティブで開発ツールを追加すると推移的依存で機械的に膨らみ、`go.sum` は初版時点で 1000 行を超える。
 - `*.md` は Go のソースではない。分割の単位は行数ではなくドキュメントとしての章立てで決まるため、行数上限の対象外とする。
@@ -424,6 +444,7 @@ pre-push:
       run: go test ./...
 ```
 
+- **フックは Makefile ターゲットを経由せず、コマンドを直接呼ぶ。** `fmt` は `{staged_files}` へのスコープが必要で、モジュール全体を対象にする `make fmt`（= `go fmt ./...`）では表現できないためである。スコープの制約が無い `lint` / `linterly` / `test` を make ターゲット経由に寄せるかは Issue #18 で決着させる。
 - `fmt` は `stage_fixed: true` により整形結果を自動で staging に戻す。整形漏れでコミットが失敗する状況を作らない。
 - **実行順は `parallel: false` だけでは決まらない。** `parallel: false` は同時実行を止めるだけで（lefthook の既定値でもあるため `lefthook dump` の出力からは消える）、順序は `commands` のキー名の**辞書順**で決まる。`fmt` の整形結果を `lint` が見る必要があるため、`parallel: false` に加えて `fmt` < `lint` < `linterly` となる命名を維持する必要がある。実測では `fmt` を `zfmt` にリネームすると実行順が `lint` → `linterly` → `zfmt` に変わり、整形前のコードを読んだ `lint` が gofmt 違反で先に落ちた。
 - **既知の制約: `lint` / `linterly` はステージ内容ではなく作業ツリー全体を見る。** `fmt` は `{staged_files}` にスコープされるが、`lint`（`go tool golangci-lint run`）と `linterly` は対象を絞っていない。lefthook が未ステージ変更を隠すのは**同一ファイル内に staged と unstaged が混在するケースだけ**で、完全に未ステージのファイルは隠されない（実測）。そのため、ステージした内容がすべてきれいでも無関係な作業中ファイルの整形崩れでコミットが落ち、しかも `fmt` はそのファイルを直さない（`{staged_files}` に入らないため）。`.go` の**削除のみ**のコミットでも同じ症状になる（`fmt` は対象ファイルが無くスキップされるが、`lint` は `glob` がマッチして実行される）。対処（`--new-from-rev=HEAD` でのスコープ限定など）は別 Issue で決着させる。
@@ -446,5 +467,6 @@ pre-push:
 | 1.1 | 2026-08-21 | CI のランナーを `ubuntu-latest` から self-hosted（`[self-hosted, linux, x64]`、org レベル）へ変更し、前提と fork PR ガードを追加 | 本ツールの対象環境と CI 環境を一致させるため。public リポジトリで self-hosted runner を使うと fork PR 経由でホスト上に任意コードが実行されるため、ガードを仕様として固定する必要がある |
 | 1.2 | 2026-08-21 | `.linterlyignore` に `go.mod` / `go.sum` / `*.md` を追加し、`warning_threshold` の説明をパーセント指定として修正 | 設定ファイルを実際に導入したところ、`default_excludes` の既定リストにこれらが含まれず、`go.sum`（1035 行）と 330 行超（`error` 判定）の仕様書 3 本が上限超過で `linterly check` を失敗させたため（`docs/components/overview.md` は 302 行で `warn` に留まる）。`warning_threshold` は上限までの行数ではなくパーセントとして解釈されることを実測で確認したため |
 | 1.3 | 2026-08-21 | `make fmt` / `make fmt-check` の対象をモジュール内パッケージに限定（`$(GO) fmt ./...` / `gofmt -l $$($(GO) list -f '{{.Dir}}' ./...)`）し、Format 節に理由を追記。`.linterlyignore` に `.sweep/` を追加し、冒頭コメントを「手書きの Go ソースコード」に修正。「抑制の方針」に `internal/runner/systemd.go` の G204 暫定抑制を記録 | `gofmt` はパッケージではなくファイルシステムを再帰するため、`.` 指定では作業用の入れ子 git worktree 配下まで対象に含み、`make fmt` が別ブランチのファイルを書き換えていた。`.sweep/spinoff-draft.jsonl` は追記型 JSONL でいずれ上限を超えるが、linterly は `.gitignore` を読まないため明示除外が必要。仕様に反する G204 抑制がコード側コメントにしか記録されておらず、仕様書だけでは追えなかったため |
-| 1.4 | 2026-08-21 | 「Git Hooks」節に既知の制約（pre-commit の `lint` / `linterly` は作業ツリー全体を見る）と `make hooks` の注意（共有 `.git/hooks` への書き込み、`lefthook.yml` の自動生成、既存フックの `*.old` 退避、`prepare-commit-msg` の生成）を追記し、`parallel: false` の説明を「実行順は `commands` のキー名の辞書順で決まる」旨に修正。`.gitignore` に `lefthook-local.yml` を追加 | lefthook を実際に導入して挙動を実測したところ、`fmt` だけが `{staged_files}` にスコープされ `lint` / `linterly` は作業ツリー全体を読むため、無関係な未ステージファイルの整形崩れでコミットが落ちる（かつ `fmt` はそのファイルを直さない）ことを確認した。lefthook が未ステージ変更を隠すのは同一ファイル内に staged と unstaged が混在する場合だけである。また `fmt` を `zfmt` にリネームすると実行順が `lint` → `linterly` → `zfmt` に変わり、`parallel: false` が順序の必要条件にすぎないことを確認した。`git rev-parse --git-path hooks` は worktree からでも共有の `<リポジトリルート>/.git/hooks` を返すため、入れ子 worktree での `make hooks` がメインの作業ツリーに副作用を出す。`lefthook-local.yml` は lefthook 標準のローカル上書きファイルで、置かれた場合に誤コミットされるため |
+| 1.4 | 2026-08-21 | 「Git Hooks」節に既知の制約（pre-commit の `lint` / `linterly` は作業ツリー全体を見る）と `make hooks` の注意（共有 `.git/hooks` への書き込み、`lefthook.yml` の自動生成、既存フックの `*.old` 退避、`prepare-commit-msg` の生成）を追記し、`parallel: false` の説明を「実行順は `commands` のキー名の辞書順で決まる」旨に修正。`.gitignore` に `lefthook-local.yml` と `.claude/worktrees/` を追加 | lefthook を実際に導入して挙動を実測したところ、`fmt` だけが `{staged_files}` にスコープされ `lint` / `linterly` は作業ツリー全体を読むため、無関係な未ステージファイルの整形崩れでコミットが落ちる（かつ `fmt` はそのファイルを直さない）ことを確認した。lefthook が未ステージ変更を隠すのは同一ファイル内に staged と unstaged が混在する場合だけである。また `fmt` を `zfmt` にリネームすると実行順が `lint` → `linterly` → `zfmt` に変わり、`parallel: false` が順序の必要条件にすぎないことを確認した。`git rev-parse --git-path hooks` は worktree からでも共有の `<リポジトリルート>/.git/hooks` を返すため、入れ子 worktree での `make hooks` がメインの作業ツリーに副作用を出す。`lefthook-local.yml` は lefthook 標準のローカル上書きファイルで、置かれた場合に誤コミットされるため。`.claude/worktrees/` は `impl-wt` / `refine` 系スキルが作る作業用 worktree の置き場で、誤コミットを防ぐために追跡から外す（linterly は `.claude/` を `default_excludes` に含むため行数チェックへの影響はない） |
 | 1.5 | 2026-08-21 | 「fork からの PR で self-hosted ジョブを起動しない」節を書き換え、`if` 条件を多層防御の 1 層（一次防御は fork PR の承認ポリシーと org runner group の対象リポジトリ限定）と位置づけ、`skipped` が required status check では success 扱いになること・fork PR のマージを機械的に止める場合はゲートジョブが必要なこと・トリガー追加時のガード見直しと許可リスト形への移行候補を追記。「CI/CD」節に初版では `build` ジョブが失敗する旨を追記 | CI を実際に導入して確認したところ、従前の記述は fork ガードの実効性を過大に書いていた。`pull_request` はワークフロー定義をマージコミット側から取るため fork 側で `if:` 行を削除した改変版が実行され得る（`if` は悪意ある第三者に対する境界にならない）。`skipped` は required status check に対して success として報告されるため、fork PR が CI 未実行のまま緑になりマージ可能に見える。承認ポリシーは実測で `first_time_contributors` であり、一度コミットが取り込まれたユーザーは以後承認不要になる。public リポジトリ + self-hosted runner の組み合わせでは、[セキュリティ設計](../architecture/security.md#パスワード不要-sudo-の要求への対応)の言うとおり `NOPASSWD: ALL` 付与時に実質 root を渡すことになるため、防御の位置づけを正確に書く必要があった。あわせて `make build` が `cmd/gsr-helper` 未作成で失敗すること（Issue #3 で解消）を実測で確認したため |
+| 1.6 | 2026-08-22 | 「タスクランナー」節の「3 経路から同じターゲットを呼ぶ」を実態（CI と手元は Makefile 経由、Git Hooks はコマンドを直接実行）に修正し、「Git Hooks」節にも同趣旨を追記。CI/CD 節に `concurrency` の説明と、`lint` ジョブの step を個別に列挙する理由を追記。「抑制の方針」に `_test.go` の `errcheck` / `gosec` 除外が方針の明示的な例外であることと、G304 抑制 4 件（`internal/runner/config.go` 3 件・`internal/runner/procs.go` 1 件）を追記。「Linterly」節の除外規則を「`default_excludes` の既定リストに無いものだけを明示する」に正確化し、`language: ja` を説明。ターゲット一覧表の `make fmt-check` 行を実装に同期。セットアップ手順に「Git Hooks」節への参照を追加。`ManagedBy` 関連を `internal/runner/managed_by.go` へ分割したことと Issue #2 のスコープを超えて `internal/runner` を変更した理由を記録。`internal/runner/config.go` の `LoadConfig` の nolint 理由を事前条件に依拠する形へ修正 | PR レビューで、仕様書の記述が同じ差分で導入した設定ファイルおよびコードと食い違う箇所が指摘されたため。Git Hooks は `fmt` の `{staged_files}` スコープのため make を経由できない（`lint` / `linterly` / `test` を寄せるかは Issue #18）。`.claude/` は linterly の `default_excludes` に含まれるため `.linterlyignore` への追記は不要であることを実測で確認した（`--no-default-excludes` 指定時のみ検出される）。`concurrency` は self-hosted runner の稼働台数と実行中ジョブのキャンセル挙動に直結し、`main` の連続 push で中間コミットの CI 結果が残らない副作用がある（見直しは Issue #16）。`ManagedBy` の切り出しは `discover.go` が 329 行で linterly の `warn` 帯（301〜330 行）に入っていたためで、終了コードは 0 であり `make check` は分割前でも通っていた。「上限に当たった場合は数値を上げるのではなく分割を検討する」方針に従った対応であり、`error`（331 行以上）を避けるための必須対応ではない。Issue #2 の影響範囲は「`internal/` 配下のソースコードは変更しない」としていたが、`.golangci.yml` の導入で gosec 5 件・revive 4 件が出るため、`make check` を通す最小対応としてコメント追加と純粋な移動のみを行った。`LoadConfig` は exported で `dir` を呼び出し側が自由に渡せるため、nolint の理由を無条件の断定から doc コメントの事前条件に依拠する形へ直した |

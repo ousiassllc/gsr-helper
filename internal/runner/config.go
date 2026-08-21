@@ -45,7 +45,7 @@ func parseConfig(b []byte) (Config, error) {
 // dir は Discover が解決済みの runner ディレクトリであること（呼び出し側の事前条件）。
 func LoadConfig(dir string) (Config, error) {
 	path := filepath.Join(dir, ".runner")
-	//nolint:gosec // path は探索済み runner ディレクトリ + 固定名 ".runner"。パスに外部入力は入らない。
+	//nolint:gosec // dir は Discover が解決した runner ディレクトリという事前条件（直上の doc コメント）に依存。path は dir + 固定名 ".runner"。
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return Config{}, fmt.Errorf("%s の読み込みに失敗しました: %w", path, err)
