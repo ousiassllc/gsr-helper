@@ -1,0 +1,28 @@
+# 追加の走査ルート（既定の設置場所に加えて探索する）
+scan_roots:
+  - /opt/runners
+  - /data/actions-runner
+
+# ルート配下を掘る深さ。runner ディレクトリを見つけたらその配下は掘らない
+scan_depth: 2
+
+# 一覧の自動更新間隔（秒）
+refresh_interval: 3
+
+# ディスク使用率の警告閾値（%）
+disk_thresholds:
+  warn: 80
+  critical: 90
+
+# 監査ログの出力先
+audit_log: /var/log/gsr-helper/audit.jsonl
+
+# runner 追加時の既定値
+defaults:
+  # runner 名のプレフィクス。空ならホスト名を使う
+  name_prefix: ""
+  # インストール先のベースディレクトリ
+  install_base: /opt/runners
+  labels:
+    - self-hosted-extra
+  ephemeral: false
