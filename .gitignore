@@ -16,3 +16,6 @@ coverage.txt
 
 # worktree（impl-wt / refine 系スキルの作業ツリー）
 .claude/worktrees/
+
+# Git Hooks（lefthook のローカル上書き設定）
+lefthook-local.yml

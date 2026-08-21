@@ -214,6 +214,8 @@ jobs:
 
 `actions/setup-go` はモジュールとビルドのキャッシュを既定で有効にするため、`cache` の明示指定は不要。
 
+**初版では `build` ジョブが失敗する。** `make build` の対象である `cmd/gsr-helper` がまだ存在しないためで（実測: `go build` が exit 1、`make` が exit 2）、CI 設定の不備ではない。エントリポイントは Issue #3 の成果物であり、#3 で解消する。それまで **`build` を required status check に指定しない**。
+
 ### self-hosted runner を使う前提
 
 CI は GitHub ホストランナーではなく self-hosted runner で実行する。本ツールが管理する対象そのものの上で CI が回るため、以下を前提とする。
@@ -230,9 +232,17 @@ CI は GitHub ホストランナーではなく self-hosted runner で実行す�
 
 #### fork からの PR で self-hosted ジョブを起動しない
 
-self-hosted runner でワークフローを実行することは、**そのワークフローに runner の実行ユーザー権限を与える**ことを意味する（[セキュリティ設計](../architecture/security.md#パスワード不要-sudo-の要求への対応)）。本リポジトリは public であり、fork からの PR は第三者が書いた任意のコードを含むため、そのまま self-hosted runner で走らせるとホストが第三者の実行環境になる。
+self-hosted runner でワークフローを実行することは、**そのワークフローに runner の実行ユーザー権限を与える**ことを意味する。[セキュリティ設計](../architecture/security.md#パスワード不要-sudo-の要求への対応)のとおり `NOPASSWD: ALL` の付与は「その runner で実行される任意のワークフローに実質 root を与える」ことに等しい。本リポジトリは public であり、fork からの PR は第三者が書いた任意のコードを含むため、そのまま self-hosted runner で走らせるとホストが第三者の実行環境になる。
 
-これを防ぐため、全ジョブに次の条件を付ける。
+**防御は多層で構成する。ワークフロー側の `if` 条件はその 1 層にすぎず、単体では境界にならない。**
+
+| 層 | 手段 | 位置づけ |
+|----|------|---------|
+| 一次防御 | fork PR の承認ポリシー（リポジトリ設定） | 悪意ある第三者に対する実質的な境界 |
+| 一次防御 | org runner group の対象リポジトリ限定 | 同じ runner を掴めるリポジトリを絞る |
+| 補助 | ワークフローの `if` 条件 | 事故防止と runner 負荷削減。善意の fork PR による誤起動を止める |
+
+ワークフロー側には、全ジョブに次の条件を付ける。
 
 ```yaml
 if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
@@ -241,7 +251,22 @@ if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.f
 - `push`（`main`）では常に実行する
 - PR では **head が同一リポジトリのブランチである場合のみ**実行する。fork からの PR ではジョブが `skipped` になる
 
-fork からの PR を検証する場合は、内容を確認した上で同一リポジトリ内のブランチへ取り込み、そのブランチの PR で CI を通す。`pull_request_target` は使わない（fork の PR に対してベース側の権限でワークフローが動くため、この対策の意味が失われる）。
+**この `if` はセキュリティ境界にはならない。** `pull_request` イベントでは、ワークフロー定義自体がマージコミット側（= PR の内容を含む側）から取られる（GitHub のドキュメントは `pull_request_target` を「`pull_request` イベントのようにマージコミットのコンテキストではなく、ベースリポジトリの既定ブランチのコンテキストで実行される」と対比して説明している）。つまり **fork 側で `.github/workflows/ci.yml` の `if:` 行を削除でき、その改変版が `pull_request` の実行に使われる。**したがって `if` は事故防止・runner 負荷削減の防御層として有効だが、悪意ある第三者を止めるのはリポジトリ設定側である。
+
+一次防御の前提と限界:
+
+- **fork PR の承認ポリシー**（実測: 現在 `approval_policy: first_time_contributors`）。GitHub 自身が、self-hosted runner を使っている場合は「設定した承認ポリシーで承認をバイパスできるユーザーの悪意あるワークフローコードは自動実行される」と警告している。さらにこのポリシーでは**リポジトリにコミットまたは PR がマージされたことのあるユーザーは以後承認不要**になるため、悪意あるユーザーは些細な typo 修正をメンテナに受け入れさせるだけでこの要件を満たせる。**承認ポリシーを「全外部貢献者に承認必須」へ変更することを推奨する**（リポジトリ設定の変更自体は別 Issue で行う）。
+- **org runner group** の対象リポジトリを本リポジトリに限定し、他リポジトリのワークフローが同じ runner を掴めないようにする。
+
+**`skipped` は required status check に対して success として扱われる。** GitHub のドキュメントは「スキップされたジョブはステータスを Success として報告する。required check であっても PR のマージを妨げない」「required status check は保護ブランチへ変更を加える前に `successful` / `skipped` / `neutral` のいずれかである必要がある」と明記している。したがって将来 `lint` / `test` / `build` を required status check に指定すると、**fork PR は CI が一度も走っていないのに 3 つとも緑になり、マージ可能に見える**（実測: 現在は branch protection もルールセットも未設定なため潜在的な問題に留まる）。fork PR のマージを機械的に止めたいなら、`if` で skip するのではなく、**常時実行される別のゲートジョブ**（GitHub ホストランナー上で動き、fork PR のときに失敗する軽量ジョブ）を required status check に指定する設計が必要である。
+
+fork からの PR を検証する場合は、内容を確認した上で同一リポジトリ内のブランチへ取り込み、そのブランチの PR で CI を通す。**この手順は人的運用に依存する**（前段のとおり fork PR 側の check は緑に見えるため、機械的には止まらない）。`pull_request_target` は使わない（fork の PR に対してベース側の権限でワークフローが動くため、この対策の意味が失われる）。
+
+**トリガーを追加する際はガード条件を必ず見直す。** 現在の式は「`pull_request` でなければ無条件に実行する」という**ブロックリスト形**である。`merge_group` や `workflow_dispatch` を `on:` に足すと、左辺 `github.event_name != 'pull_request'` が true になって短絡し、**fork チェックが評価されないまま実行される**。逆に merge queue を導入する際に `merge_group` を `on:` に足さないと、required status check が報告されずキューが詰まる（GitHub のドキュメントに明記がある）。将来的には、新しいトリガーを足したときに既定が「実行しない」側へ倒れる**許可リスト形**への移行が候補である。
+
+```yaml
+if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+```
 
 ### 将来の拡張候補
 
@@ -400,7 +425,10 @@ pre-push:
 ```
 
 - `fmt` は `stage_fixed: true` により整形結果を自動で staging に戻す。整形漏れでコミットが失敗する状況を作らない。
-- `parallel: false` にしているのは、`fmt` の整形結果を `lint` が見る必要があるためである。
+- **実行順は `parallel: false` だけでは決まらない。** `parallel: false` は同時実行を止めるだけで（lefthook の既定値でもあるため `lefthook dump` の出力からは消える）、順序は `commands` のキー名の**辞書順**で決まる。`fmt` の整形結果を `lint` が見る必要があるため、`parallel: false` に加えて `fmt` < `lint` < `linterly` となる命名を維持する必要がある。実測では `fmt` を `zfmt` にリネームすると実行順が `lint` → `linterly` → `zfmt` に変わり、整形前のコードを読んだ `lint` が gofmt 違反で先に落ちた。
+- **既知の制約: `lint` / `linterly` はステージ内容ではなく作業ツリー全体を見る。** `fmt` は `{staged_files}` にスコープされるが、`lint`（`go tool golangci-lint run`）と `linterly` は対象を絞っていない。lefthook が未ステージ変更を隠すのは**同一ファイル内に staged と unstaged が混在するケースだけ**で、完全に未ステージのファイルは隠されない（実測）。そのため、ステージした内容がすべてきれいでも無関係な作業中ファイルの整形崩れでコミットが落ち、しかも `fmt` はそのファイルを直さない（`{staged_files}` に入らないため）。`.go` の**削除のみ**のコミットでも同じ症状になる（`fmt` は対象ファイルが無くスキップされるが、`lint` は `glob` がマッチして実行される）。対処（`--new-from-rev=HEAD` でのスコープ限定など）は別 Issue で決着させる。
+- **`make hooks` は入れ子の git worktree 内では実行しない。** git worktree では `.git` が `gitdir:` 参照のファイルになり、`git rev-parse --git-path hooks` はリポジトリ共有の `<リポジトリルート>/.git/hooks` を返す（実測）。そのため worktree 内での `make hooks` はメインの作業ツリーと将来のすべての worktree に同時に効く。**メインの作業ツリーで一度登録すれば全 worktree に効く**ため、登録はそこで行う。あわせて、`lefthook.yml` を持たないブランチで `make hooks` を実行すると**テンプレートの `lefthook.yml` が生成される**ため、登録はこのファイルがあるブランチで行う。
+- `lefthook install` は既存の同名フックを `*.old` に退避し、`lefthook uninstall` で復元する（可逆）。また、設定に無い `prepare-commit-msg` も生成される（lefthook 側の仕様）。
 - **`--no-verify` でのスキップは行わない。** フックが失敗した場合はスキップせず原因を直す。CI で同じチェックが動くため、スキップしても後で落ちるだけである。
 - フック実行を一時的に無効化する必要がある場合は `LEFTHOOK=0` を使い、理由を PR に書く。
 
@@ -418,3 +446,5 @@ pre-push:
 | 1.1 | 2026-08-21 | CI のランナーを `ubuntu-latest` から self-hosted（`[self-hosted, linux, x64]`、org レベル）へ変更し、前提と fork PR ガードを追加 | 本ツールの対象環境と CI 環境を一致させるため。public リポジトリで self-hosted runner を使うと fork PR 経由でホスト上に任意コードが実行されるため、ガードを仕様として固定する必要がある |
 | 1.2 | 2026-08-21 | `.linterlyignore` に `go.mod` / `go.sum` / `*.md` を追加し、`warning_threshold` の説明をパーセント指定として修正 | 設定ファイルを実際に導入したところ、`default_excludes` の既定リストにこれらが含まれず、`go.sum`（1035 行）と 330 行超（`error` 判定）の仕様書 3 本が上限超過で `linterly check` を失敗させたため（`docs/components/overview.md` は 302 行で `warn` に留まる）。`warning_threshold` は上限までの行数ではなくパーセントとして解釈されることを実測で確認したため |
 | 1.3 | 2026-08-21 | `make fmt` / `make fmt-check` の対象をモジュール内パッケージに限定（`$(GO) fmt ./...` / `gofmt -l $$($(GO) list -f '{{.Dir}}' ./...)`）し、Format 節に理由を追記。`.linterlyignore` に `.sweep/` を追加し、冒頭コメントを「手書きの Go ソースコード」に修正。「抑制の方針」に `internal/runner/systemd.go` の G204 暫定抑制を記録 | `gofmt` はパッケージではなくファイルシステムを再帰するため、`.` 指定では作業用の入れ子 git worktree 配下まで対象に含み、`make fmt` が別ブランチのファイルを書き換えていた。`.sweep/spinoff-draft.jsonl` は追記型 JSONL でいずれ上限を超えるが、linterly は `.gitignore` を読まないため明示除外が必要。仕様に反する G204 抑制がコード側コメントにしか記録されておらず、仕様書だけでは追えなかったため |
+| 1.4 | 2026-08-21 | 「Git Hooks」節に既知の制約（pre-commit の `lint` / `linterly` は作業ツリー全体を見る）と `make hooks` の注意（共有 `.git/hooks` への書き込み、`lefthook.yml` の自動生成、既存フックの `*.old` 退避、`prepare-commit-msg` の生成）を追記し、`parallel: false` の説明を「実行順は `commands` のキー名の辞書順で決まる」旨に修正。`.gitignore` に `lefthook-local.yml` を追加 | lefthook を実際に導入して挙動を実測したところ、`fmt` だけが `{staged_files}` にスコープされ `lint` / `linterly` は作業ツリー全体を読むため、無関係な未ステージファイルの整形崩れでコミットが落ちる（かつ `fmt` はそのファイルを直さない）ことを確認した。lefthook が未ステージ変更を隠すのは同一ファイル内に staged と unstaged が混在する場合だけである。また `fmt` を `zfmt` にリネームすると実行順が `lint` → `linterly` → `zfmt` に変わり、`parallel: false` が順序の必要条件にすぎないことを確認した。`git rev-parse --git-path hooks` は worktree からでも共有の `<リポジトリルート>/.git/hooks` を返すため、入れ子 worktree での `make hooks` がメインの作業ツリーに副作用を出す。`lefthook-local.yml` は lefthook 標準のローカル上書きファイルで、置かれた場合に誤コミットされるため |
+| 1.5 | 2026-08-21 | 「fork からの PR で self-hosted ジョブを起動しない」節を書き換え、`if` 条件を多層防御の 1 層（一次防御は fork PR の承認ポリシーと org runner group の対象リポジトリ限定）と位置づけ、`skipped` が required status check では success 扱いになること・fork PR のマージを機械的に止める場合はゲートジョブが必要なこと・トリガー追加時のガード見直しと許可リスト形への移行候補を追記。「CI/CD」節に初版では `build` ジョブが失敗する旨を追記 | CI を実際に導入して確認したところ、従前の記述は fork ガードの実効性を過大に書いていた。`pull_request` はワークフロー定義をマージコミット側から取るため fork 側で `if:` 行を削除した改変版が実行され得る（`if` は悪意ある第三者に対する境界にならない）。`skipped` は required status check に対して success として報告されるため、fork PR が CI 未実行のまま緑になりマージ可能に見える。承認ポリシーは実測で `first_time_contributors` であり、一度コミットが取り込まれたユーザーは以後承認不要になる。public リポジトリ + self-hosted runner の組み合わせでは、[セキュリティ設計](../architecture/security.md#パスワード不要-sudo-の要求への対応)の言うとおり `NOPASSWD: ALL` 付与時に実質 root を渡すことになるため、防御の位置づけを正確に書く必要があった。あわせて `make build` が `cmd/gsr-helper` 未作成で失敗すること（Issue #3 で解消）を実測で確認したため |
