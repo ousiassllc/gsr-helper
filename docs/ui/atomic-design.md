@@ -193,6 +193,7 @@ graph TD
 | `SettingRow` | 設定項目 1 行（項目名・現在値・注意書き） | Config |
 | `DiffLine` | 差分 1 行（`-` / `+` / 変更なし） | Config |
 | `ProgressRow` | 進捗 1 行（`✓ 完了` / `▶ 実行中…` / `待機`） | Setup / Disk |
+| `ActionRow` | 操作 1 行（キー・説明・影響・不可の理由）。`atom.KeyHint` を用いる | 詳細画面の操作リスト |
 | `CommandBlock` | 実行するコマンド全文の整形（折り返し・継続行） | 確認ダイアログ全般 |
 | `KeyBar` | `KeyHint` の並び。収まらない分は `?:ヘルプ` に集約する | フッタ |
 | `TabBar` | `[1]Runners [2]Jobs …`。無効なタブはグレーアウト | 共通レイアウト |
@@ -208,11 +209,11 @@ graph TD
 | `Table` | カーソル位置・選択集合・スクロール・絞り込み文字列 | 一覧の共通実装。区画（セクション）に対応する |
 | `LogPane` | ペインの選択・viewport 位置・追従の ON/OFF・フィルタ | Logs の 2 ペイン。追従・手動スクロールでの解除・`G` での再開 |
 | `Confirm` | なし（既定はキャンセル） | 破壊的操作の共通ダイアログ |
-| `Detail` | スクロール位置 | Doctor の詳細、行の `⚠` の詳細 |
+| `Detail` | スクロール位置 | Doctor の詳細、runner の詳細（情報部分） |
 | `ProgressList` | 進捗の受信状態 | 一括処理の逐次表示と結果報告（[FR-15](../requirements/functional.md)） |
 | `DrainWaiter` | 経過時間・対象ジョブ | ドレイン待機。制約の注記と `esc` でのキャンセル |
 | `DiffApproval` | なし（既定はキャンセル） | 差分＋バックアップパスの提示と承認 |
-| `ChoiceList` | カーソル位置 | Setup のメニュー、反映方法の選択 |
+| `ChoiceList` | カーソル位置 | Setup のメニュー、反映方法の選択、**詳細画面の操作リスト** |
 | `Form` | `huh.Form` | フォームのラッパー。検証エラーの表示位置を統一する |
 | `Help` | スクロール位置 | `?` の全キー一覧 |
 | `ErrorBanner` | なし | 失敗の表示 |
@@ -230,6 +231,18 @@ type RenderRow[T any] func(item T, width int, cursor bool, checked bool) string
 ```
 
 区画（セクション）に対応させ、Runners タブの孤児ユニットを下部の別区画として扱う。区画ごとに操作可否を設定できるようにし、Disk タブでジョブ実行中の `_work` を選択不可にする（[FR-31](../requirements/functional.md)）。
+
+### 詳細画面の操作リストは `ChoiceList` を使う
+
+詳細画面（[画面仕様](screens.md#詳細画面enter)）は `organism.Detail`（情報部分）と `organism.ChoiceList`（操作リスト）の組み合わせで構成し、専用の organism を作らない。`ChoiceList` は次に対応する。
+
+| 要件 | 扱い |
+|------|------|
+| 区切り線 | 項目の間に区切りを置ける。破壊的な操作を線の下にまとめるために使う |
+| 無効な項目 | 選択のみ可・実行不可としてグレーアウトし、理由を右に出す。可否と理由は page から渡す（`ChoiceList` は判断しない） |
+| 初期カーソル | 開くたびに先頭（安全側）へリセットする。前回の選択を保持しない（[FR-46](../requirements/functional.md)） |
+
+反映方法の選択（Config）と Setup のメニューも同じ `ChoiceList` である。**選択肢を並べて 1 つ選ぶ UI をこれ以外に作らない。**
 
 ### `Confirm` を 1 つに統一する
 
@@ -280,8 +293,8 @@ func BodySize(width, height int) (w, h int)
 
 | page | タブ | 主に使う organism | 呼ぶドメイン |
 |------|------|-----------------|------------|
-| `RunnersPage` | 1 | `Table` / `Confirm` / `DrainWaiter` / `Detail` | `svc` / `setup` |
-| `JobsPage` | 2 | `Table` | （親の検出結果のみ） |
+| `RunnersPage` | 1 | `Table` / `Detail` / `ChoiceList` / `Confirm` / `DrainWaiter` | `svc` / `setup` |
+| `JobsPage` | 2 | `Table` / `Detail` / `ChoiceList` / `Confirm` / `DrainWaiter` | `svc` / `setup`（対象は runner） |
 | `DiskPage` | 3 | `Table` / `Confirm` / `ProgressList` | `disk` |
 | `LogsPage` | 4 | `LogPane` | `logs` |
 | `DoctorPage` | 5 | `Table` / `Detail` | `doctor` |
@@ -323,6 +336,7 @@ page は検出結果を保持しない。タブ間で共有する状態は親の
 | 共通レイアウト | `Frame` | — | `CapsBar` / `TabBar` / `KeyBar` |
 | Runners タブ | `Frame` | `Table` | `ColumnHeader` / `RunnerRow` / `OrphanRow` |
 | Jobs タブ | `Frame` | `Table` | `ColumnHeader` / `JobRow` |
+| runner の詳細画面 | `Modal` | `Detail` + `ChoiceList` | 情報行 / `ActionRow` |
 | Disk タブ | `Frame` | `Table` | `FSSummaryLine` / `DiskTargetRow` |
 | クリーンアップの確認 | `Modal` | `Confirm` | `CommandBlock` |
 | Logs タブ | `Frame` + `Split` | `LogPane` | `LogLine` |
@@ -365,3 +379,4 @@ page は検出結果を保持しない。タブ間で共有する状態は親の
 | 版 | 日付 | 変更内容 | 変更理由 |
 |----|------|---------|---------|
 | 1.0 | 2026-08-21 | 新規作成 | 初版 |
+| 1.1 | 2026-08-21 | `molecule.ActionRow` を追加。詳細画面の操作リストを `organism.ChoiceList` の再利用として定義 | 操作の起点を増やす FR-45〜FR-47 に対応するため。専用の organism を作らず既存部品で構成する |

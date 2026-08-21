@@ -259,6 +259,7 @@ bubbletea の Model 群。**内部を Atomic Design で階層化する。** 部�
 
 - タブ間で共有する状態は親のみが持つ。page が独自に検出処理を走らせることはしない。
 - 一覧と確認ダイアログはそれぞれ `organism.Table` / `organism.Confirm` の 1 実装に統一する。個別のダイアログを追加しないことで「確認を経ない破壊的操作の経路を作らない」を構造として守る。
+- 操作の起点は複数あるが（一覧の直接キー / 詳細画面の操作リスト / Jobs タブ、[FR-45〜FR-47](../requirements/functional.md)）、いずれも同じ `organism.Confirm` を経る。選択肢を並べる UI は `organism.ChoiceList` の 1 実装に統一する。
 - キーマップは有効・無効の判定を含めて一元管理する。可否の判断は page がドメイン層（`svc.CanControl` など）に問い合わせ、`atom.KeyHint` は受け取った可否と理由を描くだけとする。
 - `atom` / `molecule` / `template` は bubbletea を import しない。
 
@@ -292,3 +293,4 @@ interface はこの 3 つに留める。ドメインごとの interface は、�
 | 1.0 | 2026-08-21 | 新規作成 | 初版 |
 | 1.1 | 2026-08-21 | `internal/ui` を Atomic Design の階層構成に置き換え、UI 内部の依存規則とテスト配置を追加 | UI 層の部品分割を [TUI コンポーネント設計](../ui/atomic-design.md) として定義したため |
 | 1.2 | 2026-08-21 | `Check` interface に `Startup()` を追加 | 起動時の前提チェック（FR-44）を doctor のレジストリと共通の実装で扱うため |
+| 1.3 | 2026-08-21 | 操作の起点が複数でも `Confirm` / `ChoiceList` は 1 実装に統一することを明記 | FR-45〜FR-47 で操作の入口を増やしたため。入口ごとに確認の実装が分かれることを防ぐ |
