@@ -50,7 +50,12 @@ func LoadConfig(dir string) (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("%s の読み込みに失敗しました: %w", path, err)
 	}
-	return parseConfig(b)
+	cfg, err := parseConfig(b)
+	if err != nil {
+		// 読み込み失敗と同じく、どの runner の警告か分かるようパスを添える。
+		return Config{}, fmt.Errorf("%s: %w", path, err)
+	}
+	return cfg, nil
 }
 
 // readVersion は <dir>/bin/runnerversion を読む。無ければ空文字を返す。

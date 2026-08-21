@@ -15,6 +15,7 @@ graph TD
 
     subgraph Domain[ドメイン層]
         Runner[runner]
+        RScope[runner/scope]
         Svc[svc]
         Setup[setup]
         Disk[disk]
@@ -56,11 +57,14 @@ graph TD
     Config --> Runner
     Config --> GH
 
+    Runner --> Exec
+    Runner --> RScope
     Svc --> Exec
     Setup --> Exec
     Disk --> Exec
     Doctor --> Exec
     GH --> Exec
+    Appconf --> Exec
     Exec --> Audit
 ```
 
@@ -98,15 +102,30 @@ runner の検出とモデル定義。**最下層**であり、他のドメイン
 
 | 要素 | 責務 |
 |------|------|
-| `Runner` / `Config` / `Scope` / `Process` / `SvcState` / `Result` | モデル定義 |
+| `Runner` / `Config` / `Process` / `SvcState` / `Result` | モデル定義 |
 | `Discover(ctx, Options) Result` | 3 経路から収集してマージ |
 | `IsRunnerDir` / `LoadConfig` | runner ディレクトリの判定と `.runner` の読み取り |
 | `ScanProcesses` | `/proc` の走査 |
-| `ScanUnits` | systemd ユニットの列挙と状態取得 |
-| `ParseScope` | `gitHubUrl` からのスコープ判定 |
+| `ScanUnits(ctx, Executor)` | systemd ユニットの列挙と状態取得。`Executor` を受け取り、`nil` のとき systemd を参照しない（systemctl 不在時の縮退） |
 | `attach`（非公開） | 正規化済み入力を受け取る**純粋関数**。プロセス・ユニットの紐付けと孤児ユニットの抽出 |
+| `resolveRunAsUser`（非公開） | runner の実行ユーザーの決定。`SvcState.User` を第一、`Listener` の UID を第二の情報源とする（UID → 名前の解決関数を引数で受ける純粋関数） |
 
 パースと判定は I/O から分離し、`parseConfig` / `parseListUnits` / `parseShow` / `attach` を個別にテストする。
+
+`ScanUnits` の所要時間は「1 コマンドのタイムアウト × ceil(ユニット数 / 並列度)」まで伸びるため、呼び出し側は deadline 付きの `ctx` を渡す。`ctx` のキャンセル後は残りの `systemctl show` を発行しない。
+
+**`systemctl show` に失敗したユニットは孤児として扱わない。** 状態が取れないユニットは `WorkingDirectory` が空になるため、`.service` ファイルを持たない runner のユニットが「対応ディレクトリなし」と誤判定される。失敗は `Result.Warnings` に集約し、孤児区画には出さない（孤児の定義は [FR-05](../requirements/functional.md) のとおり「対応する runner ディレクトリが見つからないもの」）。
+
+### `internal/runner/scope`
+
+`.runner` の `gitHubUrl` からスコープ（repo / org / enterprise）を判定する。**純粋な文字列処理のみ**で、ホスト走査・`/proc`・systemd に依存しない。
+
+| 要素 | 責務 |
+|------|------|
+| `Scope` / `Kind` | スコープのモデル定義（`Runner.Scope` の型） |
+| `Parse(gitHubUrl) (Scope, error)` | スコープ判定。ホストを含まない URL・`orgs` / `enterprises` の単独指定は誤りとして拒否する |
+
+`internal/runner` の下位に置くのは 2 つの理由による。`Scope` は GitHub API のパス生成にも使うため（[データモデル](../architecture/data-model.md#scope)）、`internal/gh` が `internal/runner` 全体を import せずにスコープだけを参照できる。また `internal/runner` の行数上限（1 ディレクトリ 2000 行）に対する余裕を確保する。
 
 ### `internal/svc`
 
@@ -243,7 +262,8 @@ type Executor interface {
 | `Load(path) (Config, error)` | 読み込み。すべての項目に既定値を持たせ、ファイルが無くても動作する |
 | `Save(Config, path) error` | 書き込み。**`SUDO_USER` の所有権で作成**する |
 | `DefaultPath()` | 配置先の決定（`SUDO_USER` を考慮） |
-| `Caps` の判定 | root / systemd / docker / journalctl / トークンの能力判定 |
+| `Exists(path) (bool, error)` | 設定ファイルの有無。初回起動ウィザード（FR-41）の判定に使う |
+| `Caps` の判定 | root / systemd / docker / journalctl / トークンの能力判定。判定は `Executor` 経由で行い、docker とトークンの判定は並行実行して起動時間の目標に収める |
 
 ### `internal/ui`
 
@@ -281,7 +301,8 @@ interface はこの 3 つに留める。ドメインごとの interface は、�
 
 | 対象 | テストの置き場所 |
 |------|---------------|
-| `parseConfig` / `parseListUnits` / `parseShow` / `attach` / `ParseScope` | `internal/runner` の内部テスト。testdata にフィクスチャを置く |
+| `parseConfig` / `parseListUnits` / `parseShow` / `attach` | `internal/runner` の内部テスト。testdata にフィクスチャを置く |
+| `scope.Parse` | `internal/runner/scope` のテーブルテスト |
 | `NextIndex` | `internal/setup` のテーブルテスト |
 | `ValidatePath` | `internal/disk`。異常系（`..`、基準外、リンクによる逸脱、基準自身）を網羅 |
 | `Validate*`（ラベル・名前・パス） | `internal/config` のテーブルテスト |
@@ -300,3 +321,6 @@ interface はこの 3 つに留める。ドメインごとの interface は、�
 | 1.2 | 2026-08-21 | `Check` interface に `Startup()` を追加 | 起動時の前提チェック（FR-44）を doctor のレジストリと共通の実装で扱うため |
 | 1.3 | 2026-08-21 | 操作の起点が複数でも `Confirm` / `ChoiceList` は 1 実装に統一することを明記 | FR-45〜FR-47 で操作の入口を増やしたため。入口ごとに確認の実装が分かれることを防ぐ |
 | 1.4 | 2026-08-21 | `ui/keymap` を追加。organism と `bubbles` 部品の対応、キーの配送、端末サイズと色の所有者、`cmd` での色判定を明記 | キー定義の置き場所と `bubbles` の使い方が仕様として未定義だったため。キーの二重解釈とサイズの渡し忘れを構造で防ぐ |
+| 1.5 | 2026-08-22 | 依存関係に `runner --> exec` を追加。`ScanUnits` が `Executor` を受けることと `resolveRunAsUser` を責務表に追記 | `runner` が `os/exec` を直接使っていたのを `Executor` 経由に変えたため。ドメイン層が `os/exec` を直接使わない規則に合わせた |
+| 1.6 | 2026-08-22 | 依存関係に `appconfig --> exec` を追加。`appconfig` の責務表に `Exists` と能力判定の並行実行を追記 | `appconfig` の能力判定が `Executor` 経由で外部コマンドを発行しており、グラフに依存が無かったため |
+| 1.7 | 2026-08-22 | スコープ判定を `internal/runner/scope` として分離。`ScanUnits` の所要時間とキャンセルの契約、`systemctl show` 失敗ユニットを孤児にしない規則を追記 | `Scope` は GitHub API のパス生成にも使うため、`internal/gh` が `internal/runner` 全体に依存せず参照できる形にした。`show` 失敗ユニットは `WorkingDirectory` が空になるため孤児と誤判定される欠陥があった |

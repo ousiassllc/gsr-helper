@@ -85,7 +85,7 @@ erDiagram
 
 ### Scope
 
-runner の登録先。`GitHubURL` のパスから判定する。
+runner の登録先。`GitHubURL` のパスから判定する。型は `internal/runner/scope` パッケージに置く（`scope.Scope` / `scope.Kind`、判定は `scope.Parse`）。純粋な文字列処理のみなので、ホスト走査を含む `internal/runner` から分離してある（[コンポーネント設計](../components/overview.md#internalrunnerscope)）。
 
 | Kind | 判定条件（パス） | 例 | 表示 |
 |------|----------------|-----|------|
@@ -94,7 +94,9 @@ runner の登録先。`GitHubURL` のパスから判定する。
 | Enterprise | `/enterprises/<slug>` | `https://github.com/enterprises/foo` | `ent:foo` |
 | Unknown | 上記以外 | — | `-` |
 
-Scope は GitHub API のパス生成にも使う（[外部インターフェース](../api/external-interfaces.md)）。
+ホストを含まない URL（`github.com/foo/bar` のようにスキームが無いもの）と、`orgs` / `enterprises` の単独指定（`https://github.com/orgs`）は誤りとして拒否する。これらを黙って Repo / Org と解釈すると、存在しないスコープに対する API 呼び出しを組み立ててしまう。
+
+Scope は GitHub API のパス生成にも使う（[外部インターフェース](../api/external-interfaces.md)）。この用途のために `internal/gh` が `internal/runner` 全体へ依存せずに済むよう、下位パッケージに切り出してある。
 
 ### Process
 
@@ -107,6 +109,7 @@ Scope は GitHub API のパス生成にも使う（[外部インターフェー�
 | Dir | string | 実行ファイルパス | `<Dir>/bin/Runner.*` から親の親を取る。取れない場合は `cwd` にフォールバック |
 | Started | time.Time | `/proc/<pid>` の mtime | プロセス生成時刻。ジョブの経過時間算出に使う |
 | Exe | string | `/proc/<pid>/exe`、失敗時は `cmdline[0]` | 他ユーザーのプロセスは root でないと `exe` が読めない |
+| UID | int | `/proc/<pid>` の所有者 | プロセスの実行ユーザー。runner 実行ユーザーの特定（`RunAsUser`）に使う。取得できない場合は `-1`（`0` は root という有効値のため兼用しない） |
 
 ### SvcState
 
@@ -119,7 +122,8 @@ systemd ユニットの状態。
 | Active | `ActiveState` | `active` / `inactive` / `failed` |
 | Sub | `SubState` | `running` / `dead` |
 | FileState | `UnitFileState` | `enabled` / `disabled` / `static` |
-| WorkingDir | `WorkingDirectory` | runner ディレクトリとの照合に使う。空の場合もある |
+| WorkingDir | `WorkingDirectory` | runner ディレクトリとの照合に使う。空の場合もある。`-/path` 形式で返ることがあるため先頭の `-` を除去する |
+| User | `User` | ユニットの `User=`。空の場合は root で起動する |
 | MainPID | `MainPID` | — |
 
 runner との紐付けは `UnitName`（`.service` ファイル）を第一に、`WorkingDir` を第二の手段として照合する。
@@ -274,3 +278,5 @@ defaults:
 |----|------|---------|---------|
 | 1.0 | 2026-08-21 | 新規作成 | 初版 |
 | 1.1 | 2026-08-21 | `Runner.RunAsUser` を追加。`CheckResult` に `Startup` とカテゴリ「ジョブ実行の前提」を追加 | ジョブ実行の前提チェック（FR-43）と起動時の自動判定（FR-44）を追加したため |
+| 1.2 | 2026-08-22 | `Process.UID` と `SvcState.User` を追加 | `RunAsUser` の決定に必要な取得元が未定義だったため。systemd の `User=` を第一とし、ユニットが無い場合は Listener プロセスの所有者から引く |
+| 1.3 | 2026-08-22 | `Scope` の置き場所を `internal/runner/scope` と明記し、拒否する入力を追記 | GitHub API のパス生成に使うため `internal/gh` から参照できる位置に分離した。スキームの無い URL や `orgs` 単独を黙って解釈する欠陥があった |

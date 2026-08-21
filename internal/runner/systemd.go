@@ -3,14 +3,21 @@ package runner
 import (
 	"context"
 	"fmt"
-	"os/exec"
+	"slices"
 	"strconv"
 	"strings"
+	"sync"
+
+	"github.com/ousiassllc/gsr-helper/internal/exec"
 )
 
 // unitPattern は svc.sh install が生成するユニット名のパターン。
 // 実際の名前は actions.runner.<scope>.<runner名>.service になる。
 const unitPattern = "actions.runner.*"
+
+// showConcurrency は systemctl show の同時実行数の上限。想定台数（20 台程度）を
+// 3 秒ごとに参照するため直列では遅く、一方でプロセス生成は無制限に増やさない。
+const showConcurrency = 8
 
 // SvcState は systemd ユニットの状態。
 type SvcState struct {
@@ -20,6 +27,7 @@ type SvcState struct {
 	Sub        string // running / dead
 	FileState  string // enabled / disabled / static
 	WorkingDir string // svc.sh 生成のユニットには runner ディレクトリが入る
+	User       string // User=。空なら root で起動する
 	MainPID    int
 }
 
@@ -34,38 +42,94 @@ func (s SvcState) Label() string {
 	return s.Active
 }
 
-// SystemdAvailable は systemctl が使える環境かを返す。
-func SystemdAvailable() bool {
-	_, err := exec.LookPath("systemctl")
-	return err == nil
-}
-
 // ScanUnits は actions.runner.* の systemd ユニットとその状態を集める。
-// systemctl が無い環境では空スライスを返す（エラーにしない）。
-func ScanUnits(ctx context.Context) ([]SvcState, error) {
-	if !SystemdAvailable() {
+//
+// ex が nil のときは systemd を参照せず何も返さない（systemctl が無い環境での縮退）。
+// 警告も出さない。3 秒ごとのポーリングで同じ警告が積み上がるためであり、systemd の
+// 可否は起動時に 1 回判定した Caps としてヘッダに出る。
+//
+// 警告は失敗したユニット単位に返す。1 ユニットの取得失敗で全体を止めず、
+// 取れた分だけで一覧と孤児ユニットの判定を続ける。
+//
+// 呼び出し側は deadline 付きの ctx を渡すこと。1 コマンドのタイムアウトは exec が
+// 課すが、show は showConcurrency 件ずつのバッチで発行するため、全体の所要時間は
+// 1 コマンドのタイムアウト × ceil(ユニット数/showConcurrency) まで伸びうる。
+// ScanUnits 自身は全体の上限を持たないので、3 秒ごとのポーリングが溜まらないよう
+// 上限は ctx で与える。ctx がキャンセルされた時点で残りの show は発行しない。
+func ScanUnits(ctx context.Context, ex exec.Executor) ([]SvcState, []error) {
+	if ex == nil {
 		return nil, nil
 	}
 
-	out, err := exec.CommandContext(ctx, "systemctl",
+	res, err := ex.Run(ctx, "systemctl",
 		"list-units", "--type=service", "--all", "--plain", "--no-legend", "--no-pager",
-		unitPattern).Output()
-	if err != nil {
-		return nil, fmt.Errorf("systemctl list-units の実行に失敗しました: %w", err)
+		unitPattern)
+	if ferr := runFailure(res, err); ferr != nil {
+		return nil, []error{fmt.Errorf("systemctl list-units の実行に失敗しました: %w", ferr)}
 	}
 
-	units := parseListUnits(string(out))
-	states := make([]SvcState, 0, len(units))
-	for _, u := range units {
-		st, err := showUnit(ctx, u)
-		if err != nil {
-			// 1 ユニットの取得失敗で全体を落とさない。
-			states = append(states, SvcState{Unit: u})
-			continue
+	units := parseListUnits(string(res.Stdout))
+	// 書き込み先をインデックス指定にすることで、結果の順序が list-units の
+	// 出力順で決まり、共有スライスへの排他も要らなくなる。
+	states := make([]SvcState, len(units))
+	warns := make([]error, len(units))
+
+	sem := make(chan struct{}, showConcurrency)
+	var wg sync.WaitGroup
+	issued := 0 // show を発行したユニット数。キャンセル時は途中で止まる
+	for i, u := range units {
+		if ctx.Err() != nil {
+			// キャンセル後は残りの show を発行しない。発行しても全て失敗し、
+			// ユニット数と同じ件数の同じ警告が積み上がるだけである。
+			break
 		}
-		states = append(states, st)
+		issued = i + 1
+		wg.Add(1)
+		sem <- struct{}{}
+		go func() {
+			defer func() {
+				<-sem
+				wg.Done()
+			}()
+			st, err := showUnit(ctx, ex, u)
+			if err != nil {
+				// 取得できなかったユニットも一覧から落とさない。孤児ユニットの
+				// 判定に必要なため、ユニット名だけのプレースホルダを残す。
+				states[i] = SvcState{Unit: u}
+				warns[i] = err
+				return
+			}
+			states[i] = st
+		}()
 	}
-	return states, nil
+	wg.Wait()
+
+	// 発行しなかった分は書き込まれないため、ゼロ値のユニットを返さないよう切り詰める。
+	return states[:issued], compactErrors(warns[:issued])
+}
+
+// runFailure は Executor の実行結果から失敗の理由を返す。失敗していなければ nil。
+// err と ExitCode の両方を見るのは、非ゼロ終了をエラーで返すか終了コードだけで
+// 表すかが Executor の実装によって変わりうるため。
+func runFailure(res exec.Result, err error) error {
+	switch {
+	case err != nil:
+		return err
+	case res.ExitCode != 0:
+		return fmt.Errorf("終了コード %d で終了しました", res.ExitCode)
+	default:
+		return nil
+	}
+}
+
+// compactErrors は nil を除いたエラーだけを返す。1 件も無ければ nil。
+// errs は呼び出し元が作った作業用スライスなので、その場で詰める。
+func compactErrors(errs []error) []error {
+	out := slices.DeleteFunc(errs, func(e error) bool { return e == nil })
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // parseListUnits は systemctl list-units の出力からユニット名を取り出す。
@@ -86,15 +150,14 @@ func parseListUnits(out string) []string {
 }
 
 // showUnit は 1 ユニットの状態を systemctl show から取得する。
-func showUnit(ctx context.Context, unit string) (SvcState, error) {
-	//nolint:gosec // unit は parseListUnits が検証した actions.runner.*.service のみ。#3 で internal/exec.Executor 経由に置き換えて本抑制を除去する。
-	out, err := exec.CommandContext(ctx, "systemctl", "show", unit, "--no-pager",
+func showUnit(ctx context.Context, ex exec.Executor, unit string) (SvcState, error) {
+	res, err := ex.Run(ctx, "systemctl", "show", unit, "--no-pager",
 		"-p", "Id", "-p", "LoadState", "-p", "ActiveState", "-p", "SubState",
-		"-p", "UnitFileState", "-p", "WorkingDirectory", "-p", "MainPID").Output()
-	if err != nil {
-		return SvcState{}, fmt.Errorf("systemctl show %s の実行に失敗しました: %w", unit, err)
+		"-p", "UnitFileState", "-p", "WorkingDirectory", "-p", "MainPID", "-p", "User")
+	if ferr := runFailure(res, err); ferr != nil {
+		return SvcState{}, fmt.Errorf("systemctl show %s の実行に失敗しました: %w", unit, ferr)
 	}
-	return parseShow(unit, string(out)), nil
+	return parseShow(unit, string(res.Stdout)), nil
 }
 
 // parseShow は systemctl show の KEY=VALUE 出力をパースする。出力順は不定。
@@ -108,12 +171,15 @@ func parseShow(unit, out string) SvcState {
 	}
 
 	st := SvcState{
-		Unit:       unit,
-		Load:       kv["LoadState"],
-		Active:     kv["ActiveState"],
-		Sub:        kv["SubState"],
-		FileState:  kv["UnitFileState"],
-		WorkingDir: kv["WorkingDirectory"],
+		Unit:      unit,
+		Load:      kv["LoadState"],
+		Active:    kv["ActiveState"],
+		Sub:       kv["SubState"],
+		FileState: kv["UnitFileState"],
+		// WorkingDirectory= は "-/path"（存在しなければ無視する）の形を許容する。
+		// 孤児判定の第二の照合キーなので、接頭辞を落として実パスに合わせる。
+		WorkingDir: strings.TrimPrefix(kv["WorkingDirectory"], "-"),
+		User:       kv["User"],
 	}
 	if id := kv["Id"]; id != "" {
 		st.Unit = id

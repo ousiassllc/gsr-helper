@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"syscall"
 	"time"
 )
 
@@ -18,6 +19,7 @@ const (
 	ProcWorker                   // Runner.Worker: ジョブ 1 件ごとに起動される
 )
 
+// String は表示用の名前（プロセスの実行ファイル名）を返す。
 func (k ProcKind) String() string {
 	switch k {
 	case ProcListener:
@@ -36,9 +38,15 @@ type Process struct {
 	Dir     string // 導出した runner のルートディレクトリ
 	Started time.Time
 	Exe     string
+	// UID はプロセスの実行ユーザー。取得に失敗した場合は -1。
+	// 0 は root という有効値なので、失敗と兼用しない。
+	UID int
 }
 
 // Elapsed は起動からの経過時間を返す。
+// Jobs タブの ELAPSED 列（docs/ui/screens.md）とドレイン待機画面が Worker 単位の
+// 経過時間を出すために使う。Runner.JobElapsed は最も古い Worker の値しか返さない
+// ため、Worker ごとに 1 行出すこの列は作れない。
 func (p Process) Elapsed() time.Duration {
 	if p.Started.IsZero() {
 		return 0
@@ -96,12 +104,14 @@ func inspectProc(pid int) (Process, bool) {
 		return Process{}, false
 	}
 
+	started, uid := procStat(procDir)
 	return Process{
 		PID:     pid,
 		Kind:    kind,
 		Dir:     runnerDirFromExe(exe, procDir),
-		Started: procStartTime(procDir),
+		Started: started,
 		Exe:     exe,
+		UID:     uid,
 	}, true
 }
 
@@ -132,13 +142,20 @@ func runnerDirFromExe(exe, procDir string) string {
 	return ""
 }
 
-// procStartTime はプロセスの起動時刻を返す。
-// /proc/<pid> ディレクトリの mtime はプロセス生成時刻になるため、
-// btime + starttime/CLK_TCK を計算せずにこれを使う。
-func procStartTime(procDir string) time.Time {
+// procStat はプロセスの起動時刻と実行ユーザーの UID を返す。
+// /proc/<pid> ディレクトリの mtime はプロセス生成時刻、所有者はプロセスの実行
+// ユーザーになるため、btime + starttime/CLK_TCK の計算や status のパースをせずに
+// 1 回の os.Stat で両方を取れる。同じ Stat から取ることで、PID が再利用されて
+// 起動時刻と UID が別プロセスのものになることも避けられる。
+// 取得できない場合はゼロ値の時刻と -1 を返す。
+func procStat(procDir string) (started time.Time, uid int) {
 	fi, err := os.Stat(procDir)
 	if err != nil {
-		return time.Time{}
+		return time.Time{}, -1
 	}
-	return fi.ModTime()
+	st, ok := fi.Sys().(*syscall.Stat_t)
+	if !ok {
+		return fi.ModTime(), -1
+	}
+	return fi.ModTime(), int(st.Uid)
 }

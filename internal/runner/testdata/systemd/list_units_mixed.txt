@@ -1,0 +1,6 @@
+● actions.runner.myorg.failed-1.service loaded failed failed  GitHub Actions Runner (myorg.failed-1)
+
+  sshd.service                           loaded active running OpenBSD Secure Shell server
+  myactions.runner.foo.service           loaded active running 接頭辞が一致しない
+  actions.runner.foo.socket              loaded active running 接尾辞が一致しない
+  actions.runner.myorg.host-9.service    loaded active running GitHub Actions Runner (myorg.host-9)

@@ -10,6 +10,7 @@ const (
 	ManagedStandalone                  // run.sh を直接起動している
 )
 
+// String はテーブル表示用の短い表記を返す。判定できていなければ "-"。
 func (m ManagedBy) String() string {
 	switch m {
 	case ManagedSystemd:
