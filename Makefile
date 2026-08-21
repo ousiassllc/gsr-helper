@@ -34,8 +34,12 @@ linterly: ## 行数チェックを実行する
 test: ## テストを実行する
 	$(GO) test ./...
 
-build: ## バイナリをビルドする
-	$(GO) build -o $(BIN) $(CMD)
+build: ## 全パッケージをコンパイル検証し、エントリポイントがあればバイナリを生成する
+	$(GO) build ./...
+	@if [ -d "$(CMD)" ]; then \
+		echo "$(GO) build -o $(BIN) $(CMD)"; \
+		$(GO) build -o $(BIN) $(CMD); \
+	fi
 
 hooks: ## Git Hooks を登録する
 	$(GO) tool lefthook install

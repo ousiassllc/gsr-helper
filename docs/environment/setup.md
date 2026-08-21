@@ -96,7 +96,7 @@ lint / test / build のコマンド列を Makefile に集約し、**CI と手元
 | `make lint` | `golangci-lint run` |
 | `make linterly` | 行数チェック |
 | `make test` | `go test ./...` |
-| `make build` | `gsr-helper` をビルド |
+| `make build` | `go build ./...` で全パッケージのコンパイルを検証し、`cmd/gsr-helper` が存在する場合はさらに単一バイナリ `gsr-helper` を生成する |
 | `make hooks` | Lefthook を Git Hooks に登録 |
 | `make check` | `fmt-check` → `vet` → `lint` → `linterly` → `test` を順に実行 |
 
@@ -137,8 +137,12 @@ linterly: ## 行数チェックを実行する
 test: ## テストを実行する
 	$(GO) test ./...
 
-build: ## バイナリをビルドする
-	$(GO) build -o $(BIN) $(CMD)
+build: ## 全パッケージをコンパイル検証し、エントリポイントがあればバイナリを生成する
+	$(GO) build ./...
+	@if [ -d "$(CMD)" ]; then \
+		echo "$(GO) build -o $(BIN) $(CMD)"; \
+		$(GO) build -o $(BIN) $(CMD); \
+	fi
 
 hooks: ## Git Hooks を登録する
 	$(GO) tool lefthook install
@@ -227,7 +231,7 @@ jobs:
 
 `lint` ジョブは `make check` を 1 step で呼ばず、`make fmt-check` / `make vet` / `make lint` / `make linterly` を**個別の step として列挙する**。どのチェックで落ちたかが run の一覧から分かるためである。そのぶん「実行すべきチェックの集合」が Makefile の `check` と CI の step 列の 2 箇所に存在するため、**`check` にターゲットを追加する際は CI の step も更新する**必要がある。
 
-**初版では `build` ジョブが失敗する。** `make build` の対象である `cmd/gsr-helper` がまだ存在しないためで（実測: `go build` が exit 1、`make` が exit 2）、CI 設定の不備ではない。エントリポイントは Issue #3 の成果物であり、#3 で解消する。それまで **`build` を required status check に指定しない**。
+**`build` ジョブは `cmd/gsr-helper` が存在しない段階でも成功する。** `make build` は `go build ./...` で全パッケージのコンパイルを検証し、エントリポイントの生成は `cmd/gsr-helper` があるときだけ行う（Makefile 側でディレクトリの有無を判定する）。エントリポイントは Issue #3 の成果物であり、#3 で `cmd/gsr-helper` が追加されると同じ `make build` がそのまま単一バイナリ `gsr-helper` の生成まで行う。ディレクトリの有無で分岐させるのは、`go build ./...` だけではリンク済みの配布物が得られず、`go build -o $(BIN) $(CMD)` だけでは対象パッケージが無い間 `directory not found` で失敗する（実測: `go build` が exit 1、`make` が exit 2）ためである。
 
 ### self-hosted runner を使う前提
 
@@ -473,3 +477,4 @@ pre-push:
 | 1.5 | 2026-08-21 | 「fork からの PR で self-hosted ジョブを起動しない」節を書き換え、`if` 条件を多層防御の 1 層（一次防御は fork PR の承認ポリシーと org runner group の対象リポジトリ限定）と位置づけ、`skipped` が required status check では success 扱いになること・fork PR のマージを機械的に止める場合はゲートジョブが必要なこと・トリガー追加時のガード見直しと許可リスト形への移行候補を追記。「CI/CD」節に初版では `build` ジョブが失敗する旨を追記 | CI を実際に導入して確認したところ、従前の記述は fork ガードの実効性を過大に書いていた。`pull_request` はワークフロー定義をマージコミット側から取るため fork 側で `if:` 行を削除した改変版が実行され得る（`if` は悪意ある第三者に対する境界にならない）。`skipped` は required status check に対して success として報告されるため、fork PR が CI 未実行のまま緑になりマージ可能に見える。承認ポリシーは実測で `first_time_contributors` であり、一度コミットが取り込まれたユーザーは以後承認不要になる。public リポジトリ + self-hosted runner の組み合わせでは、[セキュリティ設計](../architecture/security.md#パスワード不要-sudo-の要求への対応)の言うとおり `NOPASSWD: ALL` 付与時に実質 root を渡すことになるため、防御の位置づけを正確に書く必要があった。あわせて `make build` が `cmd/gsr-helper` 未作成で失敗すること（Issue #3 で解消）を実測で確認したため |
 | 1.6 | 2026-08-22 | 「タスクランナー」節の「3 経路から同じターゲットを呼ぶ」を実態（CI と手元は Makefile 経由、Git Hooks はコマンドを直接実行）に修正し、「Git Hooks」節にも同趣旨を追記。CI/CD 節に `concurrency` の説明と、`lint` ジョブの step を個別に列挙する理由を追記。「抑制の方針」に `_test.go` の `errcheck` / `gosec` 除外が方針の明示的な例外であることと、G304 抑制 4 件（`internal/runner/config.go` 3 件・`internal/runner/procs.go` 1 件）を追記。「Linterly」節の除外規則を「`default_excludes` の既定リストに無いものだけを明示する」に正確化し、`language: ja` を説明。ターゲット一覧表の `make fmt-check` 行を実装に同期。セットアップ手順に「Git Hooks」節への参照を追加。`ManagedBy` 関連を `internal/runner/managed_by.go` へ分割したことと Issue #2 のスコープを超えて `internal/runner` を変更した理由を記録。`internal/runner/config.go` の `LoadConfig` の nolint 理由を事前条件に依拠する形へ修正。改訂履歴 1.4 の行に `.claude/worktrees/` を `.gitignore` へ追加した旨と linterly の `default_excludes` に関する補足を追記 | PR レビューで、仕様書の記述が同じ差分で導入した設定ファイルおよびコードと食い違う箇所が指摘されたため。Git Hooks は `fmt` の `{staged_files}` スコープのため make を経由できない（`lint` / `linterly` / `test` を寄せるかは Issue #18）。`.claude/` は linterly の `default_excludes` に含まれるため `.linterlyignore` への追記は不要であることを実測で確認した（`--no-default-excludes` 指定時のみ検出される）。`concurrency` は self-hosted runner の稼働台数と実行中ジョブのキャンセル挙動に直結し、`main` の連続 push で中間コミットの CI 結果が残らない副作用がある（見直しは Issue #16）。`ManagedBy` の切り出しは `discover.go` が 329 行で linterly の `warn` 帯（301〜330 行）に入っていたためで、終了コードは 0 であり `make check` は分割前でも通っていた。「上限に当たった場合は数値を上げるのではなく分割を検討する」方針に従った対応であり、`error`（331 行以上）を避けるための必須対応ではない。Issue #2 の影響範囲は「`internal/` 配下のソースコードは変更しない」としていたが、`.golangci.yml` の導入で gosec 5 件・revive 4 件が出るため、`make check` を通す最小対応としてコメント追加と純粋な移動のみを行った。`LoadConfig` は exported で `dir` を呼び出し側が自由に渡せるため、nolint の理由を無条件の断定から doc コメントの事前条件に依拠する形へ直した |
 | 1.7 | 2026-08-22 | 「ディレクトリ構造」の `Makefile` の説明を「CI / 手元で共用。Git Hooks は経由しない」に修正。「抑制の方針」の G304 抑制 4 件の根拠を、`config.go` の 3 件は呼び出し側の事前条件に依拠する条件付きの記述へ、`procs.go` の 1 件は PID の数値検証という別の根拠へ分離し、抑制の棚卸し時に `--max-same-issues=0 --max-issues-per-linter=0` が必要である旨を追記。「Linterly」節に `warning_threshold` をコメントアウトしてはいけない理由を追記。「Git Hooks」節の作業ツリー参照の対処先を Issue #18 と明記し、`parallel: false` の順序説明に lefthook の `priority` フィールドを併記。CI/CD 節の fork ガードの対処先を Issue #17 と明記し、`github.ref` の「（実測）」を仕様に基づく記述へ修正。ターゲット一覧表の `make fmt-check` の注記を「CI / `make check` 用」に修正。改訂履歴 1.3 の `.sweep/` 除外理由と 1.6 の変更内容を本文と整合させた | 2 周目の PR レビューで、1 周目（1.6）の修正が一部の記述に及んでいない・根拠ラベルが実態と合わない・参照先 Issue の番号が欠けている点が指摘されたため。G304 抑制の親記述は、`Discover` の `Options.Roots` により走査ルート自体を呼び出し側が指定できる設計を踏まえると「パスに外部入力が入らない」と無条件に断定できず、コード側（`internal/runner/config.go` の nolint 理由）と食い違っていた。`golangci-lint` は `issues.max-same-issues` / `max-issues-per-linter` の既定（3 / 50）で同種の指摘を打ち切るため、既定のままでは G304 4 件を数え上げられない（設定への `issues` 追加は Issue #15 の範囲）。`.linterly.yml` の `warning_threshold` は既定値と同値だが `rules:` を非空に保つ役割があり、既定値だからという理由でコメントアウトすると `rules section is required` で exit 2 になることを実測した。lefthook v1.13.6 には command 単位の `priority` があり命名に依存せず順序を固定できるため、「命名の維持」は `priority` 未指定である現状の前提にすぎない。本リポジトリの CI run は self-hosted runner に引き取られず `queued` のままでジョブコンテキストが観測されていないため、`github.ref` に「（実測）」と付けるのは根拠ラベルとして誤りだった |
+| 1.8 | 2026-08-22 | `make build` を `go build ./...`（全パッケージのコンパイル検証）＋ `cmd/gsr-helper` が存在する場合のみ単一バイナリを生成する形に変更し、ターゲット一覧表・Makefile 定義・CI/CD 節の記述を実装に同期した | PR #19 の CI で `build` ジョブが `stat ./cmd/gsr-helper: directory not found` により exit 2 で失敗した。エントリポイントの実装は Issue #3 のスコープであり Issue #2 では追加できないため、パッケージが未作成の段階でも通り、かつ Issue #3 で `cmd/gsr-helper` が追加された後はそのままバイナリ生成まで行う形に `build` ターゲットを直した |
