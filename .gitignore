@@ -1,0 +1,12 @@
+# ビルド成果物
+/gsr-helper
+/dist/
+
+# テスト
+*.test
+*.out
+coverage.txt
+
+# エディタ / OS
+.DS_Store
+*.swp
