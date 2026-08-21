@@ -9,6 +9,7 @@ import (
 // ScopeKind は runner がどのレベルに登録されているかを表す。
 type ScopeKind int
 
+// ScopeKind の取り得る値。
 const (
 	ScopeUnknown ScopeKind = iota
 	ScopeRepo

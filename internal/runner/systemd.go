@@ -87,6 +87,7 @@ func parseListUnits(out string) []string {
 
 // showUnit は 1 ユニットの状態を systemctl show から取得する。
 func showUnit(ctx context.Context, unit string) (SvcState, error) {
+	//nolint:gosec // unit は parseListUnits が検証した actions.runner.*.service のみ。#3 で internal/exec.Executor 経由に置き換えて本抑制を除去する。
 	out, err := exec.CommandContext(ctx, "systemctl", "show", unit, "--no-pager",
 		"-p", "Id", "-p", "LoadState", "-p", "ActiveState", "-p", "SubState",
 		"-p", "UnitFileState", "-p", "WorkingDirectory", "-p", "MainPID").Output()

@@ -1,3 +1,4 @@
+// Package runner はホスト上の self-hosted runner を探索し、設定・プロセス・systemd ユニットの状態を突き合わせる。
 package runner
 
 import (
@@ -41,8 +42,10 @@ func parseConfig(b []byte) (Config, error) {
 }
 
 // LoadConfig は <dir>/.runner を読み込む。
+// dir は Discover が解決済みの runner ディレクトリであること（呼び出し側の事前条件）。
 func LoadConfig(dir string) (Config, error) {
 	path := filepath.Join(dir, ".runner")
+	//nolint:gosec // dir は Discover が解決した runner ディレクトリという事前条件（直上の doc コメント）に依存。path は dir + 固定名 ".runner"。
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return Config{}, fmt.Errorf("%s の読み込みに失敗しました: %w", path, err)
@@ -52,6 +55,7 @@ func LoadConfig(dir string) (Config, error) {
 
 // readVersion は <dir>/bin/runnerversion を読む。無ければ空文字を返す。
 func readVersion(dir string) string {
+	//nolint:gosec // 探索済み runner ディレクトリ + 固定パス "bin/runnerversion"。パスに外部入力は入らない。
 	b, err := os.ReadFile(filepath.Join(dir, "bin", "runnerversion"))
 	if err != nil {
 		return ""
@@ -63,6 +67,7 @@ func readVersion(dir string) string {
 // ここに書き出すため、ディレクトリとユニットを確実に紐付けられる。
 // サービス化されていなければ空文字を返す。
 func readUnitName(dir string) string {
+	//nolint:gosec // 探索済み runner ディレクトリ + 固定名 ".service"。パスに外部入力は入らない。
 	b, err := os.ReadFile(filepath.Join(dir, ".service"))
 	if err != nil {
 		return ""

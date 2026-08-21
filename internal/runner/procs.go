@@ -12,6 +12,7 @@ import (
 // ProcKind は runner プロセスの種別。
 type ProcKind int
 
+// ProcKind の取り得る値。
 const (
 	ProcListener ProcKind = iota // Runner.Listener: ジョブを待ち受ける常駐プロセス
 	ProcWorker                   // Runner.Worker: ジョブ 1 件ごとに起動される
@@ -106,6 +107,7 @@ func inspectProc(pid int) (Process, bool) {
 
 // readArgv0 は /proc/<pid>/cmdline の先頭要素を返す。cmdline は NUL 区切り。
 func readArgv0(path string) string {
+	//nolint:gosec // 呼び出し元が渡すのは /proc/<PID>/cmdline のみ。PID は strconv.Atoi で数値検証済み。
 	b, err := os.ReadFile(path)
 	if err != nil || len(b) == 0 {
 		return ""
