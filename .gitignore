@@ -13,3 +13,6 @@ coverage.txt
 
 # sweep（issue-sweep の作業状態）
 .sweep/
+
+# worktree（impl-wt / refine 系スキルの作業ツリー）
+.claude/worktrees/

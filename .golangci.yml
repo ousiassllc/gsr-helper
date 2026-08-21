@@ -1,0 +1,20 @@
+version: "2"
+
+linters:
+  default: standard
+  enable:
+    - errorlint
+    - gocritic
+    - gosec
+    - revive
+  exclusions:
+    rules:
+      # テストではエラーの取り扱いとパス操作を緩める
+      - path: _test\.go
+        linters:
+          - errcheck
+          - gosec
+
+formatters:
+  enable:
+    - gofmt

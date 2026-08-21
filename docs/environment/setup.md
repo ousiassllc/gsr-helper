@@ -86,7 +86,7 @@ lint / test / build のコマンド列を Makefile に集約し、**CI・Git Hoo
 |-----------|------|
 | `make help` | ターゲット一覧を表示（既定） |
 | `make tools` | 依存モジュールと開発ツールの取得 |
-| `make fmt` | `gofmt -w` で整形する |
+| `make fmt` | `go fmt ./...` でモジュール内のパッケージを整形する |
 | `make fmt-check` | 未整形のファイルがあれば失敗する（CI / hooks 用） |
 | `make vet` | `go vet ./...` |
 | `make lint` | `golangci-lint run` |
@@ -113,10 +113,10 @@ tools: ## 依存モジュールと開発ツールを取得する
 	$(GO) mod download
 
 fmt: ## gofmt で整形する
-	gofmt -w .
+	$(GO) fmt ./...
 
 fmt-check: ## 未整形のファイルがないか確認する
-	@out=$$(gofmt -l .); \
+	@out=$$(gofmt -l $$($(GO) list -f '{{.Dir}}' ./...)); \
 	if [ -n "$$out" ]; then \
 		echo "gofmt が必要なファイル:"; echo "$$out"; exit 1; \
 	fi
@@ -295,6 +295,7 @@ formatters:
 
 - **抑制は行単位で行い、必ず理由を書く。** `//nolint:gosec // 引数は runner ディレクトリ配下であることを検証済み` のように、なぜ安全かを書く。ファイル単位・パッケージ単位の抑制は使わない。
 - **`gosec` の G204（可変引数での外部コマンド実行）は `internal/exec` に集中する。** 外部プロセス実行は Executor 1 本に集約する設計（[アーキテクチャ設計](../architecture/overview.md#外部コマンドの実行)）のため、抑制箇所も 1 箇所に収まる。ドメイン層に G204 の抑制が現れた場合は、**抑制ではなく設計違反**として `exec` 層経由に直す。
+- **現時点で `internal/runner/systemd.go` の `systemctl show` 呼び出しに G204 の抑制が 1 箇所ある（前項の方針に反する暫定措置）。** 集約先の `internal/exec`（Issue #3 の成果物）が未実装で、`Executor` 経由に書き換える先がまだ無いためである。#3 で `Executor` 経由に置き換え、この抑制を除去する。
 - 抑制が増えてきた場合は `.golangci.yml` の `exclusions` にルールとして書き、経緯をこのドキュメントに残す。
 
 ### go vet
@@ -311,6 +312,8 @@ formatters:
 | 整形漏れを検出する | `make fmt-check` |
 
 `gofmt -l` は未整形ファイルを列挙するだけで終了コードが 0 のままなので、`fmt-check` では出力が空であることを検証している。
+
+**`gofmt` に `.` を渡さず、`go list -f '{{.Dir}}' ./...` で解決したパッケージディレクトリだけを対象にする。** `gofmt` はパッケージ単位ではなくファイルシステムを再帰するため、`.` を渡すと作業用に切った入れ子の git worktree（別ブランチのチェックアウト）配下の `.go` ファイルまで拾い、`make fmt` が無関係なブランチのファイルを書き換えたり、`make fmt-check` が無関係な未整形ファイルで失敗したりする。`go fmt` / `go list` はパッケージパターンで解決するため、独自の `go.mod` を持つ入れ子ディレクトリは対象外になる。あわせて `make fmt` を `$(GO) fmt` に、`fmt-check` の対象解決を `$(GO) list` に寄せ、複数の Go バージョンが入った環境でも[バージョンの単一情報源](#go-バージョンを二重管理しない)から外れないようにする。
 
 import の並び順は `gocritic` / `revive` の範囲では強制しない。必要になった時点で golangci-lint の `formatters` に `goimports` を追加する（設定ファイル 1 行の追加で済むため、先回りしない）。
 
@@ -334,17 +337,31 @@ language: ja
 ```
 
 - **上限はデフォルト値のまま使う。** 上限に当たった場合は数値を上げるのではなく、分割を検討する。分割できない正当な理由がある場合のみ、理由をこのドキュメントに記録してから変更する。
-- `warning_threshold: 10` により、上限の 10 行前から警告が出る。上限に達してから慌てないための余裕である。
+- `warning_threshold: 10` は**行数ではなくパーセント**である。上限 300 行に対して `300 × (1 + 10 / 100) = 330` 行が境界になり、301〜330 行は `warn`、331 行以上が `error` になる。上限を超えた時点で即座に失敗させず、分割の猶予を持たせるための設定である。
 - `count_mode: all`（コメント・空行を含む全行を数える）は変更しない。
 
 `.linterlyignore`:
 
 ```
 # 自動生成コードのみを除外する。
-# 手書きのソースコードは除外しない（除外すれば行数管理の意味が無くなる）。
+# 手書きの Go ソースコードは除外しない（除外すれば行数管理の意味が無くなる）。
+
+# Go のモジュール管理ファイル（tool ディレクティブの推移的依存で機械的に増える）
+go.mod
+go.sum
+
+# 仕様書（Go ソースではないため行数上限の対象外）
+*.md
+
+# ツールの作業状態（人が行数を管理する対象ではない）
+.sweep/
 ```
 
-`default_excludes: true` により `.git/` や `dist/` 等は自動で除外されるため、初版では追記する項目はない。
+`default_excludes: true` は `.git/` や `dist/` 等を自動で除外するが、その既定リストに `go.mod` / `go.sum` / `*.md` / `.sweep/` は含まれないため、この 4 つは明示的に追記している。**linterly は `.gitignore` を読まない**（除外は `default_excludes` と `.linterlyignore` だけで決まる）ため、gitignore 済みのツール生成物も明示的に書く必要がある。
+
+- `go.mod` / `go.sum` は自動生成の依存マニフェストであり、行数を人が管理する対象ではない。tool ディレクティブで開発ツールを追加すると推移的依存で機械的に膨らみ、`go.sum` は初版時点で 1000 行を超える。
+- `*.md` は Go のソースではない。分割の単位は行数ではなくドキュメントとしての章立てで決まるため、行数上限の対象外とする。
+- `.sweep/` は `issue-sweep` の作業状態である。`.sweep/spinoff-draft.jsonl` はツールが 1 行ずつ追記する JSONL で、行数を人が管理する対象ではない（放置すれば上限超過で `linterly check` を落とす）。位置づけは `go.mod` / `go.sum` と同じ。
 
 | 違反レベル | 挙動 |
 |-----------|------|
@@ -399,3 +416,5 @@ pre-push:
 |----|------|---------|---------|
 | 1.0 | 2026-08-21 | 新規作成 | 初版 |
 | 1.1 | 2026-08-21 | CI のランナーを `ubuntu-latest` から self-hosted（`[self-hosted, linux, x64]`、org レベル）へ変更し、前提と fork PR ガードを追加 | 本ツールの対象環境と CI 環境を一致させるため。public リポジトリで self-hosted runner を使うと fork PR 経由でホスト上に任意コードが実行されるため、ガードを仕様として固定する必要がある |
+| 1.2 | 2026-08-21 | `.linterlyignore` に `go.mod` / `go.sum` / `*.md` を追加し、`warning_threshold` の説明をパーセント指定として修正 | 設定ファイルを実際に導入したところ、`default_excludes` の既定リストにこれらが含まれず、`go.sum`（1035 行）と 330 行超（`error` 判定）の仕様書 3 本が上限超過で `linterly check` を失敗させたため（`docs/components/overview.md` は 302 行で `warn` に留まる）。`warning_threshold` は上限までの行数ではなくパーセントとして解釈されることを実測で確認したため |
+| 1.3 | 2026-08-21 | `make fmt` / `make fmt-check` の対象をモジュール内パッケージに限定（`$(GO) fmt ./...` / `gofmt -l $$($(GO) list -f '{{.Dir}}' ./...)`）し、Format 節に理由を追記。`.linterlyignore` に `.sweep/` を追加し、冒頭コメントを「手書きの Go ソースコード」に修正。「抑制の方針」に `internal/runner/systemd.go` の G204 暫定抑制を記録 | `gofmt` はパッケージではなくファイルシステムを再帰するため、`.` 指定では作業用の入れ子 git worktree 配下まで対象に含み、`make fmt` が別ブランチのファイルを書き換えていた。`.sweep/spinoff-draft.jsonl` は追記型 JSONL でいずれ上限を超えるが、linterly は `.gitignore` を読まないため明示除外が必要。仕様に反する G204 抑制がコード側コメントにしか記録されておらず、仕様書だけでは追えなかったため |

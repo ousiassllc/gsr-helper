@@ -1,0 +1,10 @@
+rules:
+  # max_lines_per_file / max_lines_per_directory はデフォルト値（300 / 2000）を使う。
+  # 特別な理由がない限り変更しない。
+  # max_lines_per_file: 300
+  # max_lines_per_directory: 2000
+  warning_threshold: 10
+
+count_mode: all
+default_excludes: true
+language: ja
