@@ -28,6 +28,8 @@
 
 ヘッダには能力判定の結果を出す。`root` が無い場合は `read-only`、`gh` が未認証なら `gh: 未認証` と表示し、依存する操作が使えないことを示す。
 
+起動時のジョブ実行の前提チェック（[FR-44](../requirements/functional.md)）で不備が見つかった場合は、状態行に `⚠ ホスト前提 2 件（5 で詳細）` を加えて Doctor タブへ誘導する。判定は非同期なので、確定した時点で状態行に現れる。**ラベル欠落のようにジョブがエラーにならず queued で止まる種類の不備もあるため、警告は runner の稼働状態が正常でも出る。**
+
 ## Runners タブ
 
 既定画面。ホスト上の runner 一覧。
@@ -134,16 +136,18 @@
 ## Doctor タブ
 
 ```
-  診断結果   OK 14   WARN 2   FAIL 1   SKIP 1              最終実行: 12:06:20
+  診断結果   OK 12   WARN 3   FAIL 3   SKIP 1              最終実行: 12:06:20
 
-  STATUS  CATEGORY      CHECK                            TARGET
-  ✓ OK    ネットワーク  api.github.com:443 到達           -
-  ✗ FAIL  時刻          NTP 未同期（ずれ 42 秒）          -
-  ⚠ WARN  認証・権限    トークンに admin:org がない       -
-  ⚠ WARN  リソース      / の使用率 82%                   -
-  ✓ OK    docker        daemon 応答                      -
-  ⊘ SKIP  docker        使用量取得（docker が無い）        -
-▸ ✗ FAIL  障害履歴      OOM による停止履歴あり            build01-3
+  STATUS  CATEGORY          CHECK                              TARGET
+  ✓ OK    ネットワーク      api.github.com:443 到達            -
+  ✗ FAIL  時刻              NTP 未同期（ずれ 42 秒）           -
+  ⚠ WARN  認証・権限        トークンに admin:org がない        -
+  ⚠ WARN  リソース          / の使用率 82%                     -
+  ✓ OK    docker            daemon 応答                        -
+  ⊘ SKIP  docker            使用量取得（docker が無い）        -
+  ⚠ WARN  ジョブ実行の前提  docker buildx が無い               -
+  ✗ FAIL  ジョブ実行の前提  docker グループが未反映            build01-2
+▸ ✗ FAIL  障害履歴          OOM による停止履歴あり             build01-3
 ```
 
 `Enter` で詳細を開く。
@@ -162,7 +166,24 @@
    systemctl restart systemd-timesyncd
 ```
 
-対処コマンドは表示のみで、本ツールからは実行しない（診断の責務を超えるため）。
+ジョブ実行の前提（[FR-43](../requirements/functional.md)）の詳細では、`usermod` 済みでも runner を再起動していない状態を区別して示す。
+
+```
+ ✗ FAIL   ジョブ実行の前提 / docker グループが未反映   build01-2
+
+ 検出内容:
+   ユーザー runner は docker グループに所属していますが、稼働中の
+   Runner.Listener（PID 284102）の補助グループに反映されていません。
+   グループの変更は既存プロセスには適用されません。
+
+ 影響:
+   docker を使うジョブが docker socket へのアクセスで permission denied になります。
+
+ 推奨する対処:
+   systemctl restart 'actions.runner.*'
+```
+
+対処コマンドは表示のみで、本ツールからは実行しない（診断の責務を超えるため）。sudoers の編集・パッケージのインストール・`usermod` も同様に行わない（[セキュリティ設計](../architecture/security.md#パスワード不要-sudo-の要求への対応)）。
 
 ## Config タブ
 
@@ -398,3 +419,4 @@
 |----|------|---------|---------|
 | 1.0 | 2026-08-21 | 新規作成 | 初版 |
 | 1.1 | 2026-08-21 | TUI コンポーネント設計への参照を追加 | 画面を構成する部品の階層を別文書に定義したため |
+| 1.2 | 2026-08-21 | 状態行への前提不備の警告表示と、Doctor タブの「ジョブ実行の前提」カテゴリの表示例を追加 | doctor に FR-43 / FR-44 を追加したため |

@@ -173,13 +173,15 @@ runner は既定で GitHub による自動更新が有効なため、本機能�
 
 クリーンアップの候補: 古い `_work/<リポジトリ>`、`_work/_temp`、古い `_diag` ログ、`docker system prune`、`_work/_tool` の旧バージョン。
 
-### doctor（FR-32〜FR-34）
+### doctor（FR-32〜FR-34 / FR-43〜FR-44）
 
 | ID | 機能 | 内容 |
 |----|------|------|
 | FR-32 | 定型チェックの実行 | 各チェックを並列に実行し、OK / WARN / FAIL で結果を一覧表示する |
 | FR-33 | 対処の提示 | FAIL / WARN の項目には原因の説明と推奨する対処を表示する |
 | FR-34 | 再実行 | 対処後に個別または全体を再実行できる |
+| FR-43 | ジョブ実行の前提チェック | **gsr-helper 自身の動作には不要だが、欠けるとワークフローが失敗するホスト側の前提**を確認する。パスワード不要 sudo、`docker`、`docker buildx`、runner 実行ユーザーの docker グループ所属の 4 点 |
+| FR-44 | 起動時の自動判定 | FR-43 のチェックを起動時に自動実行する。ホスト内の読み取りと軽量なコマンドのみで完結する。不備があればヘッダと状態行に警告を出し、Doctor タブへ誘導する |
 
 チェック項目:
 
@@ -192,7 +194,11 @@ runner は既定で GitHub による自動更新が有効なため、本機能�
 | 時刻 | NTP 同期状態と時刻ずれ（トークン認証の失敗要因） |
 | リソース | ディスク残量、inode 残量、`/tmp` 容量、メモリ、swap |
 | 障害履歴 | カーネルログ上の OOM Killer による runner プロセスの停止履歴 |
-| docker | daemon の稼働、runner 実行ユーザーの docker グループ所属 |
+| docker | daemon の稼働 |
+| ジョブ実行の前提 | runner 実行ユーザーのパスワード不要 sudo。`setup-*` 系アクションが `sudo install` で `/usr/local/bin` へバイナリを置くため必要。欠けると `sudo: パスワードが必要です` でジョブが失敗する。**ただし付与は runner ユーザーに実質 root を与えることを意味するため、判定は WARN とし可否は運用者に委ねる**（[セキュリティ設計](../architecture/security.md#パスワード不要-sudo-の要求への対応)） |
+| ジョブ実行の前提 | `docker` の存在。欠けると `docker: command not found` |
+| ジョブ実行の前提 | `docker buildx` の存在。`docker.io` 単体では入らず、`COPY --chmod` を含む Dockerfile が BuildKit 不在で失敗する |
+| ジョブ実行の前提 | runner 実行ユーザーの docker グループ所属。欠けると docker socket が `permission denied` になる。**グループ追加は既存プロセスに反映されないため、稼働中の `Runner.Listener` の補助グループも確認し、`usermod` 後に再起動していない状態を区別して検出する** |
 | 依存コマンド | `git` / `docker` / `node` などの存在とバージョン |
 | systemd | ユニットの `Restart` 設定、環境変数、`WorkingDirectory` の整合 |
 | 構成整合 | 孤児ユニット（FR-05）、`.runner` と systemd ユニット名の不一致 |
@@ -250,3 +256,4 @@ graph LR
 | 1.1 | 2026-08-21 | doctor に `/proc` の `hidepid` チェックを追加 | セキュリティ設計で、runner 登録時にトークンがプロセス引数として他ユーザーから読める制約が判明したため |
 | 1.2 | 2026-08-21 | doctor にトークンスコープのチェックを追加 | org レベルの runner 管理に `admin:org` が必要で、`gh` の既定スコープでは不足することが判明したため |
 | 1.3 | 2026-08-21 | 画面遷移図のキー表記を画面仕様と統一 | 追加が `a`→`n`、確認を経る操作が `x/X/R/D/u` に確定したため |
+| 1.4 | 2026-08-21 | doctor に FR-43（ジョブ実行の前提チェック）と FR-44（起動時の自動判定）を追加。docker グループ所属のチェックを新カテゴリへ移動 | 実運用で、ホスト側の前提（パスワード不要 sudo / docker / buildx / docker グループ）の欠落がジョブ失敗の主要因になることが判明したため。特にグループ追加は runner 再起動まで反映されず気付きにくい |

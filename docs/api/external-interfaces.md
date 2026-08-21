@@ -98,7 +98,7 @@ gh auth refresh -h github.com -s admin:org
 | コマンド | 用途 | 対応機能 |
 |---------|------|---------|
 | `systemctl list-units --type=service --all --plain --no-legend --no-pager 'actions.runner.*'` | runner ユニットの列挙 | FR-01、FR-05 |
-| `systemctl show <unit> --no-pager -p Id -p LoadState -p ActiveState -p SubState -p UnitFileState -p WorkingDirectory -p MainPID` | ユニット状態の取得 | FR-01、FR-03 |
+| `systemctl show <unit> --no-pager -p Id -p LoadState -p ActiveState -p SubState -p UnitFileState -p WorkingDirectory -p MainPID -p User` | ユニット状態の取得。`User` は runner 実行ユーザーの特定に使う（FR-43） | FR-01、FR-03、FR-43 |
 | `systemctl start` / `stop` / `restart` / `enable` / `disable` `<unit>` | サービス制御 | FR-06 |
 | `systemctl daemon-reload` | drop-in 変更の反映 | FR-35 |
 | `journalctl -u <unit> -n <N>` / `-f` | ユニットログの参照・追従 | FR-26 |
@@ -128,6 +128,7 @@ gh auth refresh -h github.com -s admin:org
 | `docker system df --format <json>` | イメージ / コンテナ / ボリューム / ビルドキャッシュの使用量 | FR-27 |
 | `docker system prune -f` | 未使用リソースの削除 | FR-30 |
 | `docker info` | daemon の稼働確認 | 能力判定、doctor |
+| `docker buildx version` | buildx プラグインの有無とバージョン確認 | FR-43 |
 
 `docker` が無い、または daemon が応答しない場合は docker 関連の項目を除外する（能力判定）。
 
@@ -147,6 +148,9 @@ gh auth refresh -h github.com -s admin:org
 | ファイルシステムの統計（容量・inode） | 残量の取得 | FR-29、doctor |
 | ディレクトリの再帰走査 | ディスク使用量の集計 | FR-27。外部の `du` は使わず自前で走査し、進捗を出せるようにする |
 | `git` / `node` などの存在とバージョン | 依存コマンドの確認 | doctor |
+| `sudo -l -U <runner-user>` | パスワード不要 sudo（`NOPASSWD`）の判定 | FR-43。**出力は権限情報のため監査ログに残さない**（[セキュリティ設計](../architecture/security.md#パスワード不要-sudo-の要求への対応)） |
+| `/etc/group` の参照（`os/user` 経由） | runner 実行ユーザーの docker グループ所属の判定 | FR-43 |
+| `/proc/<pid>/status` の `Groups` | 稼働中の `Runner.Listener` に docker グループが反映されているかの判定 | FR-43。`usermod` 後に runner を再起動していない状態を検出する |
 
 ### ネットワーク到達性チェック（doctor）
 
@@ -167,3 +171,4 @@ TCP 接続の成否とレイテンシを確認する。到達先は runner が�
 | 版 | 日付 | 変更内容 | 変更理由 |
 |----|------|---------|---------|
 | 1.0 | 2026-08-21 | 新規作成 | 初版 |
+| 1.1 | 2026-08-21 | `systemctl show` に `User` を追加。`docker buildx version` / `sudo -l -U` / `/etc/group` / `/proc/<pid>/status` を追加 | ジョブ実行の前提チェック（FR-43）で runner 実行ユーザーの権限とグループを判定する必要が生じたため |

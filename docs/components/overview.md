@@ -168,6 +168,7 @@ runner の追加・削除・バージョン更新。最も破壊的な操作を�
 type Check interface {
     ID() string
     Category() string
+    Startup() bool // 起動時の自動実行（FR-44）の対象か
     Run(ctx context.Context, in Input) CheckResult
 }
 ```
@@ -175,6 +176,7 @@ type Check interface {
 - 各チェックを独立した `Check` の実装とし、レジストリに登録する。項目の追加が既存コードに影響しない。
 - `Run(ctx, in)` は並列に実行される。`Input` に runner 一覧と `Caps` を渡す。
 - 能力不足で実行できないチェックは `SKIP` を返し、失敗と区別する。
+- `Startup()` が真のチェックは起動時にも実行する（[FR-44](../requirements/functional.md)）。判定はレジストリの絞り込みだけで済み、doctor タブと起動時で実装が分かれない。対象はホスト内の読み取りと軽量なコマンドで完結するものに限る。
 
 ### `internal/config`
 
@@ -289,3 +291,4 @@ interface はこの 3 つに留める。ドメインごとの interface は、�
 |----|------|---------|---------|
 | 1.0 | 2026-08-21 | 新規作成 | 初版 |
 | 1.1 | 2026-08-21 | `internal/ui` を Atomic Design の階層構成に置き換え、UI 内部の依存規則とテスト配置を追加 | UI 層の部品分割を [TUI コンポーネント設計](../ui/atomic-design.md) として定義したため |
+| 1.2 | 2026-08-21 | `Check` interface に `Startup()` を追加 | 起動時の前提チェック（FR-44）を doctor のレジストリと共通の実装で扱うため |

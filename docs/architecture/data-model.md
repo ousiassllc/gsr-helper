@@ -43,6 +43,7 @@ erDiagram
         string Version "  bin/runnerversion の値"
         string WorkDir "  work フォルダの絶対パス"
         string UnitName "  .service に記録されたユニット名"
+        string RunAsUser "  runner を実行するユーザー"
         ManagedBy Managed "  systemd / run.sh / 未稼働"
         SvcState Svc "  nullable"
         Process Listener "  nullable"
@@ -58,6 +59,7 @@ erDiagram
 | `Version` | string | `<Dir>/bin/runnerversion` | 読めない場合は空 |
 | `WorkDir` | string | `Config.WorkFolder` を絶対パス化 | 既定は `<Dir>/_work` |
 | `UnitName` | string | `<Dir>/.service` | `svc.sh install` が書き出す。未サービス化なら空 |
+| `RunAsUser` | string | `systemctl show -p User` / `Listener` の UID | runner を実行するユーザー。ジョブ実行の前提チェック（[FR-43](../requirements/functional.md)）の判定対象。`User=` が空の場合は root |
 | `Managed` | ManagedBy | 判定結果 | `systemd` / `run.sh` / 未稼働 |
 | `Svc` | *SvcState | systemd | 対応ユニットがない場合 nil |
 | `Listener` | *Process | `/proc` | 稼働していなければ nil |
@@ -164,13 +166,16 @@ runner との紐付けは `UnitName`（`.service` ファイル）を第一に、
 | フィールド | 意味 |
 |-----------|------|
 | ID | チェックの識別子 |
-| Category | 認証・権限 / ネットワーク / 時刻 / リソース / 障害履歴 / docker / 依存コマンド / systemd / 構成整合 |
+| Category | 認証・権限 / ネットワーク / 時刻 / リソース / 障害履歴 / docker / **ジョブ実行の前提** / 依存コマンド / systemd / 構成整合 |
 | Target | 対象 runner（ホスト全体のチェックでは空） |
 | Status | OK / WARN / FAIL / SKIP |
 | Detail | 判定の根拠（実測値など） |
 | Remedy | 推奨する対処 |
+| Startup | 起動時の自動実行の対象か（[FR-44](../requirements/functional.md)） |
 
 `SKIP` は能力不足で実行できなかったチェック（docker が無い等）に使い、失敗と区別する。
+
+`Startup` が真のチェックは起動時にも実行される。対象はホスト内の読み取りと軽量なコマンドで完結するもの（ジョブ実行の前提）に限り、ネットワーク到達性やディスク集計を伴うものは含めない。
 
 ## ディスク上のファイル
 
@@ -268,3 +273,4 @@ defaults:
 | 版 | 日付 | 変更内容 | 変更理由 |
 |----|------|---------|---------|
 | 1.0 | 2026-08-21 | 新規作成 | 初版 |
+| 1.1 | 2026-08-21 | `Runner.RunAsUser` を追加。`CheckResult` に `Startup` とカテゴリ「ジョブ実行の前提」を追加 | ジョブ実行の前提チェック（FR-43）と起動時の自動判定（FR-44）を追加したため |
