@@ -10,3 +10,6 @@ coverage.txt
 # エディタ / OS
 .DS_Store
 *.swp
+
+# sweep（issue-sweep の作業状態）
+.sweep/

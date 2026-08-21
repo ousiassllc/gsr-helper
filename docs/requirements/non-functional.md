@@ -103,7 +103,7 @@
 
 ### CI
 
-GitHub Actions（`ubuntu-latest`）で以下を実行する。
+GitHub Actions の self-hosted runner（`runs-on: [self-hosted, linux, x64]`）で以下を実行する。前提は [環境構築 / self-hosted runner を使う前提](../environment/setup.md#self-hosted-runner-を使う前提) を参照。
 
 - `gofmt` による整形チェック
 - `go vet`
@@ -143,3 +143,4 @@ GitHub Actions（`ubuntu-latest`）で以下を実行する。
 | 1.2 | 2026-08-21 | テスト方針に UI 層の内訳を追加し、スナップショットの対象を「画面全体」に限定して明記 | UI 層を Atomic Design で階層化し、表示部品が純粋関数として単体テスト可能になったため |
 | 1.3 | 2026-08-21 | 起動時の前提チェックを非同期処理として明記 | FR-44 を追加したため。起動から一覧表示まで 1 秒以内の目標を維持する必要がある |
 | 1.4 | 2026-08-21 | 依存表で使う `bubbles` の部品を列挙し、Charm 4 つを v2 系で揃えることと表示幅ライブラリを追加しないことを明記。ユーザビリティに背景の明暗と入力中のキーの扱いを追加 | `bubbles` の用途が曖昧で、一覧を自前実装するか既存部品に載せるかが仕様から読み取れなかったため。幅計算の二重化とライブラリ版の混在は実装後に発覚すると直しにくい |
+| 1.5 | 2026-08-21 | CI の実行環境を self-hosted runner に変更 | 対象 OS と CI 環境を一致させ、`systemctl` / `journalctl` 前提の挙動を CI でも確認できるようにするため |

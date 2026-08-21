@@ -12,7 +12,7 @@
 | 対象 OS | Linux（amd64 / arm64） |
 | 成果物 | 単一バイナリ `gsr-helper` |
 | タスクランナー | Makefile |
-| CI | GitHub Actions（`ubuntu-latest`） |
+| CI | GitHub Actions（self-hosted runner） |
 | Lint | golangci-lint + `go vet` |
 | Format | gofmt（標準） |
 | 行数管理 | Linterly |
@@ -149,7 +149,7 @@ check: fmt-check vet lint linterly test ## すべてのチェックを実行す�
 | 項目 | 内容 |
 |------|------|
 | プラットフォーム | GitHub Actions |
-| ランナー | `ubuntu-latest` |
+| ランナー | self-hosted（`runs-on: [self-hosted, linux, x64]`） |
 | トリガー | `main` への push、および PR |
 | ジョブ | `lint` / `test` / `build` の 3 本を並列実行 |
 | デプロイ | なし（配布は `go install`。[非機能要件 / 可搬性](../requirements/non-functional.md#可搬性)） |
@@ -179,7 +179,8 @@ concurrency:
 
 jobs:
   lint:
-    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, linux, x64]
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v6
@@ -191,7 +192,8 @@ jobs:
       - run: make linterly
 
   test:
-    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, linux, x64]
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v6
@@ -200,7 +202,8 @@ jobs:
       - run: make test
 
   build:
-    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, linux, x64]
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v6
@@ -210,6 +213,35 @@ jobs:
 ```
 
 `actions/setup-go` はモジュールとビルドのキャッシュを既定で有効にするため、`cache` の明示指定は不要。
+
+### self-hosted runner を使う前提
+
+CI は GitHub ホストランナーではなく self-hosted runner で実行する。本ツールが管理する対象そのものの上で CI が回るため、以下を前提とする。
+
+| 項目 | 前提 |
+|------|------|
+| runner の所在 | org（`ousiassllc`）レベルに登録された runner を使う。リポジトリレベルには登録しない |
+| ラベル | `self-hosted` / `linux` / `x64` の 3 つを AND で要求する。1 つでも欠けるとジョブはエラーにならず無期限に `queued` で止まる（[ランナーホストのセットアップ](../operations/runner-host-setup.md#ラベル)） |
+| OS | Linux（amd64）。対象 OS と一致するため、GitHub ホストランナーでは検証できない `systemctl` / `journalctl` 前提の挙動もそのまま確認できる |
+| ワークスペース | ジョブ間で作業ディレクトリが再利用される。`actions/checkout` の既定（`clean: true`）に依存し、ビルド成果物を残す前提のステップを書かない |
+| ツールの導入 | Go は `actions/setup-go` がツールキャッシュへ導入する。ホストに Go を事前インストールしない（バージョンの二重管理を避ける） |
+| 並列実行 | `lint` / `test` / `build` の 3 ジョブが同時に走るため、runner は 3 台以上を稼働させる。台数が足りない場合はジョブが順番待ちになるだけで失敗はしない |
+| 権限 | CI ジョブは runner の実行ユーザー権限で動く。`sudo` を必要とするテストを CI に置かない（`Executor` のテスト実装で代替する。[非機能要件 / 保守性・テスト](../requirements/non-functional.md#保守性テスト)） |
+
+#### fork からの PR で self-hosted ジョブを起動しない
+
+self-hosted runner でワークフローを実行することは、**そのワークフローに runner の実行ユーザー権限を与える**ことを意味する（[セキュリティ設計](../architecture/security.md#パスワード不要-sudo-の要求への対応)）。本リポジトリは public であり、fork からの PR は第三者が書いた任意のコードを含むため、そのまま self-hosted runner で走らせるとホストが第三者の実行環境になる。
+
+これを防ぐため、全ジョブに次の条件を付ける。
+
+```yaml
+if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+```
+
+- `push`（`main`）では常に実行する
+- PR では **head が同一リポジトリのブランチである場合のみ**実行する。fork からの PR ではジョブが `skipped` になる
+
+fork からの PR を検証する場合は、内容を確認した上で同一リポジトリ内のブランチへ取り込み、そのブランチの PR で CI を通す。`pull_request_target` は使わない（fork の PR に対してベース側の権限でワークフローが動くため、この対策の意味が失われる）。
 
 ### 将来の拡張候補
 
@@ -366,3 +398,4 @@ pre-push:
 | 版 | 日付 | 変更内容 | 変更理由 |
 |----|------|---------|---------|
 | 1.0 | 2026-08-21 | 新規作成 | 初版 |
+| 1.1 | 2026-08-21 | CI のランナーを `ubuntu-latest` から self-hosted（`[self-hosted, linux, x64]`、org レベル）へ変更し、前提と fork PR ガードを追加 | 本ツールの対象環境と CI 環境を一致させるため。public リポジトリで self-hosted runner を使うと fork PR 経由でホスト上に任意コードが実行されるため、ガードを仕様として固定する必要がある |
