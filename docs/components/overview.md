@@ -9,7 +9,8 @@ graph TD
     Main[cmd/gsr-helper]
 
     subgraph UI[UI 層]
-        UIApp[ui<br/>親 Model・タブ・フォーム]
+        UIApp[ui<br/>親 Model / page]
+        UIParts[ui/template・organism<br/>ui/molecule・atom・token]
     end
 
     subgraph Domain[ドメイン層]
@@ -32,6 +33,8 @@ graph TD
     Main --> UIApp
     Main --> Appconf
     Main --> Audit
+
+    UIApp --> UIParts
 
     UIApp --> Runner
     UIApp --> Svc
@@ -70,6 +73,7 @@ graph TD
 | ドメイン層は `os/exec` を直接使わない | 監査ログとタイムアウトの適用漏れを防ぐ（`exec` 経由に限定） |
 | `runner` は他のドメインパッケージに依存しない | 最下層のモデルとして全体から参照されるため |
 | `exec` はドメインを知らない | 汎用のプロセス実行に留める |
+| ドメイン層を呼ぶのは `ui/page` のみ | 副作用の発生点を UI の 1 階層に閉じる。詳細は [TUI コンポーネント設計](../ui/atomic-design.md#依存の規則) |
 | 循環依存を作らない | — |
 
 ## パッケージ責務
@@ -239,17 +243,22 @@ type Executor interface {
 
 ### `internal/ui`
 
-bubbletea の Model 群。
+bubbletea の Model 群。**内部を Atomic Design で階層化する。** 部品一覧・デザイントークン・画面との対応は [TUI コンポーネント設計](../ui/atomic-design.md) に定める。ここでは階層と責務の対応のみを示す。
 
-| 要素 | 責務 |
-|------|------|
-| 親 Model | 検出結果と `Caps` を保持し、タブを管理する。3 秒ごとの再検出を駆動する |
-| 各タブ Model | 表示と自身のローカル状態のみを持つ。検出結果は親から受け取る |
-| 確認ダイアログ | 対象・影響・実行コマンド全文を表示し `y/N`（既定 N）で確認する共通コンポーネント |
-| フォーム | `huh` によるウィザードと設定編集 |
-| キーマップ | 有効・無効の判定を含めて一元管理する |
+| サブパッケージ | 階層 | 責務 |
+|--------------|------|------|
+| `ui`（`app.go`） | 親 Model | 検出結果と `Caps` を保持し、page を切り替える。3 秒ごとの再検出を駆動する |
+| `ui/page` | page | タブ 1 枚。organism を構成し、キー入力をドメイン層の `tea.Cmd` に変換する |
+| `ui/template` | template | 画面共通の枠（ヘッダ / タブ / 本体 / 状態行 / フッタ、モーダル、2 ペイン）。中身を知らない |
+| `ui/organism` | organism | ローカル状態を持つ部品。一覧（`Table`）、確認ダイアログ（`Confirm`）、ログペイン、進捗、`huh` フォーム |
+| `ui/molecule` | molecule | 1 行 / 1 区画の描画。純粋関数 |
+| `ui/atom` | atom | 最小の表示単位。純粋関数 |
+| `ui/token` | token | 色・記号・幅の定数。色と記号を対で定義し、`NO_COLOR` の縮退をここに閉じる |
 
-タブ間で共有する状態は親のみが持つ。タブが独自に検出処理を走らせることはしない。
+- タブ間で共有する状態は親のみが持つ。page が独自に検出処理を走らせることはしない。
+- 一覧と確認ダイアログはそれぞれ `organism.Table` / `organism.Confirm` の 1 実装に統一する。個別のダイアログを追加しないことで「確認を経ない破壊的操作の経路を作らない」を構造として守る。
+- キーマップは有効・無効の判定を含めて一元管理する。可否の判断は page がドメイン層（`svc.CanControl` など）に問い合わせ、`atom.KeyHint` は受け取った可否と理由を描くだけとする。
+- `atom` / `molecule` / `template` は bubbletea を import しない。
 
 ## 主要な interface 一覧
 
@@ -271,9 +280,12 @@ interface はこの 3 つに留める。ドメインごとの interface は、�
 | `Validate*`（ラベル・名前・パス） | `internal/config` のテーブルテスト |
 | コマンド発行を伴う処理 | 各ドメインで `Executor` のテスト実装に差し替え、発行コマンド列を検証 |
 | マスク処理 | `internal/exec`。キー名ベースと値一致ベースの両方 |
+| UI の表示部品（`atom` / `molecule` / `template`） | 各パッケージ。純粋関数として期待文字列と比較する（[TUI コンポーネント設計](../ui/atomic-design.md#テストの配置)） |
+| UI の状態を持つ部品（`organism` / `page`） | 各パッケージ。キー入力列に対する状態遷移と発行される `tea.Msg` / `tea.Cmd` を検証 |
 
 ## 改訂履歴
 
 | 版 | 日付 | 変更内容 | 変更理由 |
 |----|------|---------|---------|
 | 1.0 | 2026-08-21 | 新規作成 | 初版 |
+| 1.1 | 2026-08-21 | `internal/ui` を Atomic Design の階層構成に置き換え、UI 内部の依存規則とテスト配置を追加 | UI 層の部品分割を [TUI コンポーネント設計](../ui/atomic-design.md) として定義したため |

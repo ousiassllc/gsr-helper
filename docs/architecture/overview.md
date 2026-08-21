@@ -12,8 +12,8 @@ graph TD
 
     subgraph ui[internal/ui - bubbletea 層]
         App[親 Model<br/>検出結果・Caps・タブ管理]
-        Tabs[各タブ Model<br/>Runners / Logs / Disk / Doctor / Config / Setup]
-        Forms[huh フォーム<br/>設定編集・追加ウィザード]
+        Tabs[page（各タブ Model）<br/>Runners / Jobs / Disk / Logs / Doctor / Config / Setup]
+        Forms[template / organism / molecule / atom / token<br/>共通レイアウト・部品・スタイル]
     end
 
     subgraph domain[ドメイン層 - bubbletea に依存しない]
@@ -55,6 +55,7 @@ graph TD
 - **ドメイン層は bubbletea を知らない。** ドメインの関数は `context.Context` を取り値を返す普通の関数であり、UI 層がそれを `tea.Cmd` でラップして非同期に実行する。これによりドメインロジックを TUI なしでテストできる。
 - **ドメイン層は UI に依存しない。** 進捗の通知が必要な処理はチャネルまたはコールバックで結果を流し、UI 層がそれを `tea.Msg` に変換する。
 - **外部プロセスの実行は必ず `exec` 層を経由する。** ドメイン層が `os/exec` を直接呼ぶことを禁止する。監査ログとタイムアウトを漏れなく適用するための制約である。
+- **UI 層の内部も階層化する。** `internal/ui` は Atomic Design に沿って token / atom / molecule / organism / template / page に分け、依存の方向をパッケージの import で強制する。ドメイン層を `tea.Cmd` で呼ぶのは page のみとする（[TUI コンポーネント設計](../ui/atomic-design.md)）。
 
 ## 技術選定
 
