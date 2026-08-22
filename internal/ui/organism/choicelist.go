@@ -38,6 +38,12 @@ const cursorWidth = 2
 // Impact と Reason は両方与えてよい。実際にどちらを描くかは Enabled で決まる
 // （molecule.ActionView の契約。無効な項目では影響を出さず理由だけを出す）。
 type Choice struct {
+	// ID は呼び出し側が付ける不透明な識別子。決定（ChosenMsg）にそのまま載る。
+	//
+	// キーではなくこれで決定を識別するのは、キー文字列で往復させると呼び出し側が
+	// 「識別子 → キー → 識別子」と再マップすることになり、キーを差し替えたときに
+	// 決定が黙って別の操作へ移りうるためである。ChoiceList は中身を解釈しない。
+	ID            string
 	Key           string // 直接打てるキー。空なら無し
 	Desc          string // 動作の説明
 	Impact        string // 影響の併記（「⚠ 実行中のジョブは中断されます」など）
@@ -58,7 +64,11 @@ type ChoiceList struct {
 
 // ChosenMsg は選ばれた項目を page へ通知する。無効な項目では発行しない
 // （可否は判断せず、page が与えた Enabled に従う）。
+//
+// 決定を識別するのは ID である。Key は「どのキーで選ばれたか」を伝えるだけで、
+// 決定の同一性には使わない（Choice.ID の doc）。
 type ChosenMsg struct {
+	ID  string
 	Key string
 }
 
@@ -67,24 +77,35 @@ func NewChoiceList(keys keymap.List, s token.Styles) ChoiceList {
 	return ChoiceList{items: nil, cursor: 0, keys: keys, styles: s, width: 0}
 }
 
-// SetItems は項目を差し替え、カーソルを先頭（安全側）へ戻す。
+// CursorPolicy は項目を差し替えるときのカーソルの扱い。
 //
-// 詳細を開き直すたびに安全側へ戻す規則（FR-46）をここで担保する。一覧の enter → 詳細の
-// enter で破壊的操作に到達しないようにするためである。
-func (c *ChoiceList) SetItems(items []Choice) {
-	c.items = items
-	c.cursor = 0
-}
+// 差し替えの意味を**引数で必ず宣言させる**ために置く。以前は SetItems（先頭へ戻す）と
+// UpdateItems（位置を保つ）の 2 つのメソッドを並べていたが、名前だけでは取り違えが
+// 防げず、誤ると FR-46（一覧の enter → 詳細の enter で破壊的操作に到達しない）が
+// 黙って崩れる。**ゼロ値は安全側（ResetCursor）である。**
+type CursorPolicy int
 
-// UpdateItems は項目の内容を差し替え、カーソル位置を保つ。
-//
-// 同じ対象の状態が変わったとき（3 秒ごとの再検出でジョブが始まった等）に使う。
-// SetItems を使うとカーソルが先頭へ戻り、操作を選んでいる途中で選択がずれる。
-// **対象そのものを差し替えるときは SetItems を使うこと**（FR-46 の「一覧の enter →
-// 詳細の enter で破壊的操作に到達しない」は先頭へ戻すことで担保している）。
-func (c *ChoiceList) UpdateItems(items []Choice) {
+// CursorPolicy の取り得る値。
+const (
+	// ResetCursor はカーソルを先頭（安全側）へ戻す。対象そのものを差し替えるときに使う。
+	//
+	// 詳細を開き直すたびに安全側へ戻す規則（FR-46）をここで担保する。
+	ResetCursor CursorPolicy = iota
+	// KeepCursor はカーソル位置を保つ。同じ対象の内容だけが変わったときに使う。
+	//
+	// 3 秒ごとの再検出でジョブが始まった等。先頭へ戻すと、操作を選んでいる途中で
+	// 選択がずれる。件数が減った場合は末尾へ丸める。
+	KeepCursor
+)
+
+// SetItems は項目を差し替える。カーソルの扱いは policy で宣言する。
+func (c *ChoiceList) SetItems(items []Choice, policy CursorPolicy) {
 	c.items = items
-	c.cursor = min(max(c.cursor, 0), max(len(items)-1, 0))
+	if policy == KeepCursor {
+		c.cursor = min(max(c.cursor, 0), max(len(items)-1, 0))
+		return
+	}
+	c.cursor = 0
 }
 
 // Restyle は配色とキー定義を差し替える。項目とカーソル位置は保つ。
@@ -170,6 +191,6 @@ func (c ChoiceList) chose(i int) tea.Cmd {
 		return nil
 	}
 
-	chosen := ChosenMsg{Key: c.items[i].Key}
+	chosen := ChosenMsg{ID: c.items[i].ID, Key: c.items[i].Key}
 	return func() tea.Msg { return chosen }
 }

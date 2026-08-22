@@ -41,6 +41,19 @@ func (d *Detail) SetContent(lines []string) {
 	d.vp.SetContentLines(slices.Clone(lines))
 }
 
+// GotoTop はスクロール位置を先頭へ戻す。
+//
+// 対象そのものを差し替える側（別の runner の詳細を開く）が呼ぶ。位置を持ち越すと、
+// 前に読んでいた場所から始まる詳細が出て、**別の runner の情報を今の runner のものと
+// して読んでしまう**。同じ対象の内容を差し替えるだけのときは呼ばないこと
+// （3 秒ごとの再検出で読んでいた場所を失う）。
+func (d *Detail) GotoTop() {
+	d.vp.GotoTop()
+}
+
+// Offset はスクロール位置（先頭から隠している行数）を返す。
+func (d Detail) Offset() int { return d.vp.YOffset() }
+
 // SetSize は詳細に割り当てられた領域を設定する。
 func (d *Detail) SetSize(w, h int) {
 	d.vp.SetWidth(w)

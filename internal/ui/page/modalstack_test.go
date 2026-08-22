@@ -56,8 +56,7 @@ func TestOverlayHelpScopeIsPerPage(t *testing.T) {
 
 	// 幅と高さを広く取る。bubbles/help はグループを列に並べて幅で落とすため、
 	// 狭い領域では範囲の違いではなく列落ちを見てしまう。
-	o := NewOverlay(testKeys(), testStyles(), true)
-	o.SetSize(200, 40)
+	o, _ := NewOverlay(testTab, state(200, 40))
 	o.OpenHelp()
 	if !strings.Contains(o.View(), drain) {
 		t.Fatalf("既定のヘルプに runner の操作キー（%s）が無い", drain)

@@ -1,4 +1,4 @@
-package page
+package action
 
 import (
 	"slices"
@@ -9,6 +9,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/appconfig"
 	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/ui/atom"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 )
 
 // スコープ不足（admin:org）の判定はここに無い。トークンの保有スコープが必要で
@@ -18,9 +19,12 @@ import (
 
 // action は Allow の検証に使う操作を返す。識別子は既定のキー定義から引く（判定はキー
 // ではなく識別子で行うため、キーだけを渡すテストも本体と同じ対応表を通す）。
-func action(k string, supported bool) Action {
-	return Action{ID: actionIDs(testKeys().Runner)[k], Key: k, Desc: k, Supported: supported}
+func action(k string, supported bool) Def {
+	return Def{ID: testActions().byKey[k], Key: k, Desc: k, Supported: supported}
 }
+
+// testActions は既定のキー定義から組んだ操作の表を返す。
+func testActions() Set { return NewSet(testKeys().Runner) }
 
 // 操作の一覧はキー・説明・識別子のすべてを keymap から受け取る。
 //
@@ -32,8 +36,8 @@ func action(k string, supported bool) Action {
 // 「押せるが何も起きない」経路を作らない。
 func TestActionsFollowKeymap(t *testing.T) {
 	keys := testKeys().Runner
-	ids := actionIDs(keys)
-	acts := Actions(keys)
+	ids := testActions().byKey
+	acts := testActions().List()
 	if len(acts) != len(keys.Detail()) {
 		t.Fatalf("操作の件数 = %d, want %d", len(acts), len(keys.Detail()))
 	}
@@ -64,7 +68,7 @@ func TestHintsMatchSpecFooter(t *testing.T) {
 		{Key: "u", Desc: "更新"}, {Key: "e", Desc: "設定"}, {Key: "l", Desc: "ログ"},
 	}
 
-	hints := Hints(sampleRunner(), fullCaps(), testKeys().Runner)
+	hints := testActions().Hints(sampleRunner(), fullCaps(), testKeys().Runner)
 	if len(hints) != len(want) {
 		t.Fatalf("ヒントの件数 = %d, want %d", len(hints), len(want))
 	}
@@ -78,8 +82,8 @@ func TestHintsMatchSpecFooter(t *testing.T) {
 
 // 破壊的な操作は停止・強制停止・削除の 3 つで、いずれも安全な操作より後にある。
 func TestActionsMarkDestructiveLast(t *testing.T) {
-	acts := Actions(testKeys().Runner)
-	want := map[ActionID]bool{ActionStop: true, ActionKill: true, ActionDelete: true}
+	acts := testActions().List()
+	want := map[ID]bool{Stop: true, Kill: true, Delete: true}
 
 	first := len(acts)
 	for i, a := range acts {
@@ -166,13 +170,13 @@ func TestAllowPrecedence(t *testing.T) {
 		"systemd 不在が管理外より優先":      {noSystemd, standaloneRunner(), "x", reasonSystemd},
 		"認証がジョブ実行中より優先":           {noToken, busyRunner(), "D", reasonToken},
 		"ジョブ実行中が未対応より優先":          {fullCaps(), busyRunner(), "D", reasonBusy},
-		"能力が足りていれば未対応の理由になる":      {fullCaps(), sampleRunner(), "x", ReasonUnsupported},
+		"能力が足りていれば未対応の理由になる":      {fullCaps(), sampleRunner(), "x", page.ReasonUnsupported},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			// 未対応の判定が最後に来ることを見るため、実装済みとして渡す
 			// （最後のケースだけは未実装として渡す）。
-			supported := tt.want != ReasonUnsupported
+			supported := tt.want != page.ReasonUnsupported
 			ok, reason := Allow(action(tt.key, supported), tt.runner, tt.caps)
 			if ok {
 				t.Fatalf("キー %q が許可されている", tt.key)
@@ -196,7 +200,7 @@ func TestAllowPermitsAndAllowedAgrees(t *testing.T) {
 			t.Errorf("キー %q = %v/%q, want true/空", k, ok, reason)
 		}
 		wantOK, wantReason := Allow(action(k, false), sampleRunner(), noRoot)
-		gotOK, gotReason := Allowed(k, sampleRunner(), noRoot, keys)
+		gotOK, gotReason := NewSet(keys).Allowed(k, sampleRunner(), noRoot)
 		if gotOK != wantOK || gotReason != wantReason {
 			t.Errorf("Allowed(%q) = %v/%q, want %v/%q", k, gotOK, gotReason, wantOK, wantReason)
 		}
@@ -205,7 +209,7 @@ func TestAllowPermitsAndAllowedAgrees(t *testing.T) {
 
 // フッタのキーヒントは可否と理由を持つ。
 func TestHintsCarryReasons(t *testing.T) {
-	for _, h := range Hints(sampleRunner(), fullCaps(), testKeys().Runner) {
+	for _, h := range testActions().Hints(sampleRunner(), fullCaps(), testKeys().Runner) {
 		if h.Enabled {
 			t.Errorf("キー %q が有効になっている（この版では未対応のはず）", h.Key)
 		}
@@ -217,8 +221,8 @@ func TestHintsCarryReasons(t *testing.T) {
 
 // 操作リストは区切り線を 1 本だけ持ち、最初の破壊的な操作の前に置く。
 func TestChoicesDivider(t *testing.T) {
-	items := Choices(sampleRunner(), fullCaps(), testKeys().Runner)
-	acts := Actions(testKeys().Runner)
+	items := testActions().Choices(sampleRunner(), fullCaps())
+	acts := testActions().List()
 	if len(items) != len(acts) {
 		t.Fatalf("項目の件数 = %d, want %d", len(items), len(acts))
 	}
@@ -244,7 +248,7 @@ func TestChoicesDivider(t *testing.T) {
 // 影響の併記は強制停止と削除だけが持つ（screens.md の詳細画面）。
 func TestChoicesImpact(t *testing.T) {
 	withImpact := []string{}
-	for _, c := range Choices(sampleRunner(), fullCaps(), testKeys().Runner) {
+	for _, c := range testActions().Choices(sampleRunner(), fullCaps()) {
 		if c.Impact != "" {
 			withImpact = append(withImpact, c.Key)
 		}
@@ -257,7 +261,7 @@ func TestChoicesImpact(t *testing.T) {
 
 // 管理状態が判定できないときは、systemd 経路に依存する操作だけを専用の理由で塞ぐ。
 //
-// 汎用の未対応（ReasonUnsupported）に落ちると、利用者は塞がれた原因を知れない。
+// 汎用の未対応（page.ReasonUnsupported）に落ちると、利用者は塞がれた原因を知れない。
 // 強制停止とドレインは worker のプロセスに作用するので残す。
 func TestAllowBlocksManagedUnknown(t *testing.T) {
 	r := standaloneRunner()
@@ -285,10 +289,10 @@ func TestAllowFollowsReboundKey(t *testing.T) {
 	keys.Stop = key.NewBinding(key.WithKeys("Q"), key.WithHelp("Q", "停止"))
 	caps := fullCaps()
 
-	if _, reason := Allowed("Q", standaloneRunner(), caps, keys); reason != reasonStandalone {
+	if _, reason := NewSet(keys).Allowed("Q", standaloneRunner(), caps); reason != reasonStandalone {
 		t.Errorf("差し替え後の停止キーの理由 = %q, want %q", reason, reasonStandalone)
 	}
-	if _, reason := Allowed("x", standaloneRunner(), caps, keys); reason == reasonStandalone {
+	if _, reason := NewSet(keys).Allowed("x", standaloneRunner(), caps); reason == reasonStandalone {
 		t.Error("差し替え前の x に停止の判定が残っている")
 	}
 }

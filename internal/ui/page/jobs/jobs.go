@@ -15,6 +15,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/ui/atom"
 	"github.com/ousiassllc/gsr-helper/internal/ui/organism/table"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/action"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/runnerdetail"
 )
 
@@ -33,6 +34,11 @@ type Model struct {
 	st      page.StateMsg
 	tbl     table.Model[row]
 	overlay page.Overlay
+	// actions はキー定義から 1 度だけ組んだ操作の表。描画のたびに組み直さない
+	// （action.Set の doc）。
+	actions action.Set
+	// initCmd はモーダルを登録したときに返った Cmd。最初の共有状態で流し、nil に落とす。
+	initCmd tea.Cmd
 }
 
 // tea.Model を実装していることをコンパイル時に確かめる。
@@ -43,17 +49,22 @@ var _ tea.Model = Model{}
 // モーダルは画面が登録する（page.Overlay の doc）。Jobs タブが開くのは runner の
 // 詳細画面だけで、操作対象がジョブではなく runner であることと対応する（FR-47）。
 func New(tab int, st page.StateMsg) Model {
-	overlay := page.NewOverlay(st.Keys, st.Styles, st.Dark)
-	overlay.Register(runnerdetail.Kind, runnerdetail.New(st))
+	// ヘルプと詳細画面、どちらの登録が返した Cmd も畳み込む（runners.go と同じ理由）。
+	overlay, help := page.NewOverlay(tab, st)
+	detail := overlay.Register(runnerdetail.Kind, runnerdetail.New(st))
+	cmd := tea.Batch(help, detail)
 	return Model{
 		tab:     tab,
 		st:      st,
 		tbl:     newTable(st.Keys, st.Styles),
 		overlay: overlay,
+		actions: action.NewSet(st.Keys.Runner),
+		initCmd: cmd,
 	}
 }
 
-// Init は初期化の Cmd を返す。検出は親が駆動するため、ここでは何も発行しない。
+// Init は何も発行しない。親はタブの Init を呼ばないため、登録が返した Cmd は
+// 最初の page.StateMsg で流す（runners.go の Init と同じ理由）。
 func (m Model) Init() tea.Cmd { return nil }
 
 // Update は共有状態の反映とキー入力の解釈を行う。
@@ -63,6 +74,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.setState(msg)
 	case tea.KeyPressMsg:
 		return m.handleKey(msg)
+	case page.ResultMsg:
+		// モーダルが返した決定は page が受ける（runners.go と同じ理由）。
+		// page.Overlay.Handles が ResultMsg に偽を返すことと合わせた二重の守りで
+		// あり、並びは関係しない（型スイッチの default は常に最後に評価される）。
+		return m, m.chrome()
 	default:
 		return m.forward(msg)
 	}
@@ -83,19 +99,31 @@ func (m Model) View() tea.View {
 // setState は共有状態のスナップショットを反映する。ドメイン層は呼ばない。
 func (m Model) setState(st page.StateMsg) (tea.Model, tea.Cmd) {
 	m.st = st
+	m.actions = action.NewSet(st.Keys.Runner)
 	// 配色を配り直すのは runners.go と同じ理由（table.Model.Restyle の doc）。
 	m.tbl.Restyle(st.Keys.List, st.Styles)
 	m.tbl.SetSize(st.BodyW, st.BodyH)
 	m.tbl.SetItems(sectionJobs, jobRows(st.Result.Runners))
+	// 登録の Cmd は return より前に取り出す（runners.go と同じ理由。同じ return 文に
+	// 置くと、返り値 m の読み取りと m.initCmd の破棄の評価順が未規定になる）。
+	init := m.flushInit()
 	// モーダルが返す Cmd も親へ渡す（runners.go と同じ理由）。
 	cmd := m.overlay.SetState(st)
-	return m, tea.Batch(m.chrome(), cmd)
+	return m, tea.Batch(m.chrome(), init, cmd)
 }
 
-// forward はキー以外の Msg を配る。モーダル表示中は最上位のモーダルにのみ渡す。
+// flushInit は登録が返した Cmd を 1 度だけ返す（runners.go と同じ理由）。
+func (m *Model) flushInit() tea.Cmd {
+	cmd := m.initCmd
+	m.initCmd = nil
+	return cmd
+}
+
+// forward はキー以外の Msg を配る。宛先の判定は page.Overlay.Handles に任せる
+// （runners.go と同じ理由）。
 func (m Model) forward(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
-	if m.overlay.Active() {
+	if m.overlay.Handles(msg) {
 		m.overlay, cmd = m.overlay.Update(msg)
 		return m, tea.Batch(m.chrome(), cmd)
 	}
@@ -108,35 +136,36 @@ func (m Model) forward(msg tea.Msg) (tea.Model, tea.Cmd) {
 // 入力中とモーダル表示中は**親へ差し戻さない**。グローバルキーを閉じ込められるのは
 // この判定を持つ page だけである（page.GlobalKeyMsg の doc）。
 func (m Model) handleKey(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
 	switch {
 	case m.tbl.Filtering(), m.overlay.Active():
 		return m.forward(press)
 	case key.Matches(press, m.st.Keys.Global.Help):
-		m.overlay.OpenHelp()
+		cmd = m.overlay.OpenHelp()
 	case key.Matches(press, m.st.Keys.List.Enter):
-		m.openDetail()
+		cmd = m.openDetail()
 	case key.Matches(press, m.st.Keys.Global.Back):
 		m.tbl.ClearFilter()
 	default:
 		// 自分が解釈しないキーは一覧へ渡し、同時に親へ差し戻す。タブ切替・再読み込み・
 		// 終了を解釈するのは親であり、一覧のキーと衝突しないことは keymap の
 		// TestNoDuplicateKeysInSameContext が担保する。
-		next, cmd := m.forward(press)
-		return next, tea.Batch(cmd, page.BubbleKey(press))
+		next, c := m.forward(press)
+		return next, tea.Batch(c, page.BubbleKey(press))
 	}
-	return m, m.chrome()
+	return m, tea.Batch(m.chrome(), cmd)
 }
 
 // openDetail はカーソル位置のジョブを実行している runner の詳細画面を開く（FR-47）。
 //
 // ジョブ単体を止める機能は持たない。ホスト側からは Runner.Worker を強制終了する
 // しかなく、ジョブが失敗として記録されるためである（screens.md の Jobs タブ）。
-func (m *Model) openDetail() {
+func (m *Model) openDetail() tea.Cmd {
 	cur, ok := m.tbl.Selected()
 	if !ok {
-		return
+		return nil
 	}
-	runnerdetail.Open(&m.overlay, cur.runner, m.st.Caps)
+	return runnerdetail.Open(&m.overlay, cur.runner, m.st.Caps)
 }
 
 // chrome は親へ本体以外の状態を知らせる Cmd を返す。
@@ -200,7 +229,7 @@ func (m Model) footer() []atom.Hint {
 	})
 	for _, f := range footer {
 		k := page.BindingKey(f.Binding)
-		enabled, reason := page.Allowed(k, cur.runner, m.st.Caps, keys)
+		enabled, reason := m.actions.Allowed(k, cur.runner, m.st.Caps)
 		hints = append(hints, atom.Hint{
 			Key:     k,
 			Desc:    f.Desc,

@@ -1,0 +1,147 @@
+package runnerdetail
+
+import (
+	"testing"
+
+	tea "charm.land/bubbletea/v2"
+
+	"github.com/ousiassllc/gsr-helper/internal/ui/organism"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/action"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
+)
+
+// 詳細画面で決めた操作は、発行元のタブ番号を載せて page へ戻る（Issue #26）。
+//
+// 修正前は operation の決定（organism.ChosenMsg）が Overlay 経由で詳細画面自身へ
+// 戻り、情報部の viewport で捨てられていた。さらにタブ番号が載らないため、
+// タブを切り替えている間に返った結果は「そのとき選択中のタブ」へ配られていた。
+func TestChosenReturnsToPageWithOriginTab(t *testing.T) {
+	o := newOverlayWithDetail(80, 20)
+	Open(&o, pagetest.SampleRunner(), pagetest.Caps())
+
+	chosen := organism.ChosenMsg{ID: action.Start.String(), Key: "s"}
+	o, cmd := o.Update(chosen)
+	if cmd == nil {
+		t.Fatal("決定が Cmd にならず捨てられている")
+	}
+
+	tabbed, ok := cmd().(page.TabMsg)
+	if !ok {
+		t.Fatalf("決定の包み = %T, want page.TabMsg（タブ番号が載っていない）", cmd())
+	}
+	if tabbed.Tab != testTab {
+		t.Errorf("差し戻し先のタブ = %d, want %d", tabbed.Tab, testTab)
+	}
+
+	res, ok := tabbed.Msg.(page.ResultMsg)
+	if !ok {
+		t.Fatalf("包まれた Msg = %T, want page.ResultMsg", tabbed.Msg)
+	}
+	if res.Kind != Kind {
+		t.Errorf("決定の出どころ = %q, want %q", res.Kind, Kind)
+	}
+	got, isChosen := res.Msg.(ChosenMsg)
+	if !isChosen {
+		t.Fatalf("決定の中身 = %T, want runnerdetail.ChosenMsg", res.Msg)
+	}
+	// 決定は ActionID のまま届く（キー文字列に戻らない。Issue #34）。
+	if got.Action != action.Start {
+		t.Errorf("決定の操作 = %v, want %v", got.Action, action.Start)
+	}
+	if got.Runner.Dir != pagetest.SampleRunner().Dir {
+		t.Errorf("決定に添えた runner = %q, want %q", got.Runner.Dir, pagetest.SampleRunner().Dir)
+	}
+
+	// 決定は page が解釈する。Overlay へ戻すと詳細画面自身へ帰って捨てられる。
+	if o.Handles(res) {
+		t.Error("決定が Overlay へ配られている（page に届かない）")
+	}
+}
+
+// 詳細画面を開いた後に届いた宛先付きの Msg は、閉じた後でも詳細画面へ届く。
+//
+// 開いた瞬間に処理を始めるモーダル（#9 のログ購読）が結果を回収できるようにする。
+func TestAddressedMsgReachesDetailAfterClose(t *testing.T) {
+	o := newOverlayWithDetail(80, 20)
+	Open(&o, pagetest.SampleRunner(), pagetest.Caps())
+	o.Close()
+	if o.Active() {
+		t.Fatal("閉じていない（前提が崩れている）")
+	}
+
+	if !o.Handles(page.ModalMsg{Kind: Kind, Msg: nil}) {
+		t.Fatal("閉じた後の宛先付き Msg が捨てられている")
+	}
+
+	// 閉じた後に届いた OpenMsg でも対象を差し替えられる（宛先を失っていない）。
+	other := pagetest.StandaloneRunner()
+	other.Dir = "/opt/runners/late"
+	o, _ = o.Update(page.ModalMsg{
+		Kind: Kind,
+		Msg:  OpenMsg{Runner: other, Caps: pagetest.Caps()},
+	})
+	if got := detailOf(t, o).Title(); got != other.Name()+"  詳細" {
+		t.Errorf("閉じた後に届いた Msg 後の見出し = %q, want %q", got, other.Name()+"  詳細")
+	}
+}
+
+// tea.Model の型検査（詳細画面のモーダルが Overlay の期待する形であること）。
+var _ tea.Model = modal{}
+
+// 解けない識別子の決定は捨てる（表示層が勝手に付けた値を実行しない）。
+func TestChosenWithUnknownIDIsIgnored(t *testing.T) {
+	o := newOverlayWithDetail(80, 20)
+	Open(&o, pagetest.SampleRunner(), pagetest.Caps())
+
+	if _, cmd := o.Update(organism.ChosenMsg{ID: "でたらめ", Key: "s"}); cmd != nil {
+		t.Error("解けない識別子の決定が page へ差し戻されている")
+	}
+}
+
+// 詳細画面が内側で発行した Cmd の結果は、この詳細画面へ戻るように包まれる。
+//
+// 包まないと結果は「そのとき選択中のタブの最上位のモーダル」へ配られる。操作リストの
+// 決定（organism.ChosenMsg）は上の case が受ける前提であり、確認モーダルを重ねた後や
+// タブを切り替えた後に届くと宛先を失って捨てられる（Issue #26 が塞いだ経路）。
+//
+// この版の操作はすべて未対応で決定に到達しないため、実行できる項目を直に置いて
+// default 分岐（キーを詳細画面へ渡す経路）を通す。
+func TestDetailCmdIsAddressedBackToDetail(t *testing.T) {
+	m := modal{tab: testTab, detail: newModel(pagetest.Keys(), pagetest.Styles())}
+	m.detail.list.SetItems([]organism.Choice{{
+		ID: action.Start.String(), Key: "s", Desc: "開始", Enabled: true,
+	}}, organism.ResetCursor)
+
+	// どの項目にも当たらないキーでは何も発行しない（nil を包まない）。
+	if _, cmd := m.Update(pagetest.Press("z")); cmd != nil {
+		t.Errorf("何も選ばれていないのに Cmd が発行されている（%T）", cmd())
+	}
+
+	_, cmd := m.Update(pagetest.Press("s"))
+	if cmd == nil {
+		t.Fatal("操作リストが返した Cmd が捨てられている")
+	}
+
+	tabbed, ok := cmd().(page.TabMsg)
+	if !ok {
+		t.Fatalf("包み = %T, want page.TabMsg（タブ番号が載っていない）", cmd())
+	}
+	if tabbed.Tab != testTab {
+		t.Errorf("差し戻し先のタブ = %d, want %d", tabbed.Tab, testTab)
+	}
+	to, ok := tabbed.Msg.(page.ModalMsg)
+	if !ok {
+		t.Fatalf("包まれた Msg = %T, want page.ModalMsg（宛先が無い）", tabbed.Msg)
+	}
+	if to.Kind != Kind {
+		t.Errorf("宛先の種類 = %q, want %q", to.Kind, Kind)
+	}
+	got, isChosen := to.Msg.(organism.ChosenMsg)
+	if !isChosen {
+		t.Fatalf("届く Msg = %T, want organism.ChosenMsg", to.Msg)
+	}
+	if got.ID != action.Start.String() {
+		t.Errorf("届く決定の ID = %q, want %q", got.ID, action.Start.String())
+	}
+}

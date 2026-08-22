@@ -497,7 +497,7 @@ issues:
   | ファイル | 件数 | 抑制している検査 | 対象と根拠 |
   |---|---|---|---|
   | `internal/exec/command/command.go` | 1 | 可変引数での外部コマンド実行（G204） | シェルを経由せず実行ファイルと引数配列を直接渡すため、メタ文字によるコマンド注入が成立しない。`-` で始まる値によるオプションインジェクションは入力検証（`internal/setup`）の責務 |
-  | `internal/ui/page/actions.go` | 1 | ハードコードされた資格情報（G101）の誤検知 | 認証を促す画面上の説明文であり、資格情報を含まない |
+  | `internal/ui/page/action/allow.go` | 1 | ハードコードされた資格情報（G101）の誤検知 | 認証を促す画面上の説明文であり、資格情報を含まない |
   | `internal/runner/config.go` | 3 | 変数を使ったファイル読み取り（G304） | `.runner` / `bin/runnerversion` / `.service`。下記「事前条件に依拠する根拠」 |
   | `internal/runner/procs/procs.go` | 1 | 同上（G304） | `/proc/<PID>/cmdline`。下記「数値検証による根拠」 |
   | `internal/appconfig/config.go` | 1 | 同上（G304） | `path` は利用者が指定した設定ファイルの位置そのもの（読み込みが本関数の目的）。`Clean` 済みで、内容は `Config` の形にのみデコードする |
@@ -706,3 +706,4 @@ pre-push:
 | 1.16 | 2026-08-22 | 多層防御表の `guard` 行の「現状」を required status check への指定が未設定である実測に訂正し、ゲートの位置づけを本文でもマージゲートは指定して初めて効く条件付きの記述に揃えた。「抑制の棚卸し」の箇条書きから現存しない `internal/runner/systemd.go` の G204 抑制への言及と件数の断定を外し、同じ断定が残っていた改訂履歴 1.13 の記述も同じ粒度へ直した。`dependabot.yml` のコードブロックを実体と同期 | 実測で `gh api repos/ousiassllc/gsr-helper/branches/main/protection` が 404 `Branch not protected`、`rulesets` が `[]` であり、`guard` を required status check として扱う記述は運用の実態と食い違っていた。抑制の件数・ファイルパスは PR #25 以降の移動に追随できておらず（棚卸しは Issue #44 の範囲）、本文で断定を外した以上、改訂履歴側に「G304 抑制 4 件を裏取りできなかった」という断定を残すと同一版の中で断定と否認が同居する。`dependabot.yml` は仕様書のコードブロックと実体が食い違っており、`internal/buildconfig` の同期テストの対象にも入っていなかった |
 | 1.17 | 2026-08-22 | 1.12 の変更理由から、削除済みの `ScanUnits` の名指しを外した | `internal/runner` の再公開面を絞って `Discover` を唯一の入口にしたため、存在しない識別子を指したままになっていた（Issue #42） |
 | 1.18 | 2026-08-22 | 「抑制の方針」の棚卸しを現在のツリーに合わせて全面的に更新。除去済みの `internal/runner/systemd.go` の G204 暫定抑制への言及を「方針は満たされている（抑制は `internal/exec/command/command.go` の 1 箇所）」に置き換え、G304 4 件の記述を現存する 9 件すべての表に差し替えた（`internal/runner/procs.go` → `internal/runner/procs/procs.go` の移動、`internal/appconfig` / `internal/audit` の抑制の追加を反映）。G コード別の件数を出力から機械的に検算できない理由と、`_test.go` に実際の抑制指示が無いこと（`internal/buildconfig` に現れる `//nolint` はフィクスチャ文字列とガードテスト自身のコメント・正規表現・メッセージであり、`countNolintInTree` が `_test.go` を除くため棚卸しに影響しない）を明記し、棚卸しが Issue #44 の範囲だとする但し書きを削除 | 記述が PR #25 の移動・分割に追随しておらず、存在しないファイル（`internal/runner/systemd.go` / `internal/runner/procs.go`）と存在しない抑制を指していた。`nolintlint` の `require-specific` はリンター名しか要求しないためツリー内の抑制はすべて裸の `//nolint:gosec` であり、「4 件」という G コード別の数え方は出力から検算できない（Issue #44） |
+| 1.19 | 2026-08-22 | 「抑制の方針」の棚卸しの表で `internal/ui/page/actions.go` を `internal/ui/page/action/allow.go` に訂正 | 可否の判定を `ui/page/action` へ分離した際にファイルが移動しており（[TUI コンポーネント設計](../ui/atomic-design.md) 1.12）、棚卸しが存在しないファイルを挙げたままになっていた。`TestSetupDocNolintInventoryMatchesTree` がこのずれを検出した |

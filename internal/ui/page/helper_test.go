@@ -3,13 +3,12 @@ package page
 import (
 	"strings"
 	"testing"
-	"time"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/ousiassllc/gsr-helper/internal/appconfig"
+	"github.com/ousiassllc/gsr-helper/internal/exec"
 	"github.com/ousiassllc/gsr-helper/internal/runner"
-	"github.com/ousiassllc/gsr-helper/internal/runner/scope"
 	"github.com/ousiassllc/gsr-helper/internal/ui/atom"
 	"github.com/ousiassllc/gsr-helper/internal/ui/keymap"
 	"github.com/ousiassllc/gsr-helper/internal/ui/token"
@@ -39,68 +38,34 @@ func testStyles() token.Styles {
 	return token.NewStyles(true, false)
 }
 
-// fullCaps はすべての能力がある状態。
-func fullCaps() appconfig.Caps {
-	return appconfig.Caps{
-		Root:        true,
-		Systemd:     true,
-		Docker:      true,
-		Journal:     true,
-		GitHubToken: true,
-		SudoUser:    "ousiass",
-	}
-}
-
-// sampleRunner は systemd 管理で稼働中の runner を返す。
-func sampleRunner() runner.Runner {
-	unit := "actions.runner.foo.build01-1.service"
-	return runner.Runner{
-		Dir: "/opt/runners/build01-1",
-		Config: runner.Config{
-			AgentID: 1, AgentName: "build01-1", PoolID: 0, PoolName: "",
-			ServerURL: "", GitHubURL: "https://github.com/orgs/foo",
-			WorkFolder: "_work", Ephemeral: false, DisableUpdate: true,
-		},
-		Scope:     scope.Scope{Kind: scope.Org, Owner: "foo", Repo: ""},
-		Version:   "2.309.0",
-		WorkDir:   "/opt/runners/build01-1/_work",
-		UnitName:  unit,
-		RunAsUser: "runner",
-		Managed:   runner.ManagedSystemd,
-		Svc: &runner.SvcState{
-			Unit: unit, Load: "loaded", Active: "active", Sub: "running",
-			FileState: "enabled", WorkingDir: "/opt/runners/build01-1",
-			User: "runner", MainPID: 284102,
-		},
-		Listener: &runner.Process{
-			PID: 284102, Kind: runner.ProcListener, Dir: "/opt/runners/build01-1",
-			Started: time.Now().Add(-time.Hour), Exe: "", UID: 1000,
-		},
-		Workers: nil,
-	}
-}
-
-// busyRunner はジョブを実行中の runner を返す。
-func busyRunner() runner.Runner {
-	r := sampleRunner()
-	r.Workers = []runner.Process{{
-		PID: 284193, Kind: runner.ProcWorker, Dir: r.Dir,
-		Started: time.Now().Add(-4 * time.Minute), Exe: "", UID: 1000,
-	}}
-	return r
-}
-
-// standaloneRunner は run.sh を直起動している runner を返す。
-func standaloneRunner() runner.Runner {
-	r := sampleRunner()
-	r.UnitName = ""
-	r.Svc = nil
-	r.Managed = runner.ManagedStandalone
-	return r
-}
-
 // testKeys はキー定義の集約を返す。
 func testKeys() keymap.Set { return keymap.New() }
+
+// testTab は検証で使うタブ番号。0 以外にして、配られる番号が既定値でないことを見る。
+const testTab = 2
+
+// testRunnerDir は共有状態に載せる runner の同一性。中身が配られたことを見るための値。
+const testRunnerDir = "/opt/runners/build01-1"
+
+// state は本体の領域だけを指定した共有状態を返す。
+//
+// 領域を配る唯一の経路は SetState である（Overlay は SetSize を持たない。
+// 持たせても次の共有状態で黙って巻き戻る）。
+//
+// **配色とキー定義以外（Result / Caps / Exec）も埋める。** 空にすると、共有状態の
+// 一部だけを配る実装（Issue #32 以前の StateMsg{Keys, Styles}）でも検証が通る。
+func state(w, h int) StateMsg {
+	return StateMsg{
+		Result: runner.Result{Runners: []runner.Runner{{Dir: testRunnerDir}}},
+		Caps:   appconfig.Caps{Systemd: true, SudoUser: "ousiass"},
+		Exec:   exec.NewFake(),
+		Keys:   testKeys(),
+		Styles: testStyles(),
+		Dark:   true,
+		BodyW:  w,
+		BodyH:  h,
+	}
+}
 
 // stubModal は登録したモーダルが受け取った Msg を記録するテスト用の中身。
 //
@@ -109,20 +74,40 @@ func testKeys() keymap.Set { return keymap.New() }
 type stubModal struct {
 	body   string
 	keys   []string
+	msgs   []tea.Msg // キー・共有状態・大きさ・タブ番号以外に届いた Msg
 	states int
-	size   SizeMsg
+	// state は最後に受け取った共有状態。**中身を保つ**のは、件数だけを数えると
+	// 一部のフィールドしか配らない実装でも検証が通るためである（Issue #32）。
+	state StateMsg
+	sizes int // 受け取った SizeMsg の回数（変化時のみ配られることを見る）
+	size  SizeMsg
+	tab   int  // AttachMsg で受け取ったタブ番号
+	back  bool // esc を自分で解釈するか（Modal.HandlesBack が返す値）
 }
+
+// stubEcho は stubModal が受け取った Msg をそのまま返す Cmd の結果。
+//
+// Register / Open が返す Cmd が捨てられていないことを、種類に依らず確かめるために置く。
+type stubEcho struct{ Msg tea.Msg }
 
 // tea.Model を実装していることをコンパイル時に確かめる。
 var _ tea.Model = (*stubModal)(nil)
 
 // newStub は本文を持つモーダルを組み立てる。
 func newStub(body string) Modal {
+	m := &stubModal{
+		body: body, keys: nil, msgs: nil, states: 0, state: StateMsg{}, sizes: 0,
+		size: SizeMsg{W: 0, H: 0}, tab: -1, back: false,
+	}
 	return Modal{
-		Model: &stubModal{body: body, keys: nil, states: 0, size: SizeMsg{W: 0, H: 0}},
+		Model: m,
 		Title: func(tea.Model) string { return body },
 		Hints: func(tea.Model) []atom.Hint {
 			return []atom.Hint{{Key: "y", Desc: "実行", Enabled: true, Reason: ""}}
+		},
+		HandlesBack: func(model tea.Model) bool {
+			s, ok := model.(*stubModal)
+			return ok && s.back
 		},
 	}
 }
@@ -135,10 +120,19 @@ func (m *stubModal) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.keys = append(m.keys, msg.String())
 	case StateMsg:
 		m.states++
+		m.state = msg
 	case SizeMsg:
 		m.size = msg
+		m.sizes++
+	case AttachMsg:
+		m.tab = msg.Tab
+	default:
+		m.msgs = append(m.msgs, msg)
 	}
-	return m, nil
+	// 受け取った Msg を Cmd にして返す。呼び出し側が Cmd を捨てていないことを
+	// 種類に依らず確かめられるようにするためである。
+	echo := stubEcho{Msg: msg}
+	return m, func() tea.Msg { return echo }
 }
 
 func (m *stubModal) View() tea.View { return tea.NewView(m.body) }

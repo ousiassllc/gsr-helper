@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -9,36 +8,22 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/appconfig"
 	"github.com/ousiassllc/gsr-helper/internal/exec"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
 )
 
 // テストは内部テスト（package ui）にしてある。タブのメタ情報・tickMsg・chrome は
 // 非公開であり、タブを差し替えて「共有状態が全 page に配られるか」を見るために
 // 内側へ触る必要があるためである。
+//
+// 共通の道具（キー入力の組み立て・能力・Cmd の展開・長寿命の処理を持つ page）は
+// page/pagetest から取る。ここへ書き写すと、親と page で検証の前提が食い違ううえ、
+// ui 直下の行数（1 ディレクトリ 2000 行）を道具立てで押し上げることになる。
 
-// press はキー入力の Msg を作る。文字キーは Text、特殊キーは Code で表す。
-func press(k string) tea.KeyPressMsg {
-	special := map[string]rune{
-		"space": tea.KeySpace, "enter": tea.KeyEnter, "esc": tea.KeyEscape, "tab": tea.KeyTab,
-	}
-	if code, ok := special[k]; ok {
-		return tea.KeyPressMsg{Code: code}
-	}
-	if k == "shift+tab" {
-		return tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift}
-	}
-	if rest, ok := strings.CutPrefix(k, "ctrl+"); ok {
-		return tea.KeyPressMsg{Code: rune(rest[0]), Mod: tea.ModCtrl}
-	}
-	return tea.KeyPressMsg{Text: k, Code: []rune(k)[0]}
-}
+// press はキー入力の Msg を作る。
+func press(k string) tea.KeyPressMsg { return pagetest.Press(k) }
 
 // testCaps はすべての能力がある状態。
-func testCaps() appconfig.Caps {
-	return appconfig.Caps{
-		Root: true, Systemd: true, Docker: true, Journal: true,
-		GitHubToken: true, SudoUser: "ousiass",
-	}
-}
+func testCaps() appconfig.Caps { return pagetest.Caps() }
 
 // newApp は親 Model を組み立てる。走査ルートを空にして検出の入力を最小にする。
 func newApp(ex exec.Executor) App {
@@ -138,19 +123,14 @@ func applyChrome(a App, cmd tea.Cmd) App {
 	return a
 }
 
-// cmdList は Batch の Cmd を展開して返す。
+// cmdList は Batch / Sequence の Cmd を展開して返す。中の Cmd は実行しない。
+func cmdList(cmd tea.Cmd) []tea.Cmd { return pagetest.Expand(cmd) }
+
+// asCmds は Msg が Cmd の並び（Batch / Sequence）ならその中身を返す。
 //
-// 中の Cmd は実行しない。実行すると Tick が自動更新の間隔だけ待ち、検出が
-// ホストを走査してしまう。
-func cmdList(cmd tea.Cmd) []tea.Cmd {
-	if cmd == nil {
-		return nil
-	}
-	if batch, ok := cmd().(tea.BatchMsg); ok {
-		return batch
-	}
-	return []tea.Cmd{cmd}
-}
+// **Batch と Sequence は区別できない**（pagetest.Cmds の doc）。順序そのものを
+// 検証する側は Msg の型で判別すること（lifecycle_test.go の終了の検証）。
+func asCmds(msg tea.Msg) ([]tea.Cmd, bool) { return pagetest.Cmds(msg) }
 
 // update は Msg を 1 つ渡し、App と Cmd を返す。
 func update(a App, msg tea.Msg) (App, tea.Cmd) {

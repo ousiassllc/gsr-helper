@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
@@ -15,14 +16,17 @@ import (
 // detailChoices は詳細画面の操作リストに相当する項目を返す。
 //
 // 区切り線の下に破壊的な操作を置く並びは screens.md の詳細画面に合わせる。
+//
+// **ID はキーと別の綴りにする。** 同じにすると、決定がキー文字列で往復していても
+// 検証が通ってしまう（Issue #34 が塞いだ経路）。
 func detailChoices() []organism.Choice {
 	return []organism.Choice{
-		{Key: "l", Desc: "ログを開く", Enabled: true},
-		{Key: "s", Desc: "開始", Enabled: false, Reason: "稼働中のため不要"},
-		{Key: "d", Desc: "ドレイン停止", Enabled: true},
-		{Key: "X", Desc: "強制停止", Enabled: true, DividerBefore: true,
+		{ID: "logs", Key: "l", Desc: "ログを開く", Enabled: true},
+		{ID: "start", Key: "s", Desc: "開始", Enabled: false, Reason: "稼働中のため不要"},
+		{ID: "drain", Key: "d", Desc: "ドレイン停止", Enabled: true},
+		{ID: "kill", Key: "X", Desc: "強制停止", Enabled: true, DividerBefore: true,
 			Impact: "⚠ 実行中のジョブは中断されます"},
-		{Key: "D", Desc: "削除", Enabled: false, Reason: "ジョブ実行中です"},
+		{ID: "delete", Key: "D", Desc: "削除", Enabled: false, Reason: "ジョブ実行中です"},
 	}
 }
 
@@ -30,7 +34,7 @@ func detailChoices() []organism.Choice {
 func newChoices(items []organism.Choice) organism.ChoiceList {
 	c := organism.NewChoiceList(keymap.NewList(), testStyles())
 	c.SetWidth(72)
-	c.SetItems(items)
+	c.SetItems(items, organism.ResetCursor)
 	return c
 }
 
@@ -43,18 +47,53 @@ func sendChoice(c organism.ChoiceList, keys ...string) (organism.ChoiceList, tea
 	return c, cmd
 }
 
-// chosenKey は Cmd が返す ChosenMsg のキーを取り出す。
-func chosenKey(t *testing.T, cmd tea.Cmd) (string, bool) {
+// chosen は Cmd が返す ChosenMsg を取り出す。発行されていなければ偽を返す。
+func chosen(t *testing.T, cmd tea.Cmd) (organism.ChosenMsg, bool) {
 	t.Helper()
 
 	if cmd == nil {
-		return "", false
+		return organism.ChosenMsg{}, false
 	}
 	msg, ok := cmd().(organism.ChosenMsg)
 	if !ok {
 		t.Fatalf("ChosenMsg 以外の Msg が返った（%T）", cmd())
 	}
-	return msg.Key, true
+	return msg, true
+}
+
+// 決定には呼び出し側が付けた ID が載る。キー文字列には戻さない。
+//
+// ここが落ちると、受け取った側はキーから操作を引き直すことになり、keymap でキーを
+// 差し替えたときに決定が黙って別の操作へ移る（Issue #34）。カーソルで選ぶ経路と
+// キーを直接打つ経路の両方で見る。
+func TestChoiceListChosenCarriesID(t *testing.T) {
+	items := detailChoices()
+	tests := map[string]struct {
+		keys []string
+		want organism.Choice
+	}{
+		"enter で選ぶ": {[]string{"enter"}, items[0]},
+		"キーを直接打つ":   {[]string{"d"}, items[2]},
+		"区切り線の下":    {[]string{"j", "j", "j", "enter"}, items[3]},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			_, cmd := sendChoice(newChoices(detailChoices()), tt.keys...)
+			got, ok := chosen(t, cmd)
+			if !ok {
+				t.Fatal("ChosenMsg が発行されていない")
+			}
+			if got.ID != tt.want.ID {
+				t.Errorf("決定の ID = %q, want %q", got.ID, tt.want.ID)
+			}
+			if got.ID == got.Key {
+				t.Errorf("決定の ID = %q がキーと同じである（キーで往復している）", got.ID)
+			}
+			if got.Key != tt.want.Key {
+				t.Errorf("決定のキー = %q, want %q", got.Key, tt.want.Key)
+			}
+		})
+	}
 }
 
 // SetItems はカーソルを先頭（安全側）へ戻す。詳細を開き直すたびにリセットする
@@ -65,7 +104,7 @@ func TestChoiceListResetsCursorOnSetItems(t *testing.T) {
 		t.Fatal("カーソルが動いていない")
 	}
 
-	c.SetItems(detailChoices())
+	c.SetItems(detailChoices(), organism.ResetCursor)
 	if got := c.Cursor(); got != 0 {
 		t.Errorf("開き直した後のカーソル = %d, want 0", got)
 	}
@@ -110,12 +149,12 @@ func TestChoiceListChosen(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			_, cmd := sendChoice(newChoices(detailChoices()), tt.keys...)
-			key, ok := chosenKey(t, cmd)
+			msg, ok := chosen(t, cmd)
 			if ok != (tt.wantKey != "") {
 				t.Fatalf("ChosenMsg の発行 = %v, want %v", ok, tt.wantKey != "")
 			}
-			if key != tt.wantKey {
-				t.Errorf("選ばれたキー = %q, want %q", key, tt.wantKey)
+			if msg.Key != tt.wantKey {
+				t.Errorf("選ばれたキー = %q, want %q", msg.Key, tt.wantKey)
 			}
 		})
 	}
@@ -150,7 +189,7 @@ func TestChoiceListDividerAlignsWithRows(t *testing.T) {
 	const width = 72
 	c := organism.NewChoiceList(keymap.NewList(), testStyles())
 	c.SetWidth(width)
-	c.SetItems(detailChoices())
+	c.SetItems(detailChoices(), organism.ResetCursor)
 
 	// 添字 3 は最初の破壊的な操作（X）の前に入る区切り線の行。
 	divider := strings.Split(c.View(), "\n")[3]
@@ -166,7 +205,7 @@ func TestChoiceListRowsFitWidth(t *testing.T) {
 	for _, width := range []int{72, 60} {
 		c := organism.NewChoiceList(keymap.NewList(), testStyles())
 		c.SetWidth(width)
-		c.SetItems(detailChoices())
+		c.SetItems(detailChoices(), organism.ResetCursor)
 
 		lines := strings.Split(c.View(), "\n")
 		for i, line := range lines {
@@ -175,5 +214,78 @@ func TestChoiceListRowsFitWidth(t *testing.T) {
 				t.Errorf("幅 %d: %d 行目の幅 = %d（%q）", width, i, w, line)
 			}
 		}
+	}
+}
+
+// KeepCursor は内容を差し替えてもカーソル位置を保つ。
+//
+// 同じ対象の状態が変わっただけ（3 秒ごとの再検出でジョブが始まった等）でカーソルが
+// 先頭へ戻ると、操作を選んでいる途中で選択がずれる。本番の呼び出し元は
+// page/runnerdetail/detail.go の SetState である（Issue #30）。
+func TestChoiceListUpdateItemsKeepsCursor(t *testing.T) {
+	c := newChoices(detailChoices())
+	c, _ = sendChoice(c, "j", "j")
+	if got := c.Cursor(); got != 2 {
+		t.Fatalf("カーソル = %d, want 2", got)
+	}
+
+	// 同じ件数で内容だけが変わる。
+	next := detailChoices()
+	next[2].Enabled = false
+	next[2].Reason = "ジョブ実行中です"
+	c.SetItems(next, organism.KeepCursor)
+	if got := c.Cursor(); got != 2 {
+		t.Errorf("内容の差し替え後のカーソル = %d, want 2", got)
+	}
+	if !strings.Contains(c.View(), "ジョブ実行中です") {
+		t.Error("差し替えた内容が描かれていない")
+	}
+
+	// 件数が減ったら末尾へ丸める（範囲外を指したままにしない）。
+	c.SetItems(detailChoices()[:2], organism.KeepCursor)
+	if got := c.Cursor(); got != 1 {
+		t.Errorf("件数が減った後のカーソル = %d, want 1", got)
+	}
+
+	// 空になっても 0 に収まる。
+	c.SetItems(nil, organism.KeepCursor)
+	if got := c.Cursor(); got != 0 {
+		t.Errorf("空にした後のカーソル = %d, want 0", got)
+	}
+
+	// ResetCursor（ゼロ値）は逆に先頭（安全側）へ戻す（FR-46）。
+	c.SetItems(detailChoices(), organism.ResetCursor)
+	c, _ = sendChoice(c, "j", "j")
+	c.SetItems(detailChoices(), organism.ResetCursor)
+	if got := c.Cursor(); got != 0 {
+		t.Errorf("SetItems の後のカーソル = %d, want 0（安全側へ戻していない）", got)
+	}
+}
+
+// Restyle は配色とキー定義を差し替え、項目とカーソル位置は保つ。
+//
+// 共有状態は 3 秒ごとに配られるため、作り直すとカーソルが先頭へ戻って操作を
+// 選べない。本番の呼び出し元は page/runnerdetail/detail.go の SetState である。
+func TestChoiceListRestyleKeepsItemsAndCursor(t *testing.T) {
+	c := newChoices(detailChoices())
+	c, _ = sendChoice(c, "j", "j")
+	before := c.View()
+
+	c.Restyle(keymap.NewList(), token.NewStyles(false, false))
+	if got := c.Cursor(); got != 2 {
+		t.Errorf("配色の差し替え後のカーソル = %d, want 2", got)
+	}
+	if lipgloss.Width(c.View()) != lipgloss.Width(before) {
+		t.Error("配色の差し替えで項目が失われている")
+	}
+
+	// 差し替えたキー定義で動く（Up / Down が別のキーになっても追随する）。
+	alt := keymap.NewList()
+	alt.Up = key.NewBinding(key.WithKeys("p"))
+	alt.Down = key.NewBinding(key.WithKeys("n"))
+	c.Restyle(alt, testStyles())
+	c, _ = sendChoice(c, "n")
+	if got := c.Cursor(); got != 3 {
+		t.Errorf("差し替えたキーでの移動後のカーソル = %d, want 3", got)
 	}
 }

@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -72,5 +73,38 @@ func TestFilterInputConfinesGlobalKeysBeforeChromeArrives(t *testing.T) {
 	next, _ := update(a, press("1"))
 	if next.active != 0 {
 		t.Errorf("入力中の番号キーでタブが %d に変わった", next.active)
+	}
+}
+
+// 検出中の再読み込みは、黙って何もせず理由を状態行に出す（Issue #49）。
+//
+// 待たされる時間は最大 discoverBudget（15 秒）あり、無反応だと「効かないキー」に
+// 見える（screens.md の設計原則 2）。無効なタブの番号キーは既に理由を出している。
+func TestRefreshDuringDiscoveryShowsNotice(t *testing.T) {
+	a := newApp(exec.NewFake())
+	a, _ = update(a, tea.WindowSizeMsg{Width: 100, Height: 30})
+
+	// 最初の Tick で検出が走り出す。
+	a, _ = update(a, tickMsg{})
+	if a.inflight == 0 {
+		t.Fatal("検出が始まっていない（前提が崩れている）")
+	}
+
+	before := a.inflight
+	a, cmd := sendKey(a, "r")
+	if a.inflight != before {
+		t.Errorf("検出中の r で検出が重なった（inflight = %d, want %d）", a.inflight, before)
+	}
+	if isQuit(cmd) {
+		t.Fatal("r で終了している")
+	}
+	if !strings.Contains(a.status(), "検出中です") {
+		t.Errorf("状態行 = %q, want 検出中である旨の案内", a.status())
+	}
+
+	// 案内は次の打鍵で消える（状態行に残り続けない）。
+	a, _ = sendKey(a, "j")
+	if strings.Contains(a.status(), "検出中です") {
+		t.Errorf("次の打鍵の後も案内が残っている（状態行 = %q）", a.status())
 	}
 }

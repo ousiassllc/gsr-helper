@@ -69,7 +69,8 @@ internal/ui/
   organism/pane/    スクロールする表示専用の領域（Detail / Help）
   organism/dialog/  承認・待機・入力（未実装。後述の「実装状況」）
   template/         画面共通の枠
-  page/             タブ共通の Msg と、タブ間で共有する部品（モーダルの重なり・操作可否の判定）
+  page/             タブ共通の Msg と、タブ間で共有する部品（モーダルの重なり・page の寿命）
+  page/action/      runner に対する操作の識別・可否の判定・一覧の組み立て
   page/<tab>/       タブ 1 枚（tea.Model）。runners / jobs / disk / logs / doctor / config / setup
   page/runnerdetail/ runner の詳細画面（Runners / Jobs が共用するモーダル）
   page/pagetest/    page/<tab> のテスト用フィクスチャ（共有状態と Msg の記録）
@@ -443,6 +444,20 @@ type RowDisabled[T any] func(item T) (reason string, disabled bool)
 | 区切り線 | 項目の間に区切りを置ける。破壊的な操作を線の下にまとめるために使う |
 | 無効な項目 | 選択のみ可・実行不可としてグレーアウトし、理由を右に出す。可否と理由は page から渡す（`ChoiceList` は判断しない） |
 | 初期カーソル | 開くたびに先頭（安全側）へリセットする。前回の選択を保持しない（[FR-46](../requirements/functional.md)） |
+| 決定の識別 | `Choice.ID` に呼び出し側の不透明な識別子（`action.ID` の文字列）を載せ、`ChosenMsg.ID` でそのまま戻す。キー文字列で往復させない |
+
+**カーソルの扱いは呼び出しごとに宣言する。** 項目の差し替えは `SetItems(items, policy)` の 1 本で、`organism.ResetCursor`（対象そのものを差し替える。FR-46）と `organism.KeepCursor`（同じ対象の内容だけが変わった）を選ぶ。メソッドを 2 本並べると名前だけが頼りになり、取り違えても気付けない。**ゼロ値は安全側**（`ResetCursor`）である。
+
+**情報部のスクロール位置も同じ分担で扱う。** `pane.Detail` は位置の読み書きを 2 つの口で提供する。
+
+```go
+func (d *Detail) GotoTop()   // スクロール位置を先頭へ戻す
+func (d Detail) Offset() int // 先頭から隠している行数
+```
+
+- **対象そのものを差し替える側（別の runner の詳細を開く）が `GotoTop` を呼ぶ義務を負う。** 80x24 では情報部に配れる行数が 1 行まで潰れるため、位置を持ち越すと別の runner の詳細が前に読んでいた場所から始まり、**前の runner の続きを今の runner の情報として読む**ことになる。
+- **同じ対象の内容だけが変わったとき（3 秒ごとの再検出）は戻さない義務を負う。** 戻すと、詳細を読んでいる間ずっと先頭へ引き戻される。
+- 位置の丸めは高さに依存する。作り直して位置を引き継ぐ側は、**大きさを配り直してから位置を戻すこと**（後述の「配色とキー定義の配り直し」）。
 
 反映方法の選択（Config）と Setup のメニューも同じ `ChoiceList` である。**選択肢を並べて 1 つ選ぶ UI をこれ以外に作らない。**
 
@@ -565,7 +580,7 @@ runner の詳細画面は Runners / Jobs が共用するモーダルなので、
 
 親 Model は `[]tab` を走査するだけで個別のタブを知らない。共有状態は 1 本の `Msg` で全 page に配られるので、新しいタブは受け取り側を書くだけで済む。モーダルと入力中の有無も page が `Msg` で報告するため、親はタブの内部状態を知らない。
 
-新しいタブが守る約束は次の 5 つである。**これを満たせば親 Model を読まずにタブを足せる。**
+新しいタブが守る約束は次の 6 つである。**これを満たせば親 Model を読まずにタブを足せる。**
 
 #### 1. 共有状態は `page.StateMsg` で受け取る
 
@@ -605,40 +620,93 @@ func Do(tab int, fn func() tea.Msg) tea.Cmd  // 結果を TabMsg{Tab, Msg} に�
 type ModalKind string // 種類。page/<tab> が自分の定数を宣言する
 
 type Modal struct {
-    Model tea.Model                     // 中身。キー・SizeMsg・StateMsg はここへ渡る
+    Model tea.Model                     // 中身。キー・SizeMsg・StateMsg・AttachMsg はここへ渡る
     Title func(m tea.Model) string      // 見出し
     Hints func(m tea.Model) []atom.Hint // フッタに出すキーヒント
+    HandlesBack func(m tea.Model) bool  // esc を自分で解釈するか。nil なら常に 1 枚閉じる
 }
 
-func (o *Overlay) Register(kind ModalKind, m Modal)
-func (o *Overlay) Open(kind ModalKind, msg tea.Msg) tea.Cmd
-func (o *Overlay) OpenHelp()
-func (o *Overlay) Close()                       // 最上位を 1 枚だけ閉じる
-func (o Overlay) Active() bool                  // 1 枚以上開いているか
+func NewOverlay(tab int, st StateMsg) (Overlay, tea.Cmd) // 第 2 戻り値はヘルプ登録の Cmd
+func (o Overlay) Register(kind ModalKind, m Modal) tea.Cmd
+func (o Overlay) Open(kind ModalKind, msg tea.Msg) tea.Cmd
+func (o Overlay) OpenHelp() tea.Cmd
+func (o Overlay) Close()                       // 最上位を 1 枚だけ閉じる
+func (o Overlay) Active() bool                 // 1 枚以上開いているか
+func (o Overlay) Handles(msg tea.Msg) bool     // page がこの Msg を Overlay へ渡すか
 func (o Overlay) Modal(kind ModalKind) (Modal, bool)
-func (o *Overlay) SetState(st StateMsg) tea.Cmd
-func (o *Overlay) SetSize(w, h int)
-func (o *Overlay) SetHelpScope(scope HelpScope)  // ? に出すキーの範囲を差し替える
+func (o Overlay) SetState(st StateMsg) tea.Cmd
+func (o Overlay) SetHelpScope(scope HelpScope) tea.Cmd // ? に出すキーの範囲を差し替える
 ```
+
+**`NewOverlay` / `Register` / `Open` / `OpenHelp` / `SetHelpScope` が返す `tea.Cmd` は呼び出し側まで返すこと。** 登録した時点・開いた時点で処理を始めるモーダル（ログの購読、差分の計算）は、この `Cmd` が捨てられるとその処理を動かせない。**この義務は `Overlay` 自身にも掛かる。** `NewOverlay` はヘルプ（`ModalHelp`）を登録するので、`Cmd` を返す口を持たない署名にすると自分だけが規則の外に置かれる（例外を Go のコメントで宣言することになり、文書が定めた無条件の義務と食い違う）。タブは `NewOverlay` の `Cmd` と自分の `Register` の `Cmd` を畳んで `initCmd` に持つ。
+
+**`NewOverlay` は共有状態を丸ごと受け取る。** `Register` は登録した時点で最新の共有状態をリプレイするため、`Overlay` が持つ初期状態が欠けていればその欠けがそのまま配られる。`Keys` / `Styles` / `Dark` だけを受け取っていた頃は、構築時に登録したモーダルへ届くのが `Exec = nil`・`Caps` ゼロ値・`Result` 空という半端な状態で、登録した時点で処理を始めるモーダルは `nil` の `Executor` を掴んだ。
+
+**登録の `Cmd` は `Init` では返せない。** bubbletea が `Init` を呼ぶのはルート Model（親 `App`）だけで、親はタブの `Init` を呼ばない。`New` で `Register` した `Cmd` をタブの `Init` に持たせると、そのままランタイムへ届かず処理は永久に始まらない。**タブは登録の `Cmd` を保持し、最初の `page.StateMsg` を受けた時点（`setState`）で流して `nil` に落とす。** 共有状態は親が有効な全タブへ必ず配るので、この経路なら確実に届く。`Init` は `nil` を返す（発行点を片方に寄せて二重発火を避ける）。`Open` / `SetHelpScope` の `Cmd` はキー入力の応答としてその場で返せるため、この扱いが要るのは登録の `Cmd` だけである。
+
+**種類の取り違えは `panic` で表面化する。** 同じ `ModalKind` の二重登録と、未登録の種類の `Open` はいずれも実装の誤りである（種類は定数で、登録するのも開くのも同じ page）。黙って上書き・黙って何もしないと、症状は「`enter` を押しても何も起きない」になり、コンパイルエラーも実行時エラーもログも残らない。登録は page の組み立て時に決まるので、誤りは最初の起動で必ず表面化する。
+
+**`SetState` は開いているモーダルにだけ配る。** 閉じているものへ毎周期配ると、誰も見ていないヘルプを 3 秒ごとに全行組み直すような無駄が積み上がる。閉じているモーダルが古い状態で描かれることは、`Register` と `Open` が最新の `StateMsg` と `SizeMsg` をリプレイすることで防ぐ（起動後に遅延登録したモーダルも、登録した時点で `Result` / `Caps` / `Exec` を持てる）。`SizeMsg` は領域が変わったときだけ配る。
+
+`Overlay` は領域だけを設定する口を持たない。持たせても次の `StateMsg`（`BodyW` / `BodyH`）で黙って巻き戻るためである。
+
+**page はキー以外の `Msg` の配送先を `Overlay.Handles` で決める。** 開閉だけで判断すると、宛先を明示した `page.ModalMsg` が閉じている間に捨てられ、page 宛の決定（`page.ResultMsg`）はモーダル自身へ戻って消える。
+
+**page 本体宛と決まっている `Msg` は `Handles` が明示的に偽を返す。** 対象は `page.ResultMsg` と寿命の 3 つ（`page.ActivateMsg` / `DeactivateMsg` / `ShutdownMsg`）である。既定（開いていれば渡す）に任せると、**モーダルを 1 枚でも開いている間だけ**寿命の通知が中身（最終的に `viewport`）に飲まれ、モーダルを開いたままタブを切り替えた／終了したときに page が長寿命の処理を畳めない。モーダル自身も長寿命の処理を持つ設計にするなら、page が受けたうえで `page.ModalMsg` で宛先を明示して配ること。
 
 **種類を中央の `iota` に集めない。** 集めるとタブを 1 つ足すたびに共有ファイルへ定数を足すことになる。`NewOverlay` が登録するのは `page.ModalHelp` だけで、それ以外は画面が `Register` で足す（runner の詳細は `runnerdetail.Kind`、確認や差分承認は各 Issue が持ち込む）。
 
-モーダルの中身が受け取る `Msg` は次の 4 種である。
+モーダルの中身が受け取る `Msg` は次の 6 種である。
 
 | `Msg` | 内容 |
 |-------|------|
-| `page.StateMsg` | 共有状態。**開いていないモーダルにも配る**（開いた瞬間に古い配色・古い検出結果で描かれることを防ぐ） |
+| `page.StateMsg` | 共有状態。**開いているモーダルにだけ配る。** 閉じているものへは `Register` と `Open` がリプレイするので、開いた瞬間に古い配色・古い検出結果で描かれることはない（前述の `SetState`） |
 | `page.SizeMsg{W, H}` | 中身が使える領域（本体領域から `template.ModalPadding` を引いた値） |
+| `page.AttachMsg{Tab}` | 自分が乗っているタブ番号。`Register` で届く。**モーダルが発行する `Cmd` と page へ返す決定はこの番号で `page.Do` に包む** |
 | 開くときに渡した `Msg` | 「何を開くか」（対象の runner、確認の文面）。`Overlay` は種類ごとの引数を知らない |
-| キー | **最上位の 1 枚にいる間だけ。** `esc` は `Overlay` が受けて 1 枚閉じるので中身には届かない |
+| `page.ModalMsg{Kind, Msg}` の中身 | 宛先を明示した `Msg`。**開いていなくても、最上位でなくても**その種類へ届く（背後で始めた処理の結果を回収する経路） |
+| キー | **最上位の 1 枚にいる間だけ。** `esc` は `Modal.HandlesBack` が真のときだけ中身へ届き、偽なら `Overlay` が 1 枚閉じる |
 
-#### 4. 操作の可否は `page.ActionID` で引く
+##### モーダルから page への戻り道
 
-操作の識別子は `page.ActionID`（`ActionStart` / `ActionStop` / `ActionKill` / `ActionDrain` / `ActionRestart` / `ActionEnable` / `ActionAdd` / `ActionDelete` / `ActionUpdate` / `ActionEdit` / `ActionLogs`）である。キーストロークから識別子を引く表は `keymap.RunnerKeys` の各フィールドから組む（`page.BindingKey`）。
+モーダルは自分で決めたことを実行できない（ドメイン層を呼べるのは page 階層だけ）。決定は `page.ResultMsg{Kind, Msg}` に包み、`page.AttachMsg` で受け取ったタブ番号で `page.Do` に包んで返す。
 
-**判定はキーではなく操作で行う。** キーのリテラルで表を引くと、`keymap` でキーを差し替えたときに判定がコンパイルエラーも無く別の操作へ移る（または消える）。可否と理由を返すのは `page.Allow`（操作を渡す）と `page.Allowed`（キーを渡し、対応表を内部で通す）である。
+```go
+res := page.ResultMsg{Kind: Kind, Msg: chosen}
+return m, page.Do(m.tab, func() tea.Msg { return res })
+```
 
-#### 5. `?` の範囲は自分で宣言する
+- `page.Do` で包むので、**タブを切り替えても決定は発行元のタブへ戻る**
+- `page.ResultMsg` で包むので、**page の `Update` が自分の `case` で受けられる**（`Overlay.Handles` は `ResultMsg` に偽を返すため、転送してモーダル自身へ帰ることがない）
+- モーダルを閉じた後に届いても page が受けるので、**決定が宛先を失って静かに捨てられない**
+
+page 側は `Update` に `case page.ResultMsg:` を**自分で持つこと**。`Overlay.Handles` が `ResultMsg` に偽を返すことと合わせた**二重の守り**であり、決定を解釈するのは `Overlay` ではなく page だという分担を page 側から明示する。**`default` との並びは関係しない**——Go の型スイッチの `default` は記述位置に関わらず最後に評価される（先頭に書いても `case` が優先される）。
+
+#### 4. page の寿命は 3 つの `Msg` で知らせる
+
+長寿命の処理（`journalctl -f` のようなストリーム、監視の goroutine、開いたままのファイル）を持つ page は、いつ畳めばよいかを親から知らされる。
+
+| `Msg` | 配る先 | page がすること |
+|-------|--------|-----------------|
+| `page.ActivateMsg` | タブ切替の**移動先** | 畳んでいた処理を張り直す |
+| `page.DeactivateMsg` | タブ切替の**離れる側** | 長寿命の処理を止め、後始末を `tea.Cmd` で返す。**状態そのものは捨てない**（スクロール位置や選択が失われると裏に回ったことが見えてしまう） |
+| `page.ShutdownMsg` | **有効な全タブ** | 残っている処理をすべて閉じ、後始末を `tea.Cmd` で返す |
+
+親は終了時、各 page が返した後始末を `tea.Sequence` で `tea.Quit` より**前**に流す。`tea.Batch` では終了と後始末が並走し、後始末が実行される前にランタイムが止まりうる。
+
+**起動時に選択されているタブは `ActivateMsg` を受け取らない**（親は切り替えのときにだけ配る）。長寿命の処理を持つタブ（Logs / Doctor / Setup）はいずれも既定タブではないため釣り合うが、既定タブが持つようになったら親の初期化からも配る必要がある（Issue #63）。
+
+#### 5. 操作の可否は `action.ID` で引く
+
+操作の識別子は `action.ID`（`Start` / `Stop` / `Kill` / `Drain` / `Restart` / `Enable` / `Add` / `Delete` / `Update` / `Edit` / `Logs`）である。キーストロークから識別子を引く表は `keymap.RunnerKeys` の各フィールドから組む（`page.BindingKey`）。
+
+**判定はキーではなく操作で行う。** キーのリテラルで表を引くと、`keymap` でキーを差し替えたときに判定がコンパイルエラーも無く別の操作へ移る（または消える）。可否と理由を返すのは `action.Allow`（操作を渡す）と `action.Set.Allowed`（キーを渡し、組み済みの対応表を内部で通す）である。
+
+**表示層との境界でもキー文字列に戻さない。** `action.Set.Choices` は `organism.Choice.ID` に `action.ID` の不透明な識別子を載せ、決定（`organism.ChosenMsg.ID`）はそれを持って戻る。受け取った側は `action.Of` で `action.ID` に解く。キーで往復させると「識別子 → キー → 再マップ」になり、キーを差し替えたときに決定が黙って別の操作へ移りうる。
+
+**表は `keymap` から 1 度だけ組む。** `action.NewSet` を共有状態（`StateMsg`）を受けた時点で呼び、以後の描画は組み済みの `action.Set` を使う。判定 1 件ごとに組み直すと、フッタ 1 行の描画で 11 要素の `map` を 9 回確保することになる。**2 つの操作が同じ先頭キーを持つと `NewSet` が `panic` する**（黙って上書きすると片方の操作が判定表のどの行にも当たらなくなり、理由が `page.ReasonUnsupported` にすり替わる）。
+
+#### 6. `?` の範囲は自分で宣言する
 
 `Overlay` の既定は `keymap.Set.RunnerListHelp`（runner を並べる一覧向け）である。別の集合を持つタブは `SetHelpScope` に自分のグループを組む関数を渡す。範囲を「関数」で渡すのは、配色やキー定義が差し替わったときに `Overlay` が自分で組み直せるようにするためである。
 
@@ -668,7 +736,9 @@ page は親から配られた `page.StateMsg` を**描画用のスナップシ�
 
 **モーダルの重なりは page が持つ。** 親が持つ形にすると、キーを閉じ込める判断が親に移り、`ChromeMsg` で受け取る 1 打鍵ぶん古い状態に依存することになる（下記「キー入力の配送」）。親が知る必要があるのは「1 枚以上開いているか」だけで、それは `ChromeMsg.Modal` で報告する。Runners / Jobs のように同じモーダル（runner の詳細）を使うタブがあるため、重なりの実装（`page.Overlay`）と中身（`page/runnerdetail`）は `page` 階層の共有部品として置く。
 
-`Overlay` と `organism/table.Model` は **写しても内側の実体を共有する**（スライスと map は同じものを指す）。`bubbles` 流の署名に揃えた結果であり、**page は直前の `Update` が返した 1 つの値だけを持つこと。**
+`Overlay` と `organism/table.Model` は **写しても内側の実体を共有する**（値としての独立性はない）。`bubbles` 流の署名に揃えた結果であり、**page は直前の `Update` が返した 1 つの値だけを持つこと。**
+
+**共有は中途半端であってはならない。** `Overlay` は変わりうる状態（重なり・登録・領域・最後の共有状態）を 1 つの内部構造体にまとめ、その参照だけを持つ。以前は重なりのスタックだけがスライスの付け替えで写しごとに分かれ、`map` だけが共有されていたため、**捨てた写しがモーダルの中身の変更だけを残して開閉の変更を失う**という追いにくい壊れ方をした。組み立ては `NewOverlay` を通すこと（ゼロ値は使えない）。
 
 **下位が上位の状態を書き換えない。** organism は `tea.Msg` を返して page に通知し、page は必要に応じて親へ伝播させる。
 
@@ -704,7 +774,7 @@ organism は自分の内側だけを見て動くが、page との境界には次
 | 方式 | 選ぶ条件 | 実装 |
 |------|---------|------|
 | `Restyle(keys, styles)` を生やし、page は組み立て済みの organism を持ち続けて配色だけを差し替える | 抱えている状態が多く、作り直すと引き継ぎ漏れが出る部品 | `table.Model.Restyle`（カーソル位置・複数選択・絞り込み文字列・フォーカス中の区画を抱える。**フィールドの差し替えに加えて、行を組み立て直し、絞り込みの入力欄のスタイルも渡し直す**——セルへ色を焼き込んでおり、入力欄は `bubbles/textinput` が自分の既定を持つため、差し替えだけでは古い色が残る）／ `organism.ChoiceList.Restyle`（**フィールドの差し替えだけで足りる**——行を保持せず `View` が毎回描くため） |
-| `Restyle` を持たず、page が作り直して引き継ぐべき状態だけを手で移す | 引き継ぐ状態が 1〜2 個に収まり、その場で列挙できる部品 | `pane.Help` は `Restyle` を持たず、`page/helpmodal.go` が `StateMsg` のたびに `pane.NewHelp` で作り直す（キーの一覧は毎回 `HelpScope` から組み直せるので、**明示的に戻すべき状態はスクロール位置だけ**である）。作り直す側は、保つべき状態を作り直した**後に**自分で戻さなければならない。**しかもその戻しは大きさが決まった後でなければならない**——`SetOffset` は高さで丸めるため、高さが未確定（`NewHelp` 直後は 0）のうちに呼ぶと位置は 0 に潰れ、後から `SizeMsg` で高さが入っても戻らない。`Overlay.SetState` は各モーダルへ `StateMsg` を送った後に `SizeMsg` を送るので、**`helpmodal.go` の現在の順序はこの条件を満たしておらず、スクロール位置は実際には引き継げていない** |
+| `Restyle` を持たず、page が作り直して引き継ぐべき状態だけを手で移す | 引き継ぐ状態が 1〜2 個に収まり、その場で列挙できる部品 | `pane.Help` は `Restyle` を持たず、`page/helpmodal.go` が `StateMsg` のたびに `pane.NewHelp` で作り直す（キーの一覧は毎回 `HelpScope` から組み直せるので、**明示的に戻すべき状態はスクロール位置だけ**である）。作り直す側は、保つべき状態を作り直した**後に**自分で戻さなければならない。**しかもその戻しは大きさが決まった後でなければならない**——`SetOffset` は高さで丸めるため、高さが未確定（`NewHelp` 直後は 0）のうちに呼ぶと位置は 0 に潰れ、後から `SizeMsg` で高さが入っても戻らない。`Overlay.SetState` は各モーダルへ `StateMsg` を送った後に `SizeMsg` を送るため、**作り直す側が最後に受け取った大きさを自分で覚えておき、作り直した直後に配り直してから位置を戻す**必要がある（`helpmodal.go` は `SizeMsg` を保持してこの順序を守る） |
 
 **「行へ焼き込むか」ではなく「引き継ぐべき状態を漏れなく列挙できるか」が分かれ目である。** `ChoiceList` は行を焼き込まないが、共有状態が 3 秒ごとに配られる以上カーソル位置を毎回失うわけにはいかないので `Restyle` を持つ。逆に `pane.Help` も配色を `bubbles/help` の `Styles` へ取り込むが、失うものはスクロール位置だけなので列挙はできる。ただし列挙できることと戻せることは別で、上記のとおり戻す順序を誤ると位置は静かに 0 へ潰れる。**保持する状態がある部品では、順序の落とし穴が無い `Restyle` の方が安全である。**
 
@@ -749,7 +819,7 @@ Disk / Logs / Doctor タブの部品を足すときは、まずその部品が�
 
 無効なキーのグレーアウトは `atom.KeyHint` が描くが、**可否の判断は page が行う**。atom / molecule / organism は渡された可否と理由をそのまま描くだけで、判断を持たない。判断を表示部品に持たせると、同じ判定がフッタ・詳細画面の操作リスト・確認ダイアログの 3 箇所に分かれて食い違う。
 
-判定は `page.Allow` / `page.Allowed` に集約する。**本来この判定は `svc.CanControl` に集約する規約**（[コンポーネント設計](../components/overview.md#internalsvc)）だが、`svc` パッケージはサービス制御の Issue で作る。その時点で `page.Allow` の中身を `svc.CanControl` の呼び出しに差し替える（署名は変えない）。理由の文言は [画面仕様の無効な操作の表示](screens.md#無効な操作の表示)に従う。
+判定は `action.Allow` / `action.Set.Allowed` に集約する。**本来この判定は `svc.CanControl` に集約する規約**（[コンポーネント設計](../components/overview.md#internalsvc)）だが、`svc` パッケージはサービス制御の Issue で作る。その時点で `action.Allow` の中身を `svc.CanControl` の呼び出しに差し替える（署名は変えない）。理由の文言は [画面仕様の無効な操作の表示](screens.md#無効な操作の表示)に従う。
 
 ## 画面と部品の対応
 
@@ -807,7 +877,7 @@ Disk / Logs / Doctor タブの部品を足すときは、まずその部品が�
 
 `page` は 4 つとも import してよい。**パッケージ同士の参照は作らない**（`organism/pane` → `organism` も、その逆も）。分割の目的は行数上限の分散であり、部品同士の依存を増やすことではない。`Table` と `Confirm` をそれぞれ 1 実装に統一する規則（前述）は置き場所が変わっても維持する。
 
-`page` 階層も同じ理由で分ける。`page`（共通の `Msg`・可否の判定・`Overlay`）・`page/<tab>`（タブ 1 枚）・`page/runnerdetail`（複数タブが共用するモーダル）・`page/pagetest`（テスト用フィクスチャ）である。`page/pagetest` を独立させるのは、`page/<tab>` のテストが共有状態と `Msg` の記録を使い回せるようにするためで、`page` 自身の内部テストからは import が循環するため使えない。
+`page` 階層も同じ理由で分ける。`page`（共通の `Msg`・`Overlay`・page の寿命）・`page/action`（操作の識別と可否の判定）・`page/<tab>`（タブ 1 枚）・`page/runnerdetail`（複数タブが共用するモーダル）・`page/pagetest`（テスト用フィクスチャ）である。依存は `page/action` → `page` の一方向で、`page` は `page/action` を import しない（`page` が持つのは未対応の理由の文言と `BindingKey` だけである）。`page/pagetest` を独立させるのは、`page/<tab>` のテストが共有状態と `Msg` の記録を使い回せるようにするためで、`page` 自身の内部テストからは import が循環するため使えない。
 
 `molecule` も同じ理由で上限に近づくが、**こちらは分割しない。** 「molecule 同士は参照しない」という同階層参照の禁止は Go の import では強制できず（`molecule/row` から `molecule/bar` を import できてしまう）、規則を構造で守るという本書の方針と衝突するためである。代わりに行系 molecule のテストを共通ヘルパへ寄せて 1 部品あたりの行数を抑える。
 
@@ -828,26 +898,45 @@ Disk / Logs / Doctor タブの部品を足すときは、まずその部品が�
 
 ### ディレクトリの行数
 
-行数チェック（`linterly`）の上限は 1 ディレクトリ 2000 行（テストを含む）で、集計は直下のファイルのみを対象とする。現在の使用量は次のとおりである。**上限に近いディレクトリへ部品を足すときは、先に分割の是非を検討すること。**
+行数チェック（`linterly`）の上限は 1 ディレクトリ 2000 行（テストを含む）で、集計は直下のファイルのみを対象とする。
 
-| ディレクトリ | 行数 |
-|------------|------|
-| `ui/organism/table` | 2061（**上限超過**） |
-| `ui` | 1887 |
-| `ui/molecule` | 1764 |
-| `ui/page` | 1481 |
-| `ui/page/runners` | 954 |
-| `ui/atom` | 911 |
-| `ui/page/runnerdetail` | 894 |
-| `ui/keymap` | 830 |
-| `ui/page/jobs` | 701 |
-| `ui/template` | 657 |
-| `ui/token` | 655 |
-| `ui/organism/pane` | 561 |
-| `ui/organism` | 388 |
-| `ui/page/pagetest` | 193 |
+**2000 行は警告の始まりであって失敗の境界ではない。** `.linterly.yml` の `warning_threshold: 10` により、2000 行を超えると **WARN**、上限の 110% にあたる **2200 行**を超えて初めて **ERROR**（`make check` が落ちる）になる。つまり 2000〜2200 行は「超過しているが CI は通る」警告帯である。**警告帯に入ったディレクトリへ部品を足すときは、先に分割の是非を検討し、判断と理由をこの節に残すこと。**
 
-`ui/organism/table` は上限を超えており `linterly` が警告を出す（警告でありエラーではないため CI は通る）。このディレクトリへ部品を足すときは、先に分割すること。
+現在の使用量は次のとおりである（`linterly check -f json` の実測値）。
+
+| ディレクトリ | 行数 | 判定 |
+|------------|------|------|
+| `ui` | 2093 | **WARN（超過中）** |
+| `ui/organism/table` | 2061 | **WARN（超過中）** |
+| `ui/molecule` | 1764 | pass |
+| `ui/page` | 1604 | pass |
+| `ui/page/runners` | 1195 | pass |
+| `ui/page/runnerdetail` | 1175 | pass |
+| `ui/atom` | 964 | pass |
+| `ui/page/jobs` | 893 | pass |
+| `ui/keymap` | 868 | pass |
+| `ui/page/action` | 755 | pass |
+| `ui/organism/pane` | 691 | pass |
+| `ui/template` | 657 | pass |
+| `ui/token` | 655 | pass |
+| `ui/organism` | 521 | pass |
+| `ui/page/pagetest` | 424 | pass |
+
+超過している 2 つはどちらも**現時点では分割しない**。判断の理由を以下に残す。
+
+#### `ui` 直下を分割しない判断（2093 行・WARN・エラー境界まで 107 行）
+
+`ui` 直下（親 Model）は**すでに上限を超えており、linterly が WARN を出している**。**それでも分割はしない。** 実体は `app.go` / `tabs.go` / `chrome.go` / `discover.go` / `keys.go` の 5 ファイル・約 770 行で、残りはすべてテストである。親 Model は `tea.Model` を 1 つしか持たない（タブを束ねる唯一の点）ので、切り出せるのは「親の一部の判断」だけになり、`page` のようにパッケージ境界で依存を強制できる分け方にならない。
+
+代わりに**検証の道具を `page/pagetest` へ寄せる**。親の検証はタブを差し替えて行うため道具立てが page 側と同じであり（キー入力の組み立て・能力・`Cmd` の展開・長寿命の処理を持つ page）、`ui` 直下に置くと道具の重複で行数だけが増える。実際に `press` / `testCaps` / `cmdList` / `asCmds` / `runAll` / `streamPage` を `pagetest` へ移し、2186 行から 2093 行へ下げた。**次に `ui` 直下へ足すときも、まず道具を `pagetest` へ寄せられないかを見ること。** 寄せる先が尽きた時点でこの判断は見直す。
+
+#### `ui/organism/table` を分割しない判断（2061 行・WARN・エラー境界まで 139 行）
+
+`ui/organism/table` も上限を超えて WARN が出ている。**それでも分割はしない。** 実体は `api.go` / `keys.go` / `rows.go` / `section.go` / `state.go` / `table.go` の 6 ファイル・約 1050 行で、残りの約 1010 行はテストである。中身は `Model[T]` という 1 つの型に対する区画・行・列・キー・状態の内訳であり、切り出せる単位はいずれも `Model[T]` の非公開な状態に触れる。サブパッケージへ出すには内部を export して `table` から切り出し先への参照を作ることになり、**「一覧の共通実装は 1 つ」（`Table` を増やさない）という規則を構造で守れなくなる**。分割の目的は行数上限の分散であって部品同士の依存を増やすことではない、という本書の方針とも衝突する。
+
+次に足すときは、まずテスト側を `helper_test.go` へ寄せて重複を削ること（`ui` 直下で採ったのと同じ手）。それでも 2200 行に届くなら、区画の判定（`section.go` / `state.go`）だけを一方向参照の別ディレクトリへ出す。
+
+**1.12 で `page` 直下を分割したのと扱いが違うのは、超過の有無ではなく「分けられるか」で判断しているためである。** `page` 直下には操作の識別と可否の判定（`page/action`）という、パッケージ境界で依存の向きを強制できるまとまりがあった。`ui` 直下と `ui/organism/table` にはそれが無い。
 
 ## 部品を追加するときの手順
 
@@ -870,4 +959,13 @@ Disk / Logs / Doctor タブの部品を足すときは、まずその部品が�
 | 1.5 | 2026-08-22 | `RenderRow` を `RowInput` 1 引数に変更し、カーソル・チェックボックスのガター列と選択不可の理由の分担を明記。`molecule.Columns` の契約を「空を返さない・幅は超え得る」に改め、落とす順を区画ごとの `token.ColumnRules` に置き換え。ディレクトリ構成・依存グラフ・`keymap` の読み手・`lipgloss` への依存を実装に合わせて修正。キーの配送を「page が先に判定し、使わないキーを親へ差し戻す」形に反転。`page.Do` / `TabMsg`・`Overlay.Register`・`StateMsg.Exec`・`Set.Help`・`ActionID` をタブ追加時の約束として定義。モーダルの重なりの所有者を page と明記。`Help` のスクロールと絞り込みの行を追記。実装状況の節を追加 | 文書が宣言していた `RenderRow` の署名はコードに存在せず、これに従うとコンパイルできなかった。`Columns` の「必ず幅に収まる」契約は列 0 個を招くため実装が満たしておらず、契約の側を実態に合わせた。キーの配送は親が 1 打鍵ぶん古い状態で判断しており、連続打鍵で確認中の `q` が終了に届いていた。タブを足す 5 つの後続 Issue が親 Model を読まずに済むよう、非同期結果の差し戻しとモーダル登録の契約を明文化する必要があった。未実装の部品に印が無く、仕様と実装済みを読み分けられなかった |
 | 1.6 | 2026-08-22 | `Detail.SetContent` を「受け取ったスライスは写しを取る」約束の対象に追加。背景の明暗を「起動後に届き、切り替わることもあるため届くたびに解決し直す」入力として定義。page と organism の約束に配色の配り直しを organism 側（取り込んだ配色を後から配り直せる形にする）と page 側（`StateMsg` ごとに渡し直す）の 2 行として追加し、配り直しの 2 方式（`Restyle` を生やす / 作り直して必要な状態だけ引き継ぐ）と選び分けの基準を「配色とキー定義の配り直し」に定義。配り直しが要る部位を「`SetStyles` で `bubbles/table` へ渡す見出し／行へ焼き込むセル・カーソル記号・チェックボックス／`bubbles/textinput` が既定を持つ絞り込みの入力欄」と書き分け、区切り線と確定後の絞り込みの行は organism が毎回描くため差し替えだけで追随する側だと明記。作り直し方式には「保つべき状態を作り直した後に、大きさが決まってから戻す」義務があること、`pane.Help` / `helpmodal.go` は現状その順序を満たせずスクロール位置を引き継げていないことを追記。配り直しの義務を負うタブの列挙を Disk / Logs / Doctor に揃えた | `bubbles/viewport` の `SetContentLines` は渡されたスライスを書き戻すため、写しを取らないと page 側の行が organism に書き換えられていた。文書は背景の明暗を起動時に 1 度解決するものとして書いていたが、応答は起動後に届き切り替わりもするため、解決済みの `token.Styles` を配り渡す記述だけでは配り直しの義務が読み取れなかった。一覧は配色を行へ焼き込む以上フィールドの差し替えでは追随せず、未実装の Disk / Logs / Doctor タブをこの文書から実装すると配り直しが漏れて同じ欠陥が再発する。配り直しの方式は実装 3 者で分かれており（`table.Model` は差し替え + 行の組み立て直し + 入力欄の渡し直し、`ChoiceList` は差し替えのみ、`pane.Help` は `helpmodal.go` が作り直す）、`Restyle` を一律の義務として書くと `pane.Help` が約束違反に読めた。配り直しが要る部位の列挙も実態とずれており、選択行には ANSI の入れ子を避けるためあえて装飾を付けないのに列挙に含み、区切り線は organism 自身が `token.Styles` から毎回描く（`bubbles/table` は区切り線に相当するスタイルを持たない）のに `bubbles/table` の描画物として挙げ、実際に配り直しが要る絞り込みの入力欄が漏れていた。**この列挙漏れは実装の欠陥をそのまま追認していた**——`table.Model.Restyle` は入力欄を配り直しておらず、背景色を切り替えても `bubbles/textinput` の既定色が残り、色を無効にした設定でも色が付いていた。`pane.Help` の引き継ぎも「位置以外に失うものが無い」と断言していたが、`Overlay.SetState` が `StateMsg` の後に `SizeMsg` を送るため `SetOffset` は高さ 0 で丸められ、実際には位置が 0 に落ちていた |
 | 1.7 | 2026-08-22 | `Exec` を `nil` にしない根拠の参照先を `runner.ScanUnits` から `runner.Discover` に変更 | `internal/runner` の再公開面を絞り `Discover` を唯一の入口にしたため（Issue #42） |
-| 1.8 | 2026-08-22 | 「ディレクトリの行数」の表を実測値に更新し、`ui/organism/table` が上限 2000 行を超えて `linterly` の警告対象になっていることを明記 | 表の数値が古く、`ui/organism/table` を 1701 行（上限内）と記載していたが実際は 2061 行で上限を超えていた。上限に近いディレクトリを判断するための表が、まさに超過したディレクトリを安全側に見せていた |
+| 1.8 | 2026-08-22 | `Overlay` にタブ番号を持たせ、登録したモーダルへ `page.AttachMsg` で配る形を定義。モーダルから page への戻り道（`page.ResultMsg` を `page.Do` で包む）と、宛先を明示したモーダル宛の `Msg`（`page.ModalMsg`）を追加。`esc` の解釈順を「最上位のモーダルが `Modal.HandlesBack` で先に取り、取らなければ 1 枚閉じる」に変更。`Register` / `Open` / `OpenHelp` / `SetHelpScope` が返す `Cmd` を呼び出し側へ返す義務と、page が配送先を `Overlay.Handles` で決める規則を明記 | モーダルで決めた内容が page へ戻る道が無く、`ChoiceList` の決定は `forward` から最上位のモーダルへ配り直されて捨てられていた。モーダルが発行した `Cmd` にはタブ番号が載らないため、結果は「そのとき選択中のタブ」へ渡って静かに失われていた。背後のモーダル宛の結果は最上位に食われ、閉じた後に届いた結果は誰にも届かなかった。`esc` を `Overlay` が無条件に食うため、入力の取消を閉じる操作より先に解釈できなかった（Issue #26） |
+| 1.9 | 2026-08-22 | page の寿命を知らせる 3 つの `Msg`（`page.ActivateMsg` / `DeactivateMsg` / `ShutdownMsg`）と、終了時に後始末を `tea.Sequence` で `tea.Quit` より前に流す規則を、タブが守る約束に追加 | 親はタブを切り替えるとき移動先へ共有状態を配るだけで、離れるタブには何も送っていなかった。`journalctl -f` 相当の長寿命の呼び出しを持つ page は畳む機会が無く、タブを行き来するたびに購読が積み上がる。終了も `tea.Quit` を直に返しており、page の後始末が実行される前にランタイムが止まっていた（Issue #41） |
+| 1.10 | 2026-08-22 | 作り直して引き継ぐ方式の義務を「作り直す側が最後の大きさを覚え、配り直してから位置を戻す」と具体化し、`helpmodal.go` が満たしていないという記述を実装に合わせて修正 | `helpmodal.go` は `pane.NewHelp` の直後に `SetOffset` を呼んでおり、高さ 0 で丸められて位置が 0 に落ちていた。共有状態は 3 秒ごとに届くため、ヘルプを読んでいる間ずっと先頭へ戻され続けていた。別の runner の詳細を開いても情報部のスクロールが残る欠陥も同じ節が扱う範囲だった（Issue #30） |
+| 1.11 | 2026-08-22 | `Overlay` の写しの意味を「変わりうる状態を 1 つの内部構造体にまとめ、写しは常にその参照を共有する」と定義し直し、中途半端な共有を禁じる記述を追加。`SetState` を開いているモーダルだけに配る形へ改め、`Register` / `Open` の時点で最新の `StateMsg` / `SizeMsg` をリプレイする契約と、`SizeMsg` は変化時のみという規則を明記。`ModalKind` の二重登録と未登録の `Open` を `panic` で表面化させる規則を追加。領域だけを設定する口（`SetSize`）を廃止 | 重なりのスタックだけが写しごとに分かれ `map` は共有されるという半端な状態で、文書はそれを「実体を共有する」と偽って記述していた。閉じているモーダルへ毎周期 `StateMsg` と `SizeMsg` を配るため、誰も見ていないヘルプを 3 秒ごとに全行組み直していた。同じ `ModalKind` を別々の Issue が選ぶと片方が到達不能になるが、上書きは黙って成功していた。`SetSize` は本番の呼び出し元が無く、`SetState` が毎周期上書きするため機能的に無効だった（Issue #32） |
+| 1.12 | 2026-08-22 | 操作の識別と可否の判定を `page/action` へ分離し、`page.ActionID` を `action.ID` に改称。表示層との境界を不透明な識別子（`organism.Choice.ID` / `ChosenMsg.ID`）で渡す規則、`action.Set` をキー定義から 1 度だけ組む規則、同じ先頭キーの重複を `panic` で検出する規則を追加。ディレクトリの行数表を実測値に更新 | 決定が「`ActionID` → キー文字列 → 再マップ」で往復しており、キーリテラル依存を排したはずの箇所に決定点だけが残っていた。`keymap.RunnerKeys` の 2 フィールドが同じ先頭キーを持つと片方が map 上書きで黙って消え、理由が未対応にすり替わる。可否の判定は呼ばれるたびに 11 要素の map を作り直しており、フッタ 1 回の描画で 9 回確保していた。`page` 直下が行数上限を超えたため、本書の「上限に近いディレクトリへ部品を足すときは先に分割の是非を検討する」に従って分けた（Issue #34） |
+| 1.13 | 2026-08-22 | `ChoiceList` の項目差し替えを `SetItems(items, policy)` に一本化し、カーソルの扱いを引数で宣言させる規則（ゼロ値は安全側）を追加。`Choice.ID` による決定の識別を表に追記 | `SetItems`（先頭へ戻す）と `UpdateItems`（位置を保つ）が名前だけで区別されており、取り違えても気付けない。誤ると FR-46（一覧の enter → 詳細の enter で破壊的操作に到達しない）が黙って崩れる（Issue #50） |
+| 1.14 | 2026-08-22 | 「ディレクトリの行数」の表を実測値に更新し、`ui/organism/table` が上限 2000 行を超えて `linterly` の警告対象になっていることを明記 | 表の数値が古く、`ui/organism/table` を 1701 行（上限内）と記載していたが実際は 2061 行で上限を超えていた。上限に近いディレクトリを判断するための表が、まさに超過したディレクトリを安全側に見せていた |
+| 1.15 | 2026-08-22 | 登録が返す `Cmd` を「最初の `page.StateMsg` で流す」と定め、`Init` では返せない理由を追記。`Overlay.Handles` が page 本体宛と決まっている `Msg`（`ResultMsg` と寿命の 3 つ）に偽を返す規則を追加。モーダルが受け取る `Msg` の表の `page.StateMsg` の行を「開いているモーダルにだけ配る」に修正。`pane.Detail` の `GotoTop` / `Offset` と、対象を差し替える側が先頭へ戻す義務・同じ対象の更新では戻さない義務を本文に明記。ディレクトリの行数表を実測値に更新し、`ui` 直下を分割しない判断と道具を `page/pagetest` へ寄せる方針を追加 | 親 `App` はどのタブの `Init()` も呼ばない（bubbletea が `Init` を呼ぶのはルート Model だけ）ため、`Register` が返した `Cmd` は `Init` に持たせた時点でランタイムへ届かず、文書が定めた「呼び出し側まで返すこと」が成立していなかった。寿命の 3 つの `Msg` は既定（開いていれば渡す）に落ちており、モーダルを開いたままタブを切り替えると page が長寿命の処理を畳めなかった。`page.StateMsg` の行は 1.11 で改めた `SetState` の規則と実装の双方に正面から矛盾していた。`pane.Detail` の位置 API とその義務は改訂履歴の理由欄にしか無く、本文からは読み取れなかった。行数表は実測とずれており、`ui` 直下は残り 14 行でエラー境界に達する状態だったのに、本書が定める「上限に近いディレクトリへ部品を足すときは先に分割の是非を検討する」の検討記録が無かった（Issue #26 / #32 / #41 のレビュー指摘） |
+| 1.16 | 2026-08-22 | `NewOverlay` の署名を `(tab int, st StateMsg) (Overlay, tea.Cmd)` に変更し、共有状態を丸ごと受け取ることと、ヘルプ登録の `Cmd` を呼び出し側へ返すことを本文に明記。`Cmd` を返す義務の列挙に `NewOverlay` を追加。決定の `case` を「`default` より前に置く」から「page が自分で持つ（`Overlay.Handles` と合わせた二重の守り。並びは関係しない）」に訂正。ディレクトリの行数の節に警告帯（2000〜2200）とエラー境界 2200 を明記し、`ui` と `ui/organism/table` が超過中（WARN）である事実と、それぞれ分割しない判断・理由・次の一手を追加。行数表を実測値に更新 | `NewOverlay` が初期の共有状態を `StateMsg{Keys, Styles, Dark}` だけで組んでいたため、構築時に登録したモーダルへリプレイされるのは `Exec = nil`・`Caps` ゼロ値・`Result` 空という半端な状態で、本書の「登録した時点で `Result` / `Caps` / `Exec` を持てる」に正面から反していた。しかも `NewOverlay` 自身がヘルプ登録の `Cmd` を捨てており、返す口が署名に無いため無条件の義務を構造的に守れず、除外の根拠が Go のコメントにしか無かった。決定の `case` の並びを規約として書いていたが、Go の型スイッチの `default` は記述位置に関わらず最後に評価されるため誤りであり、その規約を検査するテストは壊れた実装に対して決して失敗しなかった。行数の節は `ui` と `ui/organism/table` が上限を超えて WARN が出ている事実を伏せたまま「上限に最も近い」と書いており、警告帯とエラー境界が本文になく 2093 行が許容される理由を読者が判定できなかった（Issue #26 / #32 の 2 周目レビュー指摘） |
+| 1.17 | 2026-08-22 | 「ディレクトリの行数」の表を base 取り込み後の実測値に更新（`ui/page/runners` 1195 行・`ui/page/jobs` 893 行）。表の直後にあった「`ui/organism/table` は上限を超えており…先に分割すること」の段落を削除し、同じ節の「`ui/organism/table` を分割しない判断」へ一本化 | base（`feat/#1`）の取り込みで一覧と Jobs タブの行数が動き、表が実測とずれた。削除した段落は 1.14 の時点の記述で、1.16 で「分割しない」判断と次の一手を書いたあとも残っており、同じ節が「先に分割すること」と「分割しない」を同時に指示する形になっていた |

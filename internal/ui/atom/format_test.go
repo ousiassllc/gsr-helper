@@ -1,8 +1,11 @@
 package atom
 
 import (
+	"strings"
 	"testing"
 	"time"
+
+	"charm.land/lipgloss/v2"
 
 	"github.com/ousiassllc/gsr-helper/internal/ui/token"
 )
@@ -51,5 +54,44 @@ func TestVersionText(t *testing.T) {
 		if role != c.wantRole {
 			t.Errorf("%s: VersionText(%q, %q) の役割 = %d, want %d", c.name, c.cur, c.latest, role, c.wantRole)
 		}
+	}
+}
+
+// パスの末尾だけを残すときも書記素を割らない（Issue #50）。
+//
+// 先頭を残す余裕が無い幅では Path が中略記号 + 末尾側だけを返す。以前は rune を
+// 末尾から数えており、ZWJ 絵文字や結合文字を含むパスでは結合の途中で切れて、
+// 中略記号の直後に単独の ZWJ や結合文字が並ぶ壊れた列が出た。
+func TestPathTailKeepsGraphemes(t *testing.T) {
+	const family = "\U0001F468\u200d\U0001F469\u200d\U0001F467" // ZWJ で結合する絵文字
+	const accented = "e\u0301e\u0301"                           // 結合文字（アクセント）付きの 2 文字
+
+	// 末尾が書記素で終わるパスを使う。末尾に ASCII が付いていると、切る位置が
+	// 書記素に届かず検証にならない。
+	tests := map[string]string{
+		"ZWJ 絵文字": "/opt/runners/" + family,
+		"結合文字":    "/opt/runners/" + accented,
+	}
+
+	for name, p := range tests {
+		t.Run(name, func(t *testing.T) {
+			for w := 1; w <= 10; w++ {
+				got := Path(p, w)
+				if lipgloss.Width(got) > w {
+					t.Errorf("幅 %d の結果 = %q（幅 %d）, want 幅 %d 以下",
+						w, got, lipgloss.Width(got), w)
+				}
+				// 中略記号の直後が結合の途中（単独の ZWJ / 結合文字）になっていない。
+				rest, cut := strings.CutPrefix(got, token.IconEllipsis)
+				if !cut {
+					continue
+				}
+				for _, r := range []rune{'\u200d', '\u0301'} {
+					if strings.HasPrefix(rest, string(r)) {
+						t.Errorf("幅 %d の結果 = %q, want 書記素の途中で切らない", w, got)
+					}
+				}
+			}
+		})
 	}
 }
