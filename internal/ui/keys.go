@@ -96,7 +96,7 @@ func (a App) selectTab(k string) (tea.Model, tea.Cmd) {
 			continue
 		}
 		if !a.tabs[i].Enabled {
-			a.notice = a.tabs[i].notice()
+			a.notice = a.tabs[i].Notice()
 			return a, nil
 		}
 		return a.activate(i)

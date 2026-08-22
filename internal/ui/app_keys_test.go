@@ -159,8 +159,8 @@ func TestDisabledTabNumberShowsReason(t *testing.T) {
 		t.Errorf("無効なタブへ移っている（active = %d）", next.active)
 	}
 	for _, want := range []string{a.tabs[target].Title, a.tabs[target].Reason} {
-		if !strings.Contains(next.status(), want) {
-			t.Errorf("状態行 = %q, %q を含まない", next.status(), want)
+		if !strings.Contains(statusLine(next), want) {
+			t.Errorf("状態行 = %q, %q を含まない", statusLine(next), want)
 		}
 	}
 	// 番号キーも page を経由する（親が先に解釈しない）。一覧は数字を使わないため、
@@ -170,8 +170,8 @@ func TestDisabledTabNumberShowsReason(t *testing.T) {
 	}
 
 	// 次の打鍵で案内は消える（状態行に残り続けない）。
-	if after, _ := sendKey(next, "j"); strings.Contains(after.status(), a.tabs[target].Reason) {
-		t.Errorf("次の打鍵の後の状態行 = %q, 案内が残っている", after.status())
+	if after, _ := sendKey(next, "j"); strings.Contains(statusLine(after), a.tabs[target].Reason) {
+		t.Errorf("次の打鍵の後の状態行 = %q, 案内が残っている", statusLine(after))
 	}
 }
 

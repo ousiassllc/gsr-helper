@@ -6,7 +6,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/ousiassllc/gsr-helper/internal/ui/keymap"
-	"github.com/ousiassllc/gsr-helper/internal/ui/molecule"
+	"github.com/ousiassllc/gsr-helper/internal/ui/molecule/listrow"
 	"github.com/ousiassllc/gsr-helper/internal/ui/organism/table"
 	"github.com/ousiassllc/gsr-helper/internal/ui/token"
 )
@@ -14,14 +14,14 @@ import (
 // molecule の *Row 関数は RowInput を開く 1 行の関数で RenderRow に渡せる
 // （RenderRow の doc の担保。page/<tab> の render* も同じ形をしている）。
 var (
-	_ table.RenderRow[molecule.RunnerView] = func(in table.RowInput[molecule.RunnerView]) []string {
-		return molecule.RunnerRow(in.Item, in.Cols, in.Styles)
+	_ table.RenderRow[listrow.RunnerView] = func(in table.RowInput[listrow.RunnerView]) []string {
+		return listrow.RunnerRow(in.Item, in.Cols, in.Styles)
 	}
-	_ table.RenderRow[molecule.JobView] = func(in table.RowInput[molecule.JobView]) []string {
-		return molecule.JobRow(in.Item, in.Cols, in.Styles)
+	_ table.RenderRow[listrow.JobView] = func(in table.RowInput[listrow.JobView]) []string {
+		return listrow.JobRow(in.Item, in.Cols, in.Styles)
 	}
-	_ table.RenderRow[molecule.OrphanView] = func(in table.RowInput[molecule.OrphanView]) []string {
-		return molecule.OrphanRow(in.Item, in.Cols, in.Styles)
+	_ table.RenderRow[listrow.OrphanView] = func(in table.RowInput[listrow.OrphanView]) []string {
+		return listrow.OrphanRow(in.Item, in.Cols, in.Styles)
 	}
 )
 

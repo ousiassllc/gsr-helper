@@ -6,7 +6,6 @@
 package molecule
 
 import (
-	"github.com/ousiassllc/gsr-helper/internal/ui/atom"
 	"github.com/ousiassllc/gsr-helper/internal/ui/token"
 )
 
@@ -104,29 +103,4 @@ func hasColumnID(ids []string, id string) bool {
 		}
 	}
 	return false
-}
-
-// columnAlign は列の寄せ方を返す。
-func columnAlign(c token.Column) atom.Align {
-	if c.Right {
-		return atom.Right
-	}
-	return atom.Left
-}
-
-// styledCell は素の文字列を列幅に揃えてから装飾したセルを返す。
-//
-// 装飾してから幅を揃えると、切り詰めで ANSI 列が壊れるため atom.Pad しか使えず
-// 列幅を超える。bubbles/table は超過分を切り落とすので、ヘッダとの桁ずれや記号の
-// 欠落になる。順序を「幅調整 → 装飾」に固定してこれを防ぐ。
-func styledCell(text string, role token.RoleToken, c token.Column, s token.Styles) string {
-	return s.Style(role).Render(atom.Cell(text, c.Width, columnAlign(c)))
-}
-
-// dashCell は値が空のとき「値なし」の記号を薄く描いたセルを返す。
-func dashCell(v string, c token.Column, s token.Styles) string {
-	if v == "" {
-		return styledCell(token.IconNoUnit, token.RoleMuted, c, s)
-	}
-	return styledCell(v, token.RolePlain, c, s)
 }

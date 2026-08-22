@@ -7,8 +7,10 @@ import (
 
 	"github.com/ousiassllc/gsr-helper/internal/appconfig"
 	"github.com/ousiassllc/gsr-helper/internal/exec"
+	"github.com/ousiassllc/gsr-helper/internal/ui/chrome"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
+	"github.com/ousiassllc/gsr-helper/internal/ui/tabset"
 )
 
 // テストは内部テスト（package ui）にしてある。タブのメタ情報・tickMsg・chrome は
@@ -97,7 +99,7 @@ func withSpies(a App) (App, []*spy) {
 }
 
 // lastEnabledTab は最後の有効なタブの添字を返す。
-func lastEnabledTab(tabs []tab) int {
+func lastEnabledTab(tabs []tabset.Tab) int {
 	last := -1
 	for i := range tabs {
 		if tabs[i].Enabled {
@@ -160,3 +162,8 @@ func sendKey(a App, k string) (App, tea.Cmd) {
 	}
 	return a, cmd
 }
+
+// statusLine は親が描く状態行を返す。
+//
+// 組み立ては chrome の純粋関数が持ち、親は値を写すだけである（chrome.go）。
+func statusLine(a App) string { return chrome.Status(a.chromeView()) }

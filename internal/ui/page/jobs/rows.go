@@ -6,7 +6,7 @@ import (
 
 	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/ui/keymap"
-	"github.com/ousiassllc/gsr-helper/internal/ui/molecule"
+	"github.com/ousiassllc/gsr-helper/internal/ui/molecule/listrow"
 	"github.com/ousiassllc/gsr-helper/internal/ui/organism/table"
 	"github.com/ousiassllc/gsr-helper/internal/ui/token"
 )
@@ -40,7 +40,7 @@ func newTable(keys keymap.Set, s token.Styles) table.Model[row] {
 
 // renderJob はジョブの行をセル列に変換する。
 func renderJob(in table.RowInput[row]) []string {
-	return molecule.JobRow(jobView(in.Item), in.Cols, in.Styles)
+	return listrow.JobRow(jobView(in.Item), in.Cols, in.Styles)
 }
 
 // matchJob は絞り込みの一致判定。runner 名を対象にする。
@@ -53,8 +53,8 @@ func matchJob(r row, q string) bool {
 // Repository を空にするのは、Runner.Worker（/proc 由来）にジョブのリポジトリ情報が
 // 無いためである。値はログのパッケージ（Worker ログの解析）ができてから埋める。
 // molecule 側は空の値を "-" として描く。
-func jobView(r row) molecule.JobView {
-	return molecule.JobView{
+func jobView(r row) listrow.JobView {
+	return listrow.JobView{
 		Runner:     r.runner.Name(),
 		Repository: "",
 		Elapsed:    r.worker.Elapsed(),

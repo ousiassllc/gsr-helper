@@ -1,4 +1,4 @@
-package ui
+package tabset
 
 import (
 	"strconv"
@@ -11,6 +11,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/ui/keymap"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
 	"github.com/ousiassllc/gsr-helper/internal/ui/token"
 )
 
@@ -30,7 +31,7 @@ func capsMatrix() map[string]appconfig.Caps {
 	}
 	out := make(map[string]appconfig.Caps, len(drops))
 	for name, drop := range drops {
-		c := testCaps()
+		c := pagetest.Caps()
 		drop(&c)
 		out[name] = c
 	}
@@ -38,13 +39,41 @@ func capsMatrix() map[string]appconfig.Caps {
 }
 
 // newTestTabs は能力からタブを組み立てる。
-func newTestTabs(caps appconfig.Caps) []tab {
-	return newTabs(caps, exec.NewFake(), keymap.New(), token.NewStyles(true, false), true)
+func newTestTabs(caps appconfig.Caps) []Tab {
+	return New(caps, exec.NewFake(), keymap.New(), token.NewStyles(true, false), true)
+}
+
+// testState はタブへ配る共有状態のスナップショット。
+func testState() page.StateMsg {
+	return page.StateMsg{
+		Result: runner.Result{},
+		Caps:   pagetest.Caps(),
+		Styles: token.NewStyles(true, false),
+		Keys:   keymap.New(),
+		Exec:   exec.NewFake(),
+		Dark:   true,
+		BodyW:  80,
+		BodyH:  20,
+		Err:    nil,
+	}
+}
+
+// chromeTab は Cmd に含まれる ChromeMsg が名乗るタブ番号を返す。
+func chromeTab(cmd tea.Cmd) (int, bool) {
+	for _, c := range pagetest.Expand(cmd) {
+		if c == nil {
+			continue
+		}
+		if msg, ok := c().(page.ChromeMsg); ok {
+			return msg.Tab, true
+		}
+	}
+	return 0, false
 }
 
 // タブの番号キーは一意で、1 から連番になる（screens.md のグローバルキー）。
 func TestTabKeysAreUniqueAndSequential(t *testing.T) {
-	tabs := newTestTabs(testCaps())
+	tabs := newTestTabs(pagetest.Caps())
 	if len(tabs) == 0 {
 		t.Fatal("タブが 1 枚も無い")
 	}
@@ -67,7 +96,7 @@ func TestTabKeysAreUniqueAndSequential(t *testing.T) {
 // どの能力でも有効なタブの page は組み立てられる（能力不足は縮退で扱う）。
 //
 // 無効なタブ（この版で未実装のタブ）は Model を持たない。親はそこへキーも
-// StateMsg も配らない（app.go の live）。
+// StateMsg も配らない（ui の live）。
 func TestEnabledTabModelsAreNeverNil(t *testing.T) {
 	for name, caps := range capsMatrix() {
 		t.Run(name, func(t *testing.T) {
@@ -89,7 +118,7 @@ func TestEnabledTabModelsAreNeverNil(t *testing.T) {
 // 該当する 1 行を実装済みのタブに差し替えるだけで有効化できる。
 func TestTabsCoverSpecLayout(t *testing.T) {
 	want := []string{"Runners", "Jobs", "Disk", "Logs", "Doctor", "Config", "Setup"}
-	tabs := newTestTabs(testCaps())
+	tabs := newTestTabs(pagetest.Caps())
 	if len(tabs) != len(want) {
 		t.Fatalf("タブの枚数 = %d, want %d", len(tabs), len(want))
 	}
@@ -124,7 +153,7 @@ func TestDisabledTabHasReason(t *testing.T) {
 // 最初のリサイズと検出が届く前でも、page が配色とキー定義を持った状態で描画できる
 // ことを担保する。
 func TestTabsGetInitialState(t *testing.T) {
-	for _, tb := range newTestTabs(testCaps()) {
+	for _, tb := range newTestTabs(pagetest.Caps()) {
 		if tb.Model == nil {
 			continue
 		}
@@ -139,49 +168,33 @@ func TestTabsGetInitialState(t *testing.T) {
 // 利用者にとって「無効なタブ」と「未対応の操作」は同じ意味（この版ではまだ使えない）
 // なので、文言は 1 つの定数（page.ReasonUnsupported）から来なければならない。
 func TestDisabledTabReasonIsShared(t *testing.T) {
-	for _, tb := range newTestTabs(testCaps()) {
+	for _, tb := range newTestTabs(pagetest.Caps()) {
 		if !tb.Enabled && tb.Reason != page.ReasonUnsupported {
 			t.Errorf("タブ %s の理由 = %q, want %q", tb.Title, tb.Reason, page.ReasonUnsupported)
 		}
 	}
 }
 
-// testState はタブへ配る共有状態のスナップショット。
-func testState() page.StateMsg {
-	return page.StateMsg{
-		Result: runner.Result{},
-		Caps:   testCaps(),
-		Styles: token.NewStyles(true, false),
-		Keys:   keymap.New(),
-		Exec:   exec.NewFake(),
-		Dark:   true,
-		BodyW:  80,
-		BodyH:  20,
-		Err:    nil,
-	}
-}
-
-// chromeTab は Cmd に含まれる ChromeMsg が名乗るタブ番号を返す。
-func chromeTab(cmd tea.Cmd) (int, bool) {
-	for _, c := range cmdList(cmd) {
-		if c == nil {
+// 無効なタブの案内は番号キーと名前と理由を並べる（親が状態行に出す）。
+func TestNoticeShowsKeyTitleAndReason(t *testing.T) {
+	for _, tb := range newTestTabs(pagetest.Caps()) {
+		if tb.Enabled {
 			continue
 		}
-		if msg, ok := c().(page.ChromeMsg); ok {
-			return msg.Tab, true
+		if want := "[" + tb.Key + "]" + tb.Title + " " + tb.Reason; tb.Notice() != want {
+			t.Errorf("タブ %s の案内 = %q, want %q", tb.Title, tb.Notice(), want)
 		}
 	}
-	return 0, false
 }
 
-// page が名乗るタブ番号は []tab の添字と一致する。
+// page が名乗るタブ番号は []Tab の添字と一致する。
 //
 // page は自分のタブ番号を ChromeMsg と TabMsg に載せ、親はそれを添字として突き合わせる
-// （app.go の ChromeMsg / TabMsg の分岐）。ずれても例外もログも出ず、フッタ・状態行・
+// （ui の ChromeMsg / TabMsg の分岐）。ずれても例外もログも出ず、フッタ・状態行・
 // モーダルフラグが恒久的に更新されなくなり、page が発行した Cmd の結果は別のタブへ
 // 配られるだけなので、ここで機械的に検出する。
 func TestTabIndexMatchesPageTabNumber(t *testing.T) {
-	tabs := newTestTabs(testCaps())
+	tabs := newTestTabs(pagetest.Caps())
 	st := testState()
 	for i := range tabs {
 		if tabs[i].Model == nil {
@@ -194,7 +207,7 @@ func TestTabIndexMatchesPageTabNumber(t *testing.T) {
 			continue
 		}
 		if got != i {
-			t.Errorf("タブ %s が名乗るタブ番号 = %d, want %d（[]tab の添字）", tabs[i].Title, got, i)
+			t.Errorf("タブ %s が名乗るタブ番号 = %d, want %d（[]Tab の添字）", tabs[i].Title, got, i)
 		}
 	}
 }
