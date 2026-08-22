@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
+	"os"
 	"slices"
 	"sort"
 
@@ -66,6 +68,7 @@ func Discover(ctx context.Context, opts Options) Result {
 	for i := range running {
 		running[i].Dir = normalizeDir(running[i].Dir)
 	}
+	res.Warnings = append(res.Warnings, missingProcDirWarnings(running)...)
 
 	units, warns := systemd.Scan(ctx, opts.Exec)
 	res.Warnings = append(res.Warnings, warns...)
@@ -122,6 +125,36 @@ func Discover(ctx context.Context, opts Options) Result {
 	sortRunners(runners)
 	res.Runners = runners
 	return res
+}
+
+// missingProcDirWarnings は稼働中の runner プロセスのうち、導出した runner
+// ディレクトリが実在しないものについての警告を返す。
+//
+// 稼働したまま runner ディレクトリを削除するとこの状態になる。.runner が読めない
+// ので Runners には出せないが（IsRunnerDir が false になり collectDirs が落とす）、
+// 稼働中の runner が一覧から黙って消えるのは FR-05 の孤児ユニットと同じ
+// 「片側だけ消えた」異常系なので、警告として報告する。
+// running の Dir は normalizeDir 済みであることを前提とする。
+func missingProcDirWarnings(running []procs.Process) []error {
+	seen := map[string]bool{}
+	var warns []error
+	for _, p := range running {
+		// Dir が空なのは exe が bin 配下でなく cwd も読めなかった場合。
+		// 「ディレクトリが消えた」ことの根拠にならないので報告しない。
+		if p.Dir == "" || seen[p.Dir] {
+			continue
+		}
+		// 実在しないことだけを異常とする。権限不足などの他の失敗は runner
+		// ディレクトリが消えた根拠にならないため黙って見送る。
+		if _, err := os.Stat(p.Dir); !errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		seen[p.Dir] = true
+		warns = append(warns, fmt.Errorf(
+			"%s: runner ディレクトリが見つかりません。%s（PID %d）が稼働したまま"+
+				"ディレクトリが削除された可能性があります", p.Dir, p.Kind, p.PID))
+	}
+	return warns
 }
 
 // attach は runner にプロセスと systemd ユニットを紐付け、対応する runner が

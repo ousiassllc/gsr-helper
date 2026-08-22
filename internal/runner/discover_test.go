@@ -154,3 +154,29 @@ func listOutput(units ...string) string {
 	}
 	return out
 }
+
+// 稼働したまま runner ディレクトリを削除すると、.runner が読めないので一覧には
+// 出せない。黙って消えないよう警告 1 件で報告することを固定する。
+func TestMissingProcDirWarnings(t *testing.T) {
+	base := normalizeDir(t.TempDir())
+	alive := mkRunner(t, filepath.Join(base, "alive"))
+	gone := filepath.Join(base, "gone")
+
+	got := missingProcDirWarnings([]Process{
+		{PID: 1, Kind: ProcListener, Dir: alive},
+		{PID: 2, Kind: ProcListener, Dir: gone},
+		{PID: 3, Kind: ProcWorker, Dir: gone}, // 同じディレクトリは 1 件にまとめる
+		{PID: 4, Kind: ProcListener, Dir: ""}, // 消えた根拠にならないので報告しない
+	})
+
+	want := []string{gone + ": runner ディレクトリが見つかりません。Runner.Listener" +
+		"（PID 2）が稼働したままディレクトリが削除された可能性があります"}
+	if len(got) != len(want) {
+		t.Fatalf("警告 %d 件 (%v), want %d 件", len(got), got, len(want))
+	}
+	for i := range want {
+		if got[i].Error() != want[i] {
+			t.Errorf("got %q, want %q", got[i].Error(), want[i])
+		}
+	}
+}

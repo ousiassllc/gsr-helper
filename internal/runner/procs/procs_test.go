@@ -32,6 +32,13 @@ func TestRunnerDirFromExe(t *testing.T) {
 		t.Fatal(err)
 	}
 	noCwd := mkDir(t, filepath.Join(base, "no-cwd"), nil)
+	// 稼働したまま cwd を削除されたプロセスの /proc/<pid>/cwd は
+	// "<dir> (deleted)" を返す（リンク先は実在しない）。
+	deletedCwd := mkDir(t, filepath.Join(base, "deleted-cwd"), nil)
+	gone := filepath.Join(base, "gone")
+	if err := os.Symlink(gone+" (deleted)", filepath.Join(deletedCwd, "cwd")); err != nil {
+		t.Fatal(err)
+	}
 
 	tests := []struct{ name, exe, procDir, want string }{
 		{"bin 配下なら 1 つ上", "/opt/r/bin/Runner.Listener", noCwd, "/opt/r"},
@@ -40,6 +47,9 @@ func TestRunnerDirFromExe(t *testing.T) {
 		// 自動更新でバイナリが差し替わると exe に " (deleted)" が付く。
 		// 印が残ると bin 配下と判定できず、ディレクトリが cwd 頼みになる。
 		{"(deleted) 付きでも bin の 1 つ上", "/opt/r/bin/Runner.Listener (deleted)", noCwd, "/opt/r"},
+		// cwd の印を残すと実在しないパスになり、ディレクトリが消えた runner を
+		// 異常として報告することすらできなくなる。
+		{"cwd の (deleted) も落とす", "/opt/r/Runner.Listener", deletedCwd, gone},
 	}
 	for _, tt := range tests {
 		if got := runnerDirFromExe(tt.exe, tt.procDir); got != tt.want {
