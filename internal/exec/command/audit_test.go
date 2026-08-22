@@ -247,9 +247,10 @@ func TestCommandRunCallsSecretsProviderOnce(t *testing.T) {
 	}
 }
 
-// SkipAudit を指定した実行は監査ログに 1 行も出さない。読み取り専用の定期実行
-// （3 秒ごとの再検出）が破壊的操作のレコードを押し流さないための指定である。
-// 起動に失敗した場合も出さない（失敗も 3 秒ごとに積み上がるため）。
+// SkipAudit を指定した実行は監査ログに 1 行も出さない。再検出（Scan）が繰り返し
+// 発行する読み取りコマンドが破壊的操作のレコードを押し流さないための指定である。
+// 自動更新か手動再読み込み（r）かは問わない。起動に失敗した場合も出さない
+// （失敗も同じだけ積み上がるため）。
 func TestCommandRunSkipAudit(t *testing.T) {
 	name, args := helperCommand()
 

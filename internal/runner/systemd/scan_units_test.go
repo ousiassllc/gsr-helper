@@ -216,9 +216,10 @@ func TestScanMoreThanConcurrencyLimit(t *testing.T) {
 	}
 }
 
-// Scan が発行する list-units / show は読み取り専用の定期実行なので、監査ログの
-// 記録対象外として発行される。1 本でも記録される経路が残ると、3 秒ごとの再検出で
-// 破壊的操作のレコードが押し流される（docs/architecture/security.md の「監査ログ」）。
+// Scan が発行する list-units / show は監査ログの記録対象外として発行される。
+// 記録対象外かどうかは発行契機ではなく発行元で決まり、自動更新か手動再読み込み
+// （r）かは問わない。1 本でも記録される経路が残ると、繰り返される再検出で破壊的
+// 操作のレコードが押し流される（docs/architecture/security.md の「監査ログ」）。
 func TestScanSkipsAudit(t *testing.T) {
 	f := fakeSystemctl([]string{"actions.runner.o.a.service", "actions.runner.o.b.service"},
 		"actions.runner.o.a.service", "actions.runner.o.b.service")

@@ -197,7 +197,10 @@ func runnerDirFromExe(exe, procDir string) string {
 // 更新しない。btime + starttime/CLK_TCK との差は数秒あるが、これは btime が
 // uptime から逆算した値で NTP やサスペンドの補正を受けること、および
 // CLK_TCK 除算の切り捨てによるもので、mtime 側が壁時計の生成時刻に近い。
-// 経過時間の表示は分単位なのでこの差は表示に出ない。
+// この差は経過時間の表示にも出る（1 分未満は秒、1 時間未満は分秒。
+// internal/ui/atom の Duration）。それでも mtime を採るのは、差の出どころが
+// mtime ではなく btime の逆算側であり、btime が大きく狂う場面でも生成時刻を
+// 保っているのは mtime の側だからである。
 // 取得できない場合はゼロ値の時刻と -1 を返す。
 func procStat(procDir string) (started time.Time, uid int) {
 	fi, err := os.Stat(procDir)
