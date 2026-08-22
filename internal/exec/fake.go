@@ -60,11 +60,17 @@ func NewFake() *Fake {
 func (f *Fake) Run(ctx context.Context, name string, args ...string) (Result, error) {
 	deadline, hasDeadline := ctx.Deadline()
 
+	// Env は呼び出し側の slice をそのまま指しているため、記録時に複製する。
+	// 参照のまま持つと、呼び出し側が Run のあとに使い回した slice の書き換えが
+	// 記録済みの Call まで遡って変えてしまう（Args を複製しているのと同じ理由）。
+	o := OptionsFrom(ctx)
+	o.Env = slices.Clone(o.Env)
+
 	f.mu.Lock()
 	f.calls = append(f.calls, Call{
 		Name:        name,
 		Args:        slices.Clone(args),
-		Options:     OptionsFrom(ctx),
+		Options:     o,
 		Deadline:    deadline,
 		HasDeadline: hasDeadline,
 	})

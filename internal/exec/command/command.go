@@ -15,6 +15,7 @@ import (
 	osexec "os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/ousiassllc/gsr-helper/internal/audit"
@@ -63,6 +64,11 @@ func WithAudit(lg *audit.Logger) Option {
 }
 
 // WithAuditErrorFunc は監査記録の失敗を通知する先を設定する。
+// 渡されるのは *AuditError で、errors.As で基の書き込みエラーまで到達できる。
+//
+// TUI アプリは必ず設定すること。未設定のときの代替経路は os.Stderr への 1 行出力で、
+// bubbletea が代替画面（alternate screen）を握っている間に標準エラー出力へ書くと
+// 画面が壊れる。
 func WithAuditErrorFunc(fn func(error)) Option {
 	return func(c *Command) {
 		c.auditErr = fn
@@ -90,6 +96,9 @@ func NoSecrets() []string { return nil }
 //
 // nil は NoSecrets と同等に扱う。TUI アプリが読み込むライブラリが起動時に panic
 // するのは望ましくないため、異常終了させずに NoSecrets を促す方を選んでいる。
+//
+// TUI アプリは WithAuditErrorFunc も必ず渡すこと。未設定だと監査記録の失敗が
+// os.Stderr へ直接書かれ、bubbletea が代替画面を握っている間は画面が壊れる。
 func New(secrets func() []string, opts ...Option) *Command {
 	c := &Command{
 		timeout:   defaultTimeout,
@@ -119,9 +128,10 @@ func (c *Command) secrets() []string {
 // 返り値のエラーは「コマンド自体の成否」だけを表す。非ゼロ終了では *ExitError を
 // 返し（os/exec と同じ流儀）、Result は成否にかかわらず常に埋める。
 //
-// 例外は監査記録の失敗で、WithAuditErrorFunc が未設定のときに限り errors.Join で
-// 合成する。通知先の組み立て忘れで記録漏れが黙って消えることを避けるため、
-// 既定では呼び出し側に見える形にしている。
+// 監査記録の失敗は返り値には決して混ぜない。記録できなかっただけで、成功した操作を
+// 失敗として報告してしまうためである。失敗は *AuditError として
+// WithAuditErrorFunc の通知先へ渡し、未設定なら os.Stderr へ 1 行だけ出す
+// （黙って消さないため）。
 func (c *Command) Run(ctx context.Context, name string, args ...string) (exec.Result, error) {
 	o := exec.OptionsFrom(ctx)
 	// 値一致マスクに使う値は 1 回の Run につき 1 度だけ取る。provider は並行安全で
@@ -140,15 +150,11 @@ func (c *Command) Run(ctx context.Context, name string, args ...string) (exec.Re
 		DurationMS: time.Since(start).Milliseconds(),
 	}
 	if err != nil {
-		rec.Error = mask.String(err.Error(), secrets)
+		rec.Error = recordedError(err, secrets)
 	}
 
 	if werr := c.auditLog.Write(rec); werr != nil {
-		if c.auditErr != nil {
-			c.auditErr(werr)
-		} else {
-			err = errors.Join(err, werr)
-		}
+		c.reportAuditError(werr)
 	}
 	return res, err
 }
@@ -175,7 +181,10 @@ func (c *Command) execute(ctx context.Context, o exec.Options, name string, args
 		defer cancel()
 	}
 
-	var stdout, stderr bytes.Buffer
+	// 取り込み量に上限を置くのは標準エラー出力だけ。標準出力は呼び出し側が解析する
+	// （systemctl show / list-units）ため、切ると解析が黙って壊れる。
+	var stdout bytes.Buffer
+	stderr := &limitedBuffer{limit: maxStderrCaptureBytes}
 	// シェルを経由せず実行ファイルと引数配列を直接渡すため、メタ文字によるコマンド
 	// 注入は成立しない。- で始まる値によるオプションインジェクション対策は
 	// 入力検証（internal/setup）の責務。
@@ -184,9 +193,14 @@ func (c *Command) execute(ctx context.Context, o exec.Options, name string, args
 	cmd.Dir = o.Dir
 	cmd.Env = append(os.Environ(), o.Env...)
 	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	cmd.Stderr = stderr
 	// 標準入力を与えない。対話的なコマンドを待たせるのではなく即 EOF で失敗させる。
 	cmd.Stdin = nil
+	// 子を新しいプロセスグループのリーダにし、中断時はグループ全体を止める。
+	// 既定の Cancel は直接の子しか kill しないため、孫（./config.sh が起動する
+	// sudo や systemctl）が runner ディレクトリを掴んだまま孤児として残る。
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error { return killProcessGroup(cmd.Process) }
 	cmd.WaitDelay = waitDelay
 
 	runErr := cmd.Run()
@@ -211,10 +225,11 @@ func (c *Command) execute(ctx context.Context, o exec.Options, name string, args
 		return res, fmt.Errorf("%s の実行がキャンセルされました: %w", name, runErr)
 	case exitErr != nil:
 		return res, &ExitError{
-			Name:   name,
-			Args:   mask.Args(args, secrets...),
-			Code:   res.ExitCode,
-			Stderr: mask.String(stderr.String(), secrets),
+			Name: name,
+			Args: mask.Args(args, secrets...),
+			Code: res.ExitCode,
+			// 画面に出す抜粋は末尾だけ残す。原因は最後の数行に出るためである。
+			Stderr: truncateHead(mask.String(stderr.String(), secrets), maxStderrExcerptBytes),
 			Err:    runErr,
 		}
 	default:
@@ -250,28 +265,3 @@ func validateEnv(env []string) error {
 	}
 	return nil
 }
-
-// ExitError はコマンドが非ゼロで終了したことを表す。
-// Args / Stderr はマスク済みで、そのまま画面やログに出してよい。
-type ExitError struct {
-	Name   string
-	Args   []string
-	Code   int
-	Stderr string
-	// Err は基になる *osexec.ExitError。errors.As で到達できるようにするため保持する。
-	Err error
-}
-
-// Error はコマンド行と終了コード、あれば標準エラー出力を含めた文を返す。
-func (e *ExitError) Error() string {
-	cmdline := strings.Join(append([]string{e.Name}, e.Args...), " ")
-	if s := strings.TrimSpace(e.Stderr); s != "" {
-		return fmt.Sprintf("%s が終了コード %d で失敗しました: %s", cmdline, e.Code, s)
-	}
-	return fmt.Sprintf("%s が終了コード %d で失敗しました", cmdline, e.Code)
-}
-
-// Unwrap は基になるエラーを返す。呼び出し側が errors.As で *osexec.ExitError まで
-// 到達できるようにするため。osexec.ExitError.Error() は "exit status 3" のみで
-// 引数を含まないため、これを露出しても情報漏洩にはならない。
-func (e *ExitError) Unwrap() error { return e.Err }

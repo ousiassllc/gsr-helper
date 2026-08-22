@@ -10,6 +10,13 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/exec"
 )
 
+// interruptMargin は「設定した上限＋この余裕」を中断までの許容時間とするための値。
+//
+// 5 秒のような緩い上限では WithTimeout を無視しても通ってしまい、しかも
+// waitDelay と同値のため kill 後の後始末との境界に判定を置くことになる。
+// 一方で余裕が無いと負荷の高い CI で揺れるため、設定値に対する上乗せにしている。
+const interruptMargin = 2 * time.Second
+
 func TestCommandRunTimesOut(t *testing.T) {
 	name, args := helperCommand()
 	ctx := exec.WithOptions(context.Background(), exec.Options{
@@ -17,8 +24,10 @@ func TestCommandRunTimesOut(t *testing.T) {
 		Env:    helperEnv(helperSleepEnv + "=10000"),
 	})
 
+	const timeout = 150 * time.Millisecond
+
 	start := time.Now()
-	res, err := New(NoSecrets, WithTimeout(150*time.Millisecond)).Run(ctx, name, args...)
+	res, err := New(NoSecrets, WithTimeout(timeout)).Run(ctx, name, args...)
 	elapsed := time.Since(start)
 
 	if err == nil {
@@ -30,8 +39,8 @@ func TestCommandRunTimesOut(t *testing.T) {
 	if res.ExitCode != -1 {
 		t.Errorf("ExitCode = %d, want -1", res.ExitCode)
 	}
-	if elapsed > 5*time.Second {
-		t.Errorf("中断までに %v かかった（タイムアウトが効いていない）", elapsed)
+	if limit := timeout + interruptMargin; elapsed > limit {
+		t.Errorf("中断までに %v かかった（上限 %v、タイムアウトが効いていない）", elapsed, limit)
 	}
 }
 
@@ -76,8 +85,8 @@ func TestCommandRunTakesMinOfCallerDeadlineAndTimeout(t *testing.T) {
 			if res.ExitCode != -1 {
 				t.Errorf("ExitCode = %d, want -1", res.ExitCode)
 			}
-			if elapsed > 5*time.Second {
-				t.Errorf("中断までに %v かかった（min が採られていない）", elapsed)
+			if limit := min(tt.callerTimeout, tt.commandTimeout) + interruptMargin; elapsed > limit {
+				t.Errorf("中断までに %v かかった（上限 %v、min が採られていない）", elapsed, limit)
 			}
 		})
 	}
@@ -105,8 +114,9 @@ func TestCommandRunCanceledWhileRunning(t *testing.T) {
 	ctx := exec.WithOptions(context.Background(), exec.Options{Env: helperEnv(helperSleepEnv + "=10000")})
 	ctx, cancel := context.WithCancel(ctx)
 
+	const cancelAfter = 100 * time.Millisecond
 	go func() {
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(cancelAfter)
 		cancel()
 	}()
 	defer cancel()
@@ -124,8 +134,8 @@ func TestCommandRunCanceledWhileRunning(t *testing.T) {
 	if res.ExitCode != -1 {
 		t.Errorf("ExitCode = %d, want -1", res.ExitCode)
 	}
-	if elapsed > 5*time.Second {
-		t.Errorf("中断までに %v かかった（キャンセルが効いていない）", elapsed)
+	if limit := cancelAfter + interruptMargin; elapsed > limit {
+		t.Errorf("中断までに %v かかった（上限 %v、キャンセルが効いていない）", elapsed, limit)
 	}
 }
 

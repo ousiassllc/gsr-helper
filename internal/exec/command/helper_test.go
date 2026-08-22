@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	osexec "os/exec"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -22,6 +24,7 @@ const (
 	helperSleepEnv   = "GSR_HELPER_TEST_SLEEP_MS"
 	helperModeEnv    = "GSR_HELPER_TEST_MODE"
 	helperEchoEnv    = "GSR_HELPER_TEST_ECHO_ENV"
+	helperStderrKiB  = "GSR_HELPER_TEST_STDERR_KIB"
 )
 
 // helperCommand はテストバイナリ自身をヘルパープロセスとして起動する
@@ -67,6 +70,16 @@ func TestHelperProcess(t *testing.T) {
 		fmt.Fprintf(os.Stdout, "stdin=%d", len(b))
 	case "env":
 		fmt.Fprint(os.Stdout, os.Getenv(os.Getenv(helperEchoEnv)))
+	case "grandchild":
+		helperSpawnGrandchild(t)
+	case "stderrflood":
+		// 指定された KiB ぶんの標準エラー出力を吐き、最後に印を置く。上限が効いて
+		// いないと、この出力がそのまま監査ログの 1 行と ExitError に載る。
+		kib, _ := strconv.Atoi(os.Getenv(helperStderrKiB))
+		for range kib {
+			fmt.Fprintln(os.Stderr, strings.Repeat("E", 1023))
+		}
+		fmt.Fprint(os.Stderr, stderrFloodTail)
 	default:
 		fmt.Fprint(os.Stdout, os.Getenv(helperStdoutEnv))
 		fmt.Fprint(os.Stderr, os.Getenv(helperStderrEnv))
@@ -74,4 +87,25 @@ func TestHelperProcess(t *testing.T) {
 
 	code, _ := strconv.Atoi(os.Getenv(helperExitEnv))
 	os.Exit(code)
+}
+
+// helperSpawnGrandchild は孫プロセスを 1 つ起こし、その PID を標準出力へ出したうえで
+// 自分も生き続ける。中断が直接の子だけに届く実装では、この孫が孤児として残る。
+func helperSpawnGrandchild(t *testing.T) {
+	t.Helper()
+
+	name, args := helperCommand()
+	child := osexec.Command(name, args...)
+	// mode を空に上書きする。そのまま継承すると孫がさらに孫を起こす連鎖になる。
+	// 重複したキーは後の値が勝つため、os.Environ() の後ろに置けばよい。
+	child.Env = append(os.Environ(), helperModeEnv+"=", helperExitEnv+"=0", helperSleepEnv+"=600000")
+	if err := child.Start(); err != nil {
+		fmt.Fprint(os.Stderr, err)
+		os.Exit(2)
+	}
+
+	// PID を先に出す。テストはこれを見て孫の生死を確かめる。
+	fmt.Fprintln(os.Stdout, child.Process.Pid)
+	// 親も残す。親だけが kill されたときに孫が残ることを観測するためである。
+	time.Sleep(10 * time.Minute)
 }

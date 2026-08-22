@@ -172,3 +172,23 @@ func TestFakeReset(t *testing.T) {
 		t.Errorf("Reset 後の応答 = (%+v, %v), want ゼロ値", res, err)
 	}
 }
+
+func TestFakeDoesNotAliasCallerEnv(t *testing.T) {
+	// 呼び出し側が Env の slice を使い回しても、記録済みの Call は変わらない。
+	// 参照のまま記録すると、Run の後の書き換えが記録を遡って変えてしまう。
+	f := NewFake()
+	env := []string{"RUNNER_TOKEN=first"}
+
+	if _, err := f.Run(WithOptions(context.Background(), Options{Env: env}), "true"); err != nil {
+		t.Fatalf("Run がエラーを返した: %v", err)
+	}
+	env[0] = "RUNNER_TOKEN=second"
+
+	calls := f.Calls()
+	if len(calls) != 1 {
+		t.Fatalf("記録件数 = %d, want 1", len(calls))
+	}
+	if got := calls[0].Options.Env; !slices.Equal(got, []string{"RUNNER_TOKEN=first"}) {
+		t.Errorf("Options.Env = %q, want %q", got, []string{"RUNNER_TOKEN=first"})
+	}
+}

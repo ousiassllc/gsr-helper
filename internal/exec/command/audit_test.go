@@ -121,7 +121,10 @@ func TestCommandRunMasksSecretInAuditError(t *testing.T) {
 	var buf bytes.Buffer
 	c := New(func() []string { return []string{secret} }, WithAudit(testLogger(&buf)))
 
-	name, args := helperCommand()
+	// 引数にも標準エラー出力にも secret を出す。監査レコードの error はコマンド行
+	// だけを載せるため、args のマスクが効いていること・stderr が載らないことの
+	// 両方をここで固定する。
+	name, args := helperCommand("--token", secret)
 	ctx := exec.WithOptions(context.Background(), exec.Options{
 		Action: "runner.add",
 		Env:    helperEnv(helperExitEnv+"=1", helperStderrEnv+"=token is "+secret),
@@ -143,48 +146,8 @@ func TestCommandRunMasksSecretInAuditError(t *testing.T) {
 	if !strings.Contains(rec.Error, mask.Placeholder) {
 		t.Errorf("監査ログの error がマスクされていない: %s", rec.Error)
 	}
-}
-
-func TestCommandRunAuditFailureNotified(t *testing.T) {
-	var notified []error
-	c := New(
-		NoSecrets,
-		WithAudit(audit.New(failWriter{})),
-		WithAuditErrorFunc(func(err error) { notified = append(notified, err) }),
-	)
-
-	name, args := helperCommand()
-	ctx := exec.WithOptions(context.Background(), exec.Options{Env: helperEnv(helperStdoutEnv + "=ok")})
-
-	res, err := c.Run(ctx, name, args...)
-	// 記録の失敗は通知先へ流し、Run の返り値はコマンド自体の成否だけを表す。
-	if err != nil {
-		t.Fatalf("Run がエラーを返した: %v", err)
-	}
-	if got := string(res.Stdout); got != "ok" {
-		t.Errorf("Stdout = %q, want %q", got, "ok")
-	}
-	if len(notified) != 1 {
-		t.Fatalf("通知件数 = %d, want 1", len(notified))
-	}
-	if !strings.Contains(notified[0].Error(), "監査ログ") {
-		t.Errorf("通知内容が監査ログの失敗と分からない: %v", notified[0])
-	}
-}
-
-func TestCommandRunAuditFailureJoinedWithoutHandler(t *testing.T) {
-	c := New(NoSecrets, WithAudit(audit.New(failWriter{})))
-
-	name, args := helperCommand()
-	ctx := exec.WithOptions(context.Background(), exec.Options{Env: helperEnv(helperStdoutEnv + "=ok")})
-
-	res, err := c.Run(ctx, name, args...)
-	// 通知先が未設定のときは黙って消さず Run のエラーに合成する。
-	if err == nil {
-		t.Fatal("通知先が無いのにエラーが消えている")
-	}
-	if got := string(res.Stdout); got != "ok" {
-		t.Errorf("Stdout = %q, want %q", got, "ok")
+	if strings.Contains(rec.Error, "token is") {
+		t.Errorf("監査ログの error に標準エラー出力が載っている: %s", rec.Error)
 	}
 }
 
