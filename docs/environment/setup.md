@@ -358,12 +358,22 @@ version: "2"
 linters:
   default: standard
   enable:
+    - depguard
     - errorlint
     - gocritic
     - gosec
     - nolintlint
     - revive
   settings:
+    depguard:
+      rules:
+        charm:
+          deny:
+            # Charm は charm.land/<name>/v2 に揃える。v1 系と混ぜると
+            # bubbletea のキー入力 Msg の型が噛み合わず、幅計算と
+            # カラープロファイル判定も二重になる。
+            - pkg: github.com/charmbracelet
+              desc: Charm は charm.land/<name>/v2 を使う（github.com/charmbracelet/* は v2 系の間接依存であり直接 import しない）
     nolintlint:
       # 不要になった抑制を検出する（置き換え完了時の除去漏れを防ぐ）
       allow-unused: false
@@ -398,6 +408,7 @@ issues:
 | `revive` | 命名と可読性の検査。「clear naming, small functions」の方針を機械的に支える |
 | `gocritic` | 冗長な記述・非効率な記述の検出。パーサとマージ処理が中心のコードベースで効きやすい |
 | `nolintlint` | `//nolint` 自体の検査。抑制方針（行単位・理由必須・リンター名必須）を機械的に強制し、不要になった抑制の除去漏れも検出する |
+| `depguard` | import できるモジュールパスの制限。Charm の v1 系（`github.com/charmbracelet/*`）を禁止する |
 
 `formatters` に `gofmt` を入れることで、`golangci-lint run` でも整形漏れを検出できる。`make fmt-check` と役割が重なるが、どちらか一方だけを実行しても検出できる状態にしておく。
 
@@ -410,6 +421,10 @@ issues:
 | `require-specific` | `true` | リンター名のない `//nolint` 単独指定 |
 
 抑制方針を「書いておく規約」から**機械的に強制されるもの**へ引き上げるための設定である。とくに `allow-unused: false` は、集約先の実装が終わって不要になった暫定抑制（後述の G204）に誰も気づかない事故を防ぐ。
+
+`depguard` は `github.com/charmbracelet` 以下の import を禁止する。[非機能要件 / 依存ライブラリ](../requirements/non-functional.md#依存ライブラリ)のとおり **Charm の 4 つ（bubbletea / bubbles / lipgloss / huh）は `charm.land/<name>/v2` に揃える**規定であり、`github.com/charmbracelet/*` が `go.mod` に現れるのは v2 系が内部で使う間接依存としてである。とくに `github.com/charmbracelet/lipgloss v1.1.0` は golangci-lint の推移依存として実際に `go.mod` にあるため、**禁止しないと誤って import してもビルドが通る**。v1 と v2 では bubbletea のキー入力 `Msg` の型が異なり、lipgloss のように型が近いものは混ざっても気付きにくい（幅計算とカラープロファイル判定も二重になる）。
+
+**既知の制約: `depguard` はブランク import（`_ "github.com/charmbracelet/lipgloss"`）を検出しない**（実測）。実害のある使い方は通常の import になるため許容する。
 
 `issues.max-issues-per-linter` / `max-same-issues` はどちらも `0`（無制限）にする。既定は 50 / 3 で、**同種の指摘が 4 件以上あると出力が打ち切られる**ため、抑制やエラーの棚卸しで件数を数え上げられない。終了コードには影響しないが、`golangci-lint run` の出力だけで実態を確認できる状態にしておく。
 
@@ -611,3 +626,4 @@ pre-push:
 | 1.11 | 2026-08-22 | `lefthook.yml` の実行モデルを 3 点決着させた。(1) pre-commit の `lint` を `go tool golangci-lint run --new-from-rev=HEAD` にして HEAD からの差分だけを対象にし、残る制約（丸ごと未ステージのファイルは対象に含まれる）と全体チェックを CI が担うことを明記。(2) `lefthook: go tool lefthook` を追加して hook 実行時のバージョンを `go.mod` に固定。(3) make を経由するかどうかの基準を表にし、`linterly` / `test` を `make linterly` / `make test` へ寄せた。あわせて `priority: 1/2/3` を明示して実行順を命名から切り離し、「Git Hooks」節を小見出しに整理。「タスクランナー」節と「ディレクトリ構造」の記述を実態に同期 | (1) 作業ツリー全体を無条件に検査すると、コミット済みの既存指摘が 1 件あるだけで無関係でクリーンなコミットも落ち続ける（実測: 既存コミットに `errcheck` 違反を 1 件入れると別ファイルのクリーンなコミットが失敗し、`--new-from-rev=HEAD` では成功した。`.go` の削除のみのコミットも通るようになった）。(2) hook スクリプトの探索順は PATH 上の `lefthook` が `go tool lefthook` より先であり、グローバルインストールがある環境ではピン留めが効かない（実測: 指定前は hook のバナーが `lefthook v2.1.6`、指定後は `lefthook v1.13.6`）。この値は hook 生成時に埋め込まれるため変更後は `make hooks` の再実行が必要である。(3) `fmt` は `{staged_files}`、`lint` は `--new-from-rev=HEAD` というコミット内容へのスコープが必要で make ターゲットでは表現できないが、`linterly` は `check [path]` がパスを 1 つしか取らずディレクトリ単位の行数上限も全体を見ないと判定できないため絞れず、`test` は絞る必要がない。この 2 つを make 経由にすればコマンド列の二重管理が消え、テストの実行方法を Makefile の 1 箇所で管理できる。`priority` は lefthook v1.13.6 に存在し名前比較より優先されるため、`fmt` → `lint` の依存を命名に頼らず固定できる。サンドボックスの clone で pre-commit（正常・lint 違反でコミット中止・既存違反の無視・削除のみのコミット）と pre-push（失敗テストで push 拒否）の 5 ケースを実測した。Issue #18 |
 | 1.12 | 2026-08-22 | `make test` を `go test -race ./...` にし、競合検出を別ターゲットに分けない方針と実測値・pre-push で実行する判断を「テストは常に競合検出付きで実行する」節に記録。「必要なもの」と self-hosted runner の前提に C コンパイラを追加し、`internal/buildconfig` に競合を実際に検出できることの回帰テストを追加。あわせて `docs/operations/runner-host-setup.md` に「C コンパイラ」節を追加（同 1.2） | `internal/runner.ScanUnits` の `systemctl show` 並列化以降、複数 goroutine から呼ばれる箇所が増えたのに `make test` に `-race` が無く、CI では競合が検出されないまま緑になる状態だった。ターゲットを分けると CI と手元で競合検出の有無が分岐するため、`make test` 自体に付けて CI・`make check`・pre-push の 3 経路すべてに効かせた。実測でビルドキャッシュあり 1.5 秒 → 21 秒に増えるが、増分のほぼ全部は `internal/exec/command` がテストバイナリ自身を子プロセスとして起動する設計に由来する（競合検出付きバイナリの起動コストが 1 回約 1 秒）。push はコミットより頻度が低いため pre-push では許容し、pre-commit には入れない。`-race` は cgo を必要とするため（実測: `CGO_ENABLED=0 go test -race` が `-race requires cgo`）、開発マシンと runner ホストの前提に C コンパイラを追加した。Issue #21 |
 | 1.13 | 2026-08-22 | `.golangci.yml` に `nolintlint`（`allow-unused: false` / `require-explanation: true` / `require-specific: true`）と `issues.max-issues-per-linter: 0` / `max-same-issues: 0` を追加し、`.linterly.yml` に `update_check: false` を追加。「golangci-lint」節に nolintlint の設定表と `issues` の説明を、「Linterly」節に `update_check` の説明を追記し、「抑制の方針」の棚卸し手順を実態（フラグ不要）に更新。`internal/buildconfig` に nolintlint が雑な抑制を実際に落とすことの回帰テストと、両設定ファイルの回帰テストを追加 | 抑制方針「行単位で行い必ず理由を書く」は規約として書かれているだけで機械的な強制が無く、とくに `internal/runner/systemd.go` の G204 は「集約先の実装後に除去する」暫定抑制なのに、不要になっても golangci-lint は何も報告しない（既定では不要な `//nolint` を検出しない）。`allow-unused: false` で除去漏れが検出できる。実測で 3 つの設定すべてが機能することを確認した（リンター名なし → `should mention specific linter`、理由なし → `should provide explanation`、不要 → `is unused`）。既存の抑制 5 件はすべて specific かつ理由付きのため `make lint` は exit 0 のまま。`issues` の 2 項目は既定（50 / 3）だと同種の指摘が 4 件以上で打ち切られ、G304 抑制 4 件を出力から裏取りできなかったため無制限にした。`update_check` は既定 `true` で実行のたびに GitHub Releases へ外向き HTTP が出る（実測: `strace -f -e trace=connect` で `linterly check` の外向き接続が 3 件 → 0 件）。行数上限はデフォルト値のままである。Issue #15 |
+| 1.14 | 2026-08-22 | `.golangci.yml` に `depguard` を追加し、`github.com/charmbracelet` 以下の import を理由付きで禁止。「golangci-lint」節にリンター表の行と禁止理由・既知の制約（ブランク import は検出しない）を追記し、`internal/buildconfig` に禁止パスの import が実際に落ちることの回帰テストを追加。あわせて `docs/requirements/non-functional.md` に機械的強制である旨を追記（同 1.7） | [非機能要件](../requirements/non-functional.md#依存ライブラリ)は Charm 4 つを `charm.land/<name>/v2` に揃え `github.com/charmbracelet/*` を直接 import しないと定めているが、強制が無かった。`github.com/charmbracelet/lipgloss v1.1.0` は golangci-lint の推移依存として実際に `go.mod` にあるため、誤って import してもビルドが通ってしまう。bubbletea の v1 / v2 はキー入力 `Msg` の型が異なり、lipgloss のように型が近いものは混ざっても気付きにくい。既存コード（`internal/ui` 配下は `charm.land/*` のみ）は違反 0 件で通る。回帰テストはローカルスタブを `replace` で解決する一時モジュールを使い、ネットワークに出ずに禁止パスの import を再現する。Issue #23 |

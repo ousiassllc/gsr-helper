@@ -3,12 +3,22 @@ version: "2"
 linters:
   default: standard
   enable:
+    - depguard
     - errorlint
     - gocritic
     - gosec
     - nolintlint
     - revive
   settings:
+    depguard:
+      rules:
+        charm:
+          deny:
+            # Charm は charm.land/<name>/v2 に揃える。v1 系と混ぜると
+            # bubbletea のキー入力 Msg の型が噛み合わず、幅計算と
+            # カラープロファイル判定も二重になる。
+            - pkg: github.com/charmbracelet
+              desc: Charm は charm.land/<name>/v2 を使う（github.com/charmbracelet/* は v2 系の間接依存であり直接 import しない）
     nolintlint:
       # 不要になった抑制を検出する（置き換え完了時の除去漏れを防ぐ）
       allow-unused: false
