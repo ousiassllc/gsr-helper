@@ -2,7 +2,6 @@ package logs
 
 import (
 	"errors"
-	"regexp"
 	"strings"
 
 	"charm.land/bubbles/v2/key"
@@ -72,32 +71,6 @@ func (m *Model) resize() {
 	}
 	m.tbl.SetSize(w, list)
 	m.body.SetSize(w, max(h-list-headerHeight, 0))
-}
-
-// applyLines は保持している行を絞り込み・強調して本文へ渡す。
-//
-// **絞り込みは素の行に対して行う。** 装飾済みの文字列に正規表現を当てると ANSI 列が
-// 一致に混ざる（pane.Log が突き合わせを持たない理由でもある）。
-func (m *Model) applyLines() {
-	re, err := compileFilter(m.body.Filter())
-	m.filterErr = err
-
-	out := make([]string, 0, len(m.lines))
-	for _, l := range m.lines {
-		if re != nil && !re.MatchString(l.Text) {
-			continue
-		}
-		out = append(out, m.styleLine(l))
-	}
-	m.body.SetContent(out)
-}
-
-// compileFilter はフィルタを正規表現に解く。空なら nil を返す（絞り込みなし）。
-func compileFilter(s string) (*regexp.Regexp, error) {
-	if s == "" {
-		return nil, nil
-	}
-	return regexp.Compile(s)
 }
 
 // styleLine は重大度に応じて行を装飾する（FR-25 の強調表示）。

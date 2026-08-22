@@ -30,6 +30,20 @@ const (
 	// 繰り返しだからである。1 回が 30 秒待たされると、その間ずっと画面が
 	// 止まったまま利用者には理由が分からない。
 	journalTimeout = 10 * time.Second
+	// journalRetries は取得の連続失敗を許す回数（この回数目の失敗で追従を終える）。
+	//
+	// 1 回の失敗で追従を畳むと、`journalctl` が一瞬混んだ・systemd の再読み込みと
+	// 重なっただけで画面が止まり、利用者は `J` を押し直す羽目になる。逆に無限に
+	// 粘ると、ユニット名が消えた（runner を削除した）ような回復しない失敗を
+	// 隠したまま空の画面を見せ続ける。3 回にしたのは、一時的な失敗はたいてい
+	// 次の 1〜2 回で収まる一方、回復しない失敗なら 2 秒足らずで理由が出るためである。
+	journalRetries = 3
+	// journalRetryWait は再試行までの待ち。
+	//
+	// JournalInterval（2 秒）を流用せず短い値を別に置いたのは、失敗直後は
+	// 「いつもの間隔」より早く試すほうが復帰が速いためである。上限が
+	// journalRetries 回と小さいので、短くしても `journalctl` を叩き過ぎることはない。
+	journalRetryWait = 500 * time.Millisecond
 	// journalAction は監査ログの action（記録する場合の名前）。
 	journalAction = "logs.journal"
 )
@@ -45,6 +59,12 @@ var ErrNoUnit = errors.New("systemd ユニットがありません")
 // タイムアウトの適用漏れを構造的に防ぐ）ほうが、追従のためだけに別経路を開けるより
 // 安全なので、`journalctl -u <unit> -n <N> --no-pager` を JournalInterval ごとに
 // 発行し、前回の出力との重なりを除いた差分だけを送る形にしている。
+//
+// **取得に失敗しても、journalRetries 回までは間隔を空けて試し直す。** これは追従で
+// あり、1 回きりの取得ではない。1 度の失敗で戻ると out が閉じて購読が終わり、
+// 利用者は一時的な失敗のたびに `J` を押し直すことになる。連続して失敗した
+// 回数だけを数え（1 度でも成功したら 0 に戻す）、上限に達して初めてエラーを
+// 返して終わる。回復しない失敗はこれで数秒のうちに理由として表に出る。
 //
 // Tail と同じく、戻るときに out を閉じる。
 //
@@ -62,14 +82,25 @@ func Journal(ctx context.Context, ex exec.Executor, unit string, out chan<- Line
 	}
 
 	var prev []string
+	fails := 0
 	for {
 		lines, err := readJournal(ctx, ex, unit)
 		if err != nil {
 			if ctx.Err() != nil {
 				return nil
 			}
-			return err
+			fails++
+			if fails >= journalRetries {
+				return err
+			}
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-time.After(journalRetryWait):
+			}
+			continue
 		}
+		fails = 0
 		for _, s := range lines[overlap(prev, lines):] {
 			select {
 			case out <- NewLine(s):

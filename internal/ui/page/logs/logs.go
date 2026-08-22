@@ -12,6 +12,8 @@
 package logs
 
 import (
+	"regexp"
+
 	tea "charm.land/bubbletea/v2"
 
 	dlogs "github.com/ousiassllc/gsr-helper/internal/logs"
@@ -51,6 +53,13 @@ type Model struct {
 	// err と分けているのは、直せるのが利用者（打ち直す）か環境（ログが読めない）かで
 	// 意味が違うためである。どちらも状態行に出すが、フィルタの誤りを先に出す。
 	filterErr error
+	// styled は絞り込み・装飾を通した行。本文へ渡しているものと同じ並びで、行が 1 行届く
+	// たびに全行を作り直さないために持つ（content.go の doc）。
+	styled []string
+	// filterRe / filterSrc は解いた正規表現と、その元になったフィルタ文字列。文字列を添えて
+	// 持つのは、フィルタが変わったときだけ解き直すためである（content.go の filterRegexp）。
+	filterRe  *regexp.Regexp
+	filterSrc string
 	// stream は購読 1 本ぶんの世代と停止手段。
 	stream stream
 	// active は前面に居るか。裏で `_diag` を列挙し直さないための判定である。
@@ -81,6 +90,9 @@ func New(tab int, st page.StateMsg) Model {
 		lines:     nil,
 		err:       nil,
 		filterErr: nil,
+		styled:    nil,
+		filterRe:  nil,
+		filterSrc: "",
 		stream:    stream{},
 		active:    false,
 		initCmd:   tea.Batch(help, scope),

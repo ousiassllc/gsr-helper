@@ -187,8 +187,9 @@ func (m Model) addLine(msg lineMsg) (tea.Model, tea.Cmd) {
 		return m, m.waitEnd()
 	}
 
-	m.lines = appendLine(m.lines, msg.line)
-	m.applyLines()
+	// 増分の入口を通す（保持中の行へ足すのも pushLine の中で行う）。1 行のために全行を
+	// 組み直さないためである（content.go の doc）。
+	m.pushLine(msg.line)
 	return m, tea.Batch(m.chrome(), m.wait())
 }
 
@@ -203,8 +204,13 @@ func (m Model) endStream(msg endMsg) (tea.Model, tea.Cmd) {
 
 // appendLine は行を足し、上限を超えた分を古い側から捨てる。
 //
-// 先頭を切り落とすだけにして詰め直さないのは、上限に達したあと 1 行ごとに全体を
-// 複製しないためである（slices の再スライスは背後の配列を共有する）。
+// **切り落としたうえで詰め直す（slices.Clone する）のが要点である。** 再スライスだけでは背後の
+// 配列を切れず、捨てたはずの先頭の行が append に配列を取り直させるまで参照され続ける。行の
+// 文字列を最大でもう maxLines 行ぶん抱えたままになり、上限を設けた意味が薄れる。Model は値で
+// 複製されて回る（Update が値レシーバ）ので、配列を共有したまま先頭をずらすと複製元と書き込み
+// 位置が重なりうる。Clone はその共有も断つ。1 行あたり maxLines 要素の複製が要るが、写るのは
+// スライスの中身（文字列のヘッダ）だけで行の文字列そのものは写らない。ring buffer にすれば
+// 省けるものの、添字の回り込みを持ち込むほどの差ではないと判断してこの形にしている。
 func appendLine(lines []dlogs.Line, l dlogs.Line) []dlogs.Line {
 	lines = append(lines, l)
 	if len(lines) > maxLines {

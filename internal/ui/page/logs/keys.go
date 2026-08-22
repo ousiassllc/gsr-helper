@@ -133,8 +133,24 @@ func (m Model) showLatestWorker(r runner.Runner) (tea.Model, tea.Cmd) {
 }
 
 // activate は前面に戻ったことを受けて購読を張り直し、一覧を取り直す。
+//
+// **張り直す前に、持っている行を捨てる。** dlogs.Tail は購読のたびに末尾を読み直して
+// 送出する（seekTail）ので、捨てないとタブを離れて戻るたびに同じ行が本文へ二重に
+// 並ぶ。対象は変えないまま取り直した行で埋め直すので、裏へ回ったことが見えない
+// （page.DeactivateMsg の doc）ままで二重取り込みだけが消える。
+//
+// 先に stop を通すのは、前の購読が畳まれないまま世代（stream.gen）だけ進むのを
+// 避けるためである。err も落とす。追従し直す以上、前回の追従が失敗した理由を状態行に
+// 残し続けると、今の状態を誤って伝える。
+//
+// open と同じ前処理だが束ねていない。open は対象の差し替えと追従の再開（SetFollow）も
+// 行い、ここでは**どちらもしない**のが要点なので、共通化すると差が読めなくなる。
 func (m Model) activate() (tea.Model, tea.Cmd) {
 	m.active = true
+	m.stop()
+	m.lines = nil
+	m.err = nil
+	m.applyLines()
 	sub := m.subscribe()
 	return m, tea.Batch(m.chrome(), sub, m.listFiles())
 }

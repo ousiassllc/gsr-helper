@@ -46,6 +46,16 @@ const (
 // 入れ替える（新しいファイルを作る）ことがあり、ファイル自身に張った監視は
 // 古い inode に残って以後の追記に反応しない。ディレクトリを見て自分の
 // ファイル名の変化だけを拾えば、入れ替えのあとも追従が続く。
+//
+// **同じ名前で作り直されたら開き直す。** 監視をディレクトリへ張っても、開いた
+// ファイルハンドルは古い inode を指したままである。unlink された inode には
+// もう誰も書かないので、開き直さなければ追記は永久に届かない。しかも f.Stat()
+// が返すのも古い inode のサイズなので、emit の切り詰め検知（サイズが縮んだら
+// 先頭へ戻る）も働かず、追従は恒久的に止まる。そこで自分のファイル名に対する
+// Create を見たら開き直し、読み出し位置を先頭へ戻す。**inode 番号の照合はしない。**
+// 同名で作り直されたのなら先頭から読み直すのが正しく、作り直しでなかった
+// （既存ファイルへの O_CREAT など）としても切り詰めと同じ結果にしかならないため、
+// 素直に開き直すほうが単純で確実である。
 func Tail(ctx context.Context, path string, out chan<- Line) error {
 	defer close(out)
 
@@ -84,6 +94,9 @@ func Tail(ctx context.Context, path string, out chan<- Line) error {
 			if ev.Name != path {
 				continue
 			}
+			if ev.Has(fsnotify.Create) {
+				f, off = reopen(f, path, off)
+			}
 			off, err = emit(ctx, f, off, out)
 			if err != nil {
 				return err
@@ -95,6 +108,22 @@ func Tail(ctx context.Context, path string, out chan<- Line) error {
 			return fmt.Errorf("%s の監視に失敗しました: %w", path, werr)
 		}
 	}
+}
+
+// reopen は path を開き直し、新しいファイルと先頭の読み出し位置を返す。
+//
+// **開き直せなければ、いまのファイルと位置をそのまま返す。** 作成の通知が届いてから
+// 開くまでにはわずかな隙があり（作り直しの途中でもう一度差し替わる、権限が整うのが
+// 一瞬遅れる）、そこでエラーを返して追従を終えると、利用者には理由の分からない
+// 打ち切りに見える。作り直しが続いていれば次のイベントでまた開き直せるので、
+// 1 回の失敗は読み飛ばして追従を保つほうが縮退として妥当である。
+func reopen(f *os.File, path string, off int64) (*os.File, int64) {
+	nf, err := os.Open(path) //nolint:gosec // G304 表示対象のログは利用者が一覧から選ぶ。パスは runner の _diag 配下を List が列挙したもの。
+	if err != nil {
+		return f, off
+	}
+	_ = f.Close()
+	return nf, 0
 }
 
 // seekTail は末尾から TailInitialBytes ぶん遡った読み出し位置を返す。
