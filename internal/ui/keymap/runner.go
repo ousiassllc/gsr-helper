@@ -107,8 +107,9 @@ type FooterKey struct {
 // 並びと表記は screens.md のフッタ 1 行目
 // （s:開始 x:停止 X:強制 d:ドレイン D:削除 n:追加 u:更新 e:設定 l:ログ）に一致させる。
 // R（再起動）と E（enable/disable の切替）を載せないのは、この 9 個 + ?:ヘルプ で
-// 幅 80 のうち 77 セルを使い切るためである。2 つは詳細画面の操作リスト（Detail）と
-// ? の全キー一覧から辿れる。
+// 幅 80 のうち 75 セルを使うためである（実測値。atom.KeyHint の doc と揃えてある）。
+// 2 つを足すと "R:再起動"（8 セル）と "E:切替"（7 セル）で区切りを含め 92 セルになり
+// 収まらない。どちらも詳細画面の操作リスト（Detail）と ? の全キー一覧から辿れる。
 func (r RunnerKeys) Footer() []FooterKey {
 	return []FooterKey{
 		{Binding: r.Start, Desc: "開始"},
