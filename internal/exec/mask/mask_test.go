@@ -86,6 +86,39 @@ func TestArgsByKey(t *testing.T) {
 			want: []string{"TOKEN=***"},
 		},
 		{
+			// --token の次がもう一度 --token だった場合、飛ばすと 3 番目の
+			// 本物の値が素のまま残る（監査ログへのトークン漏れ）。
+			name: "キーが連続しても本物の値をマスクする",
+			args: []string{"--token", "--token", "ABCDEFGH"},
+			want: []string{"--token", "***", "***"},
+		},
+		{
+			name: "別のキーが続いても本物の値をマスクする",
+			args: []string{"--token", "--pat", "ABCDEFGH", "--name", "build01"},
+			want: []string{"--token", "***", "***", "--name", "build01"},
+		},
+		{
+			name: "Authorization ヘッダはヘッダ名を残して値を置換する",
+			args: []string{"api", "-H", "Authorization: Bearer ABCDEFGH"},
+			want: []string{"api", "-H", "Authorization: ***"},
+		},
+		{
+			name: "--header= 形式のヘッダも値だけ置換する",
+			args: []string{"--header=Authorization: token ABCDEFGH"},
+			want: []string{"--header=Authorization: ***"},
+		},
+		{
+			// -H "Accept: ..." を潰すと何を送ったのか追跡できなくなる。
+			name: "秘密情報でないヘッダは変更しない",
+			args: []string{"api", "-H", "Accept: application/vnd.github+json"},
+			want: []string{"api", "-H", "Accept: application/vnd.github+json"},
+		},
+		{
+			name: "部分一致のキーもマスクする",
+			args: []string{"--api-key", "ABCDEFGH", "--authorization", "IJKLMNOP"},
+			want: []string{"--api-key", "***", "--authorization", "***"},
+		},
+		{
 			name: "対象外のキーは変更しない",
 			args: []string{"--url", "https://github.com/orgs/foo", "--name", "build01", "--labels", "self-hosted,linux"},
 			want: []string{"--url", "https://github.com/orgs/foo", "--name", "build01", "--labels", "self-hosted,linux"},
@@ -178,7 +211,10 @@ func TestArgsDoesNotModifyInput(t *testing.T) {
 }
 
 func TestIsSecretKey(t *testing.T) {
-	for _, name := range []string{"--token", "-token", "--Token", "--TOKEN", "pat", "--jitconfig", "--password", "--secret"} {
+	for _, name := range []string{
+		"--token", "-token", "--Token", "--TOKEN", "pat", "--jitconfig", "--password", "--secret",
+		"--authorization", "Authorization", "--api-key", "--api_key", "--apikey", "--bearer",
+	} {
 		if !isSecretKey(name) {
 			t.Errorf("isSecretKey(%q) = false, want true", name)
 		}
