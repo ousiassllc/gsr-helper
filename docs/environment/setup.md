@@ -91,7 +91,7 @@ lint / test / build のコマンド列を Makefile に集約し、**CI と手元
 | `make help` | ターゲット一覧を表示（既定） |
 | `make tools` | 依存モジュールと開発ツールの取得 |
 | `make fmt` | `go fmt ./...` でモジュール内のパッケージを整形する |
-| `make fmt-check` | `gofmt -l` の対象を `go list -f '{{.Dir}}' ./...` で解決したモジュール内パッケージに限定し、未整形のファイルがあれば失敗する（CI / `make check` 用） |
+| `make fmt-check` | `gofmt -l` の対象を `go list ./...` で解決したモジュール内の Go ファイルに限定し、未整形のファイルがあれば失敗する（CI / `make check` 用）。`go list` の失敗と対象 0 件も失敗として扱う |
 | `make vet` | `go vet ./...` |
 | `make lint` | `golangci-lint run` |
 | `make linterly` | 行数チェック |
@@ -107,6 +107,15 @@ GO   ?= go
 BIN  := gsr-helper
 CMD  := ./cmd/gsr-helper
 
+# go fmt が内部で使う gofmt（GOROOT/bin/gofmt）を fmt-check でも使い、整形と検査で
+# ツールチェーンがずれないようにする。
+GOFMT ?= $(shell $(GO) env GOROOT)/bin/gofmt
+
+# gofmt はパッケージ単位ではなくファイルシステムを再帰するため、対象はディレクトリでは
+# なくファイル単位で解決する。go fmt ./... と同じ集合（テストとビルドタグで除外された
+# ファイルを含み、testdata/ と入れ子 worktree は含まない）になる。
+GOFILES_TMPL := {{range .GoFiles}}{{printf "%s/%s\n" $$.Dir .}}{{end}}{{range .CgoFiles}}{{printf "%s/%s\n" $$.Dir .}}{{end}}{{range .TestGoFiles}}{{printf "%s/%s\n" $$.Dir .}}{{end}}{{range .XTestGoFiles}}{{printf "%s/%s\n" $$.Dir .}}{{end}}{{range .IgnoredGoFiles}}{{printf "%s/%s\n" $$.Dir .}}{{end}}
+
 .PHONY: help tools fmt fmt-check vet lint linterly test build hooks check
 
 help: ## ターゲット一覧を表示する
@@ -120,7 +129,11 @@ fmt: ## gofmt で整形する
 	$(GO) fmt ./...
 
 fmt-check: ## 未整形のファイルがないか確認する
-	@out=$$(gofmt -l $$($(GO) list -f '{{.Dir}}' ./...)); \
+	@files=$$($(GO) list -f '$(GOFILES_TMPL)' ./...) || exit 1; \
+	if [ -z "$$files" ]; then \
+		echo "対象の Go ファイルがありません" >&2; exit 1; \
+	fi; \
+	out=$$($(GOFMT) -l $$files) || exit 1; \
 	if [ -n "$$out" ]; then \
 		echo "gofmt が必要なファイル:"; echo "$$out"; exit 1; \
 	fi
@@ -364,7 +377,11 @@ formatters:
 
 `gofmt -l` は未整形ファイルを列挙するだけで終了コードが 0 のままなので、`fmt-check` では出力が空であることを検証している。
 
-**`gofmt` に `.` を渡さず、`go list -f '{{.Dir}}' ./...` で解決したパッケージディレクトリだけを対象にする。** `gofmt` はパッケージ単位ではなくファイルシステムを再帰するため、`.` を渡すと作業用に切った入れ子の git worktree（別ブランチのチェックアウト）配下の `.go` ファイルまで拾い、`make fmt` が無関係なブランチのファイルを書き換えたり、`make fmt-check` が無関係な未整形ファイルで失敗したりする。`go fmt` / `go list` はパッケージパターンで解決するため、独自の `go.mod` を持つ入れ子ディレクトリは対象外になる。あわせて `make fmt` を `$(GO) fmt` に、`fmt-check` の対象解決を `$(GO) list` に寄せ、複数の Go バージョンが入った環境でも[バージョンの単一情報源](#go-バージョンを二重管理しない)から外れないようにする。
+**`gofmt` にはディレクトリではなくファイルを渡す。** `gofmt` はパッケージ単位ではなくファイルシステムを再帰するため、ディレクトリを渡すと作業用に切った入れ子の git worktree（`.claude/worktrees/` 配下の別ブランチのチェックアウト）や `testdata/` の `.go` ファイルまで拾う。`go list` が返す `{{.Dir}}` はディレクトリなので、リポジトリルートに `.go` ファイルが 1 本置かれてルート自体がパッケージになった時点で、`gofmt` がルート以下すべてを再帰してしまう。そのため対象は `go list` の `.GoFiles` / `.CgoFiles` / `.TestGoFiles` / `.XTestGoFiles` / `.IgnoredGoFiles` を展開した**ファイル単位**で解決する。この 5 つは `go fmt` が整形する集合と同一で（`go fmt -n ./...` が出力する `gofmt -l -w` の引数と一致する）、ビルドタグで除外されたファイルを含み `testdata/` を含まない。`fmt` と `fmt-check` で対象がずれると、`make fmt` では直せないのに `fmt-check` が落ち続けるデッドロックになる。
+
+**`fmt-check` の `gofmt` は `$(GO) env GOROOT` から解決する。** `make fmt`（= `$(GO) fmt`）は GOROOT 配下の `gofmt` を起動するため、`fmt-check` が PATH 上の `gofmt` を使うと、`GO=/opt/go1.25/bin/go` のように差し替えた環境で整形と検査に別バージョンが動き、`make fmt` を何度実行しても `fmt-check` が落ちる状態になりうる。[バージョンの単一情報源](#go-バージョンを二重管理しない)の方針にも合わせ、両者を同じバイナリに固定する。
+
+**`go list` の失敗と対象 0 件は明示的に失敗させる。** コマンド置換の終了ステータスを捨てると、`go.mod` の破損等で `go list` が失敗しても検査ゲートが静かに通ってしまう。また対象が 0 件だと `gofmt` が引数なしで起動して標準入力を読むため、端末から `make check` を実行すると無言でハングする。どちらも `exit 1` で止める。
 
 import の並び順は `gocritic` / `revive` の範囲では強制しない。必要になった時点で golangci-lint の `formatters` に `goimports` を追加する（設定ファイル 1 行の追加で済むため、先回りしない）。
 
@@ -483,3 +500,4 @@ pre-push:
 | 1.8 | 2026-08-22 | 「fork からの PR で self-hosted ジョブを起動しない」節を private 前提に更新。public から private へ切り替えた経緯と理由（org runner group が既定で public リポジトリへ runner を提供せず CI が `queued` で止まった）を明記し、脅威モデルの対象をアクセス権を持つ範囲に限定。runner group の層に public 既定の制約を追記 | org レベルに 12 台の runner が登録・1 台稼働している状態でも CI run が 15 分以上 `queued` のまま引き取られず、private 化した直後に同じ run が実行されたことで原因を確定したため。1.5 / 1.7 の記述は public 前提のままで実態と食い違っていた |
 | 1.7 | 2026-08-22 | 「ディレクトリ構造」の `Makefile` の説明を「CI / 手元で共用。Git Hooks は経由しない」に修正。「抑制の方針」の G304 抑制 4 件の根拠を、`config.go` の 3 件は呼び出し側の事前条件に依拠する条件付きの記述へ、`procs.go` の 1 件は PID の数値検証という別の根拠へ分離し、抑制の棚卸し時に `--max-same-issues=0 --max-issues-per-linter=0` が必要である旨を追記。「Linterly」節に `warning_threshold` をコメントアウトしてはいけない理由を追記。「Git Hooks」節の作業ツリー参照の対処先を Issue #18 と明記し、`parallel: false` の順序説明に lefthook の `priority` フィールドを併記。CI/CD 節の fork ガードの対処先を Issue #17 と明記し、`github.ref` の「（実測）」を仕様に基づく記述へ修正。ターゲット一覧表の `make fmt-check` の注記を「CI / `make check` 用」に修正。改訂履歴 1.3 の `.sweep/` 除外理由と 1.6 の変更内容を本文と整合させた | 2 周目の PR レビューで、1 周目（1.6）の修正が一部の記述に及んでいない・根拠ラベルが実態と合わない・参照先 Issue の番号が欠けている点が指摘されたため。G304 抑制の親記述は、`Discover` の `Options.Roots` により走査ルート自体を呼び出し側が指定できる設計を踏まえると「パスに外部入力が入らない」と無条件に断定できず、コード側（`internal/runner/config.go` の nolint 理由）と食い違っていた。`golangci-lint` は `issues.max-same-issues` / `max-issues-per-linter` の既定（3 / 50）で同種の指摘を打ち切るため、既定のままでは G304 4 件を数え上げられない（設定への `issues` 追加は Issue #15 の範囲）。`.linterly.yml` の `warning_threshold` は既定値と同値だが `rules:` を非空に保つ役割があり、既定値だからという理由でコメントアウトすると `rules section is required` で exit 2 になることを実測した。lefthook v1.13.6 には command 単位の `priority` があり命名に依存せず順序を固定できるため、「命名の維持」は `priority` 未指定である現状の前提にすぎない。本リポジトリの CI run は self-hosted runner に引き取られず `queued` のままでジョブコンテキストが観測されていないため、`github.ref` に「（実測）」と付けるのは根拠ラベルとして誤りだった |
 | 1.8 | 2026-08-22 | `make build` を `go build ./...`（全パッケージのコンパイル検証）＋ `cmd/gsr-helper` が存在する場合のみ単一バイナリを生成する形に変更し、ターゲット一覧表・Makefile 定義・CI/CD 節の記述を実装に同期した | PR #19 の CI で `build` ジョブが `stat ./cmd/gsr-helper: directory not found` により exit 2 で失敗した。エントリポイントの実装は Issue #3 のスコープであり Issue #2 では追加できないため、パッケージが未作成の段階でも通り、かつ Issue #3 で `cmd/gsr-helper` が追加された後はそのままバイナリ生成まで行う形に `build` ターゲットを直した |
+| 1.9 | 2026-08-22 | `make fmt-check` の対象解決をディレクトリ単位からファイル単位（`go list` の `.GoFiles` / `.CgoFiles` / `.TestGoFiles` / `.XTestGoFiles` / `.IgnoredGoFiles`）へ変更し、`gofmt` を `$(GO) env GOROOT` 由来の `$(GOFMT)` に固定。`go list` の失敗と対象 0 件を `exit 1` にした。ターゲット一覧表・Makefile 定義・「Format」節を実装に同期し、`internal/buildconfig` に Makefile の回帰テストを追加 | 1.3 の修正（`gofmt -l $$($(GO) list -f '{{.Dir}}' ./...)`）は、リポジトリルートに `.go` ファイルが 1 本置かれてルート自体がパッケージになると `gofmt` が `.claude/worktrees/` 配下まで再帰して無効化される。`gofmt -l` は `testdata/` も検査するが `go fmt ./...` は対象外にするため、未整形のフィクスチャを置くと `make fmt` で直せないのに `fmt-check` が落ちるデッドロックになる。`fmt` が GOROOT の `gofmt`、`fmt-check` が PATH の `gofmt` を使う非対称も、`GO` を差し替えた環境で整形と検査のツールチェーンをずらす。さらにコマンド置換の終了ステータスを捨てていたため `go.mod` 破損時に検査が静かに通り、対象 0 件では `gofmt` が引数なしで起動して標準入力を読み無言でハングすることを実測した（`timeout 5 gofmt -l` が exit 124）。Issue #14 |
