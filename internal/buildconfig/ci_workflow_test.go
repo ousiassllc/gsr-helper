@@ -36,18 +36,26 @@ type ciStep struct {
 	Env  map[string]string `yaml:"env"`
 	Run  string            `yaml:"run"`
 	Uses string            `yaml:"uses"`
+	With map[string]any    `yaml:"with"`
 }
 
 type ciJob struct {
-	Needs  yamlStrings `yaml:"needs"`
-	RunsOn yamlStrings `yaml:"runs-on"`
-	Steps  []ciStep    `yaml:"steps"`
+	Needs          yamlStrings `yaml:"needs"`
+	RunsOn         yamlStrings `yaml:"runs-on"`
+	TimeoutMinutes *int        `yaml:"timeout-minutes"`
+	Steps          []ciStep    `yaml:"steps"`
+}
+
+type ciConcurrency struct {
+	Group            string `yaml:"group"`
+	CancelInProgress any    `yaml:"cancel-in-progress"`
 }
 
 // ciWorkflow は検証に使うフィールドだけを読む。`on:` は YAML の真偽値と衝突する
 // ため構造体では扱わず、トリガーの検証は生のテキストに対して行う。
 type ciWorkflow struct {
-	Jobs map[string]ciJob `yaml:"jobs"`
+	Concurrency ciConcurrency    `yaml:"concurrency"`
+	Jobs        map[string]ciJob `yaml:"jobs"`
 }
 
 func workflowsDir(t *testing.T) string {

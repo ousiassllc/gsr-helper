@@ -189,18 +189,20 @@ check: fmt-check vet lint linterly test ## すべてのチェックを実行す�
 | ランナー | self-hosted（`runs-on: [self-hosted, linux, x64]`） |
 | トリガー | `main` への push、および PR |
 | ジョブ | fork ガードの `guard`（GitHub ホストランナー）と、それに依存する `lint` / `test` / `build` の 3 本を並列実行 |
+| 設定の不変条件 | `internal/buildconfig` のテストが `ci.yml` / `Makefile` / `lefthook.yml` / lint 設定の不変条件を検証する。`test` ジョブで実行されるため、CI で機械的に守られる |
 | デプロイ | なし（配布は `go install`。[非機能要件 / 可搬性](../requirements/non-functional.md#可搬性)） |
 
 `lint` / `test` / `build` を並列にするのは、lint が落ちてもテスト結果が同時に得られるようにするためである。この 3 つの間に依存はなく、いずれも fork ガードの `guard` ジョブだけに依存する（[fork からの PR で self-hosted ジョブを起動しない](#fork-からの-pr-で-self-hosted-ジョブを起動しない)）。
 
 `permissions` は `contents: read` のみを与える。CI はリポジトリへの書き込みを行わない。
 
-`concurrency` はグループを `ci-${{ github.ref }}` とし、`cancel-in-progress: true` を指定する。
+`concurrency` はグループを `${{ github.workflow }}-${{ github.ref }}` とし、`cancel-in-progress` を `${{ github.event_name == 'pull_request' }}` にする。
 
+- **`group` にワークフロー名を含める。** リテラルの `ci-<ref>` にすると group はリポジトリ内の全ワークフローで共有されるため、将来 `release.yml` 等が同じ group を使うと相互にキャンセルし合う。
 - `github.ref` は `main` への push が `refs/heads/main`、PR が `refs/pull/<番号>/merge` になるため、**push と PR でグループが衝突しない**（GitHub Actions の仕様）。
 - concurrency は run 単位で効くため、**同一 run 内の `lint` / `test` / `build` の 3 ジョブは互いをキャンセルしない**。
 - PR に追加 push すると同じ PR の前の run がキャンセルされ、runner が即座に解放される。**オンラインの runner が限られる self-hosted 環境では、待ち行列の膨張を抑える効果が大きい**。
-- 副作用として、`main` に短時間で 2 コミットを連続 push すると先行の run がキャンセルされ、**中間コミットの CI 結果が残らない**。この見直しは Issue #16 で扱う。
+- **`main` への push ではキャンセルしない。** `cancel-in-progress: true` を無条件にすると、連続マージで先行する `main` の run がキャンセルされ「一度も検証されていない `main` コミット」が生まれる。`main` は `go install` による配布元なので、これは避ける。
 
 ### ワークフロー定義
 
@@ -218,8 +220,10 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # group にワークフロー名を含め、将来追加するワークフローと相互キャンセルしない。
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # main への push はキャンセルしない（未検証の main コミットを作らない）。
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   guard:
@@ -227,6 +231,7 @@ jobs:
     # 許可したトリガー以外では「失敗」して後続を止める（skip ではないため
     # required status check として fork PR のマージを機械的に止められる）。
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: トリガーと head リポジトリを検証する
         env:
@@ -252,42 +257,93 @@ jobs:
   lint:
     needs: guard
     runs-on: [self-hosted, linux, x64]
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version-file: go.mod
+          cache: false
       - run: make fmt-check
       - run: make vet
       - run: make lint
       - run: make linterly
+      - run: go tool lefthook validate
 
   test:
     needs: guard
     runs-on: [self-hosted, linux, x64]
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version-file: go.mod
+          cache: false
       - run: make test
 
   build:
     needs: guard
     runs-on: [self-hosted, linux, x64]
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version-file: go.mod
+          cache: false
       - run: make build
 ```
 
-`actions/setup-go` はモジュールとビルドのキャッシュを既定で有効にするため、`cache` の明示指定は不要。
+**`actions/setup-go` のキャッシュは `cache: false` で無効にする。** self-hosted runner ではジョブ間でホストが変わらず、モジュールキャッシュ（`GOMODCACHE`）とビルドキャッシュ（`GOCACHE`）はホスト側にそのまま残る。`actions/checkout` の `clean: true` は作業ディレクトリを掃除するだけでこれらには触れない。したがって `setup-go` のキャッシュ機構は、既に手元にあるものを tar で固めて保存し次回展開し直すだけの重複であり、速度上の利点がない。
+
+加えて、同一の runner ホストで**実障害が記録されている**: runner が 13 台同居した状態で `setup-go` の `tar -xf cache.tzst` / `unzstd` が D state のまま 26 分滞留し、load average 47 に達してジョブが timeout で cancelled になった。gsr-helper は tool ディレクティブで golangci-lint の依存閉包を抱えるため `go.sum` が 98KB あり、キャッシュ blob が大きくこの問題を踏みやすい。
+
+**アクションはフルコミット SHA でピン留めする。** `actions/checkout@v5` のような可変タグは、タグの付け替えや上流アカウントの侵害で参照先のコードが差し替わる。[セキュリティ設計](../architecture/security.md#パスワード不要-sudo-の要求への対応)のとおり self-hosted runner のワークフローは実質 root 相当で動くため、この脅威モデルでは被害がホスト全体に及ぶ。版の追従は `.github/dependabot.yml` の `github-actions` エコシステムに任せる（人手ではタグの移動を追えない）。SHA の隣にはバージョンをコメントで残し、読んだときに版が分かるようにする。
+
+```yaml
+version: 2
+
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+```
+
+**`actions/checkout` には `persist-credentials: false` を指定する。** 既定では `GITHUB_TOKEN` をローカルの `.git/config` に書き込み、post-job cleanup で削除する。しかし `cancel-in-progress` によるキャンセルでは cleanup が完走しない可能性があり、self-hosted runner は**作業ディレクトリを再利用する**ため、トークンが残留する窓が開く（次回の `actions/checkout` が行う `git clean -ffdx` は `.git` 自体を対象にしないので自動的には消えない）。CI のどの step も認証付きの git 操作を必要としない。
+
+**全ジョブに `timeout-minutes` を設定する。** 指定が無いと GitHub 既定の 6 時間までジョブが runner を占有する。オンラインの runner が 1 台しかない状況では、1 ジョブのハングが CI 全体を止める。
 
 `lint` ジョブは `make check` を 1 step で呼ばず、`make fmt-check` / `make vet` / `make lint` / `make linterly` を**個別の step として列挙する**。どのチェックで落ちたかが run の一覧から分かるためである。そのぶん「実行すべきチェックの集合」が Makefile の `check` と CI の step 列の 2 箇所に存在するため、**`check` にターゲットを追加する際は CI の step も更新する**必要がある。
 
+加えて `go tool lefthook validate` を step として実行し、`lefthook.yml` の構文退行を CI でも機械検知する（`make check` には含まれない。フック設定はテスト対象のコードではないため、Makefile の `check` ではなく CI の step に置く）。
+
 **`build` ジョブは `cmd/gsr-helper` が存在しない段階でも成功する。** `make build` は `go build ./...` で全パッケージのコンパイルを検証し、エントリポイントの生成は `cmd/gsr-helper` があるときだけ行う（Makefile 側でディレクトリの有無を判定する）。エントリポイントは Issue #3 の成果物であり、#3 で `cmd/gsr-helper` が追加されると同じ `make build` がそのまま単一バイナリ `gsr-helper` の生成まで行う。ディレクトリの有無で分岐させるのは、`go build ./...` だけではリンク済みの配布物が得られず、`go build -o $(BIN) $(CMD)` だけでは対象パッケージが無い間 `directory not found` で失敗する（実測: `go build` が exit 1、`make` が exit 2）ためである。
+
+### 設定ファイルの不変条件をテストで守る
+
+`.github/workflows/ci.yml` / `Makefile` / `lefthook.yml` / `.golangci.yml` / `.linterly.yml` は、取り決めを破ってもコンパイルエラーにならず、通常のテストでも検知できない。とくに **self-hosted runner を使うジョブを 1 本追加した人が `needs: guard` を書き忘れると、fork ガードを迂回する退行が静かに入る**。`actionlint` はカスタムルールを持てないため、この種の不変条件は検出できない。
+
+そこで `internal/buildconfig` に設定ファイルの回帰テストを置く。実行時のコードを持たないテスト専用のパッケージで、一時ディレクトリに最小のモジュールを作って `make` を実際に走らせるものと、設定ファイルを読んで内容を検証するものからなる。**`make test` の一部として CI（`test` ジョブ）と pre-push フックの双方で実行される**ため、CI 専用の step を足すより検知が早い。
+
+| 守っている不変条件 | 破ったときに落ちるテスト |
+|---|---|
+| self-hosted ジョブは必ず `needs: guard` を持つ | `TestCISelfHostedJobsDependOnGuard` |
+| `guard` は許可リスト形（`push` と同一リポジトリの `pull_request` 以外は失敗する） | `TestCIGuardScriptAllowsOnlySameRepositoryEvents` |
+| アクションはフルコミット SHA でピン留めされている | `TestCIActionsArePinnedToCommitSHA` |
+| 全ジョブに `timeout-minutes` がある | `TestCIJobsHaveTimeout` |
+| `make fmt-check` が入れ子 worktree と `testdata/` を対象にしない | `TestFmtCheckSkipsNestedWorktree` / `TestFmtCheckSkipsTestdata` |
+| `make test` が競合を検出する | `TestMakeTestDetectsDataRace` |
+| 仕様書のコードブロックが設定ファイルの実体と一致する | `TestSetupDocEmbedsConfigFilesVerbatim` |
+
+この表は網羅ではない。設定に新しい取り決めを入れたときは、同じ場所にテストを足す。
 
 ### self-hosted runner を使う前提
 
@@ -627,3 +683,4 @@ pre-push:
 | 1.12 | 2026-08-22 | `make test` を `go test -race ./...` にし、競合検出を別ターゲットに分けない方針と実測値・pre-push で実行する判断を「テストは常に競合検出付きで実行する」節に記録。「必要なもの」と self-hosted runner の前提に C コンパイラを追加し、`internal/buildconfig` に競合を実際に検出できることの回帰テストを追加。あわせて `docs/operations/runner-host-setup.md` に「C コンパイラ」節を追加（同 1.2） | `internal/runner.ScanUnits` の `systemctl show` 並列化以降、複数 goroutine から呼ばれる箇所が増えたのに `make test` に `-race` が無く、CI では競合が検出されないまま緑になる状態だった。ターゲットを分けると CI と手元で競合検出の有無が分岐するため、`make test` 自体に付けて CI・`make check`・pre-push の 3 経路すべてに効かせた。実測でビルドキャッシュあり 1.5 秒 → 21 秒に増えるが、増分のほぼ全部は `internal/exec/command` がテストバイナリ自身を子プロセスとして起動する設計に由来する（競合検出付きバイナリの起動コストが 1 回約 1 秒）。push はコミットより頻度が低いため pre-push では許容し、pre-commit には入れない。`-race` は cgo を必要とするため（実測: `CGO_ENABLED=0 go test -race` が `-race requires cgo`）、開発マシンと runner ホストの前提に C コンパイラを追加した。Issue #21 |
 | 1.13 | 2026-08-22 | `.golangci.yml` に `nolintlint`（`allow-unused: false` / `require-explanation: true` / `require-specific: true`）と `issues.max-issues-per-linter: 0` / `max-same-issues: 0` を追加し、`.linterly.yml` に `update_check: false` を追加。「golangci-lint」節に nolintlint の設定表と `issues` の説明を、「Linterly」節に `update_check` の説明を追記し、「抑制の方針」の棚卸し手順を実態（フラグ不要）に更新。`internal/buildconfig` に nolintlint が雑な抑制を実際に落とすことの回帰テストと、両設定ファイルの回帰テストを追加 | 抑制方針「行単位で行い必ず理由を書く」は規約として書かれているだけで機械的な強制が無く、とくに `internal/runner/systemd.go` の G204 は「集約先の実装後に除去する」暫定抑制なのに、不要になっても golangci-lint は何も報告しない（既定では不要な `//nolint` を検出しない）。`allow-unused: false` で除去漏れが検出できる。実測で 3 つの設定すべてが機能することを確認した（リンター名なし → `should mention specific linter`、理由なし → `should provide explanation`、不要 → `is unused`）。既存の抑制 5 件はすべて specific かつ理由付きのため `make lint` は exit 0 のまま。`issues` の 2 項目は既定（50 / 3）だと同種の指摘が 4 件以上で打ち切られ、G304 抑制 4 件を出力から裏取りできなかったため無制限にした。`update_check` は既定 `true` で実行のたびに GitHub Releases へ外向き HTTP が出る（実測: `strace -f -e trace=connect` で `linterly check` の外向き接続が 3 件 → 0 件）。行数上限はデフォルト値のままである。Issue #15 |
 | 1.14 | 2026-08-22 | `.golangci.yml` に `depguard` を追加し、`github.com/charmbracelet` 以下の import を理由付きで禁止。「golangci-lint」節にリンター表の行と禁止理由・既知の制約（ブランク import は検出しない）を追記し、`internal/buildconfig` に禁止パスの import が実際に落ちることの回帰テストを追加。あわせて `docs/requirements/non-functional.md` に機械的強制である旨を追記（同 1.7） | [非機能要件](../requirements/non-functional.md#依存ライブラリ)は Charm 4 つを `charm.land/<name>/v2` に揃え `github.com/charmbracelet/*` を直接 import しないと定めているが、強制が無かった。`github.com/charmbracelet/lipgloss v1.1.0` は golangci-lint の推移依存として実際に `go.mod` にあるため、誤って import してもビルドが通ってしまう。bubbletea の v1 / v2 はキー入力 `Msg` の型が異なり、lipgloss のように型が近いものは混ざっても気付きにくい。既存コード（`internal/ui` 配下は `charm.land/*` のみ）は違反 0 件で通る。回帰テストはローカルスタブを `replace` で解決する一時モジュールを使い、ネットワークに出ずに禁止パスの import を再現する。Issue #23 |
+| 1.15 | 2026-08-22 | CI ワークフローの運用・セキュリティ設定を 6 点見直した。全ジョブに `timeout-minutes` を設定、`actions/checkout` / `actions/setup-go` をフルコミット SHA でピン留めして `.github/dependabot.yml`（`github-actions`）を追加、`actions/checkout` に `persist-credentials: false` を指定、`setup-go` を `cache: false`、`concurrency` を `${{ github.workflow }}-${{ github.ref }}` + `cancel-in-progress: ${{ github.event_name == 'pull_request' }}` に変更、`lint` ジョブへ `go tool lefthook validate` を追加。あわせて「設定ファイルの不変条件をテストで守る」節を追加し、`internal/buildconfig` に該当する回帰テストを追加 | `timeout-minutes` が無いとハングしたジョブが GitHub 既定の 6 時間 runner を占有し、オンラインの runner が 1 台では CI 全体が止まる。可変タグ参照はタグの付け替えや上流の侵害でコードが差し替わり、self-hosted runner の脅威モデルでは被害が root 相当まで増幅するため SHA へ固定し、追従は Dependabot に委ねた。`persist-credentials` の既定 true は post-job cleanup に依存するが、`cancel-in-progress` によるキャンセルでは完走しない可能性があり、作業ディレクトリを再利用する self-hosted ではトークン残留の窓が開く（CI のどの step も認証付き git 操作を必要としない）。`setup-go` のキャッシュは、モジュール・ビルドキャッシュがホストに残る self-hosted では保存と展開の重複でしかなく、同一ホストで `tar -xf cache.tzst` が D state で 26 分滞留し load average 47 でジョブが cancelled になった実障害がある（`go.sum` 98KB で blob が大きい）。`concurrency` は group がリテラルだとリポジトリ内の全ワークフローで共有され将来相互キャンセルし、`cancel-in-progress: true` を無条件にすると連続マージで未検証の `main` コミットが生まれる。fork ガードの不変条件は `actionlint` のカスタムルールでは書けないため、`make test` に含まれる `internal/buildconfig` の回帰テストで守る（CI 専用 step より早く、pre-push でも効く）。Issue #16 |
