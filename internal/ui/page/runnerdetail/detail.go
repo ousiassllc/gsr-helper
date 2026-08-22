@@ -23,6 +23,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/ui/organism"
 	"github.com/ousiassllc/gsr-helper/internal/ui/organism/pane"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/action"
 	"github.com/ousiassllc/gsr-helper/internal/ui/token"
 )
 
@@ -53,6 +54,9 @@ const (
 type Model struct {
 	keys   keymap.Set
 	styles token.Styles
+	// actions はキー定義から 1 度だけ組んだ操作の表。描画のたびに組み直さない
+	// （action.Set の doc）。
+	actions action.Set
 
 	target runner.Runner
 	caps   appconfig.Caps
@@ -70,6 +74,7 @@ func newModel(keys keymap.Set, s token.Styles) Model {
 	return Model{
 		keys:    keys,
 		styles:  s,
+		actions: action.NewSet(keys.Runner),
 		target:  runner.Runner{},
 		caps:    appconfig.Caps{},
 		info:    pane.NewDetail(),
@@ -92,7 +97,7 @@ func newModel(keys keymap.Set, s token.Styles) Model {
 // 状態が変わっただけの SetState では戻さない（読んでいた場所を失う）。
 func (d *Model) Open(r runner.Runner, caps appconfig.Caps) {
 	d.target, d.caps = r, caps
-	items := page.Choices(r, caps, d.keys.Runner)
+	items := d.actions.Choices(r, caps)
 	d.list.SetItems(items)
 	d.opRows = len(items) + 1 // 破壊的操作の前に置く区切り線 1 本
 	d.refresh()
@@ -122,13 +127,14 @@ func (d *Model) SetSize(w, h int) {
 // 差し替える Open は逆に先頭へ戻す（FR-46）。
 func (d *Model) SetState(st page.StateMsg) {
 	d.keys, d.styles = st.Keys, st.Styles
+	d.actions = action.NewSet(st.Keys.Runner)
 	d.list.Restyle(st.Keys.List, st.Styles)
 	d.caps = st.Caps
 	if r, ok := findRunner(st.Result.Runners, d.target.Dir); ok {
 		d.target = r
 	}
 
-	items := page.Choices(d.target, d.caps, d.keys.Runner)
+	items := d.actions.Choices(d.target, d.caps)
 	d.list.UpdateItems(items)
 	d.opRows = len(items) + 1
 	d.refresh()
@@ -154,6 +160,9 @@ func findRunner(runners []runner.Runner, dir string) (runner.Runner, bool) {
 func (d Model) Title() string {
 	return d.target.Name() + "  詳細"
 }
+
+// Target は詳細が今表示している runner を返す。決定に添えるために使う。
+func (d Model) Target() runner.Runner { return d.target }
 
 // Cursor は操作リストのカーソル位置を返す。
 func (d Model) Cursor() int { return d.list.Cursor() }

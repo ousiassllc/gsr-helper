@@ -8,6 +8,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/ui/atom"
 	"github.com/ousiassllc/gsr-helper/internal/ui/organism"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/action"
 )
 
 // Kind は詳細画面のモーダルの種類。画面が page.Overlay へ登録するときに使う。
@@ -22,6 +23,16 @@ const Kind page.ModalKind = "runnerdetail"
 // モーダルがその処理を動かせない（page.Overlay.Open の doc）。
 func Open(o *page.Overlay, r runner.Runner, caps appconfig.Caps) tea.Cmd {
 	return o.Open(Kind, OpenMsg{Runner: r, Caps: caps})
+}
+
+// ChosenMsg は詳細画面で選ばれた操作。page.ResultMsg の中身として page へ届く。
+//
+// 操作は action.ID で持つ（キー文字列に戻さない）。対象の runner を添えるのは、
+// 決定が届いた時点で page が対象を引き直さずに済ませるためである（届くまでの間に
+// 一覧のカーソルが動いていることがある）。
+type ChosenMsg struct {
+	Action action.ID
+	Runner runner.Runner
 }
 
 // OpenMsg は詳細画面を開く指示。対象の runner とそのときの能力を渡す。
@@ -74,7 +85,15 @@ func (m modal) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// 階層だけ（atomic-design.md の依存の規則）であり、詳細画面はここで実行
 		// できない。**page.Do で包む**ことでタブを切り替えても発行元の page へ戻り、
 		// page.ResultMsg で包むことで Overlay が自分自身へ配り直さない。
-		res := page.ResultMsg{Kind: Kind, Msg: msg}
+		//
+		// 決定は action.ID のまま返す。キー文字列に戻すと、受け取った page が
+		// キーから操作を引き直すことになり、キーを差し替えたときに黙って別の操作へ
+		// 移りうる（Issue #34）。
+		id, ok := action.Of(msg.ID)
+		if !ok {
+			return m, nil
+		}
+		res := page.ResultMsg{Kind: Kind, Msg: ChosenMsg{Action: id, Runner: m.detail.Target()}}
 		return m, page.Do(m.tab, func() tea.Msg { return res })
 	case OpenMsg:
 		m.detail.Open(msg.Runner, msg.Caps)

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/action"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
 )
 
@@ -72,7 +73,8 @@ func TestDetailInOverlayReceivesKeysWhenTopmost(t *testing.T) {
 // （Model.SetState の doc）。
 func TestDetailRefreshesFromState(t *testing.T) {
 	keys := pagetest.Keys()
-	_, busyReason := page.Allowed("D", pagetest.BusyRunner(), pagetest.Caps(), keys.Runner)
+	acts := action.NewSet(keys.Runner)
+	_, busyReason := acts.Allowed("D", pagetest.BusyRunner(), pagetest.Caps())
 	if busyReason == "" {
 		t.Fatal("ジョブ実行中の削除が塞がれていない（前提が崩れている）")
 	}

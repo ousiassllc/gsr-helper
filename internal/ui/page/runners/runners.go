@@ -14,6 +14,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/ui/atom"
 	"github.com/ousiassllc/gsr-helper/internal/ui/organism/table"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/action"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/runnerdetail"
 )
 
@@ -30,6 +31,9 @@ type Model struct {
 	st      page.StateMsg
 	tbl     table.Model[row]
 	overlay page.Overlay
+	// actions はキー定義から 1 度だけ組んだ操作の表。描画のたびに組み直さない
+	// （action.Set の doc）。
+	actions action.Set
 	// initCmd はモーダルを登録したときに返った Cmd。Init で親へ渡す。
 	initCmd tea.Cmd
 }
@@ -50,6 +54,7 @@ func New(tab int, st page.StateMsg) Model {
 		st:      st,
 		tbl:     newTable(st.Keys, st.Styles),
 		overlay: overlay,
+		actions: action.NewSet(st.Keys.Runner),
 		initCmd: cmd,
 	}
 }
@@ -101,6 +106,7 @@ func (m Model) View() tea.View {
 // 検出は親が 1 本の Cmd で駆動する（同じ検出が重複実行されないようにするため）。
 func (m Model) setState(st page.StateMsg) (tea.Model, tea.Cmd) {
 	m.st = st
+	m.actions = action.NewSet(st.Keys.Runner)
 	// 背景色は起動後に届き、切り替わることもある。配色を配り直さないと一覧の中身だけが
 	// 古い明暗のまま残る（table.Model.Restyle の doc）。
 	m.tbl.Restyle(st.Keys.List, st.Styles)
@@ -226,7 +232,7 @@ func (m Model) footer() []atom.Hint {
 	if !ok || cur.isOrphan {
 		return m.listHints()
 	}
-	return page.Hints(cur.runner, m.st.Caps, m.st.Keys.Runner)
+	return m.actions.Hints(cur.runner, m.st.Caps, m.st.Keys.Runner)
 }
 
 // listHints は操作の対象が無いときのフッタを返す。

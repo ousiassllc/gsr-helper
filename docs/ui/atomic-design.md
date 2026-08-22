@@ -69,7 +69,8 @@ internal/ui/
   organism/pane/    スクロールする表示専用の領域（Detail / Help）
   organism/dialog/  承認・待機・入力（未実装。後述の「実装状況」）
   template/         画面共通の枠
-  page/             タブ共通の Msg と、タブ間で共有する部品（モーダルの重なり・操作可否の判定）
+  page/             タブ共通の Msg と、タブ間で共有する部品（モーダルの重なり・page の寿命）
+  page/action/      runner に対する操作の識別・可否の判定・一覧の組み立て
   page/<tab>/       タブ 1 枚（tea.Model）。runners / jobs / disk / logs / doctor / config / setup
   page/runnerdetail/ runner の詳細画面（Runners / Jobs が共用するモーダル）
   page/pagetest/    page/<tab> のテスト用フィクスチャ（共有状態と Msg の記録）
@@ -675,11 +676,15 @@ page 側は `default`（`Overlay` への転送）より**前**に `case page.Res
 
 **起動時に選択されているタブは `ActivateMsg` を受け取らない**（親は切り替えのときにだけ配る）。長寿命の処理を持つタブ（Logs / Doctor / Setup）はいずれも既定タブではないため釣り合うが、既定タブが持つようになったら親の初期化からも配る必要がある（Issue #63）。
 
-#### 5. 操作の可否は `page.ActionID` で引く
+#### 5. 操作の可否は `action.ID` で引く
 
-操作の識別子は `page.ActionID`（`ActionStart` / `ActionStop` / `ActionKill` / `ActionDrain` / `ActionRestart` / `ActionEnable` / `ActionAdd` / `ActionDelete` / `ActionUpdate` / `ActionEdit` / `ActionLogs`）である。キーストロークから識別子を引く表は `keymap.RunnerKeys` の各フィールドから組む（`page.BindingKey`）。
+操作の識別子は `action.ID`（`Start` / `Stop` / `Kill` / `Drain` / `Restart` / `Enable` / `Add` / `Delete` / `Update` / `Edit` / `Logs`）である。キーストロークから識別子を引く表は `keymap.RunnerKeys` の各フィールドから組む（`page.BindingKey`）。
 
-**判定はキーではなく操作で行う。** キーのリテラルで表を引くと、`keymap` でキーを差し替えたときに判定がコンパイルエラーも無く別の操作へ移る（または消える）。可否と理由を返すのは `page.Allow`（操作を渡す）と `page.Allowed`（キーを渡し、対応表を内部で通す）である。
+**判定はキーではなく操作で行う。** キーのリテラルで表を引くと、`keymap` でキーを差し替えたときに判定がコンパイルエラーも無く別の操作へ移る（または消える）。可否と理由を返すのは `action.Allow`（操作を渡す）と `action.Set.Allowed`（キーを渡し、組み済みの対応表を内部で通す）である。
+
+**表示層との境界でもキー文字列に戻さない。** `action.Set.Choices` は `organism.Choice.ID` に `action.ID` の不透明な識別子を載せ、決定（`organism.ChosenMsg.ID`）はそれを持って戻る。受け取った側は `action.Of` で `action.ID` に解く。キーで往復させると「識別子 → キー → 再マップ」になり、キーを差し替えたときに決定が黙って別の操作へ移りうる。
+
+**表は `keymap` から 1 度だけ組む。** `action.NewSet` を共有状態（`StateMsg`）を受けた時点で呼び、以後の描画は組み済みの `action.Set` を使う。判定 1 件ごとに組み直すと、フッタ 1 行の描画で 11 要素の `map` を 9 回確保することになる。**2 つの操作が同じ先頭キーを持つと `NewSet` が `panic` する**（黙って上書きすると片方の操作が判定表のどの行にも当たらなくなり、理由が `page.ReasonUnsupported` にすり替わる）。
 
 #### 6. `?` の範囲は自分で宣言する
 
@@ -794,7 +799,7 @@ Disk / Logs / Doctor タブの部品を足すときは、まずその部品が�
 
 無効なキーのグレーアウトは `atom.KeyHint` が描くが、**可否の判断は page が行う**。atom / molecule / organism は渡された可否と理由をそのまま描くだけで、判断を持たない。判断を表示部品に持たせると、同じ判定がフッタ・詳細画面の操作リスト・確認ダイアログの 3 箇所に分かれて食い違う。
 
-判定は `page.Allow` / `page.Allowed` に集約する。**本来この判定は `svc.CanControl` に集約する規約**（[コンポーネント設計](../components/overview.md#internalsvc)）だが、`svc` パッケージはサービス制御の Issue で作る。その時点で `page.Allow` の中身を `svc.CanControl` の呼び出しに差し替える（署名は変えない）。理由の文言は [画面仕様の無効な操作の表示](screens.md#無効な操作の表示)に従う。
+判定は `action.Allow` / `action.Set.Allowed` に集約する。**本来この判定は `svc.CanControl` に集約する規約**（[コンポーネント設計](../components/overview.md#internalsvc)）だが、`svc` パッケージはサービス制御の Issue で作る。その時点で `action.Allow` の中身を `svc.CanControl` の呼び出しに差し替える（署名は変えない）。理由の文言は [画面仕様の無効な操作の表示](screens.md#無効な操作の表示)に従う。
 
 ## 画面と部品の対応
 
@@ -852,7 +857,7 @@ Disk / Logs / Doctor タブの部品を足すときは、まずその部品が�
 
 `page` は 4 つとも import してよい。**パッケージ同士の参照は作らない**（`organism/pane` → `organism` も、その逆も）。分割の目的は行数上限の分散であり、部品同士の依存を増やすことではない。`Table` と `Confirm` をそれぞれ 1 実装に統一する規則（前述）は置き場所が変わっても維持する。
 
-`page` 階層も同じ理由で分ける。`page`（共通の `Msg`・可否の判定・`Overlay`）・`page/<tab>`（タブ 1 枚）・`page/runnerdetail`（複数タブが共用するモーダル）・`page/pagetest`（テスト用フィクスチャ）である。`page/pagetest` を独立させるのは、`page/<tab>` のテストが共有状態と `Msg` の記録を使い回せるようにするためで、`page` 自身の内部テストからは import が循環するため使えない。
+`page` 階層も同じ理由で分ける。`page`（共通の `Msg`・`Overlay`・page の寿命）・`page/action`（操作の識別と可否の判定）・`page/<tab>`（タブ 1 枚）・`page/runnerdetail`（複数タブが共用するモーダル）・`page/pagetest`（テスト用フィクスチャ）である。依存は `page/action` → `page` の一方向で、`page` は `page/action` を import しない（`page` が持つのは未対応の理由の文言と `BindingKey` だけである）。`page/pagetest` を独立させるのは、`page/<tab>` のテストが共有状態と `Msg` の記録を使い回せるようにするためで、`page` 自身の内部テストからは import が循環するため使えない。
 
 `molecule` も同じ理由で上限に近づくが、**こちらは分割しない。** 「molecule 同士は参照しない」という同階層参照の禁止は Go の import では強制できず（`molecule/row` から `molecule/bar` を import できてしまう）、規則を構造で守るという本書の方針と衝突するためである。代わりに行系 molecule のテストを共通ヘルパへ寄せて 1 部品あたりの行数を抑える。
 
@@ -877,19 +882,20 @@ Disk / Logs / Doctor タブの部品を足すときは、まずその部品が�
 
 | ディレクトリ | 行数 |
 |------------|------|
-| `ui` | 1887 |
-| `ui/organism/table` | 1701 |
-| `ui/molecule` | 1715 |
-| `ui/page` | 1481 |
+| `ui` | 2147 |
+| `ui/organism/table` | 2061 |
+| `ui/molecule` | 1764 |
+| `ui/page` | 1431 |
+| `ui/page/runnerdetail` | 1107 |
+| `ui/page/runners` | 978 |
 | `ui/atom` | 911 |
-| `ui/page/runnerdetail` | 864 |
-| `ui/page/runners` | 855 |
 | `ui/keymap` | 830 |
+| `ui/page/action` | 750 |
+| `ui/page/jobs` | 716 |
+| `ui/organism/pane` | 682 |
 | `ui/template` | 657 |
 | `ui/token` | 655 |
-| `ui/page/jobs` | 639 |
-| `ui/organism/pane` | 516 |
-| `ui/organism` | 388 |
+| `ui/organism` | 472 |
 | `ui/page/pagetest` | 193 |
 
 ## 部品を追加するときの手順
@@ -916,3 +922,4 @@ Disk / Logs / Doctor タブの部品を足すときは、まずその部品が�
 | 1.8 | 2026-08-22 | page の寿命を知らせる 3 つの `Msg`（`page.ActivateMsg` / `DeactivateMsg` / `ShutdownMsg`）と、終了時に後始末を `tea.Sequence` で `tea.Quit` より前に流す規則を、タブが守る約束に追加 | 親はタブを切り替えるとき移動先へ共有状態を配るだけで、離れるタブには何も送っていなかった。`journalctl -f` 相当の長寿命の呼び出しを持つ page は畳む機会が無く、タブを行き来するたびに購読が積み上がる。終了も `tea.Quit` を直に返しており、page の後始末が実行される前にランタイムが止まっていた（Issue #41） |
 | 1.9 | 2026-08-22 | 作り直して引き継ぐ方式の義務を「作り直す側が最後の大きさを覚え、配り直してから位置を戻す」と具体化し、`helpmodal.go` が満たしていないという記述を実装に合わせて修正 | `helpmodal.go` は `pane.NewHelp` の直後に `SetOffset` を呼んでおり、高さ 0 で丸められて位置が 0 に落ちていた。共有状態は 3 秒ごとに届くため、ヘルプを読んでいる間ずっと先頭へ戻され続けていた。別の runner の詳細を開いても情報部のスクロールが残る欠陥も同じ節が扱う範囲だった（Issue #30） |
 | 1.10 | 2026-08-22 | `Overlay` の写しの意味を「変わりうる状態を 1 つの内部構造体にまとめ、写しは常にその参照を共有する」と定義し直し、中途半端な共有を禁じる記述を追加。`SetState` を開いているモーダルだけに配る形へ改め、`Register` / `Open` の時点で最新の `StateMsg` / `SizeMsg` をリプレイする契約と、`SizeMsg` は変化時のみという規則を明記。`ModalKind` の二重登録と未登録の `Open` を `panic` で表面化させる規則を追加。領域だけを設定する口（`SetSize`）を廃止 | 重なりのスタックだけが写しごとに分かれ `map` は共有されるという半端な状態で、文書はそれを「実体を共有する」と偽って記述していた。閉じているモーダルへ毎周期 `StateMsg` と `SizeMsg` を配るため、誰も見ていないヘルプを 3 秒ごとに全行組み直していた。同じ `ModalKind` を別々の Issue が選ぶと片方が到達不能になるが、上書きは黙って成功していた。`SetSize` は本番の呼び出し元が無く、`SetState` が毎周期上書きするため機能的に無効だった（Issue #32） |
+| 1.11 | 2026-08-22 | 操作の識別と可否の判定を `page/action` へ分離し、`page.ActionID` を `action.ID` に改称。表示層との境界を不透明な識別子（`organism.Choice.ID` / `ChosenMsg.ID`）で渡す規則、`action.Set` をキー定義から 1 度だけ組む規則、同じ先頭キーの重複を `panic` で検出する規則を追加。ディレクトリの行数表を実測値に更新 | 決定が「`ActionID` → キー文字列 → 再マップ」で往復しており、キーリテラル依存を排したはずの箇所に決定点だけが残っていた。`keymap.RunnerKeys` の 2 フィールドが同じ先頭キーを持つと片方が map 上書きで黙って消え、理由が未対応にすり替わる。可否の判定は呼ばれるたびに 11 要素の map を作り直しており、フッタ 1 回の描画で 9 回確保していた。`page` 直下が行数上限を超えたため、本書の「上限に近いディレクトリへ部品を足すときは先に分割の是非を検討する」に従って分けた（Issue #34） |

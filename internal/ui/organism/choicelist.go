@@ -38,6 +38,12 @@ const cursorWidth = 2
 // Impact と Reason は両方与えてよい。実際にどちらを描くかは Enabled で決まる
 // （molecule.ActionView の契約。無効な項目では影響を出さず理由だけを出す）。
 type Choice struct {
+	// ID は呼び出し側が付ける不透明な識別子。決定（ChosenMsg）にそのまま載る。
+	//
+	// キーではなくこれで決定を識別するのは、キー文字列で往復させると呼び出し側が
+	// 「識別子 → キー → 識別子」と再マップすることになり、キーを差し替えたときに
+	// 決定が黙って別の操作へ移りうるためである。ChoiceList は中身を解釈しない。
+	ID            string
 	Key           string // 直接打てるキー。空なら無し
 	Desc          string // 動作の説明
 	Impact        string // 影響の併記（「⚠ 実行中のジョブは中断されます」など）
@@ -58,7 +64,11 @@ type ChoiceList struct {
 
 // ChosenMsg は選ばれた項目を page へ通知する。無効な項目では発行しない
 // （可否は判断せず、page が与えた Enabled に従う）。
+//
+// 決定を識別するのは ID である。Key は「どのキーで選ばれたか」を伝えるだけで、
+// 決定の同一性には使わない（Choice.ID の doc）。
 type ChosenMsg struct {
+	ID  string
 	Key string
 }
 
@@ -170,6 +180,6 @@ func (c ChoiceList) chose(i int) tea.Cmd {
 		return nil
 	}
 
-	chosen := ChosenMsg{Key: c.items[i].Key}
+	chosen := ChosenMsg{ID: c.items[i].ID, Key: c.items[i].Key}
 	return func() tea.Msg { return chosen }
 }

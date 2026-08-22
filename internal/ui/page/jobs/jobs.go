@@ -15,6 +15,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/ui/atom"
 	"github.com/ousiassllc/gsr-helper/internal/ui/organism/table"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/action"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/runnerdetail"
 )
 
@@ -33,6 +34,9 @@ type Model struct {
 	st      page.StateMsg
 	tbl     table.Model[row]
 	overlay page.Overlay
+	// actions はキー定義から 1 度だけ組んだ操作の表。描画のたびに組み直さない
+	// （action.Set の doc）。
+	actions action.Set
 	// initCmd はモーダルを登録したときに返った Cmd。Init で親へ渡す。
 	initCmd tea.Cmd
 }
@@ -52,6 +56,7 @@ func New(tab int, st page.StateMsg) Model {
 		st:      st,
 		tbl:     newTable(st.Keys, st.Styles),
 		overlay: overlay,
+		actions: action.NewSet(st.Keys.Runner),
 		initCmd: cmd,
 	}
 }
@@ -90,6 +95,7 @@ func (m Model) View() tea.View {
 // setState は共有状態のスナップショットを反映する。ドメイン層は呼ばない。
 func (m Model) setState(st page.StateMsg) (tea.Model, tea.Cmd) {
 	m.st = st
+	m.actions = action.NewSet(st.Keys.Runner)
 	// 配色を配り直すのは runners.go と同じ理由（table.Model.Restyle の doc）。
 	m.tbl.Restyle(st.Keys.List, st.Styles)
 	m.tbl.SetSize(st.BodyW, st.BodyH)
@@ -209,7 +215,7 @@ func (m Model) footer() []atom.Hint {
 	})
 	for _, f := range footer {
 		k := page.BindingKey(f.Binding)
-		enabled, reason := page.Allowed(k, cur.runner, m.st.Caps, keys)
+		enabled, reason := m.actions.Allowed(k, cur.runner, m.st.Caps)
 		hints = append(hints, atom.Hint{
 			Key:     k,
 			Desc:    f.Desc,

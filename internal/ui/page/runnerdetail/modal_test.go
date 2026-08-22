@@ -7,6 +7,7 @@ import (
 
 	"github.com/ousiassllc/gsr-helper/internal/ui/organism"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/action"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
 )
 
@@ -19,7 +20,7 @@ func TestChosenReturnsToPageWithOriginTab(t *testing.T) {
 	o := newOverlayWithDetail(80, 20)
 	Open(&o, pagetest.SampleRunner(), pagetest.Caps())
 
-	chosen := organism.ChosenMsg{Key: "s"}
+	chosen := organism.ChosenMsg{ID: action.Start.String(), Key: "s"}
 	o, cmd := o.Update(chosen)
 	if cmd == nil {
 		t.Fatal("決定が Cmd にならず捨てられている")
@@ -40,8 +41,16 @@ func TestChosenReturnsToPageWithOriginTab(t *testing.T) {
 	if res.Kind != Kind {
 		t.Errorf("決定の出どころ = %q, want %q", res.Kind, Kind)
 	}
-	if got, isChosen := res.Msg.(organism.ChosenMsg); !isChosen || got != chosen {
-		t.Errorf("決定の中身 = %+v, want %+v", res.Msg, chosen)
+	got, isChosen := res.Msg.(ChosenMsg)
+	if !isChosen {
+		t.Fatalf("決定の中身 = %T, want runnerdetail.ChosenMsg", res.Msg)
+	}
+	// 決定は ActionID のまま届く（キー文字列に戻らない。Issue #34）。
+	if got.Action != action.Start {
+		t.Errorf("決定の操作 = %v, want %v", got.Action, action.Start)
+	}
+	if got.Runner.Dir != pagetest.SampleRunner().Dir {
+		t.Errorf("決定に添えた runner = %q, want %q", got.Runner.Dir, pagetest.SampleRunner().Dir)
 	}
 
 	// 決定は page が解釈する。Overlay へ戻すと詳細画面自身へ帰って捨てられる。
@@ -79,3 +88,13 @@ func TestAddressedMsgReachesDetailAfterClose(t *testing.T) {
 
 // tea.Model の型検査（詳細画面のモーダルが Overlay の期待する形であること）。
 var _ tea.Model = modal{}
+
+// 解けない識別子の決定は捨てる（表示層が勝手に付けた値を実行しない）。
+func TestChosenWithUnknownIDIsIgnored(t *testing.T) {
+	o := newOverlayWithDetail(80, 20)
+	Open(&o, pagetest.SampleRunner(), pagetest.Caps())
+
+	if _, cmd := o.Update(organism.ChosenMsg{ID: "でたらめ", Key: "s"}); cmd != nil {
+		t.Error("解けない識別子の決定が page へ差し戻されている")
+	}
+}

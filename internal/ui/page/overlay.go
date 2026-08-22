@@ -28,8 +28,7 @@ import (
 // overlayState が持ち、Overlay はその参照である。以前はスタックだけがスライスの
 // 付け替えで写しごとに分かれ、map だけが共有される半端な状態だった（捨てた写しが
 // 中身の変更だけを残してスタックの変更を失う）。組み立ては NewOverlay を通すこと
-// （ゼロ値は使えない）。bubbles 流の署名に揃えた結果であり、page は直前の Update が
-// 返した 1 つの値だけを持つこと（organism/table.Model と同じ約束）。
+// （ゼロ値は使えない）。
 type Overlay struct {
 	tab int // 乗っているタブ番号。組み立て後は変わらない
 	s   *overlayState
@@ -41,8 +40,7 @@ type Overlay struct {
 // runner 操作（keymap.Set.RunnerListHelp）を既定とし、別の範囲を持つタブは
 // SetHelpScope で差し替える。それ以外のモーダルは画面が Register で足す。
 func NewOverlay(tab int, keys keymap.Set, s token.Styles, dark bool) Overlay {
-	// 登録する部品には初期の共有状態を渡す。最初のリサイズと検出が届く前でも
-	// 配色とキー定義を持った状態で描けるようにするためである（newTabs と同じ形）。
+	// 最初のリサイズと検出が届く前でも配色とキー定義を持った状態で描けるようにする。
 	st := StateMsg{Keys: keys, Styles: s, Dark: dark}
 	o := Overlay{tab: tab, s: &overlayState{
 		keys:   keys,
@@ -55,8 +53,7 @@ func NewOverlay(tab int, keys keymap.Set, s token.Styles, dark bool) Overlay {
 		height: 0,
 	}}
 	// ヘルプの登録が返す Cmd は捨てる。helpModal は表示専用でドメイン層を呼ばず、
-	// 登録時のどの Msg にも Cmd を返さないため取りこぼしにならない。画面が足す
-	// モーダルは Register の戻り値を呼び出し側へ返すこと。
+	// 登録時のどの Msg にも Cmd を返さない。画面が足すモーダルは戻り値を返すこと。
 	o.Register(ModalHelp, newHelpModal(st, keymap.Set.RunnerListHelp))
 	return o
 }
@@ -65,10 +62,10 @@ func NewOverlay(tab int, keys keymap.Set, s token.Styles, dark bool) Overlay {
 // 領域が届くので、起動後に遅延登録しても次の周期を待たずに描ける。
 //
 // **同じ種類を二重に登録すると panic する。** ModalKind は各パッケージが自由に
-// 宣言する文字列であり（ModalKind の doc）、別々の Issue が同じ綴りを選ぶと片方が
-// 到達不能なモーダルになる。黙って上書きするとコンパイルエラーも実行時エラーも
-// 残らず、症状は「enter を押しても何も起きない」になって原因を追えない。登録は
-// page の組み立て時に決まるため、誤りは最初の起動で必ず表面化する。
+// 宣言する文字列なので、別々の Issue が同じ綴りを選ぶと片方が到達不能になる。
+// 黙って上書きすると症状は「enter を押しても何も起きない」になり、コンパイル
+// エラーも実行時エラーもログも残らない。登録は page の組み立て時に決まるため、
+// 誤りは最初の起動で必ず表面化する。
 //
 // **戻り値の Cmd は呼び出し側まで返すこと。** 登録した時点で処理を始めるモーダルが
 // あり、捨てるとその処理が動かない。
@@ -99,11 +96,8 @@ func (o Overlay) SetHelpScope(scope HelpScope) tea.Cmd {
 // 開くときに渡した Msg は中身の Model へそのまま届く。「何を開くか」（対象の runner や
 // 確認の文面）を Msg で渡すことで、Overlay は種類ごとの引数を知らずに済む。
 //
-// **未登録の種類を開くと panic する。** 種類は定数であり、開くのは登録した page
-// 自身なので取り違えは実装の誤りである（Register の doc と同じ理由）。
-//
-// 戻り値の Cmd は呼び出し側まで返すこと（開いた瞬間に購読や計算を始めるモーダルは
-// この Cmd で処理を始める）。
+// **未登録の種類を開くと panic する**（Register の doc と同じ理由）。戻り値の Cmd は
+// 呼び出し側まで返すこと（開いた瞬間に購読や計算を始めるモーダルが使う）。
 func (o Overlay) Open(kind ModalKind, msg tea.Msg) tea.Cmd {
 	if _, ok := o.s.modals[kind]; !ok {
 		panic("page: 登録されていないモーダルを開こうとした: " + string(kind))
@@ -148,9 +142,9 @@ func (o Overlay) Active() bool { return len(o.s.stack) > 0 }
 
 // Handles は page がこの Msg を Overlay へ渡すべきかを返す。
 //
-// page の「キー以外を配る」判定をこの 1 つに集める。開いているかどうかだけで
-// 判断すると、宛先を明示した ModalMsg が閉じている間に捨てられ、page 宛の決定
-// （ResultMsg）はモーダル自身へ戻って消える。
+// page の「キー以外を配る」判定をこの 1 つに集める。開閉だけで判断すると、宛先を
+// 明示した ModalMsg が閉じている間に捨てられ、page 宛の決定（ResultMsg）は
+// モーダル自身へ戻って消える。
 func (o Overlay) Handles(msg tea.Msg) bool {
 	switch msg.(type) {
 	case ModalMsg:
@@ -167,9 +161,8 @@ func (o Overlay) Handles(msg tea.Msg) bool {
 // Update は宛先付きの Msg をその種類へ、それ以外を最上位のモーダルへ渡す。
 //
 // esc は最上位のモーダルが自分で解釈する（Modal.HandlesBack が真）ときだけ渡し、
-// そうでなければここで 1 枚閉じる。先に渡す順序にするのは、入力や編集の取消を
-// 閉じる操作より先に解釈させるためである。判断はモーダルが返す真偽値 1 つに
-// 委ねるので、Overlay は種類ごとの分岐を持たない。
+// そうでなければここで 1 枚閉じる。入力や編集の取消を閉じる操作より先に解釈させる
+// ためである。判断は真偽値 1 つに委ねるので、Overlay は種類ごとの分岐を持たない。
 func (o Overlay) Update(msg tea.Msg) (Overlay, tea.Cmd) {
 	if to, ok := msg.(ModalMsg); ok {
 		// 宛先が明示されている。閉じていても最上位でなくてもその種類へ届ける。
