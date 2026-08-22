@@ -186,7 +186,10 @@ func (m Model) handleKey(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	default:
 		// 自分が解釈しないキーは一覧へ渡し、同時に親へ差し戻す。タブ切替・再読み込み・
 		// 終了を解釈するのは親であり、一覧のキーと衝突しないことは keymap の
-		// TestNoDuplicateKeysInSameContext が担保する。
+		// 重複検査（keymap.Set.Contexts の「一覧画面（通常モード）」）が担保する。
+		// **この経路が二重解釈の起きる場所である。** 自前のキー集合を Set に足す
+		// タブは、そのキーが同時に有効になるコンテキストを Contexts へ登録すること
+		// （登録漏れは TestContextsCoverEverySetField が落とす）。
 		next, c := m.forward(press)
 		return next, tea.Batch(c, page.BubbleKey(press))
 	}

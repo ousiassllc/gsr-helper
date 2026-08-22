@@ -121,42 +121,6 @@ func TestKeyAssignmentsMatchSpec(t *testing.T) {
 	}
 }
 
-// 同じ画面で同時に有効なキーが重複していると、打鍵が別の操作として解釈される。
-//
-// 「同時に有効なキーの集合」を狭く取ると検証が働かない。一覧の通常モードでは
-// 入力中にしか使わない Accept / Cancel 以外の List のキーがすべて有効なので、
-// listNormal はその 2 つを除いた全フィールドを列挙する（件数で担保する）。
-func TestNoDuplicateKeysInSameContext(t *testing.T) {
-	s := New()
-
-	// 一覧画面の通常モード。グローバルキー・一覧のキー・runner の操作キーが
-	// すべて同時に有効になる（Runners タブは孤児ユニットの区画を持つが、
-	// 区画の移動は j / k の端越えなので専用のキーは無い）。
-	normal := append(s.Global.Bindings(), listNormal(t, s.List)...)
-	normal = append(normal, s.Runner.Bindings()...)
-	assertNoDuplicateKeys(t, "一覧画面（通常モード）", normal)
-
-	// 入力中はグローバルキーを解釈せず、確定・取消・終了のみが有効。
-	assertNoDuplicateKeys(t, "入力中", []key.Binding{
-		s.List.Accept, s.List.Cancel, s.Global.Interrupt,
-	})
-}
-
-// listNormal は一覧の通常モードで同時に有効な List のキーを返す。
-//
-// List.Bindings がその集合そのものである（入力中にのみ有効な Accept / Cancel は
-// FilterBindings が持つ）。フィールドを増やしたときに除外の判断を迫るため、
-// 件数が List のフィールド数と合うことを検証する。
-func listNormal(t *testing.T, l List) []key.Binding {
-	t.Helper()
-
-	out := l.Bindings()
-	if want := reflect.TypeOf(l).NumField() - len(l.FilterBindings()); len(out) != want {
-		t.Fatalf("通常モードのキー数 = %d, want %d（List にキーを追加したらテストも追う）", len(out), want)
-	}
-	return out
-}
-
 // enter と esc の共有は「特別扱いの除外」ではなく、モードの分割で成り立っている。
 //
 // List.Accept（enter）と List.Enter（enter）、List.Cancel（esc）と Global.Back（esc）は
@@ -185,21 +149,6 @@ func TestListModesPartitionEveryKey(t *testing.T) {
 			t.Errorf("%s がどちらのモードにも属していない", reflect.TypeOf(l).Field(i).Name)
 		default:
 			t.Errorf("%s が両方のモードに属している", reflect.TypeOf(l).Field(i).Name)
-		}
-	}
-}
-
-func assertNoDuplicateKeys(t *testing.T, context string, bindings []key.Binding) {
-	t.Helper()
-
-	seen := make(map[string]string)
-	for _, b := range bindings {
-		for _, k := range b.Keys() {
-			if prev, ok := seen[k]; ok {
-				t.Errorf("%s: キー %q が %q と %q で重複している", context, k, prev, b.Help().Desc)
-				continue
-			}
-			seen[k] = b.Help().Desc
 		}
 	}
 }

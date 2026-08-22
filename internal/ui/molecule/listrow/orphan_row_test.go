@@ -1,9 +1,10 @@
-package molecule
+package listrow
 
 import (
 	"strings"
 	"testing"
 
+	"github.com/ousiassllc/gsr-helper/internal/ui/molecule"
 	"github.com/ousiassllc/gsr-helper/internal/ui/token"
 )
 
@@ -51,13 +52,18 @@ func TestOrphanRowContents(t *testing.T) {
 	}
 }
 
+// columnGutter は列と列の間隔。molecule.Columns の幅判定と organism.Table のセル余白が
+// 同じ値を持つ（molecule/columns.go と organism/table/section.go の同名の定数）。
+// どちらも非公開なので、区画の見え方を再現するここでも同じ値を置く。
+const columnGutter = 1
+
 // sectionColumns は organism の区画が bubbles/table へ渡すのと同じ列を返す。
 //
 // organism の setWidth は、bubbles/table のセルが持つ右余白の分だけ最終列を 1 セル
 // 狭めてから表を組む。Columns の結果をそのまま使って中身を検証すると、実際の描画
 // では 1 セル足りずに中略されている値が「収まっている」ように見えてしまう。
 func sectionColumns(all []token.Column, width int) []token.Column {
-	cols := Columns(all, width, token.RunnerColumnRules())
+	cols := molecule.Columns(all, width, token.RunnerColumnRules())
 	if n := len(cols); n > 0 {
 		cols[n-1].Width = max(cols[n-1].Width-columnGutter, 0)
 	}

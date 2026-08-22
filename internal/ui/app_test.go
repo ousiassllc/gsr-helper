@@ -106,7 +106,7 @@ func TestDiscoveredDistributesToAllTabs(t *testing.T) {
 	}
 
 	// 孤児ユニットの件数は親が状態行に出す。
-	if got := a.status(); !strings.Contains(got, "孤児ユニット 1 件") {
+	if got := statusLine(a); !strings.Contains(got, "孤児ユニット 1 件") {
 		t.Errorf("状態行 = %q, 孤児ユニットの件数が無い", got)
 	}
 }
@@ -117,7 +117,7 @@ func TestDiscoverErrorGoesToStatus(t *testing.T) {
 		result: runner.Result{},
 		err:    errTest,
 	})
-	if got := a.status(); !strings.Contains(got, errTest.Error()) {
+	if got := statusLine(a); !strings.Contains(got, errTest.Error()) {
 		t.Errorf("状態行 = %q, エラーが無い", got)
 	}
 	if a.active != 0 {
@@ -152,8 +152,8 @@ func TestDiscoverErrorKeepsLastResult(t *testing.T) {
 	if got := len(a.result.OrphanUnits); got != 1 {
 		t.Errorf("孤児ユニット = %d 件, want 1（部分結果で上書きしている）", got)
 	}
-	if !strings.Contains(a.status(), errTest.Error()) {
-		t.Errorf("状態行 = %q, 検出の警告が出ていない", a.status())
+	if !strings.Contains(statusLine(a), errTest.Error()) {
+		t.Errorf("状態行 = %q, 検出の警告が出ていない", statusLine(a))
 	}
 
 	// page へ配られるスナップショットも直前の成功結果を保つ。

@@ -16,8 +16,10 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/appconfig"
 	"github.com/ousiassllc/gsr-helper/internal/exec"
 	"github.com/ousiassllc/gsr-helper/internal/runner"
+	"github.com/ousiassllc/gsr-helper/internal/ui/chrome"
 	"github.com/ousiassllc/gsr-helper/internal/ui/keymap"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
+	"github.com/ousiassllc/gsr-helper/internal/ui/tabset"
 	"github.com/ousiassllc/gsr-helper/internal/ui/template"
 	"github.com/ousiassllc/gsr-helper/internal/ui/token"
 )
@@ -51,7 +53,7 @@ type App struct {
 	width  int
 	height int
 
-	tabs   []tab
+	tabs   []tabset.Tab
 	active int
 	chrome page.ChromeMsg
 	// notice は親が状態行に出す一時的な案内（無効なタブの理由）。次の打鍵で消える。
@@ -91,7 +93,7 @@ func New(cfg appconfig.Config, caps appconfig.Caps, ex exec.Executor, o Options)
 		dark:     dark,
 		width:    0,
 		height:   0,
-		tabs:     newTabs(caps, ex, keys, styles, dark),
+		tabs:     tabset.New(caps, ex, keys, styles, dark),
 		active:   0,
 		chrome:   page.ChromeMsg{Tab: 0, Modal: false, Input: "", Status: "", Footer: nil},
 		notice:   "",
@@ -172,12 +174,13 @@ func (a App) View() tea.View {
 		body = t.Model.View().Content
 	}
 
+	cv := a.chromeView()
 	v := tea.NewView(template.Frame(template.FrameInput{
-		Header: a.header(),
-		Tabs:   a.tabBar(),
+		Header: chrome.Header(cv),
+		Tabs:   chrome.TabBar(cv),
 		Body:   body,
-		Status: a.status(),
-		Footer: a.footer(),
+		Status: chrome.Status(cv),
+		Footer: chrome.Footer(cv),
 		Width:  a.width,
 		Height: a.height,
 	}))
@@ -255,9 +258,9 @@ func (a App) forwardTo(i int, msg tea.Msg) (App, tea.Cmd) {
 }
 
 // current は有効タブを返す。
-func (a App) current() (tab, bool) {
+func (a App) current() (tabset.Tab, bool) {
 	if a.active < 0 || a.active >= len(a.tabs) {
-		return tab{}, false
+		return tabset.Tab{}, false
 	}
 	return a.tabs[a.active], true
 }

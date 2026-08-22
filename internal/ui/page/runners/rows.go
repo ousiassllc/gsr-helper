@@ -5,7 +5,7 @@ import (
 
 	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/ui/keymap"
-	"github.com/ousiassllc/gsr-helper/internal/ui/molecule"
+	"github.com/ousiassllc/gsr-helper/internal/ui/molecule/listrow"
 	"github.com/ousiassllc/gsr-helper/internal/ui/organism/table"
 	"github.com/ousiassllc/gsr-helper/internal/ui/token"
 )
@@ -76,12 +76,12 @@ func orphanSection() table.SectionInput[row] {
 // この区画は選択不可の行を持たない（Disabled が nil）ため RowInput.Reason は常に空で、
 // 理由のセルも持たない。
 func renderRunner(in table.RowInput[row]) []string {
-	return molecule.RunnerRow(runnerView(in.Item.runner), in.Cols, in.Styles)
+	return listrow.RunnerRow(runnerView(in.Item.runner), in.Cols, in.Styles)
 }
 
 // renderOrphan は孤児ユニットの行をセル列に変換する。
 func renderOrphan(in table.RowInput[row]) []string {
-	return molecule.OrphanRow(molecule.OrphanView{
+	return listrow.OrphanRow(listrow.OrphanView{
 		Unit:   in.Item.orphan.Unit,
 		Active: in.Item.orphan.Active,
 		Sub:    in.Item.orphan.Sub,
@@ -104,8 +104,8 @@ func matchRunner(r row, q string) bool {
 // LatestVersion と Work は空にする。最新版の取得は GitHub API を使う機能、_work の
 // 集計はディスクの機能の担当であり、未取得を「最新」「0 バイト」と示さないためである
 // （molecule 側は空の値を "-" として描く）。
-func runnerView(r runner.Runner) molecule.RunnerView {
-	v := molecule.RunnerView{
+func runnerView(r runner.Runner) listrow.RunnerView {
+	v := listrow.RunnerView{
 		Name:          r.Name(),
 		Scope:         r.Scope.String(),
 		Managed:       r.Managed.String(),

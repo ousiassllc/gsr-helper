@@ -1,4 +1,4 @@
-package molecule
+package listrow
 
 import (
 	"strings"
@@ -7,6 +7,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
+	"github.com/ousiassllc/gsr-helper/internal/ui/molecule"
 	"github.com/ousiassllc/gsr-helper/internal/ui/token"
 )
 
@@ -65,7 +66,7 @@ func TestRunnerRowCells(t *testing.T) {
 }
 
 func TestRunnerRowContents(t *testing.T) {
-	cols := Columns(token.RunnerColumns(), 100, token.RunnerColumnRules())
+	cols := molecule.Columns(token.RunnerColumns(), 100, token.RunnerColumnRules())
 	cells := RunnerRow(sampleRunner(), cols, plainStyles())
 	row := strings.Join(cells, " ")
 
@@ -92,7 +93,7 @@ func TestRunnerRowContents(t *testing.T) {
 // 記号の有無で列幅は変わらない。
 func TestRunnerRowWarnMark(t *testing.T) {
 	warned := runner(func(v *RunnerView) { v.Warn = true })
-	cols := Columns(token.RunnerColumns(), 100, token.RunnerColumnRules())
+	cols := molecule.Columns(token.RunnerColumns(), 100, token.RunnerColumnRules())
 	with := RunnerRow(warned, cols, plainStyles())
 	without := RunnerRow(sampleRunner(), cols, plainStyles())
 
@@ -121,7 +122,7 @@ func TestRunnerRowWarnMark(t *testing.T) {
 // 空白のままだと値が無いのか描画に失敗したのかを読み分けられない。注意記号は
 // 名前が空でも消さない。
 func TestRunnerRowEmptyName(t *testing.T) {
-	cols := Columns(token.RunnerColumns(), 100, token.RunnerColumnRules())
+	cols := molecule.Columns(token.RunnerColumns(), 100, token.RunnerColumnRules())
 	nameless := RunnerRow(runner(func(v *RunnerView) { v.Name = "" }), cols, plainStyles())
 	if got := strings.TrimSpace(nameless[0]); got != token.IconNoUnit {
 		t.Errorf("名前が空のときの NAME セル = %q, want %q", nameless[0], token.IconNoUnit)
@@ -139,7 +140,7 @@ func TestRunnerRowEmptyName(t *testing.T) {
 // ユニットが存在しないことを意味しない（atom.StatusUnknown）。同じ "-" で描くと
 // 仕様が書き分けている 2 つの状態を SVC 列で読み分けられない。
 func TestRunnerRowUnknownServiceState(t *testing.T) {
-	cols := Columns(token.RunnerColumns(), token.WidthTarget, token.RunnerColumnRules())
+	cols := molecule.Columns(token.RunnerColumns(), token.WidthTarget, token.RunnerColumnRules())
 
 	noUnit := RunnerRow(RunnerView{
 		Name: "build01-1", Managed: "run.sh", Version: "2.309.0",

@@ -11,6 +11,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/exec"
 	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/runner/scope"
+	"github.com/ousiassllc/gsr-helper/internal/ui/chrome"
 )
 
 // 本体以外の領域（タブ行・状態行・フッタ）の表示を検証する。
@@ -46,7 +47,7 @@ func TestFooterShowsEverySpecKeyAtWidth80(t *testing.T) {
 	})
 	a = applyChrome(a, cmd)
 
-	line := strings.Split(a.footer(), "\n")[0]
+	line := strings.Split(chrome.Footer(a.chromeView()), "\n")[0]
 	for _, want := range []string{
 		"s:開始", "x:停止", "X:強制", "d:ドレイン", "D:削除",
 		"n:追加", "u:更新", "e:設定", "l:ログ", "?:ヘルプ",
@@ -60,7 +61,7 @@ func TestFooterShowsEverySpecKeyAtWidth80(t *testing.T) {
 	}
 
 	// 無効なキーはフッタ 2 行目で丸括弧付きに並べ、理由を添える（設計原則 4）。
-	reason := strings.Split(a.footer(), "\n")[1]
+	reason := strings.Split(chrome.Footer(a.chromeView()), "\n")[1]
 	if !strings.Contains(reason, "(s)") || !strings.Contains(reason, "この版では未対応です") {
 		t.Errorf("フッタ 2 行目 = %q, 無効なキーと理由が出ていない", reason)
 	}

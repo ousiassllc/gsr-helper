@@ -98,13 +98,13 @@ func TestRefreshDuringDiscoveryShowsNotice(t *testing.T) {
 	if isQuit(cmd) {
 		t.Fatal("r で終了している")
 	}
-	if !strings.Contains(a.status(), "検出中です") {
-		t.Errorf("状態行 = %q, want 検出中である旨の案内", a.status())
+	if !strings.Contains(statusLine(a), "検出中です") {
+		t.Errorf("状態行 = %q, want 検出中である旨の案内", statusLine(a))
 	}
 
 	// 案内は次の打鍵で消える（状態行に残り続けない）。
 	a, _ = sendKey(a, "j")
-	if strings.Contains(a.status(), "検出中です") {
-		t.Errorf("次の打鍵の後も案内が残っている（状態行 = %q）", a.status())
+	if strings.Contains(statusLine(a), "検出中です") {
+		t.Errorf("次の打鍵の後も案内が残っている（状態行 = %q）", statusLine(a))
 	}
 }
