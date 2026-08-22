@@ -1,0 +1,8 @@
+UnitFileState=disabled
+SubState=dead
+LoadState=loaded
+WorkingDirectory=/opt/actions-runner
+ActiveState=inactive
+Id=actions.runner.myorg.host-2.service
+User=
+MainPID=0

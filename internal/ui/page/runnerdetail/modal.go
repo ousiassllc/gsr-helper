@@ -1,0 +1,94 @@
+package runnerdetail
+
+import (
+	tea "charm.land/bubbletea/v2"
+
+	"github.com/ousiassllc/gsr-helper/internal/appconfig"
+	"github.com/ousiassllc/gsr-helper/internal/runner"
+	"github.com/ousiassllc/gsr-helper/internal/ui/atom"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page"
+)
+
+// Kind は詳細画面のモーダルの種類。画面が page.Overlay へ登録するときに使う。
+const Kind page.ModalKind = "runnerdetail"
+
+// Open は詳細画面を開く。Runners / Jobs タブが共用する入口である。
+//
+// 種類と Msg の組を画面ごとに書かせないために用意する（取り違えると開かない、
+// あるいは別のモーダルへ Msg が届く）。
+func Open(o *page.Overlay, r runner.Runner, caps appconfig.Caps) {
+	o.Open(Kind, OpenMsg{Runner: r, Caps: caps})
+}
+
+// OpenMsg は詳細画面を開く指示。対象の runner とそのときの能力を渡す。
+//
+// 開く指示を Msg にするのは、Overlay がモーダルの種類ごとの引数を知らずに済むように
+// するためである（page.Modal の doc）。
+type OpenMsg struct {
+	Runner runner.Runner
+	Caps   appconfig.Caps
+}
+
+// modal は runner の詳細画面のモーダル。Model を tea.Model として包む。
+//
+// Model 自身は bubbles 流の署名（具体型を返す Update と View() string）を保つ。
+// tea.Model にすると呼び出し側で型アサーションが要り、詳細画面を直接組み立てて
+// 検証する経路も回りくどくなるためである。
+type modal struct {
+	detail Model
+}
+
+// tea.Model を実装していることをコンパイル時に確かめる。
+var _ tea.Model = modal{}
+
+// New は詳細画面のモーダルを組み立てる。画面は page.Overlay.Register に渡す。
+func New(st page.StateMsg) page.Modal {
+	return page.Modal{
+		Model: modal{detail: newModel(st.Keys, st.Styles)},
+		Title: title,
+		Hints: hints,
+	}
+}
+
+// Init は何も発行しない。開くタイミングは Overlay が決める。
+func (m modal) Init() tea.Cmd { return nil }
+
+// Update は開く指示・共有状態・大きさ・キーを振り分ける。
+func (m modal) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case OpenMsg:
+		m.detail.Open(msg.Runner, msg.Caps)
+		return m, nil
+	case page.StateMsg:
+		m.detail.SetState(msg)
+		return m, nil
+	case page.SizeMsg:
+		m.detail.SetSize(msg.W, msg.H)
+		return m, nil
+	default:
+		var cmd tea.Cmd
+		m.detail, cmd = m.detail.Update(msg)
+		return m, cmd
+	}
+}
+
+// View は情報部と操作リストを返す。
+func (m modal) View() tea.View { return tea.NewView(m.detail.View()) }
+
+// title はモーダルの見出しを返す。
+func title(model tea.Model) string {
+	m, ok := model.(modal)
+	if !ok {
+		return ""
+	}
+	return m.detail.Title()
+}
+
+// hints は詳細画面のフッタに出すキーヒントを返す。
+func hints(model tea.Model) []atom.Hint {
+	m, ok := model.(modal)
+	if !ok {
+		return nil
+	}
+	return m.detail.Hints()
+}

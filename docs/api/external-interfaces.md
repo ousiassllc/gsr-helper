@@ -91,7 +91,7 @@ gh auth refresh -h github.com -s admin:org
 
 ## 実行する外部コマンド
 
-すべて `Executor` 経由で実行し、監査ログに記録する。シェルは経由しない。
+すべて `Executor` 経由で実行し、監査ログに記録する。シェルは経由しない。実行の共通の約束（既定 30 秒のタイムアウト、期限切れ時のプロセスグループへの SIGKILL、親の環境変数の継承、出力の上限）は [コンポーネント設計](../components/overview.md#internalexec) に定める。
 
 ### systemd
 
@@ -105,7 +105,13 @@ gh auth refresh -h github.com -s admin:org
 | `journalctl -k --since <時刻>` | OOM Killer の履歴確認 | doctor |
 | `timedatectl show` | NTP 同期状態と時刻ずれの確認 | doctor |
 
-`systemctl show` は出力順が保証されないため、`KEY=VALUE` を辞書として解釈する。`list-units` は `--plain` を付けても行頭に記号が付く場合があるため、位置ではなく「`actions.runner.` で始まり `.service` で終わるフィールド」を探す。
+`systemctl show` は出力順が保証されないため、`KEY=VALUE` を辞書として解釈する。`list-units` は `--plain` を付けても行頭に記号が付く場合があるため、位置ではなく「`actions.runner.` で始まり `.service` で終わるフィールド」を探す。`WorkingDirectory` は `-/path`（存在しなければ無視する指定）を取り得るため、先頭の `-` を除いてから runner ディレクトリと照合する。
+
+`systemctl show` はユニットごとの実行になるため並列に発行する（同時実行数 8）。`ctx` がキャンセルされた時点で残りの発行を打ち切る。1 ユニットの取得に失敗しても全体を止めず、そのユニットは状態不明として扱う（**孤児ユニットには分類しない**。[コンポーネント設計](../components/overview.md#internalrunner)）。
+
+**`list-units` 自体が失敗した場合はユニットの走査全体を中止する。** どのユニットを `show` すべきかが分からないため状態を 1 件も返さず、警告 1 件だけを返す。これは検出処理で最も影響範囲の広い縮退であり、この状態では起動方式を判定できない（[FR-03](../requirements/functional.md#起動方式の-4-状態fr-03) の判定不能）。呼び出し側は「ユニットが 0 件」と区別しなければならない。
+
+`--all` を付けるため `LoadState=not-found` のユニット（`svc.sh uninstall` 後に参照だけが残ったもの）も返ってくる。これは runner に紐付けず、孤児にもせず警告として扱う（[FR-05](../requirements/functional.md#孤児ユニットに含めないものfr-05)）。
 
 ### runner 付属スクリプト
 
@@ -127,7 +133,7 @@ gh auth refresh -h github.com -s admin:org
 |---------|------|---------|
 | `docker system df --format <json>` | イメージ / コンテナ / ボリューム / ビルドキャッシュの使用量 | FR-27 |
 | `docker system prune -f` | 未使用リソースの削除 | FR-30 |
-| `docker info` | daemon の稼働確認 | 能力判定、doctor |
+| `docker info --format <フォーマット>` | daemon の稼働確認。`docker info` は daemon 不応答でも終了コード 0 を返す版があるため、`--format` で値が取れたことをもって応答と判定する | 能力判定、doctor |
 | `docker buildx version` | buildx プラグインの有無とバージョン確認 | FR-43 |
 
 `docker` が無い、または daemon が応答しない場合は docker 関連の項目を除外する（能力判定）。
@@ -149,6 +155,7 @@ gh auth refresh -h github.com -s admin:org
 | ディレクトリの再帰走査 | ディスク使用量の集計 | FR-27。外部の `du` は使わず自前で走査し、進捗を出せるようにする |
 | `git` / `node` などの存在とバージョン | 依存コマンドの確認 | doctor |
 | `sudo -l -U <runner-user>` | パスワード不要 sudo（`NOPASSWD`）の判定 | FR-43。**出力は権限情報のため監査ログに残さない**（[セキュリティ設計](../architecture/security.md#パスワード不要-sudo-の要求への対応)） |
+| `os/user.LookupId`（`/etc/passwd`・NSS 経由） | UID から runner 実行ユーザー名の解決（`RunAsUser`） | FR-01、FR-43。**引けない場合は UID の 10 進表記を使う**（静的リンクで NSS が使えないビルド、LDAP 上のユーザー）。[データモデル](../architecture/data-model.md#runasuser-の決定と-uid-フォールバック) |
 | `/etc/group` の参照（`os/user` 経由） | runner 実行ユーザーの docker グループ所属の判定 | FR-43 |
 | `/proc/<pid>/status` の `Groups` | 稼働中の `Runner.Listener` に docker グループが反映されているかの判定 | FR-43。`usermod` 後に runner を再起動していない状態を検出する |
 
@@ -172,3 +179,6 @@ TCP 接続の成否とレイテンシを確認する。到達先は runner が�
 |----|------|---------|---------|
 | 1.0 | 2026-08-21 | 新規作成 | 初版 |
 | 1.1 | 2026-08-21 | `systemctl show` に `User` を追加。`docker buildx version` / `sudo -l -U` / `/etc/group` / `/proc/<pid>/status` を追加 | ジョブ実行の前提チェック（FR-43）で runner 実行ユーザーの権限とグループを判定する必要が生じたため |
+| 1.2 | 2026-08-22 | `docker info` を `docker info --format <フォーマット>` に変更 | 能力判定の実装（`internal/appconfig`）で `--format` の出力の有無を daemon 応答の判定に使うため |
+| 1.3 | 2026-08-22 | `systemctl show` の並列発行・キャンセル時の打ち切り・失敗時の扱い、`WorkingDirectory` の `-` 接頭辞を追記 | 20 台規模で `show` が支配的になるため並列化した。取得失敗ユニットを孤児と誤分類する欠陥があった |
+| 1.4 | 2026-08-22 | `list-units` 自体の失敗が走査全体を中止することと `LoadState=not-found` のユニットの扱いを追記。`os/user.LookupId` をその他のシステムコマンドに追加。実行の共通の約束への参照を追加 | 「1 ユニットの失敗で全体を止めない」だけを書いていたため、最も影響範囲の広い縮退が仕様から読み取れなかった。`RunAsUser` の取得元に NSS 参照があることが未記載だった |

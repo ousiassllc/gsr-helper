@@ -1,0 +1,7 @@
+LoadState=loaded
+ActiveState=active
+SubState=running
+UnitFileState=enabled
+WorkingDirectory=/opt/actions-runner
+User=root
+MainPID=1

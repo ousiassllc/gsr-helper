@@ -2,69 +2,35 @@ package runner
 
 import (
 	"context"
-	"os"
-	"path/filepath"
+	"errors"
+	"fmt"
+	"slices"
 	"sort"
-	"time"
+
+	"github.com/ousiassllc/gsr-helper/internal/exec"
+	"github.com/ousiassllc/gsr-helper/internal/runner/procs"
+	"github.com/ousiassllc/gsr-helper/internal/runner/scope"
+	"github.com/ousiassllc/gsr-helper/internal/runner/systemd"
 )
-
-// Runner は 1 つの runner インスタンス。
-type Runner struct {
-	Dir     string // シンボリックリンク解決済みの絶対パス
-	Config  Config
-	Scope   Scope
-	Version string
-	WorkDir string
-
-	Managed  ManagedBy
-	Svc      *SvcState // systemd ユニットが対応する場合のみ
-	Listener *Process  // 稼働中の Runner.Listener
-	Workers  []Process // 実行中ジョブの Runner.Worker
-
-	// unitName は <dir>/.service に記録された systemd ユニット名。
-	// svc.sh install 済みなら設定される。
-	unitName string
-}
-
-// Name は runner 名を返す。.runner が読めていない場合はディレクトリ名。
-func (r Runner) Name() string {
-	if r.Config.AgentName != "" {
-		return r.Config.AgentName
-	}
-	return filepath.Base(r.Dir)
-}
-
-// Running は Listener が稼働しているかを返す。
-func (r Runner) Running() bool { return r.Listener != nil }
-
-// Busy はジョブを実行中かを返す。
-func (r Runner) Busy() bool { return len(r.Workers) > 0 }
-
-// JobElapsed は実行中ジョブの経過時間を返す。複数ある場合は最も古いものを返す。
-func (r Runner) JobElapsed() time.Duration {
-	var longest time.Duration
-	for _, w := range r.Workers {
-		if e := w.Elapsed(); e > longest {
-			longest = e
-		}
-	}
-	return longest
-}
 
 // Options は探索の設定。
 type Options struct {
 	Roots []string // 追加の走査ルート。既定ルートに追加される
-	Depth int      // ルート配下を掘る深さ。0 のとき defaultDepth
+	// Depth はルート配下を掘る深さ。0 以下は未指定として defaultDepth を使う。
+	// 「掘らない」を 0 で表せないため、設定値をそのまま渡さないこと。
+	// scan_depth: 0 のような設定を既定にするか拒否するかは appconfig 側の責務。
+	Depth int
+	// Exec は systemd 参照に使う Executor。nil のとき systemd 参照を行わない
+	// （systemctl が無い環境の縮退。可否の判定は appconfig の Caps が担う）。
+	Exec exec.Executor
 }
-
-const defaultDepth = 2
 
 // Result は探索結果。
 type Result struct {
 	Runners []Runner
 	// OrphanUnits は actions.runner.* ユニットのうち、対応する runner
 	// ディレクトリが見つからなかったもの。ディレクトリだけ消した場合に残る。
-	OrphanUnits []SvcState
+	OrphanUnits []systemd.State
 	// Warnings は探索中の部分的な失敗。1 件の失敗で全体を止めないため集約する。
 	Warnings []error
 }
@@ -78,26 +44,46 @@ type Result struct {
 //
 // 2 と 3 からもディレクトリを回収するため、走査ルート外の runner でも
 // 動いていれば検出できる。
+//
+// Options.Exec が nil のときは systemd を参照せず、警告も返さない
+// （systemctl が無い環境での縮退）。3 秒ごとのポーリングで同じ警告が積み上がるのを
+// 避けるためであり、systemd の可否は起動時に 1 回判定した Caps としてヘッダに出る。
+// このとき systemd 由来の情報（Runner.Svc / Result.OrphanUnits）は空になるが、
+// それは「ユニットが登録されていない」ことを意味しない。ユニット一覧そのものが
+// 取れなかった場合（list-units の失敗。systemd.ErrListUnits で区別する）も同じで、
+// Discover はこれを 0 件と読み替えず、起動方式を systemd 管理と断定しない側に倒す
+// （unitsListed）。1 ユニットの状態取得（show）の失敗は一覧は取れているので区別し、
+// ユニット名だけのプレースホルダとして残す。
+// この解釈は Discover の内側で完結するため、呼び出し側が ErrListUnits を見る必要は
+// ない。警告は Result.Warnings にまとめて返る。
 func Discover(ctx context.Context, opts Options) Result {
 	var res Result
 
-	procs, err := ScanProcesses()
+	running, err := procs.Scan()
 	if err != nil {
 		res.Warnings = append(res.Warnings, err)
 	}
-	for i := range procs {
-		procs[i].Dir = normalizeDir(procs[i].Dir)
+	for i := range running {
+		running[i].Dir = normalizeDir(running[i].Dir)
 	}
 
-	units, err := ScanUnits(ctx)
-	if err != nil {
-		res.Warnings = append(res.Warnings, err)
-	}
+	units, warns := systemd.Scan(ctx, opts.Exec)
+	res.Warnings = append(res.Warnings, warns...)
 	for i := range units {
 		units[i].WorkingDir = normalizeDir(units[i].WorkingDir)
 	}
+	// WorkingDirectory 経由の照合は先着優先なので、ユニット名で並べて
+	// 紐付け結果と孤児ユニットの順序を決定的にする。
+	sort.Slice(units, func(i, j int) bool { return units[i].Unit < units[j].Unit })
+	// unitsListed は systemd のユニット一覧が取れたか。Executor が無い（systemctl が
+	// 無い環境での縮退）か list-units 自体が失敗した場合は、ユニットが紐付かない
+	// ことを「登録されていない」と読み替えられない。1 ユニットの show 失敗は一覧は
+	// 取れているので含めない（ErrListUnits で区別する）。
+	unitsListed := opts.Exec != nil && !slices.ContainsFunc(warns, func(e error) bool {
+		return errors.Is(e, systemd.ErrListUnits)
+	})
 
-	dirs := collectDirs(opts, procs, units)
+	dirs := collectDirs(opts, running, units)
 
 	runners := make([]Runner, 0, len(dirs))
 	for _, dir := range dirs {
@@ -106,73 +92,164 @@ func Discover(ctx context.Context, opts Options) Result {
 			res.Warnings = append(res.Warnings, err)
 			continue
 		}
-		scope, err := ParseScope(cfg.GitHubURL)
+		sc, err := scope.Parse(cfg.GitHubURL)
 		if err != nil {
-			res.Warnings = append(res.Warnings, err)
+			// どの runner の警告か分かるようディレクトリを添える
+			// （LoadConfig の警告と同じ形にする）。
+			res.Warnings = append(res.Warnings, fmt.Errorf("%s: %w", dir, err))
 		}
 		runners = append(runners, Runner{
 			Dir:      dir,
 			Config:   cfg,
-			Scope:    scope,
+			Scope:    sc,
 			Version:  readVersion(dir),
 			WorkDir:  resolveWorkDir(dir, cfg.WorkFolder),
-			unitName: readUnitName(dir),
+			UnitName: readUnitName(dir),
 		})
 	}
 
-	res.OrphanUnits = attach(runners, procs, units)
+	orphans, attachWarns := attach(runners, running, units, unitsListed)
+	res.OrphanUnits = orphans
+	res.Warnings = append(res.Warnings, attachWarns...)
+
+	// 実行ユーザーは紐付け後に決める。attach を 3 引数の純粋関数に保つため、
+	// ユーザー名の解決（NSS 参照）はここに置く。
+	lookup := newUserLookup()
+	for i := range runners {
+		runners[i].RunAsUser = resolveRunAsUser(runners[i], lookup)
+	}
+
 	sortRunners(runners)
 	res.Runners = runners
 	return res
 }
 
 // attach は runner にプロセスと systemd ユニットを紐付け、対応する runner が
-// 見つからなかったユニットを返す。
-// Runner.Dir と Process.Dir / SvcState.WorkingDir は正規化済みであることを前提とする。
-func attach(runners []Runner, procs []Process, units []SvcState) []SvcState {
+// 見つからなかったユニット（FR-05 の孤児）と、紐付けなかったユニットについての
+// 警告を返す。
+// Runner.Dir と procs.Process.Dir / systemd.State.WorkingDir は正規化済みであることを
+// 前提とする。
+// unitsListed は systemd のユニット一覧が取れたかどうかで、起動方式の判定に渡す。
+func attach(runners []Runner, running []procs.Process, units []systemd.State,
+	unitsListed bool,
+) ([]systemd.State, []error) {
 	byDir := make(map[string]*Runner, len(runners))
 	byUnit := make(map[string]*Runner, len(runners))
 	for i := range runners {
 		byDir[runners[i].Dir] = &runners[i]
-		if u := runners[i].unitName; u != "" {
+		if u := runners[i].UnitName; u != "" {
 			byUnit[u] = &runners[i]
 		}
 	}
 
-	for _, p := range procs {
+	for _, p := range running {
+		if p.Dir == "" {
+			continue // 照合キーが無い。byDir[""] を引かないよう先に弾く
+		}
 		r, ok := byDir[p.Dir]
 		if !ok {
 			continue
 		}
 		switch p.Kind {
-		case ProcListener:
-			// Listener は 1 プロセスだが、取りこぼしても古い方を残さないよう上書きする。
-			proc := p
-			r.Listener = &proc
-		case ProcWorker:
+		case procs.Listener:
+			attachListener(r, p)
+		case procs.Worker:
 			r.Workers = append(r.Workers, p)
 		}
 	}
 
-	var orphans []SvcState
-	for _, u := range units {
-		// .service ファイル経由と WorkingDirectory 経由の両方で照合する。
-		r, ok := byUnit[u.Unit]
-		if !ok {
-			r, ok = byDir[u.WorkingDir]
+	orphans, warns := attachUnits(byUnit, byDir, units)
+
+	for i := range runners {
+		// Worker の順序は /proc の読み取り順（辞書順なので "10" < "9"）に依存する。
+		// 表示とジョブ経過時間を再現可能にするため PID 昇順に整える。
+		workers := runners[i].Workers
+		sort.Slice(workers, func(a, b int) bool { return workers[a].PID < workers[b].PID })
+		runners[i].Managed = managedBy(runners[i], unitsListed)
+	}
+	return orphans, warns
+}
+
+// attachListener は Listener を紐付ける。再起動の途中などで複数見えた場合は
+// 起動時刻が新しい方を採用し、古いプロセスの情報を残さない。
+func attachListener(r *Runner, p procs.Process) {
+	if r.Listener != nil && !p.Started.After(r.Listener.Started) {
+		return
+	}
+	proc := p
+	r.Listener = &proc
+}
+
+// loadNotFound は systemd にユニットの実体が無いことを表す LoadState の値。
+// svc.sh uninstall 後に参照だけが残っている場合、list-units --all はこの状態の
+// ユニットを返す。
+const loadNotFound = "not-found"
+
+// attachUnits はユニットを runner に紐付け、孤児ユニットと警告を返す。
+// UnitName（.service ファイル）を第一、WorkingDirectory を第二の照合キーと
+// するため 2 パスに分ける。1 パスで回すと、あるユニットの WorkingDirectory 一致が
+// 別のユニットの UnitName 一致を上書きしうる。
+func attachUnits(byUnit, byDir map[string]*Runner, units []systemd.State) ([]systemd.State, []error) {
+	var warns []error
+	// handled は扱いの決まったユニット。紐付けたものと、実体が無いため紐付けないと
+	// 決めたものの両方を立てて、第二パスの対象から外す。
+	handled := make([]bool, len(units))
+	for i, u := range units {
+		if u.Load == loadNotFound {
+			// 実体の無いユニットはどちらの照合キーでも紐付けない。紐付けると
+			// svc.sh uninstall 済みの runner が systemd 管理として表示され、
+			// 存在しないユニットに対してサービス制御を提示してしまう
+			// （RunAsUser の解決も同じ理由で not-found を除いている）。
+			// 対応する runner ディレクトリが無いわけではないので FR-05 の孤児
+			// にもせず、残骸が黙って消えないよう警告として出す。
+			handled[i] = true
+			warns = append(warns, fmt.Errorf(
+				"%s: systemd にユニットの実体がありません（LoadState=%s）。"+
+					"svc.sh uninstall 後に参照だけが残っている可能性があります",
+				u.Unit, loadNotFound))
+			continue
 		}
-		if !ok {
+		if r, ok := byUnit[u.Unit]; ok {
+			st := u
+			r.Svc = &st
+			handled[i] = true
+		}
+	}
+
+	var orphans []systemd.State
+	for i, u := range units {
+		if handled[i] {
+			continue
+		}
+		if u.Load == "" {
+			// Load が空なのは systemctl show に失敗したユニット（systemd.Scan が
+			// Unit だけ埋めて残すプレースホルダ）。WorkingDirectory が分からない
+			// だけで、対応ディレクトリが消えたわけではないので FR-05 の孤児に
+			// しない。失敗自体は systemd.Scan が警告として返しているので、
+			// ここで二重に報告もしない。
+			continue
+		}
+		r, ok := byDir[u.WorkingDir]
+		if u.WorkingDir == "" || !ok {
 			orphans = append(orphans, u)
+			continue
+		}
+		if r.Svc != nil {
+			// 同じ runner を指すユニットが複数あるだけ。ディレクトリは
+			// 見つかっているので FR-05 の孤児（対応ディレクトリなし）ではないが、
+			// 黙って落とすと重複した・古いユニットファイルが UI から見えなく
+			// なるため警告として出す。
+			warns = append(warns, fmt.Errorf(
+				"%s: runner ディレクトリ %s には既にユニット %s が紐付いているため"+
+					"無視します。重複した、または古いユニットファイルが残っている"+
+					"可能性があります",
+				u.Unit, u.WorkingDir, r.Svc.Unit))
 			continue
 		}
 		st := u
 		r.Svc = &st
 	}
-
-	for i := range runners {
-		runners[i].Managed = managedBy(runners[i])
-	}
-	return orphans
+	return orphans, warns
 }
 
 // sortRunners はスコープ→名前の順に並べる。
@@ -184,113 +261,4 @@ func sortRunners(runners []Runner) {
 		}
 		return runners[i].Name() < runners[j].Name()
 	})
-}
-
-// collectDirs は走査・プロセス・ユニットの各経路から runner ディレクトリを集める。
-func collectDirs(opts Options, procs []Process, units []SvcState) []string {
-	depth := opts.Depth
-	if depth <= 0 {
-		depth = defaultDepth
-	}
-
-	seen := map[string]bool{}
-	var dirs []string
-	add := func(dir string) {
-		dir = normalizeDir(dir)
-		if dir == "" || seen[dir] || !IsRunnerDir(dir) {
-			return
-		}
-		seen[dir] = true
-		dirs = append(dirs, dir)
-	}
-
-	for _, root := range append(DefaultRoots(), opts.Roots...) {
-		for _, d := range findRunnerDirs(root, depth) {
-			add(d)
-		}
-	}
-	for _, p := range procs {
-		add(p.Dir)
-	}
-	for _, u := range units {
-		add(u.WorkingDir)
-	}
-
-	sort.Strings(dirs)
-	return dirs
-}
-
-// defaultRootGlobs は runner の一般的な設置場所。
-// 誤検出と走査コストを抑えるため、広すぎるパターンは置かない。
-var defaultRootGlobs = []string{
-	"/home/*/actions-runner*",
-	"/home/*/runners",
-	"/root/actions-runner*",
-	"/opt/actions-runner*",
-	"/opt/runner*",
-	"/opt/*/actions-runner*",
-	"/srv/actions-runner*",
-	"/srv/*/actions-runner*",
-	"/var/lib/actions-runner*",
-	"/usr/local/actions-runner*",
-}
-
-// DefaultRoots は既定の走査ルートを展開して返す。
-func DefaultRoots() []string {
-	var roots []string
-	for _, g := range defaultRootGlobs {
-		matches, err := filepath.Glob(g)
-		if err != nil {
-			continue // パターン不正のみ。実行時には起きない
-		}
-		roots = append(roots, matches...)
-	}
-	return roots
-}
-
-// findRunnerDirs は root 配下から runner ディレクトリを探す。
-// runner ディレクトリを見つけたらその配下は掘らない（_work が巨大になるため）。
-func findRunnerDirs(root string, depth int) []string {
-	if depth < 0 {
-		return nil
-	}
-	fi, err := os.Stat(root)
-	if err != nil || !fi.IsDir() {
-		return nil
-	}
-	if IsRunnerDir(root) {
-		return []string{root}
-	}
-	if depth == 0 {
-		return nil
-	}
-
-	entries, err := os.ReadDir(root)
-	if err != nil {
-		return nil
-	}
-	var found []string
-	for _, e := range entries {
-		if !e.IsDir() || e.Name() == "_work" || e.Name() == "_diag" {
-			continue
-		}
-		found = append(found, findRunnerDirs(filepath.Join(root, e.Name()), depth-1)...)
-	}
-	return found
-}
-
-// normalizeDir はディレクトリパスを比較可能な形に正規化する。
-func normalizeDir(dir string) string {
-	if dir == "" {
-		return ""
-	}
-	abs, err := filepath.Abs(dir)
-	if err != nil {
-		abs = dir
-	}
-	// プロセスの cwd が削除済みの場合 " (deleted)" が付くため解決に失敗する。
-	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
-		return resolved
-	}
-	return filepath.Clean(abs)
 }
