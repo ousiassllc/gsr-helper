@@ -36,8 +36,14 @@ func TestHintsMatchSpecFooter(t *testing.T) {
 // 件数を先に固定する。長さを見ずに回すと、Hints が空を返した日に「1 件も違反が
 // 無かった」として通ってしまう（Issue #31）。
 func TestHintsCarryReasons(t *testing.T) {
+	// **期待値を被テスト関数の入力から作らない。** Hints は keys.Footer() を 1 件ずつ
+	// 並べる実装なので、len(keys.Footer()) と比べると Footer が空になった日に両辺 0 で
+	// 素通りし、下のループが 0 回で緑になる（塞いだつもりの穴がそのまま残る）。
+	// screens.md のフッタが定める件数をリテラルで置く（TestHintsMatchSpecFooter と同じ）。
+	const want = 9
+
 	hints := testActions().Hints(sampleRunner(), fullCaps(), testKeys().Runner)
-	if want := len(testKeys().Runner.Footer()); len(hints) != want {
+	if len(hints) != want {
 		t.Fatalf("ヒントの件数 = %d, want %d", len(hints), want)
 	}
 

@@ -28,15 +28,15 @@ func TestTableToleratesRenderRowCellCountMismatch(t *testing.T) {
 				}
 				return cells
 			},
-			want: 2, // 余った 3 つは落ちる
+			want: 2, // 余った 3 つは落ちる（切り捨て）
 		},
 		"列数より少ない": {
 			render: func(in table.RowInput[row]) []string { return []string{in.Item.name} },
-			want:   1, // 足りない 1 つは空セルで詰められる
+			want:   1, // 足りない 1 つは描画に出ない
 		},
 		"1 つも返さない": {
 			render: func(table.RowInput[row]) []string { return nil },
-			want:   0, // 2 つとも空セルで詰められる
+			want:   0, // 名前はどの列にも出ない
 		},
 	}
 	for name, tt := range tests {
@@ -47,7 +47,11 @@ func TestTableToleratesRenderRowCellCountMismatch(t *testing.T) {
 			tbl.SetSize(80, 12)
 			tbl.SetItems(0, rows("build01-1", "build01-2"))
 
-			// **セルが列数に合わせて詰められた／切られたことまで見る。**
+			// **セルが列数に合わせて切られたことまで見る。**
+			//
+			// 詰め（足りないセルを空文字で埋める）はここからは観測できない。埋めても
+			// 埋めなくても bubbles/table が行を幅いっぱいに伸ばすので出力が同じに
+			// なるためで、詰めは fitcells_test.go が白箱で固定している。
 			// View() != "" しか見ていなかった頃は、余ったセルがそのまま描かれても
 			// 行が 1 つも出なくても緑のままで、panic しないことしか担保していな
 			// かった（Issue #31）。

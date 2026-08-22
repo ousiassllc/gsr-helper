@@ -1,4 +1,4 @@
-package ui
+package pagetest_test
 
 import (
 	"testing"
@@ -7,14 +7,15 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
 )
 
 // scanProbe は走査の対象にならない Msg。点滅など「差し戻しでも ChromeMsg でもない
-// もの」の代役に使う。親が意味を持つ Msg（tickMsg など）を借りると、走査が Update へ
+// もの」の代役に使う。親が意味を持つ Msg（親の tickMsg など）を借りると、走査が Update へ
 // 渡さないことに気づきにくい。
 type scanProbe struct{}
 
-// scanKey は束のどの位置・どの深さにある差し戻しも、遅れて返る差し戻しも取りこぼさない。
+// ScanKey は束のどの位置・どの深さにある差し戻しも、遅れて返る差し戻しも取りこぼさない。
 //
 // **取りこぼしは「閉じ込めが効いた」と区別できない。** press1 は差し戻しが無いとき
 // nil を返し、gate_test の 6 つの assertion はすべて nil で満たされる。走査が
@@ -26,10 +27,10 @@ type scanProbe struct{}
 //   - 「すぐ返らない Cmd は差し戻しではない」… 遅れた差し戻しを打ち切って見失う
 //
 // **slowBubble の遅延は撤去したタイムアウト（100ms）と点滅（約 500ms）より大きい。**
-// 20ms にしていた頃は、撤去した実装を戻しても 6 ケースすべてが緑のままで、この退行の
+// 20ms にしていた頃は、撤去した実装を戻しても表のすべてが緑のままで、この退行の
 // 回帰ガードになっていなかった。
 func TestScanKeyFindsBubbleInEveryShape(t *testing.T) {
-	key := press("q")
+	key := pagetest.Press("q")
 	chromeCmd := func() tea.Msg {
 		return page.ChromeMsg{Tab: 0, Modal: true, Input: "", Status: "", Footer: nil}
 	}
@@ -45,7 +46,7 @@ func TestScanKeyFindsBubbleInEveryShape(t *testing.T) {
 		cmd  tea.Cmd
 		want bool
 	}{
-		"最上位の末尾（既定の形）":              {tea.Batch(tea.Batch(chromeCmd, slow), page.BubbleKey(key)), true},
+		"最上位の末尾（入れ子）":               {tea.Batch(tea.Batch(chromeCmd, slow), page.BubbleKey(key)), true},
 		"ChromeMsg の後ろで平ら（束が畳まれた形）": {tea.Batch(chromeCmd, page.BubbleKey(key)), true},
 		"ChromeMsg より前":             {tea.Batch(page.BubbleKey(key), chromeCmd), true},
 		"入れ子の中":                     {tea.Batch(chromeCmd, tea.Batch(slow, page.BubbleKey(key))), true},
@@ -55,7 +56,7 @@ func TestScanKeyFindsBubbleInEveryShape(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			c, global, ok := scanKey(tt.cmd)
+			c, global, ok := pagetest.ScanKey(tt.cmd)
 			if ok != tt.want {
 				t.Fatalf("差し戻しの検出 = %v, want %v", ok, tt.want)
 			}

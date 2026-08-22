@@ -28,14 +28,37 @@ func press1(a App, k string) (App, page.ChromeMsg, tea.Cmd) {
 	next, cmd := update(a, press(k))
 
 	// 閉じ込められた打鍵では nil を返す（親は打鍵を見ていないので Cmd も無い）。
-	// 差し戻しを取りこぼして nil になる経路は無い（scanKey の doc）。取りこぼしが
+	// 差し戻しを取りこぼして nil になる経路は無い（pagetest.ScanKey の doc）。取りこぼしが
 	// nil に化けると 6 つの assertion がすべて満たされて静かに緑になる。
-	c, global, ok := scanKey(cmd)
+	c, global, ok := pagetest.ScanKey(cmd)
 	if !ok {
 		return next, c, nil
 	}
 	next, cmd = update(next, global)
 	return next, c, cmd
+}
+
+// press1 の陽性対照。閉じ込めの無い状態では、差し戻しが親へ届いて解釈される。
+//
+// **これが無いと下の 2 つのテストが空振りに戻る。** press1 を「往復せず update を
+// 1 回呼ぶだけ」に戻すと差し戻しは親へ届かなくなるが、下の 2 つは「親が反応しない」
+// ことを見ているので緑のままになる（Issue #31 の元の退行そのもの）。往復が生きて
+// いることをここで固定しておけば、その変異はこのテストが落として知らせる。
+func TestPress1DeliversBubbledKeyWhenNotConfined(t *testing.T) {
+	a := newApp(exec.NewFake())
+	a, _ = update(a, tea.WindowSizeMsg{Width: 100, Height: 30})
+	a, _ = update(a, discoveredMsg{
+		seq:    1,
+		result: runner.Result{Runners: []runner.Runner{pagetest.SampleRunner()}},
+		err:    nil,
+	})
+
+	if _, _, cmd := press1(a, "q"); !isQuit(cmd) {
+		t.Error("閉じ込めの無い状態で q が親へ届いていない")
+	}
+	if next, _, _ := press1(a, "2"); next.active != 1 {
+		t.Errorf("閉じ込めの無い状態で 2 が親へ届いていない（active = %d）", next.active)
+	}
 }
 
 // モーダルを開いた直後の打鍵でも、グローバルキーは背後へ抜けない。
