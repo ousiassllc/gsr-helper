@@ -86,3 +86,29 @@ func TestFilteringKeysAreASeparateHelpGroup(t *testing.T) {
 		}
 	}
 }
+
+// Logs タブの ? には runner の操作キーを出さない。
+//
+// Logs タブに runner への操作は無く、出せば押しても何も起きないキーがヘルプに並ぶ。
+// Logs タブ固有の 3 つ（tab / f / J）は必ず出す。
+func TestLogsHelpHasOwnKeysWithoutRunnerActions(t *testing.T) {
+	s := New()
+
+	seen := make(map[string]bool)
+	for _, g := range s.LogsHelp() {
+		for _, b := range g {
+			seen[b.Help().Key] = true
+		}
+	}
+
+	for _, b := range s.Log.Bindings() {
+		if !seen[b.Help().Key] {
+			t.Errorf("Logs タブのキー %q が ? に出ていない", b.Help().Key)
+		}
+	}
+	for _, b := range s.Runner.Bindings() {
+		if seen[b.Help().Key] {
+			t.Errorf("runner の操作キー %q が Logs タブの ? に出ている", b.Help().Key)
+		}
+	}
+}

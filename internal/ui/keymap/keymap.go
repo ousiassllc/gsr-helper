@@ -7,6 +7,7 @@ type Set struct {
 	Global Global
 	List   List
 	Runner RunnerKeys
+	Log    LogKeys
 }
 
 // New はキー定義の集約を返す。
@@ -15,6 +16,7 @@ func New() Set {
 		Global: NewGlobal(),
 		List:   NewList(),
 		Runner: NewRunnerKeys(),
+		Log:    NewLogKeys(),
 	}
 }
 
@@ -56,11 +58,28 @@ func (s Set) Contexts() []Context {
 	normal = append(normal, s.List.Bindings()...)
 	normal = append(normal, s.Runner.Bindings()...)
 
+	// Logs タブの通常モード。runner の操作キーは効かず、代わりに Logs タブ固有の
+	// 3 つが有効になる。**Global.TabNext（tab）を含めない**のは、この画面では tab が
+	// ペインの切り替えだからである（LogKeys.Pane の doc）。含めると重複検査が落ちるが、
+	// それは「同時に有効なキー」という前提が崩れることを正しく示している。
+	logs := []key.Binding{
+		s.Global.TabSelect, s.Global.TabPrev, s.Global.Refresh,
+		s.Global.Help, s.Global.Quit, s.Global.Interrupt, s.Global.Back,
+	}
+	logs = append(logs, s.Log.Bindings()...)
+	logs = append(logs, s.List.Up, s.List.Down, s.List.Top, s.List.Bottom,
+		s.List.PageDown, s.List.PageUp, s.List.Filter, s.List.Enter)
+
 	return []Context{
 		{
 			Name:   "一覧画面（通常モード）",
 			Fields: []string{"Global", "List", "Runner"},
 			Keys:   normal,
+		},
+		{
+			Name:   "Logs タブ（通常モード）",
+			Fields: []string{"Global", "List", "Log"},
+			Keys:   logs,
 		},
 		{
 			// 入力中はグローバルキーを解釈せず、確定・取消・中断のみが有効。
@@ -100,4 +119,14 @@ func (s Set) Help(groups ...[]key.Binding) [][]key.Binding {
 // 使わず Help に自分のグループを渡す。
 func (s Set) RunnerListHelp() [][]key.Binding {
 	return s.Help(s.List.Bindings(), s.List.FilterBindings(), s.Runner.Order())
+}
+
+// LogsHelp は Logs タブが ? に出すグループを返す。
+//
+// runner の操作キーは出さない。Logs タブに runner への操作は無く、出すと押しても
+// 何も起きないキーをヘルプに並べることになる。一覧のキーを出すのはファイル一覧の
+// ペインで有効だからで、Logs タブ固有の 3 つを別のグループにするのは、有効になる
+// 状況が違うキーはグループを分けるという Help の方針に従っている。
+func (s Set) LogsHelp() [][]key.Binding {
+	return s.Help(s.Log.Bindings(), s.List.Bindings(), s.List.FilterBindings())
 }
