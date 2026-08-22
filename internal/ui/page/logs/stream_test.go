@@ -1,6 +1,7 @@
 package logs
 
 import (
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -33,7 +34,6 @@ func closed(ch <-chan dlogs.Line) bool {
 func TestTailPicksUpAppendedLines(t *testing.T) {
 	st, r := withLogs(t)
 	m := activated(t, st, 3)
-	defer step(t, m, page.ShutdownMsg{})
 
 	f, err := os.OpenFile(m.target.file.Path, os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
@@ -62,7 +62,6 @@ func TestJournalUsesExecutor(t *testing.T) {
 	st.Exec = fake
 
 	m := activated(t, st, 3)
-	defer step(t, m, page.ShutdownMsg{})
 
 	next, cmd := step(t, m, press("J"))
 	if !next.target.journal {
@@ -96,7 +95,6 @@ func TestJournalUsesExecutor(t *testing.T) {
 func TestSwitchingTargetDropsStaleLines(t *testing.T) {
 	st, _ := withLogs(t)
 	m := activated(t, st, 3)
-	defer step(t, m, page.ShutdownMsg{})
 
 	old := m.stream
 	rows := m.tbl.Shown(sectionLogs)
@@ -140,13 +138,31 @@ func TestDeactivateStopsStreamKeepingState(t *testing.T) {
 		t.Error("裏へ回ったときに状態まで捨てている")
 	}
 
-	// 戻ったら張り直す。
+	// 戻ったら張り直す。**そのとき持っている行は捨てる。** dlogs.Tail は購読のたびに
+	// 末尾を読み直して再送出するので、捨てないと同じ行が本文に二重に並ぶ。
+	//
+	// 行数の下限（>= 3）では留まらないのは、捨てていなければ入った時点で条件が成立し、
+	// 二重取り込みを 1 手も進まずに見逃すためである。捨てたこと（0 行）を先に確かめ、
+	// 取り直したあとに元と同じ行数へ戻ることまで見る。
+	want := len(next.lines)
 	back, cmd := step(t, next, page.ActivateMsg{})
 	if back.stream.lines == nil {
 		t.Fatal("前面に戻っても購読を張り直していない")
 	}
-	back = pumpUntil(t, back, cmd, func(m Model) bool { return len(m.lines) >= 3 })
-	step(t, back, page.ShutdownMsg{})
+	if len(back.lines) != 0 {
+		t.Fatalf("張り直す前に持っていた行を捨てていない: %d 行", len(back.lines))
+	}
+	back = pumpUntil(t, back, cmd, func(m Model) bool { return len(m.lines) >= want })
+	if len(back.lines) != want {
+		t.Errorf("戻ったあとの行数 = %d, want %d", len(back.lines), want)
+	}
+	seen := make(map[string]bool, len(back.lines))
+	for _, l := range back.lines {
+		if seen[l.Text] {
+			t.Fatalf("同じ行が二重に取り込まれている: %q", l.Text)
+		}
+		seen[l.Text] = true
+	}
 }
 
 // 終了の通知でも購読を畳む（裏に居ても届くので畳み損ねを閉じられる）。
@@ -176,7 +192,6 @@ func TestShowLogMsgOpensLatestWorker(t *testing.T) {
 		t.Error("`l` で開いたのに本文のペインへ移っていない")
 	}
 	next = pumpUntil(t, next, cmd, func(m Model) bool { return len(m.lines) >= 3 })
-	step(t, next, page.ShutdownMsg{})
 }
 
 // Worker ログが無い runner では対象を変えず、理由を状態行に出す。
@@ -207,5 +222,36 @@ func TestLinesAreCapped(t *testing.T) {
 	}
 	if got[len(got)-1].Text != "new" {
 		t.Errorf("末尾 = %q, want new", got[len(got)-1].Text)
+	}
+}
+
+// 購読が失敗して終わると、その理由を取り込んで状態行に出す（waitEnd / endStream）。
+//
+// 行のチャネルが閉じた合図（lineMsg の ok が偽）から waitEnd を経て endMsg が届くまでを
+// まとめて見る。**実際に journalctl を失敗させる形は採らない。** 連続失敗には再試行の縮退が
+// 入っており理由が返るまで数秒かかるので、取り込みの検証としては割に合わない。
+func TestStreamEndErrorReachesStatus(t *testing.T) {
+	st, _ := withLogs(t)
+	m := activated(t, st, 3)
+
+	// 本物の購読を畳み、「行のチャネルは閉じ、理由だけが届く」終わり方に差し替える。
+	m.stop()
+	want := errors.New("ログを読めなくなりました")
+	lines, errc := make(chan dlogs.Line), make(chan error, 1)
+	close(lines)
+	errc <- want
+	m.stream = stream{gen: m.stream.gen, cancel: nil, lines: lines, err: errc}
+
+	next, cmd := step(t, m, lineMsg{gen: m.stream.gen, line: dlogs.Line{}, ok: false})
+	if cmd == nil {
+		t.Fatal("行のチャネルが閉じても終わった理由を待ちに行っていない")
+	}
+	next = pumpUntil(t, next, cmd, func(m Model) bool { return m.err != nil })
+
+	if !errors.Is(next.err, want) {
+		t.Fatalf("取り込んだ理由 = %v, want %v", next.err, want)
+	}
+	if got := chromeOf(t, next.chrome()).Status; !strings.Contains(got, want.Error()) {
+		t.Errorf("状態行 = %q, want 追従が失敗した理由を含む", got)
 	}
 }

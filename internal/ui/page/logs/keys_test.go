@@ -229,3 +229,28 @@ func TestJournalDegradesWithoutUnit(t *testing.T) {
 		t.Errorf("J の理由 = %q, want %q", h.Reason, reasonNoUnit)
 	}
 }
+
+// 一覧で enter を押すと、カーソル位置のログを本文に開く（フッタの `enter:開く`）。
+//
+// 前面に出た時点で 1 件目（最新の Worker ログ）が既に開いているので、`j` で 2 件目
+// （Runner ログ）へ移してから押す。対象が差し替わるだけでなく、その本文が実際に
+// 読み込まれるところまで見る（openSelected が nil を返しても対象は変わらないため）。
+func TestEnterOpensSelectedLog(t *testing.T) {
+	st, _ := withLogs(t)
+	m := activated(t, st, 3)
+
+	m, _ = step(t, m, press("j"))
+	rows := m.tbl.Shown(sectionLogs)
+	if len(rows) != 2 || m.target.file.Name == rows[1].file.Name {
+		t.Fatalf("前提が崩れている（行数 %d / 対象 %q）", len(rows), m.target.file.Name)
+	}
+
+	next, cmd := step(t, m, press("enter"))
+	if next.target.file.Name != rows[1].file.Name {
+		t.Fatalf("enter の後の対象 = %q, want %q", next.target.file.Name, rows[1].file.Name)
+	}
+	next = pumpUntil(t, next, cmd, func(m Model) bool { return len(m.lines) >= 1 })
+	if got := next.body.View(); !strings.Contains(got, "runner log") {
+		t.Errorf("開いたログの本文が読み込まれていない:\n%s", got)
+	}
+}

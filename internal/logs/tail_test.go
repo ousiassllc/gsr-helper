@@ -2,8 +2,10 @@ package logs
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -106,20 +108,64 @@ func TestTailRestartsAfterTruncate(t *testing.T) {
 }
 
 // 大きなログは末尾だけを読み、途中から始まる断片は出さない。
+//
+// 行に通し番号を埋めるのは、「先頭から全部読む」実装との差を見えるようにするため。
+// 全行が同じ内容だと、届いた行の長さしか見られず、遡る量を無視して先頭から
+// 読んでもテストが緑のままになる。番号と受信行数の両方を見て、末尾側から
+// 始まっていることを確かめる。
 func TestTailReadsOnlyTailOfLargeFile(t *testing.T) {
-	dir := t.TempDir()
-	body := strings.Repeat("x", 1000) + "\n"
+	const lineLen = 1000
+	// 遡る量（TailInitialBytes）を確実に超える行数を書く。20 行の上積みは、
+	// 遡った先が行の途中になっても捨てる行が残るようにするための余裕。
+	total := TailInitialBytes/(lineLen+1) + 20
 	var b strings.Builder
-	for b.Len() < TailInitialBytes+2*len(body) {
-		b.WriteString(body)
+	for i := range total {
+		fmt.Fprintf(&b, "%04d %s\n", i, strings.Repeat("x", lineLen-5))
 	}
 	b.WriteString("last line\n")
-	path := writeLog(t, dir, "Runner_1.log", b.String(), time.Now())
+	path := writeLog(t, t.TempDir(), "Runner_1.log", b.String(), time.Now())
 
 	ch, _ := startTail(t, path)
 	first := next(t, ch)
-	if len(first.Text) != 1000 {
-		t.Errorf("最初の行の長さ = %d, want 1000（行の途中から始まっている）", len(first.Text))
+	if len(first.Text) != lineLen {
+		t.Fatalf("最初の行の長さ = %d, want %d（行の途中から始まっている）", len(first.Text), lineLen)
+	}
+	firstNo, err := strconv.Atoi(first.Text[:4])
+	if err != nil {
+		t.Fatalf("最初の行 %q から通し番号を読めない: %v", first.Text[:8], err)
+	}
+	if firstNo == 0 {
+		t.Errorf("最初に届いた行 = %d 行目, want 末尾側の行（先頭から全部読んでいる）", firstNo)
+	}
+
+	// 末尾まで受け取り、行数が「遡る量に収まる」ことを見る。番号だけだと、
+	// 先頭から読みつつ最初の 1 行を捨てる実装を素通しさせてしまう。
+	got := 1
+	for l := first; l.Text != "last line"; got++ {
+		l = next(t, ch)
+	}
+	if want := TailInitialBytes/(lineLen+1) + 2; got > want {
+		t.Errorf("受信した行数 = %d, want %d 以下（遡る量を超えて読んでいる）", got, want)
+	}
+}
+
+// 改行を含まない長大な行は maxLineBytes で打ち切り、次の行はずれずに届く。
+//
+// 打ち切るのは本文だけで、消費したバイト数は打ち切らない（readLine の契約）。
+// 両方を打ち切ってしまうと読み出し位置が取り残され、以後の行が 1 つずつ
+// ずれて届く。だから「長さの上限」と「次の行が正しいこと」を並べて見る。
+func TestTailTruncatesOverlongLine(t *testing.T) {
+	// バッファ 1 杯（readBufBytes）を超えて読み継ぐ経路を通すため、上限より
+	// 十分に長い 1 行を書く。
+	overlong := strings.Repeat("y", maxLineBytes+4096)
+	path := writeLog(t, t.TempDir(), "Runner_1.log", overlong+"\nnext line\n", time.Now())
+
+	ch, _ := startTail(t, path)
+	if got := next(t, ch); len(got.Text) != maxLineBytes {
+		t.Errorf("長大な行の長さ = %d, want %d（打ち切られていない）", len(got.Text), maxLineBytes)
+	}
+	if got := next(t, ch); got.Text != "next line" {
+		t.Errorf("次の行 = %q, want next line（読み出し位置がずれている）", got.Text)
 	}
 }
 

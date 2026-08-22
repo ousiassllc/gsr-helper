@@ -99,12 +99,23 @@ func TestLogSetFollowOffKeepsPosition(t *testing.T) {
 }
 
 // 大きさを変えても追従中なら末尾に居続ける（高さが変われば末尾の位置も変わる）。
+//
+// **縮める向きまで見る。** viewport は高さを変えても表示の先頭（yOffset）を動かさない
+// ので、広げる操作では末尾が画面に残ったまま余白が増えるだけであり、SetSize の寄せ直し
+// （follow なら GotoBottom）を消しても末尾が見えてしまう。それだけを見る検査は空振り
+// する。広げてから縮めると、先頭が据え置かれた分だけ末尾が画面の外へ出るため、
+// 寄せ直しの有無がそのまま表示に現れる。
 func TestLogKeepsTailOnResize(t *testing.T) {
 	l := newLogPane(20)
 
-	l.SetSize(40, 8)
+	l.SetSize(40, 10)
 	if got := l.View(); !strings.Contains(got, "line19") {
-		t.Errorf("リサイズ後に末尾が見えていない:\n%s", got)
+		t.Errorf("高さを広げた後に末尾が見えていない:\n%s", got)
+	}
+
+	l.SetSize(40, 3)
+	if got := l.View(); !strings.Contains(got, "line19") {
+		t.Errorf("高さを縮めた後に末尾が見えていない:\n%s", got)
 	}
 }
 

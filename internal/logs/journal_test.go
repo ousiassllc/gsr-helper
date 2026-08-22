@@ -135,10 +135,27 @@ func TestJournalWithoutUnit(t *testing.T) {
 	}
 }
 
-// journalctl が異常終了したら理由を返す（空表示にして原因を隠さない）。
+// 外部コマンドを実行できない（Executor が無い）なら、その旨を返して始めない。
+//
+// 依存の組み立てを間違えた場合に nil のまま呼ばれると、追従が始まらない理由が
+// どこにも出ない。ここで理由を返すことを固定しておく。
+func TestJournalWithoutExecutor(t *testing.T) {
+	ch := make(chan Line, 1)
+	err := Journal(t.Context(), nil, "u.service", ch)
+	if err == nil {
+		t.Fatal("Executor が nil でエラーにならなかった")
+	}
+	if _, ok := <-ch; ok {
+		t.Error("チャネルが閉じられていない")
+	}
+}
+
+// journalctl が異常終了し続けたら理由を返す（空表示にして原因を隠さない）。
 func TestJournalNonZeroExit(t *testing.T) {
 	fake := exec.NewFake()
-	fake.Push(exec.Result{Stdout: nil, Stderr: []byte("no such unit"), ExitCode: 1}, nil)
+	fake.SetFunc(func(string, []string) (exec.Result, error) {
+		return exec.Result{Stdout: nil, Stderr: []byte("no such unit"), ExitCode: 1}, nil
+	})
 
 	ch := make(chan Line, 1)
 	err := Journal(t.Context(), fake, "u.service", ch)
@@ -147,6 +164,57 @@ func TestJournalNonZeroExit(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "u.service") {
 		t.Errorf("エラー文 = %q, want ユニット名を含む", err.Error())
+	}
+}
+
+// 実行そのものに失敗し続けたら、上限回数まで試してからエラーを返して終わる。
+//
+// 終了コードではなく Run 自体がエラーを返す経路（journalctl が無い、権限が
+// 足りない）を通す。ここが素通りすると、回復しない失敗でも粘り続けて
+// 空の画面を見せ続けることになる。
+func TestJournalRunError(t *testing.T) {
+	fake := exec.NewFake()
+	fake.SetFunc(func(string, []string) (exec.Result, error) {
+		return exec.Result{Stdout: nil, Stderr: nil, ExitCode: -1}, errors.New("executable file not found")
+	})
+
+	ch := make(chan Line, 1)
+	err := Journal(t.Context(), fake, "u.service", ch)
+	if err == nil {
+		t.Fatal("実行に失敗してもエラーにならなかった")
+	}
+	if !strings.Contains(err.Error(), "u.service") {
+		t.Errorf("エラー文 = %q, want ユニット名を含む", err.Error())
+	}
+	if got := len(fake.Calls()); got != journalRetries {
+		t.Errorf("試行回数 = %d, want %d（上限まで再試行していない）", got, journalRetries)
+	}
+	if _, ok := <-ch; ok {
+		t.Error("チャネルが閉じられていない")
+	}
+}
+
+// 一時的な取得失敗は挟んでも追従が続く（利用者に押し直させない）。
+//
+// 上限に 1 回だけ足りない回数を失敗させてから成功させる。失敗を数え直して
+// いなければ、この後さらに失敗したときに即座に終わってしまう。
+func TestJournalRetriesTransientFailure(t *testing.T) {
+	var mu sync.Mutex
+	n := 0
+	fake := exec.NewFake()
+	fake.SetFunc(func(string, []string) (exec.Result, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		n++
+		if n < journalRetries {
+			return exec.Result{Stdout: nil, Stderr: nil, ExitCode: -1}, errors.New("一時的な失敗")
+		}
+		return exec.Result{Stdout: []byte("recovered\n"), Stderr: nil, ExitCode: 0}, nil
+	})
+
+	got := collect(t, fake, "u.service", 1)
+	if got[0].Text != "recovered" {
+		t.Errorf("行 = %q, want recovered", got[0].Text)
 	}
 }
 

@@ -3,6 +3,7 @@ package logs
 import (
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -68,7 +69,7 @@ func newTab(t *testing.T, st page.StateMsg) Model {
 	return m
 }
 
-// step は Msg を 1 つ渡し、Model と Cmd を返す。
+// step は Msg を 1 つ渡し、Model と Cmd を返す。渡した先の Model は track で覚える。
 func step(t *testing.T, m Model, msg tea.Msg) (Model, tea.Cmd) {
 	t.Helper()
 
@@ -77,7 +78,41 @@ func step(t *testing.T, m Model, msg tea.Msg) (Model, tea.Cmd) {
 	if !ok {
 		t.Fatalf("Update が %T を返した, want logs.Model", next)
 	}
+	track(t, got)
 	return got, cmd
+}
+
+// tracked はテストごとに「step が最後に見た Model」を覚える登録簿。
+//
+// 購読はテストの途中で何度も張り直され（open / 前面への復帰）、そのたびに別の変数の
+// Model へ移る。**後始末で畳むべき 1 本を指せるのはここだけである。** `defer` へ Model を
+// 渡す形では引数が登録時点で評価され、既に畳んだ購読を畳み直すだけになり、張り直した
+// ぶんが残る。テストが並列に走っても壊れないよう sync.Map で持つ。
+var tracked sync.Map // *testing.T -> *Model
+
+// track は最新の Model を覚え、テストごとに 1 度だけ後始末を登録する。
+//
+// step を通せば必ず畳まれる形にしてあるので、購読を張るテストは後始末を書かなくてよい。
+// 畳んだあと goroutine が実際に戻るまで待つのは、待たずに抜けると Tail と fsnotify の
+// 監視がテストの外へ残り、消えた一時ディレクトリを見続けるためである
+// （internal/logs の startTail と同じ作法）。
+func track(t *testing.T, m Model) {
+	t.Helper()
+
+	v, loaded := tracked.LoadOrStore(t, &m)
+	last, _ := v.(*Model)
+	if loaded {
+		*last = m
+		return
+	}
+	t.Cleanup(func() {
+		tracked.Delete(t)
+		lines := last.stream.lines
+		last.stop()
+		if lines != nil && !closed(lines) {
+			t.Error("テストの終わりに購読が畳まれていない")
+		}
+	})
 }
 
 // runCmd は Cmd を 1 本実行して Msg を返す。制限時間内に戻らなければ偽を返す。

@@ -1,12 +1,15 @@
 package logs
 
 import (
+	"os"
 	"strings"
 	"testing"
 	"time"
 
 	dlogs "github.com/ousiassllc/gsr-helper/internal/logs"
 	"github.com/ousiassllc/gsr-helper/internal/runner"
+	"github.com/ousiassllc/gsr-helper/internal/ui/atom"
+	"github.com/ousiassllc/gsr-helper/internal/ui/molecule"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
 	"github.com/ousiassllc/gsr-helper/internal/ui/token"
@@ -31,6 +34,8 @@ func withLogs(t *testing.T) (page.StateMsg, runner.Runner) {
 }
 
 // activated は前面に出て一覧を取り込み、最新のログを開き終えたタブを返す。
+//
+// 張った購読の後始末は step が仕込む（helper_test.go の track）ので、呼ぶ側は畳まなくてよい。
 func activated(t *testing.T, st page.StateMsg, lines int) Model {
 	t.Helper()
 
@@ -52,10 +57,20 @@ func TestListsLogsNewestFirstWithSize(t *testing.T) {
 		t.Errorf("先頭 = %q, want 更新時刻が新しい Worker ログ", rows[0].file.Name)
 	}
 
+	// 列見出しの "SIZE" は列が出ていることしか示さず、**セルが空でも通る**。実ファイルを
+	// stat して、そのバイト表記（一覧が使う atom.Bytes）まで画面に出ていることを見る。
+	// 期待値をハードコードせず stat から組み立てるのは、フィクスチャの本文を書き換えても
+	// 検証が壊れないようにするためである。
+	fi, err := os.Stat(rows[0].file.Path)
+	if err != nil {
+		t.Fatalf("ログを stat できない: %v", err)
+	}
+
 	view := m.View().Content
-	for _, want := range []string{"build01-1", "Worker_20260821-120433-utc.log", "SIZE"} {
-		if !strings.Contains(view, want) {
-			t.Errorf("画面に %q が無い:\n%s", want, view)
+	want := []string{"build01-1", "Worker_20260821-120433-utc.log", "SIZE", atom.Bytes(fi.Size())}
+	for _, w := range want {
+		if !strings.Contains(view, w) {
+			t.Errorf("画面に %q が無い:\n%s", w, view)
 		}
 	}
 }
@@ -64,7 +79,6 @@ func TestListsLogsNewestFirstWithSize(t *testing.T) {
 func TestOpensNewestLogAndTails(t *testing.T) {
 	st, _ := withLogs(t)
 	m := activated(t, st, 3)
-	defer step(t, m, page.ShutdownMsg{})
 
 	if m.target.file.Name != "Worker_20260821-120433-utc.log" {
 		t.Fatalf("開いた対象 = %q, want 最新の Worker ログ", m.target.file.Name)
@@ -88,24 +102,34 @@ func TestHeaderShowsTargetAndFollow(t *testing.T) {
 }
 
 // ERROR / WARN の行は強調して描く（FR-25）。
+//
+// **見るのは描いた結果（本文のペイン）である。** styleLine を直に呼ぶだけでは、本文の組み立て
+// （content.go）が装飾を捨てて素の行を積むようになっても検証が通ってしまう。期待値を
+// molecule.LogLine で組み立てて突き合わせるのは、装飾の有無だけでなく中身（重大度ごとに違う配色）
+// まで縛れるためである。本文は viewport なので、高さで切れうる View().Content ではなく body.View()
+// を見る。素の行・WARN・ERROR が別の装飾になっていることは最後に別途押さえる。
 func TestHighlightsErrorAndWarn(t *testing.T) {
 	st, _ := withLogs(t)
 	// 色を有効にした配色でのみ装飾の有無を判定できる（pagetest.Styles は色なし）。
 	st.Styles = token.NewStyles(true, true)
 	m := activated(t, st, 3)
 
+	body := m.body.View()
+	for role, text := range map[token.RoleToken]string{
+		token.RolePlain: "[2026-08-21 12:04:35Z INFO  Worker] Job started",
+		token.RoleWarn:  "[2026-08-21 12:05:01Z WARN  StepRunner] Step timeout approaching",
+		token.RoleFail:  "[2026-08-21 12:05:44Z ERROR JobRunner] Process completed with exit code 1",
+	} {
+		if want := molecule.LogLine(text, role, st.Styles); !strings.Contains(body, want) {
+			t.Errorf("本文に %q が無い（本文 = %q）", want, body)
+		}
+	}
+
 	plain := m.styleLine(dlogs.Line{Text: "info", Level: dlogs.LevelPlain})
 	warn := m.styleLine(dlogs.Line{Text: "info", Level: dlogs.LevelWarn})
 	fail := m.styleLine(dlogs.Line{Text: "info", Level: dlogs.LevelError})
-
-	if plain != "info" {
-		t.Errorf("通常の行 = %q, want 装飾なし", plain)
-	}
-	if warn == plain || fail == plain {
-		t.Errorf("WARN / ERROR が強調されていない（warn=%q fail=%q）", warn, fail)
-	}
-	if warn == fail {
-		t.Errorf("WARN と ERROR が同じ装飾になっている: %q", warn)
+	if plain != "info" || warn == plain || fail == plain || warn == fail {
+		t.Errorf("重大度ごとの装飾が分かれていない（plain=%q warn=%q fail=%q）", plain, warn, fail)
 	}
 }
 
@@ -164,5 +188,22 @@ func TestRelistsWhileActive(t *testing.T) {
 	}
 	if !found {
 		t.Error("前面に居るのに `_diag` を取り直していない")
+	}
+}
+
+// 本文に配れる高さが尽きるときは一覧を削って本文を残す（render.go の resize）。
+//
+// 一覧（2 件 + 見出しで 3 行）と見出し 1 行だけで埋まる高さを配ると、削らなければ本文は
+// 0 行になって 1 行も読めない。**本文が Logs タブの主役である**ことを、末尾の行が本文の
+// ペインに出ていることで押さえる。高さを配り直すのは共有状態を受けたときなので、一覧を
+// 取り込んだあとにもう一度 StateMsg を流す。
+func TestResizeShrinksListWhenBodyStarves(t *testing.T) {
+	st, _ := withLogs(t)
+	st.BodyH = 4
+	m := activated(t, st, 3)
+	m, _ = step(t, m, st)
+
+	if got := m.body.View(); !strings.Contains(got, "Process completed with exit code 1") {
+		t.Errorf("一覧を削らずに本文が潰れている（本文 = %q）", got)
 	}
 }
