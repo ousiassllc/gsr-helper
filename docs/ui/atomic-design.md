@@ -612,19 +612,24 @@ type Modal struct {
 }
 
 func NewOverlay(tab int, keys keymap.Set, s token.Styles, dark bool) Overlay
-func (o *Overlay) Register(kind ModalKind, m Modal) tea.Cmd
-func (o *Overlay) Open(kind ModalKind, msg tea.Msg) tea.Cmd
-func (o *Overlay) OpenHelp() tea.Cmd
-func (o *Overlay) Close()                       // 最上位を 1 枚だけ閉じる
-func (o Overlay) Active() bool                  // 1 枚以上開いているか
-func (o Overlay) Handles(msg tea.Msg) bool      // page がこの Msg を Overlay へ渡すか
+func (o Overlay) Register(kind ModalKind, m Modal) tea.Cmd
+func (o Overlay) Open(kind ModalKind, msg tea.Msg) tea.Cmd
+func (o Overlay) OpenHelp() tea.Cmd
+func (o Overlay) Close()                       // 最上位を 1 枚だけ閉じる
+func (o Overlay) Active() bool                 // 1 枚以上開いているか
+func (o Overlay) Handles(msg tea.Msg) bool     // page がこの Msg を Overlay へ渡すか
 func (o Overlay) Modal(kind ModalKind) (Modal, bool)
-func (o *Overlay) SetState(st StateMsg) tea.Cmd
-func (o *Overlay) SetSize(w, h int)
-func (o *Overlay) SetHelpScope(scope HelpScope) tea.Cmd // ? に出すキーの範囲を差し替える
+func (o Overlay) SetState(st StateMsg) tea.Cmd
+func (o Overlay) SetHelpScope(scope HelpScope) tea.Cmd // ? に出すキーの範囲を差し替える
 ```
 
 **`Register` / `Open` / `OpenHelp` / `SetHelpScope` が返す `tea.Cmd` は呼び出し側まで返すこと。** 登録した時点・開いた時点で処理を始めるモーダル（ログの購読、差分の計算）は、この `Cmd` が捨てられるとその処理を動かせない。
+
+**種類の取り違えは `panic` で表面化する。** 同じ `ModalKind` の二重登録と、未登録の種類の `Open` はいずれも実装の誤りである（種類は定数で、登録するのも開くのも同じ page）。黙って上書き・黙って何もしないと、症状は「`enter` を押しても何も起きない」になり、コンパイルエラーも実行時エラーもログも残らない。登録は page の組み立て時に決まるので、誤りは最初の起動で必ず表面化する。
+
+**`SetState` は開いているモーダルにだけ配る。** 閉じているものへ毎周期配ると、誰も見ていないヘルプを 3 秒ごとに全行組み直すような無駄が積み上がる。閉じているモーダルが古い状態で描かれることは、`Register` と `Open` が最新の `StateMsg` と `SizeMsg` をリプレイすることで防ぐ（起動後に遅延登録したモーダルも、登録した時点で `Result` / `Caps` / `Exec` を持てる）。`SizeMsg` は領域が変わったときだけ配る。
+
+`Overlay` は領域だけを設定する口を持たない。持たせても次の `StateMsg`（`BodyW` / `BodyH`）で黙って巻き戻るためである。
 
 **page はキー以外の `Msg` の配送先を `Overlay.Handles` で決める。** 開閉だけで判断すると、宛先を明示した `page.ModalMsg` が閉じている間に捨てられ、page 宛の決定（`page.ResultMsg`）はモーダル自身へ戻って消える。
 
@@ -706,7 +711,9 @@ page は親から配られた `page.StateMsg` を**描画用のスナップシ�
 
 **モーダルの重なりは page が持つ。** 親が持つ形にすると、キーを閉じ込める判断が親に移り、`ChromeMsg` で受け取る 1 打鍵ぶん古い状態に依存することになる（下記「キー入力の配送」）。親が知る必要があるのは「1 枚以上開いているか」だけで、それは `ChromeMsg.Modal` で報告する。Runners / Jobs のように同じモーダル（runner の詳細）を使うタブがあるため、重なりの実装（`page.Overlay`）と中身（`page/runnerdetail`）は `page` 階層の共有部品として置く。
 
-`Overlay` と `organism/table.Model` は **写しても内側の実体を共有する**（スライスと map は同じものを指す）。`bubbles` 流の署名に揃えた結果であり、**page は直前の `Update` が返した 1 つの値だけを持つこと。**
+`Overlay` と `organism/table.Model` は **写しても内側の実体を共有する**（値としての独立性はない）。`bubbles` 流の署名に揃えた結果であり、**page は直前の `Update` が返した 1 つの値だけを持つこと。**
+
+**共有は中途半端であってはならない。** `Overlay` は変わりうる状態（重なり・登録・領域・最後の共有状態）を 1 つの内部構造体にまとめ、その参照だけを持つ。以前は重なりのスタックだけがスライスの付け替えで写しごとに分かれ、`map` だけが共有されていたため、**捨てた写しがモーダルの中身の変更だけを残して開閉の変更を失う**という追いにくい壊れ方をした。組み立ては `NewOverlay` を通すこと（ゼロ値は使えない）。
 
 **下位が上位の状態を書き換えない。** organism は `tea.Msg` を返して page に通知し、page は必要に応じて親へ伝播させる。
 
@@ -908,3 +915,4 @@ Disk / Logs / Doctor タブの部品を足すときは、まずその部品が�
 | 1.7 | 2026-08-22 | `Overlay` にタブ番号を持たせ、登録したモーダルへ `page.AttachMsg` で配る形を定義。モーダルから page への戻り道（`page.ResultMsg` を `page.Do` で包む）と、宛先を明示したモーダル宛の `Msg`（`page.ModalMsg`）を追加。`esc` の解釈順を「最上位のモーダルが `Modal.HandlesBack` で先に取り、取らなければ 1 枚閉じる」に変更。`Register` / `Open` / `OpenHelp` / `SetHelpScope` が返す `Cmd` を呼び出し側へ返す義務と、page が配送先を `Overlay.Handles` で決める規則を明記 | モーダルで決めた内容が page へ戻る道が無く、`ChoiceList` の決定は `forward` から最上位のモーダルへ配り直されて捨てられていた。モーダルが発行した `Cmd` にはタブ番号が載らないため、結果は「そのとき選択中のタブ」へ渡って静かに失われていた。背後のモーダル宛の結果は最上位に食われ、閉じた後に届いた結果は誰にも届かなかった。`esc` を `Overlay` が無条件に食うため、入力の取消を閉じる操作より先に解釈できなかった（Issue #26） |
 | 1.8 | 2026-08-22 | page の寿命を知らせる 3 つの `Msg`（`page.ActivateMsg` / `DeactivateMsg` / `ShutdownMsg`）と、終了時に後始末を `tea.Sequence` で `tea.Quit` より前に流す規則を、タブが守る約束に追加 | 親はタブを切り替えるとき移動先へ共有状態を配るだけで、離れるタブには何も送っていなかった。`journalctl -f` 相当の長寿命の呼び出しを持つ page は畳む機会が無く、タブを行き来するたびに購読が積み上がる。終了も `tea.Quit` を直に返しており、page の後始末が実行される前にランタイムが止まっていた（Issue #41） |
 | 1.9 | 2026-08-22 | 作り直して引き継ぐ方式の義務を「作り直す側が最後の大きさを覚え、配り直してから位置を戻す」と具体化し、`helpmodal.go` が満たしていないという記述を実装に合わせて修正 | `helpmodal.go` は `pane.NewHelp` の直後に `SetOffset` を呼んでおり、高さ 0 で丸められて位置が 0 に落ちていた。共有状態は 3 秒ごとに届くため、ヘルプを読んでいる間ずっと先頭へ戻され続けていた。別の runner の詳細を開いても情報部のスクロールが残る欠陥も同じ節が扱う範囲だった（Issue #30） |
+| 1.10 | 2026-08-22 | `Overlay` の写しの意味を「変わりうる状態を 1 つの内部構造体にまとめ、写しは常にその参照を共有する」と定義し直し、中途半端な共有を禁じる記述を追加。`SetState` を開いているモーダルだけに配る形へ改め、`Register` / `Open` の時点で最新の `StateMsg` / `SizeMsg` をリプレイする契約と、`SizeMsg` は変化時のみという規則を明記。`ModalKind` の二重登録と未登録の `Open` を `panic` で表面化させる規則を追加。領域だけを設定する口（`SetSize`）を廃止 | 重なりのスタックだけが写しごとに分かれ `map` は共有されるという半端な状態で、文書はそれを「実体を共有する」と偽って記述していた。閉じているモーダルへ毎周期 `StateMsg` と `SizeMsg` を配るため、誰も見ていないヘルプを 3 秒ごとに全行組み直していた。同じ `ModalKind` を別々の Issue が選ぶと片方が到達不能になるが、上書きは黙って成功していた。`SetSize` は本番の呼び出し元が無く、`SetState` が毎周期上書きするため機能的に無効だった（Issue #32） |

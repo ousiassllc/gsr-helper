@@ -22,7 +22,7 @@ func newOverlay() Overlay {
 	o := NewOverlay(testTab, testKeys(), testStyles(), true)
 	o.Register(kindFirst, newStub("1 枚目"))
 	o.Register(kindSecond, newStub("2 枚目"))
-	o.SetSize(80, 20)
+	o.SetState(state(80, 20))
 	return o
 }
 
@@ -149,20 +149,101 @@ func TestOverlayHintsAndTitleFollowTop(t *testing.T) {
 	}
 }
 
-// 共有状態と大きさは、開いていないモーダルにも配る。
+// 共有状態は開いているモーダルにだけ配り、開く直前に最新をリプレイする。
 //
-// 開いた瞬間に古い配色・古い検出結果・古い大きさで描かれることを防ぐためである。
-func TestOverlaySetStateReachesEveryModal(t *testing.T) {
+// 閉じているモーダルにも毎周期配ると、誰も見ていないヘルプを 3 秒ごとに全行
+// 組み直すような無駄が積み上がる（Issue #32）。古い状態で描かれないことは
+// Open のリプレイが担保する。
+func TestOverlaySetStateReachesOpenModalsOnly(t *testing.T) {
 	o := newOverlay()
-	o.SetState(StateMsg{Keys: testKeys(), Styles: testStyles(), Dark: true, BodyW: 100, BodyH: 30})
+	base := stubOf(t, o, kindFirst).states
 
-	for _, kind := range []ModalKind{kindFirst, kindSecond} {
-		stub := stubOf(t, o, kind)
-		if stub.states != 1 {
-			t.Errorf("%q が受け取った共有状態 = %d 件, want 1", kind, stub.states)
-		}
-		if stub.size.W == 0 || stub.size.W >= 100 {
-			t.Errorf("%q が受け取った幅 = %d, want 枠の分を引いた値", kind, stub.size.W)
-		}
+	o.SetState(state(100, 30))
+	if got := stubOf(t, o, kindFirst).states; got != base {
+		t.Errorf("閉じているモーダルへ共有状態が配られている（%d 件）", got-base)
+	}
+
+	// 開く直前にリプレイされるので、開いた時点で最新を持っている。
+	o.Open(kindFirst, nil)
+	first := stubOf(t, o, kindFirst)
+	if first.states != base+1 {
+		t.Errorf("開いた時点の共有状態 = %d 件, want %d 件", first.states, base+1)
+	}
+	if first.size.W == 0 || first.size.W >= 100 {
+		t.Errorf("開いた時点の幅 = %d, want 枠の分を引いた値", first.size.W)
+	}
+
+	// 以後の周期は開いているものだけが受け取る。
+	o.SetState(state(100, 30))
+	if got := stubOf(t, o, kindFirst).states; got != base+2 {
+		t.Errorf("開いているモーダルの共有状態 = %d 件, want %d 件", got, base+2)
+	}
+	if got := stubOf(t, o, kindSecond).states; got != base {
+		t.Errorf("閉じているモーダルへ共有状態が配られている（%d 件）", got-base)
+	}
+}
+
+// 起動後に遅延登録したモーダルは、登録した時点で最新の共有状態と領域を受け取る。
+func TestOverlayReplaysStateOnRegister(t *testing.T) {
+	const kindLate ModalKind = "late"
+
+	o := newOverlay()
+	o.SetState(state(120, 40))
+	o.Register(kindLate, newStub("遅延登録"))
+
+	late := stubOf(t, o, kindLate)
+	if late.states == 0 {
+		t.Error("遅延登録したモーダルへ共有状態が配られていない")
+	}
+	if late.size.W == 0 || late.size.H == 0 {
+		t.Errorf("遅延登録したモーダルの領域 = %+v, want 枠の分を引いた値", late.size)
+	}
+	if late.tab != testTab {
+		t.Errorf("遅延登録したモーダルのタブ番号 = %d, want %d", late.tab, testTab)
+	}
+}
+
+// SizeMsg は領域が変わったときだけ配る。
+//
+// 変わっていない領域を配ると、下位に再計算を強いるだけである（Issue #32）。
+func TestOverlaySendsSizeOnlyWhenChanged(t *testing.T) {
+	o := newOverlay()
+	o.Open(kindFirst, nil)
+	before := stubOf(t, o, kindFirst).sizes
+
+	o.SetState(state(100, 30))
+	afterFirst := stubOf(t, o, kindFirst).sizes
+	if afterFirst != before+1 {
+		t.Fatalf("領域が変わった周期の SizeMsg = %d 回, want 1 回", afterFirst-before)
+	}
+
+	o.SetState(state(100, 30))
+	if got := stubOf(t, o, kindFirst).sizes; got != afterFirst {
+		t.Errorf("領域が変わらない周期に SizeMsg が %d 回配られている", got-afterFirst)
+	}
+
+	o.SetState(state(90, 30))
+	if got := stubOf(t, o, kindFirst).sizes; got != afterFirst+1 {
+		t.Errorf("領域が変わった周期の SizeMsg = %d 回, want 1 回", got-afterFirst)
+	}
+}
+
+// 写しは重なりの実体を共有する。開閉も中身も 1 つの状態に集まる。
+//
+// 以前はスタックだけがスライスの付け替えで写しごとに分かれ、map だけが共有される
+// 半端な状態だった。捨てた写しが中身の変更だけを残し、開閉の変更を失う
+// （Issue #32）。
+func TestOverlayCopySharesState(t *testing.T) {
+	o := newOverlay()
+	clone := o
+
+	clone.Open(kindFirst, nil)
+	if !o.Active() {
+		t.Error("写しで開いたモーダルが元の値に見えない（開閉が分かれている）")
+	}
+
+	o.Close()
+	if clone.Active() {
+		t.Error("元の値で閉じたモーダルが写しに残っている")
 	}
 }

@@ -130,7 +130,33 @@ func TestOverlayRegisterAndOpenReturnCmd(t *testing.T) {
 	if cmd := o.Open(kindThird, "開く指示"); cmd == nil {
 		t.Error("Open が Cmd を返していない")
 	}
-	if cmd := o.Open("未登録", "開く指示"); cmd != nil {
-		t.Error("未登録の種類で Cmd が返っている")
+}
+
+// 種類の重複登録と未登録の種類の開封は、実装の誤りとして panic で表面化する。
+//
+// 黙って上書き・黙って何もしないと、症状は「enter を押しても何も起きない」になり、
+// コンパイルエラーも実行時エラーもログも残らない（Issue #32）。
+func TestOverlayRejectsDuplicateAndUnknownKind(t *testing.T) {
+	t.Run("重複登録", func(t *testing.T) {
+		defer wantPanic(t, "重複した種類の登録")
+
+		o := newOverlay()
+		o.Register(kindFirst, newStub("重複"))
+	})
+
+	t.Run("未登録の開封", func(t *testing.T) {
+		defer wantPanic(t, "未登録の種類の開封")
+
+		o := newOverlay()
+		o.Open("未登録", "開く指示")
+	})
+}
+
+// wantPanic は defer して使い、panic していなければ失敗させる。
+func wantPanic(t *testing.T, what string) {
+	t.Helper()
+
+	if recover() == nil {
+		t.Errorf("%sが panic していない", what)
 	}
 }

@@ -97,7 +97,7 @@ type Modal struct {
 // 送る前に問うのは、渡した後では「取消を処理し終えた」状態になっていて、解釈したか
 // どうかを区別できないためである。
 func (o Overlay) handlesBack(kind ModalKind) bool {
-	m, ok := o.modals[kind]
+	m, ok := o.s.modals[kind]
 	if !ok || m.HandlesBack == nil {
 		return false
 	}

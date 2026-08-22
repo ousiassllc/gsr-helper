@@ -105,6 +105,16 @@ func testKeys() keymap.Set { return keymap.New() }
 // testTab は検証で使うタブ番号。0 以外にして、配られる番号が既定値でないことを見る。
 const testTab = 2
 
+// state は本体の領域だけを指定した共有状態を返す。
+//
+// 領域を配る唯一の経路は SetState である（Overlay は SetSize を持たない。
+// 持たせても次の共有状態で黙って巻き戻る）。
+func state(w, h int) StateMsg {
+	return StateMsg{
+		Keys: testKeys(), Styles: testStyles(), Dark: true, BodyW: w, BodyH: h,
+	}
+}
+
 // stubModal は登録したモーダルが受け取った Msg を記録するテスト用の中身。
 //
 // 重なりの規則を種類に依らず検証するために使う（具体的なモーダルを混ぜると、
@@ -114,6 +124,7 @@ type stubModal struct {
 	keys   []string
 	msgs   []tea.Msg // キー・共有状態・大きさ・タブ番号以外に届いた Msg
 	states int
+	sizes  int // 受け取った SizeMsg の回数（変化時のみ配られることを見る）
 	size   SizeMsg
 	tab    int  // AttachMsg で受け取ったタブ番号
 	back   bool // esc を自分で解釈するか（Modal.HandlesBack が返す値）
@@ -130,7 +141,7 @@ var _ tea.Model = (*stubModal)(nil)
 // newStub は本文を持つモーダルを組み立てる。
 func newStub(body string) Modal {
 	m := &stubModal{
-		body: body, keys: nil, msgs: nil, states: 0,
+		body: body, keys: nil, msgs: nil, states: 0, sizes: 0,
 		size: SizeMsg{W: 0, H: 0}, tab: -1, back: false,
 	}
 	return Modal{
@@ -156,6 +167,7 @@ func (m *stubModal) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.states++
 	case SizeMsg:
 		m.size = msg
+		m.sizes++
 	case AttachMsg:
 		m.tab = msg.Tab
 	default:

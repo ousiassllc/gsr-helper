@@ -15,7 +15,7 @@ const testTab = 1
 func newOverlayWithDetail(w, h int) page.Overlay {
 	o := page.NewOverlay(testTab, pagetest.Keys(), pagetest.Styles(), true)
 	o.Register(Kind, New(pagetest.State(w, h)))
-	o.SetSize(w, h)
+	o.SetState(pagetest.State(w, h))
 	return o
 }
 

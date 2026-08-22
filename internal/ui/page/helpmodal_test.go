@@ -35,13 +35,6 @@ func TestHelpKeepsOffsetAcrossStateUpdates(t *testing.T) {
 	}
 }
 
-// state は本体の領域だけを指定した共有状態を返す。
-func state(w, h int) StateMsg {
-	return StateMsg{
-		Keys: testKeys(), Styles: testStyles(), Dark: true, BodyW: w, BodyH: h,
-	}
-}
-
 // helpOf は登録済みのヘルプのモーダルを取り出す。
 func helpOf(t *testing.T, o Overlay) helpModal {
 	t.Helper()
