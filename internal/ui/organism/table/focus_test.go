@@ -9,12 +9,9 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/ui/token"
 )
 
-// 行の差し替えでカーソルより上の行が消えても、選択は同じ行に留まる。
-//
-// 3 秒ごとの再検出は runner が 1 台消えるだけで並びを詰めるため、カーソルを生の添字で
-// 当て直すと選択が 1 つ下の runner へずれる。フッタの操作可否・enter の詳細・
-// サービス制御はいずれも Selected() の結果を対象にするので、ずれは
-// 「選んだつもりとは別の runner を操作する」に化ける。
+// 行の差し替えでカーソルより上の行が消えても、選択は同じ行に留まる。3 秒ごとの再検出は
+// runner が 1 台消えるだけで並びを詰めるため、生の添字で当て直すと選択が 1 つ下へずれ、
+// フッタの操作可否・enter の詳細・サービス制御がまとめて別の runner を指す。
 func TestSetItemsKeepsCursorOnSameRow(t *testing.T) {
 	tbl := newTable(true, rows("alpha", "bravo", "charlie"))
 	tbl, _ = send(tbl, "j")
@@ -41,10 +38,8 @@ func TestSetItemsKeepsCursorOnSameRow(t *testing.T) {
 	}
 }
 
-// 選択していた行そのものが消えたら先頭へ戻す。
-//
-// 添字を据え置くと、たまたまその位置に来た別の行を選んだことになる。先頭は
-// 「利用者が改めて選び直す」ことが分かる位置であり、破壊的操作の誤爆を避けられる。
+// 選択していた行そのものが消えたら先頭へ戻す。添字を据え置くと、たまたまその位置に来た
+// 別の行を選んだことになる。先頭は選び直しが要ると分かる位置で、破壊的操作の誤爆を避けられる。
 func TestSetItemsResetsCursorWhenRowDisappears(t *testing.T) {
 	tbl := newTable(true, rows("alpha", "bravo", "charlie"))
 	tbl, _ = send(tbl, "j")
@@ -73,14 +68,9 @@ func TestSetItemsKeepsCheckedRowsByID(t *testing.T) {
 	}
 }
 
-// 絞り込みで行が減っても、残っていればカーソルは同じ行に留まる。
-//
-// 絞り込みは行の差し替えと同じ経路（normalizeFocus）を通る。カーソルより上の行が
-// 落ちると並びが詰まるため、生の添字を据え置くとその位置に来た別の行を選ぶ。
-//
-// 3 行から 2 行へ減り、かつ元の添字が別の行を指す並びを選ぶ。カーソルを添字 1
-// （bravo）に置き、alpha を落とすと添字 1 は bravo-2 になる。添字が範囲内に収まる
-// ので切り詰めも起きず、識別子で貼り直していなければ確実にずれる。
+// 絞り込みも行の差し替えと同じ normalizeFocus を通るので、上と同じ理由で添字は使えない。
+// カーソルを添字 1（bravo）に置いて alpha を落とすと添字 1 は bravo-2 になる並びを選んでいる。
+// 添字は範囲内に収まるため切り詰めも起きず、識別子で貼り直していなければ確実にずれる。
 func TestFilterKeepsCursorOnSameRow(t *testing.T) {
 	tbl := newTable(true, rows("alpha", "bravo", "bravo-2"))
 	tbl, _ = send(tbl, "j")
