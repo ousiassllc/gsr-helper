@@ -109,6 +109,7 @@ type Model[T any] struct {
 func New[T any](keys keymap.List, s token.Styles, secs ...SectionInput[T]) Model[T] {
 	in := textinput.New()
 	in.Prompt = filterPrompt
+	in.SetStyles(filterStyles(s))
 
 	t := Model[T]{
 		sections:  make([]section[T], 0, len(secs)),
@@ -126,6 +127,35 @@ func New[T any](keys keymap.List, s token.Styles, secs ...SectionInput[T]) Model
 	}
 	t.setFocus(0, 0)
 	return t
+}
+
+// filterStyles は token のスタイルを bubbles/textinput のスタイルへ写す。
+//
+// 既定スタイル（textinput.DefaultDarkStyles）に任せると、色を無効にした設定でも lipgloss の
+// カラープロファイル判定で装飾が入り、色の可否を決める箇所が 2 つになる（pane.helpStyles が
+// bubbles/help を同じ理由で写している）。New でも渡すのは、最初の StateMsg が届く前に
+// 描かれた入力欄に既定の配色が出ないようにするためである。
+//
+// 見出しは確定後の行（filterView）と同じ Muted に揃える。入力中と確定後で色が変わると、
+// 確定したことが色の変化として読めてしまう。入力文字は行のセルと同じく装飾しない。
+func filterStyles(s token.Styles) textinput.Styles {
+	st := textinput.StyleState{
+		Text:        s.Style(token.RolePlain),
+		Placeholder: s.Muted,
+		Suggestion:  s.Muted,
+		Prompt:      s.Muted,
+	}
+	return textinput.Styles{
+		Focused: st,
+		Blurred: st,
+		// カーソルの色も Styles から引く。色を無効にした Styles は NoColor を返すので装飾が
+		// 入らない（反転そのものは bubbles が常に付ける。色ではなく入力位置を示す記号であり、
+		// token.IconCursor と同じく色を無効にしても残す）。
+		Cursor: textinput.CursorStyle{
+			Color: s.Cursor.GetForeground(), Shape: tea.CursorBlock,
+			Blink: true, BlinkSpeed: 0, // 0 は bubbles の既定（約 500ms）
+		},
+	}
 }
 
 // Update はキー入力を処理する。
