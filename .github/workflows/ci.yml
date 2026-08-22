@@ -13,8 +13,35 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  guard:
+    # self-hosted runner を使うジョブの前段ゲート。GitHub ホストランナーで動かし、
+    # 許可したトリガー以外では「失敗」して後続を止める（skip ではないため
+    # required status check として fork PR のマージを機械的に止められる）。
+    runs-on: ubuntu-latest
+    steps:
+      - name: トリガーと head リポジトリを検証する
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          BASE_REPO: ${{ github.repository }}
+        run: |
+          case "$EVENT_NAME" in
+            push)
+              exit 0
+              ;;
+            pull_request)
+              if [ "$HEAD_REPO" = "$BASE_REPO" ]; then
+                exit 0
+              fi
+              echo "fork ($HEAD_REPO) からの PR では self-hosted runner のジョブを実行しない" >&2
+              exit 1
+              ;;
+          esac
+          echo "許可していないトリガー ($EVENT_NAME) では self-hosted runner のジョブを実行しない" >&2
+          exit 1
+
   lint:
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    needs: guard
     runs-on: [self-hosted, linux, x64]
     steps:
       - uses: actions/checkout@v5
@@ -27,7 +54,7 @@ jobs:
       - run: make linterly
 
   test:
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    needs: guard
     runs-on: [self-hosted, linux, x64]
     steps:
       - uses: actions/checkout@v5
@@ -37,7 +64,7 @@ jobs:
       - run: make test
 
   build:
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    needs: guard
     runs-on: [self-hosted, linux, x64]
     steps:
       - uses: actions/checkout@v5

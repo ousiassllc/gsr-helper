@@ -47,6 +47,19 @@ runner 登録時のラベルに `linux` と `x64` が付いていること。
 
 gsr-helper から追加・編集する場合は入力検証で予約ラベル（`self-hosted` / `linux` / `x64`）を確認する（[FR-36](../requirements/functional.md)）。手動で `config.sh` を実行して登録した runner はこの検証を通らないため、登録内容を確認する。
 
+## runner group の対象リポジトリ
+
+org（`ousiassllc`）レベルに登録した runner は、**runner group の対象リポジトリを限定する**。同じ runner を掴めるリポジトリを絞り、別リポジトリのワークフローがこのホスト上で実行されないようにするためである（[環境構築 / fork からの PR で self-hosted ジョブを起動しない](../environment/setup.md#fork-からの-pr-で-self-hosted-ジョブを起動しない)）。
+
+| 項目 | 設定 |
+|------|------|
+| 対象リポジトリ | 「選択したリポジトリ」にし、runner を使うリポジトリだけを明示的に追加する |
+| public リポジトリへの提供 | 既定（提供しない）のまま変更しない |
+
+- 設定場所は org の Settings → Actions → Runner groups である。
+- **この設定の確認・変更には org 管理者の権限が必要**で、API から触るには `admin:org` スコープが要る（実測: `gh api orgs/ousiassllc/actions/runner-groups` が 403 `You must be an org admin or have the runners and runner groups fine-grained permission.`）。CI から機械的に検証できないため、**runner を追加・移動したときに手動で確認する**。
+- **public リポジトリへ runner を提供する設定にはしない。** 既定のままであれば、リポジトリを public に戻した時点でジョブは実行されず `queued` で止まる。これは fork PR 経由で第三者のコードが runner 上で走ることを防ぐ層として機能する（実測: 対象リポジトリを public のまま運用していたとき、org に 12 台登録・1 台稼働の状態で run が 15 分以上 `queued` のまま引き取られず、private 化した直後に同じ run が実行された）。
+
 ## 言語ツールチェーン
 
 **ホストへの事前インストールは不要。** Go / Node / Terraform / Atlas はいずれも各 `setup-*` アクションがジョブ実行時に取得する。
@@ -81,3 +94,4 @@ gsr-helper から追加・編集する場合は入力検証で予約ラベル（
 | 版 | 日付 | 変更内容 | 変更理由 |
 |----|------|---------|---------|
 | 1.0 | 2026-08-21 | 新規作成 | 初版。doctor のジョブ実行の前提チェック（FR-43）の根拠となる実運用の手順を記録 |
+| 1.1 | 2026-08-22 | 「runner group の対象リポジトリ」節を追加し、対象リポジトリの限定と public リポジトリへ提供しない既定を維持する運用を明記 | self-hosted runner を掴めるリポジトリを絞ることが fork PR ガードの一次防御の 1 層であるにもかかわらず、手順として記録されていなかったため（Issue #17）。設定の確認には `admin:org` スコープが必要で CI から機械的に検証できないため、手動確認のタイミングもあわせて明記した |

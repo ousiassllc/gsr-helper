@@ -172,10 +172,10 @@ check: fmt-check vet lint linterly test ## すべてのチェックを実行す�
 | プラットフォーム | GitHub Actions |
 | ランナー | self-hosted（`runs-on: [self-hosted, linux, x64]`） |
 | トリガー | `main` への push、および PR |
-| ジョブ | `lint` / `test` / `build` の 3 本を並列実行 |
+| ジョブ | fork ガードの `guard`（GitHub ホストランナー）と、それに依存する `lint` / `test` / `build` の 3 本を並列実行 |
 | デプロイ | なし（配布は `go install`。[非機能要件 / 可搬性](../requirements/non-functional.md#可搬性)） |
 
-ジョブを並列にするのは、lint が落ちてもテスト結果が同時に得られるようにするためである。ジョブ間に依存はない。
+`lint` / `test` / `build` を並列にするのは、lint が落ちてもテスト結果が同時に得られるようにするためである。この 3 つの間に依存はなく、いずれも fork ガードの `guard` ジョブだけに依存する（[fork からの PR で self-hosted ジョブを起動しない](#fork-からの-pr-で-self-hosted-ジョブを起動しない)）。
 
 `permissions` は `contents: read` のみを与える。CI はリポジトリへの書き込みを行わない。
 
@@ -206,8 +206,35 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  guard:
+    # self-hosted runner を使うジョブの前段ゲート。GitHub ホストランナーで動かし、
+    # 許可したトリガー以外では「失敗」して後続を止める（skip ではないため
+    # required status check として fork PR のマージを機械的に止められる）。
+    runs-on: ubuntu-latest
+    steps:
+      - name: トリガーと head リポジトリを検証する
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          BASE_REPO: ${{ github.repository }}
+        run: |
+          case "$EVENT_NAME" in
+            push)
+              exit 0
+              ;;
+            pull_request)
+              if [ "$HEAD_REPO" = "$BASE_REPO" ]; then
+                exit 0
+              fi
+              echo "fork ($HEAD_REPO) からの PR では self-hosted runner のジョブを実行しない" >&2
+              exit 1
+              ;;
+          esac
+          echo "許可していないトリガー ($EVENT_NAME) では self-hosted runner のジョブを実行しない" >&2
+          exit 1
+
   lint:
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    needs: guard
     runs-on: [self-hosted, linux, x64]
     steps:
       - uses: actions/checkout@v5
@@ -220,7 +247,7 @@ jobs:
       - run: make linterly
 
   test:
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    needs: guard
     runs-on: [self-hosted, linux, x64]
     steps:
       - uses: actions/checkout@v5
@@ -230,7 +257,7 @@ jobs:
       - run: make test
 
   build:
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    needs: guard
     runs-on: [self-hosted, linux, x64]
     steps:
       - uses: actions/checkout@v5
@@ -257,50 +284,42 @@ CI は GitHub ホストランナーではなく self-hosted runner で実行す�
 | OS | Linux（amd64）。対象 OS と一致するため、GitHub ホストランナーでは検証できない `systemctl` / `journalctl` 前提の挙動もそのまま確認できる |
 | ワークスペース | ジョブ間で作業ディレクトリが再利用される。`actions/checkout` の既定（`clean: true`）に依存し、ビルド成果物を残す前提のステップを書かない |
 | ツールの導入 | Go は `actions/setup-go` がツールキャッシュへ導入する。ホストに Go を事前インストールしない（バージョンの二重管理を避ける） |
-| 並列実行 | `lint` / `test` / `build` の 3 ジョブが同時に走るため、runner は 3 台以上を稼働させる。台数が足りない場合はジョブが順番待ちになるだけで失敗はしない |
+| 並列実行 | `lint` / `test` / `build` の 3 ジョブが同時に走るため、runner は 3 台以上を稼働させる。台数が足りない場合はジョブが順番待ちになるだけで失敗はしない。前段の `guard` は GitHub ホストランナーで動くため self-hosted の台数を消費しない |
 | 権限 | CI ジョブは runner の実行ユーザー権限で動く。`sudo` を必要とするテストを CI に置かない（`Executor` のテスト実装で代替する。[非機能要件 / 保守性・テスト](../requirements/non-functional.md#保守性テスト)） |
 
 #### fork からの PR で self-hosted ジョブを起動しない
 
 self-hosted runner でワークフローを実行することは、**そのワークフローに runner の実行ユーザー権限を与える**ことを意味する。[セキュリティ設計](../architecture/security.md#パスワード不要-sudo-の要求への対応)のとおり `NOPASSWD: ALL` の付与は「その runner で実行される任意のワークフローに実質 root を与える」ことに等しい。fork からの PR は第三者が書いた任意のコードを含むため、そのまま self-hosted runner で走らせるとホストが第三者の実行環境になる。
 
-**本リポジトリは private である。** 当初 public だったが、org（`ousiassllc`）レベルに登録した runner が **public リポジトリのジョブを引き取らず `queued` のまま停止した**ため private へ切り替えた。org の runner group は既定で public リポジトリへ runner を提供しない設定であり、これが直接の原因だった。private 化により runner がジョブを拾えるようになり、同時に**外部の第三者が fork PR を送る経路そのものが無くなる**。
+**本リポジトリは private であり、fork も無効である**（実測: `gh api repos/ousiassllc/gsr-helper` が `"visibility": "private"` / `"allow_forking": false`）。当初 public だったが、org（`ousiassllc`）レベルに登録した runner が **public リポジトリのジョブを引き取らず `queued` のまま停止した**ため private へ切り替えた。org の runner group は既定で public リポジトリへ runner を提供しない設定であり、これが直接の原因だった。private 化により runner がジョブを拾えるようになり、同時に**外部の第三者が fork PR を送る経路そのものが無くなる**。
 
 したがって以下の脅威モデルは、**リポジトリへのアクセス権を持つ範囲（org メンバー・コラボレーター）**を対象とする。ただし将来 public へ戻す場合はそのまま外部第三者に対する分析として読める内容なので、記述は残す。
 
-**防御は多層で構成する。ワークフロー側の `if` 条件はその 1 層にすぎず、単体では境界にならない。**
+**防御は多層で構成する。ワークフロー側のゲートはその 1 層にすぎず、単体では境界にならない。**
 
-| 層 | 手段 | 位置づけ |
-|----|------|---------|
-| 一次防御 | fork PR の承認ポリシー（リポジトリ設定） | 悪意ある第三者に対する実質的な境界 |
-| 一次防御 | org runner group の対象リポジトリ限定 | 同じ runner を掴めるリポジトリを絞る。既定では public リポジトリへ提供しないため、public へ戻す場合は runner group 側を明示的に許可しない限り CI が `queued` で止まる |
-| 補助 | ワークフローの `if` 条件 | 事故防止と runner 負荷削減。善意の fork PR による誤起動を止める |
+| 層 | 手段 | 位置づけ | 現状 |
+|----|------|---------|------|
+| 一次防御 | リポジトリを private にし fork を無効化する | 外部第三者が fork PR を送る経路そのものを塞ぐ | 適用中（`allow_forking: false`） |
+| 一次防御 | org runner group の対象リポジトリ限定 | 同じ runner を掴めるリポジトリを絞る。既定では public リポジトリへ提供しないため、public へ戻す場合は runner group 側を明示的に許可しない限り CI が `queued` で止まる | 手順は[ランナーホストのセットアップ](../operations/runner-host-setup.md#runner-group-の対象リポジトリ)に記録。設定変更は org 管理者の作業 |
+| 一次防御 | fork PR の承認ポリシー | public へ戻す場合の実質的な境界。「全外部貢献者に承認必須」にする | **private では設定できない**（実測: `gh api repos/ousiassllc/gsr-helper/actions/permissions/fork-pr-contributor-approval` が 422 `Fork PR approval is not allowed for private repositories.`）。public へ戻す際に `all_external_contributors` を設定する |
+| 補助 | ワークフローの `guard` ジョブ | 事故防止と runner 負荷削減。トリガーの追加ミスと善意の fork PR による誤起動を止め、required status check としてマージも止める | 適用中 |
 
-ワークフロー側には、全ジョブに次の条件を付ける。
+ワークフロー側は、self-hosted runner を使う全ジョブの前段に **GitHub ホストランナー上で動く `guard` ジョブ**を置き、`needs: guard` で依存させる（定義は[ワークフロー定義](#ワークフロー定義)の `ci.yml` を参照）。`guard` の判定は次のとおりである。
 
-```yaml
-if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-```
+- `push`（`main`）では常に成功する
+- `pull_request` では **head が同一リポジトリのブランチである場合のみ**成功する
+- **それ以外のトリガーではすべて失敗する**（許可リスト形）
+- 判定に使う値は `run:` 内へ式を直接埋め込まず `env:` 経由で渡す。head リポジトリ名を通したスクリプトインジェクションの余地を残さないためである
 
-- `push`（`main`）では常に実行する
-- PR では **head が同一リポジトリのブランチである場合のみ**実行する。fork からの PR ではジョブが `skipped` になる
+**ジョブ単位の `if:` ではなくゲートジョブにする理由。** `if:` で条件を満たさないジョブは `skipped` になるが、GitHub のドキュメントは「スキップされたジョブはステータスを Success として報告する。required check であっても PR のマージを妨げない」「required status check は保護ブランチへ変更を加える前に `successful` / `skipped` / `neutral` のいずれかである必要がある」と明記している。つまり `if:` で skip する設計では、将来 `lint` / `test` / `build` を required status check に指定しても、**CI が一度も走っていないのに 3 つとも緑になりマージ可能に見える**。`guard` は skip ではなく**失敗**するため、required status check に指定すればマージを機械的に止められる。したがって **required status check には `guard` を指定する**（`lint` / `test` / `build` は `needs: guard` により skip されるので、それらを指定してもマージは止まらない）。
 
-**この `if` はセキュリティ境界にはならない。** `pull_request` イベントでは、ワークフロー定義自体がマージコミット側（= PR の内容を含む側）から取られる（GitHub のドキュメントは `pull_request_target` を「`pull_request` イベントのようにマージコミットのコンテキストではなく、ベースリポジトリの既定ブランチのコンテキストで実行される」と対比して説明している）。つまり **fork 側で `.github/workflows/ci.yml` の `if:` 行を削除でき、その改変版が `pull_request` の実行に使われる。**したがって `if` は事故防止・runner 負荷削減の防御層として有効だが、悪意ある第三者を止めるのはリポジトリ設定側である。
+**許可リスト形にする理由。** 従前の条件 `github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository` は「`pull_request` でなければ無条件に実行する」**ブロックリスト形**だった。`merge_group` や `workflow_dispatch` を `on:` に足すと左辺が true になって短絡し、fork チェックが評価されないまま実行される。`guard` は `push` と同一リポジトリの `pull_request` だけを許可し、それ以外は既定で失敗するため、トリガーを足したときに「実行しない」側へ倒れる。**トリガーを追加する際は `guard` の許可リストも更新する**（merge queue を導入する場合は `merge_group` を `on:` と `guard` の双方に足す。足さないと required status check が報告されずキューが詰まる）。
 
-一次防御の前提と限界:
+**このゲートもセキュリティ境界にはならない。** `pull_request` イベントでは、ワークフロー定義自体がマージコミット側（= PR の内容を含む側）から取られる（GitHub のドキュメントは `pull_request_target` を「`pull_request` イベントのようにマージコミットのコンテキストではなく、ベースリポジトリの既定ブランチのコンテキストで実行される」と対比して説明している）。つまり **fork 側で `.github/workflows/ci.yml` の `guard` ジョブごと削除でき、その改変版が `pull_request` の実行に使われる。**したがってゲートは事故防止・runner 負荷削減・マージゲートとして有効だが、悪意ある第三者を止めるのはリポジトリ設定側である。
 
-- **fork PR の承認ポリシー**（実測: 現在 `approval_policy: first_time_contributors`）。GitHub 自身が、self-hosted runner を使っている場合は「設定した承認ポリシーで承認をバイパスできるユーザーの悪意あるワークフローコードは自動実行される」と警告している。さらにこのポリシーでは**リポジトリにコミットまたは PR がマージされたことのあるユーザーは以後承認不要**になるため、悪意あるユーザーは些細な typo 修正をメンテナに受け入れさせるだけでこの要件を満たせる。**承認ポリシーを「全外部貢献者に承認必須」へ変更することを推奨する**（リポジトリ設定の変更自体は Issue #17 で行う）。
-- **org runner group** の対象リポジトリを本リポジトリに限定し、他リポジトリのワークフローが同じ runner を掴めないようにする。
+fork からの PR を検証する場合は、内容を確認した上で同一リポジトリ内のブランチへ取り込み、そのブランチの PR で CI を通す。`pull_request_target` は使わない（fork の PR に対してベース側の権限でワークフローが動くため、この対策の意味が失われる）。
 
-**`skipped` は required status check に対して success として扱われる。** GitHub のドキュメントは「スキップされたジョブはステータスを Success として報告する。required check であっても PR のマージを妨げない」「required status check は保護ブランチへ変更を加える前に `successful` / `skipped` / `neutral` のいずれかである必要がある」と明記している。したがって将来 `lint` / `test` / `build` を required status check に指定すると、**fork PR は CI が一度も走っていないのに 3 つとも緑になり、マージ可能に見える**（実測: 現在は branch protection もルールセットも未設定なため潜在的な問題に留まる）。fork PR のマージを機械的に止めたいなら、`if` で skip するのではなく、**常時実行される別のゲートジョブ**（GitHub ホストランナー上で動き、fork PR のときに失敗する軽量ジョブ）を required status check に指定する設計が必要である。
-
-fork からの PR を検証する場合は、内容を確認した上で同一リポジトリ内のブランチへ取り込み、そのブランチの PR で CI を通す。**この手順は人的運用に依存する**（前段のとおり fork PR 側の check は緑に見えるため、機械的には止まらない）。`pull_request_target` は使わない（fork の PR に対してベース側の権限でワークフローが動くため、この対策の意味が失われる）。
-
-**トリガーを追加する際はガード条件を必ず見直す。** 現在の式は「`pull_request` でなければ無条件に実行する」という**ブロックリスト形**である。`merge_group` や `workflow_dispatch` を `on:` に足すと、左辺 `github.event_name != 'pull_request'` が true になって短絡し、**fork チェックが評価されないまま実行される**。逆に merge queue を導入する際に `merge_group` を `on:` に足さないと、required status check が報告されずキューが詰まる（GitHub のドキュメントに明記がある）。将来的には、新しいトリガーを足したときに既定が「実行しない」側へ倒れる**許可リスト形**への移行が候補である。
-
-```yaml
-if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
-```
+**実際の fork PR での実測は行えない。** private かつ `allow_forking: false` のため fork を作成する経路が存在しない。代わりに `guard` の判定ロジックは `internal/buildconfig` の回帰テストが `ci.yml` から実スクリプトを取り出して実行し、`push` / 同一リポジトリの PR / fork からの PR / 未許可トリガーを検証している。public へ戻す際は、承認ポリシーの設定とあわせて実 fork PR での確認を行う。
 
 ### 将来の拡張候補
 
@@ -501,3 +520,4 @@ pre-push:
 | 1.7 | 2026-08-22 | 「ディレクトリ構造」の `Makefile` の説明を「CI / 手元で共用。Git Hooks は経由しない」に修正。「抑制の方針」の G304 抑制 4 件の根拠を、`config.go` の 3 件は呼び出し側の事前条件に依拠する条件付きの記述へ、`procs.go` の 1 件は PID の数値検証という別の根拠へ分離し、抑制の棚卸し時に `--max-same-issues=0 --max-issues-per-linter=0` が必要である旨を追記。「Linterly」節に `warning_threshold` をコメントアウトしてはいけない理由を追記。「Git Hooks」節の作業ツリー参照の対処先を Issue #18 と明記し、`parallel: false` の順序説明に lefthook の `priority` フィールドを併記。CI/CD 節の fork ガードの対処先を Issue #17 と明記し、`github.ref` の「（実測）」を仕様に基づく記述へ修正。ターゲット一覧表の `make fmt-check` の注記を「CI / `make check` 用」に修正。改訂履歴 1.3 の `.sweep/` 除外理由と 1.6 の変更内容を本文と整合させた | 2 周目の PR レビューで、1 周目（1.6）の修正が一部の記述に及んでいない・根拠ラベルが実態と合わない・参照先 Issue の番号が欠けている点が指摘されたため。G304 抑制の親記述は、`Discover` の `Options.Roots` により走査ルート自体を呼び出し側が指定できる設計を踏まえると「パスに外部入力が入らない」と無条件に断定できず、コード側（`internal/runner/config.go` の nolint 理由）と食い違っていた。`golangci-lint` は `issues.max-same-issues` / `max-issues-per-linter` の既定（3 / 50）で同種の指摘を打ち切るため、既定のままでは G304 4 件を数え上げられない（設定への `issues` 追加は Issue #15 の範囲）。`.linterly.yml` の `warning_threshold` は既定値と同値だが `rules:` を非空に保つ役割があり、既定値だからという理由でコメントアウトすると `rules section is required` で exit 2 になることを実測した。lefthook v1.13.6 には command 単位の `priority` があり命名に依存せず順序を固定できるため、「命名の維持」は `priority` 未指定である現状の前提にすぎない。本リポジトリの CI run は self-hosted runner に引き取られず `queued` のままでジョブコンテキストが観測されていないため、`github.ref` に「（実測）」と付けるのは根拠ラベルとして誤りだった |
 | 1.8 | 2026-08-22 | `make build` を `go build ./...`（全パッケージのコンパイル検証）＋ `cmd/gsr-helper` が存在する場合のみ単一バイナリを生成する形に変更し、ターゲット一覧表・Makefile 定義・CI/CD 節の記述を実装に同期した | PR #19 の CI で `build` ジョブが `stat ./cmd/gsr-helper: directory not found` により exit 2 で失敗した。エントリポイントの実装は Issue #3 のスコープであり Issue #2 では追加できないため、パッケージが未作成の段階でも通り、かつ Issue #3 で `cmd/gsr-helper` が追加された後はそのままバイナリ生成まで行う形に `build` ターゲットを直した |
 | 1.9 | 2026-08-22 | `make fmt-check` の対象解決をディレクトリ単位からファイル単位（`go list` の `.GoFiles` / `.CgoFiles` / `.TestGoFiles` / `.XTestGoFiles` / `.IgnoredGoFiles`）へ変更し、`gofmt` を `$(GO) env GOROOT` 由来の `$(GOFMT)` に固定。`go list` の失敗と対象 0 件を `exit 1` にした。ターゲット一覧表・Makefile 定義・「Format」節を実装に同期し、`internal/buildconfig` に Makefile の回帰テストを追加 | 1.3 の修正（`gofmt -l $$($(GO) list -f '{{.Dir}}' ./...)`）は、リポジトリルートに `.go` ファイルが 1 本置かれてルート自体がパッケージになると `gofmt` が `.claude/worktrees/` 配下まで再帰して無効化される。`gofmt -l` は `testdata/` も検査するが `go fmt ./...` は対象外にするため、未整形のフィクスチャを置くと `make fmt` で直せないのに `fmt-check` が落ちるデッドロックになる。`fmt` が GOROOT の `gofmt`、`fmt-check` が PATH の `gofmt` を使う非対称も、`GO` を差し替えた環境で整形と検査のツールチェーンをずらす。さらにコマンド置換の終了ステータスを捨てていたため `go.mod` 破損時に検査が静かに通り、対象 0 件では `gofmt` が引数なしで起動して標準入力を読み無言でハングすることを実測した（`timeout 5 gofmt -l` が exit 124）。Issue #14 |
+| 1.10 | 2026-08-22 | fork ガードを全ジョブの `if:` 条件から、GitHub ホストランナー上で動く `guard` ジョブ + `needs: guard` へ置き換え、判定を許可リスト形（`push` と同一リポジトリの `pull_request` だけを許可し、それ以外は失敗）にした。「fork からの PR で self-hosted ジョブを起動しない」節を private + `allow_forking: false` の実態と多層防御の現状表に更新し、required status check には `guard` を指定する運用・実 fork PR での実測が行えない理由を明記。ワークフロー定義のコードブロックを実体と同期し、`internal/buildconfig` に `guard` スクリプトの回帰テストと仕様書コードブロックの同期テストを追加。あわせて `docs/operations/runner-host-setup.md` に「runner group の対象リポジトリ」節を追加（同 1.1） | 従前の `if:` 条件は「`pull_request` でなければ無条件に実行する」ブロックリスト形で、`merge_group` / `workflow_dispatch` を `on:` に足すと左辺が真になって短絡し fork チェックが評価されないまま実行される。また `if:` で skip されたジョブは required status check に対して success として報告されるため、CI が一度も走っていない PR が緑になりマージ可能に見える。skip ではなく失敗するゲートジョブにすれば、この 2 点をワークフロー定義の側で閉じられる。fork PR 承認ポリシーの `all_external_contributors` 化は実測で private リポジトリには設定できず（`fork-pr-contributor-approval` API が 422 `Fork PR approval is not allowed for private repositories.`）、`allow_forking: false` のため実 fork PR での確認経路も存在しないため、public へ戻す場合の手順として記録した。runner group の対象リポジトリ限定は `admin:org` スコープが無く API から確認できない（403）ため、運用手順側へ記録した。Issue #17 |
