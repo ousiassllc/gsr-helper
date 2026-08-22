@@ -238,7 +238,8 @@ func TestChoicesDivider(t *testing.T) {
 	}
 }
 
-// 影響の併記は強制停止と削除だけが持つ（screens.md の詳細画面）。
+// 影響の併記は確認ダイアログを経る 3 操作（停止・強制停止・再起動）と削除が持つ
+// （screens.md の「Runners タブの操作」の表の影響の列）。
 func TestChoicesImpact(t *testing.T) {
 	withImpact := []string{}
 	for _, c := range testActions().Choices(sampleRunner(), fullCaps()) {
@@ -247,7 +248,7 @@ func TestChoicesImpact(t *testing.T) {
 		}
 	}
 	slices.Sort(withImpact)
-	if want := []string{"D", "X"}; !slices.Equal(withImpact, want) {
+	if want := []string{"D", "R", "X", "x"}; !slices.Equal(withImpact, want) {
 		t.Errorf("影響を併記する操作 = %v, want %v", withImpact, want)
 	}
 }

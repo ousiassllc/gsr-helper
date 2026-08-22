@@ -141,8 +141,11 @@ func TestConfirmInput(t *testing.T) {
 		t.Errorf("影響 = %v, ジョブ実行中の警告とドレインの案内が無い", in.Impact)
 	}
 	// ジョブ実行中が 1 台も無ければ警告は出さない（毎回出すと読み飛ばされる）。
-	if got := confirmInput(def, []runner.Runner{testRunner("build01-1")}); len(got.Impact) != 0 {
-		t.Errorf("影響 = %v, want 無し", got.Impact)
+	// 操作そのものの影響（action.Def.Impact）は対象に依らず出るので、残るのはその
+	// 1 行だけである（confirmimpact_test.go）。
+	idle := confirmInput(def, []runner.Runner{testRunner("build01-1")})
+	if want := []string{def.Impact}; !reflect.DeepEqual(idle.Impact, want) {
+		t.Errorf("影響 = %v, want %v（ジョブ実行中の警告が出ている）", idle.Impact, want)
 	}
 }
 
