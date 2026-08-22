@@ -188,3 +188,50 @@ func TestColumnsFollowsPerSectionRules(t *testing.T) {
 		t.Errorf("順を宣言しない区画の結果 = %v, want 末尾から落とす", got)
 	}
 }
+
+// Keep が空の ColumnRules でも、all が空でなければ列が 1 つ以上残る。
+//
+// 落とす順（rules.Drop）を辿るループには末尾落としループにある「1 列残す」歯止めが
+// 無く、Keep を宣言しない区画では最後の 1 列まで落ちて空表になっていた。仕様書が
+// 3 箇所で約束する契約（「all が空でなければ結果も空にならない」）の回帰である。
+// 自分の順を宣言するタブ（Disk / Logs / Doctor）はこの経路を通る。
+func TestColumnsKeepsLastColumnWhenRulesHaveNoKeep(t *testing.T) {
+	// Drop が全列を挙げ、Keep が空。幅はどの列も収まらない狭さにする。
+	all := []token.Column{
+		{ID: token.ColWork, Title: "_WORK", Width: 6, Right: true},
+	}
+	rules := token.ColumnRules{Drop: []string{token.ColWork}, Keep: nil}
+
+	got := Columns(all, 10, rules)
+	if len(got) == 0 {
+		t.Fatalf("列が 0 個になった（Drop=%v Keep=%v）", rules.Drop, rules.Keep)
+	}
+	if want := []string{token.ColWork}; !slices.Equal(columnIDs(got), want) {
+		t.Errorf("列 = %v, want %v", columnIDs(got), want)
+	}
+	// 最後の 1 列は幅が足りなくても残る。結果は width を超え得る（screens.md）。
+	if columnsFit(got, 10) {
+		t.Error("この幅では収まらないはずで、超過を許して残す契約が確かめられていない")
+	}
+
+	// 複数列でも、Drop を使い切るまでに 1 列で止まる。
+	multi := []token.Column{
+		{ID: token.ColName, Title: "NAME", Width: 16, Right: false},
+		{ID: token.ColScope, Title: "SCOPE", Width: 10, Right: false},
+		{ID: token.ColVersion, Title: "VERSION", Width: 9, Right: false},
+	}
+	multiRules := token.ColumnRules{
+		Drop: []string{token.ColVersion, token.ColScope, token.ColName},
+		Keep: nil,
+	}
+	for width := 20; width >= -10; width-- {
+		cols := Columns(multi, width, multiRules)
+		if len(cols) == 0 {
+			t.Fatalf("幅 %d で列が 0 個になった", width)
+		}
+	}
+	// 落とし切ったあとに残るのは Drop の最後に挙げた列（最も落としたくない列）。
+	if got, want := columnIDs(Columns(multi, 1, multiRules)), []string{token.ColName}; !slices.Equal(got, want) {
+		t.Errorf("幅 1 の列 = %v, want %v", got, want)
+	}
+}

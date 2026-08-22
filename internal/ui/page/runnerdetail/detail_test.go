@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/ousiassllc/gsr-helper/internal/appconfig"
 	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/ui/organism"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
@@ -213,5 +214,36 @@ func TestRunnerDetailUnknownServiceState(t *testing.T) {
 
 	if got := d.View(); !strings.Contains(got, token.IconUnknown) {
 		t.Errorf("サービスの行 = %q, want %q を含む", got, token.IconUnknown)
+	}
+}
+
+// SetState は届いた Caps をそのまま採る。
+//
+// 以前はゼロ値のときだけ握り続けるガードを置いていたが、これは「まだ検出していない」と
+// 「この host は本当に全能力 false」を区別できない。加えて appconfig.Detect は起動時
+// 1 回であり、page へ配られる StateMsg は常に検出済みの Caps を載せる
+// （ui.App.state / newTabs）。ガードには発火する余地が無く、能力を持たないホストで
+// 開いた時点の Caps を握り続ける危険だけが残っていた。
+func TestRunnerDetailAdoptsCapsFromState(t *testing.T) {
+	d := newDetail()
+	before := d.View()
+
+	// 全能力 false のホスト（root でも systemd でもない）。
+	st := pagetest.State(72, 24, pagetest.SampleRunner())
+	st.Caps = appconfig.Caps{}
+	d.SetState(st)
+
+	if d.caps != (appconfig.Caps{}) {
+		t.Errorf("Caps = %+v, want ゼロ値（届いた Caps をそのまま採る）", d.caps)
+	}
+	if d.View() == before {
+		t.Error("全能力 false の Caps が操作リストに反映されていない")
+	}
+
+	// 能力が戻れば操作リストも戻る。
+	st.Caps = pagetest.Caps()
+	d.SetState(st)
+	if d.caps != pagetest.Caps() {
+		t.Errorf("Caps = %+v, want %+v", d.caps, pagetest.Caps())
 	}
 }

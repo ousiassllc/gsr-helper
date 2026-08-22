@@ -86,6 +86,9 @@ func (m Model) View() tea.View {
 // 検出は親が 1 本の Cmd で駆動する（同じ検出が重複実行されないようにするため）。
 func (m Model) setState(st page.StateMsg) (tea.Model, tea.Cmd) {
 	m.st = st
+	// 背景色は起動後に届き、切り替わることもある。配色を配り直さないと一覧の中身だけが
+	// 古い明暗のまま残る（table.Model.Restyle の doc）。
+	m.tbl.Restyle(st.Keys.List, st.Styles)
 	m.tbl.SetSize(st.BodyW, st.BodyH)
 	m.tbl.SetItems(sectionRunners, runnerRows(st.Result.Runners))
 	m.tbl.SetItems(sectionOrphans, orphanRows(st.Result.OrphanUnits))

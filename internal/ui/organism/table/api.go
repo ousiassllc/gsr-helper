@@ -1,8 +1,33 @@
 package table
 
-import "slices"
+import (
+	"slices"
+
+	"github.com/ousiassllc/gsr-helper/internal/ui/keymap"
+	"github.com/ousiassllc/gsr-helper/internal/ui/token"
+)
 
 // page が呼ぶ入口（状態の差し替えと問い合わせ）をここに集める。
+
+// Restyle は配色とキー定義を差し替える。行・カーソル位置・選択・絞り込みは保つ。
+//
+// 端末の背景色は tea.BackgroundColorMsg で起動後に届き、切り替わることもあるため、一度
+// 取り込んだ配色を持ち続けると濃色向けの薄い色が白背景に残って読めなくなる（token/state.go の
+// palette が明暗 2 型を持つ理由）。作り直さずに差し替えるのは共有状態が 3 秒ごとに配られるため。
+//
+// 行は組み立て直す。セル・カーソル記号・チェックボックスは組み立て時に配色を
+// 焼き込むため（row / render を参照）、フィールドの差し替えだけでは古い色が残る。
+// 絞り込みの入力欄も差し替える。bubbles/textinput は自分の既定スタイルを持つため、
+// t.styles を入れ替えても入力欄だけが取り残される（filterStyles を参照）。
+func (t *Model[T]) Restyle(keys keymap.List, s token.Styles) {
+	t.keys = keys
+	t.styles = s
+	t.filter.SetStyles(filterStyles(s))
+	for i := range t.sections {
+		t.sections[i].restyle(keys, s)
+	}
+	t.refreshAll()
+}
 
 // SetItems は区画の行を差し替える。
 //
@@ -16,10 +41,12 @@ func (t *Model[T]) SetItems(section int, items []T) {
 	if section < 0 || section >= len(t.sections) {
 		return
 	}
+	// 目印は行を入れ替える前に取る（normalizeFocus の doc）。
+	a := t.anchor()
 	t.sections[section].items = slices.Clone(items)
 	t.pruneChecked()
 	t.filterSection(section)
-	t.normalizeFocus()
+	t.normalizeFocus(a)
 	t.layout()
 }
 
@@ -75,9 +102,7 @@ func (t Model[T]) Checked() []T {
 // Shown は絞り込み後に表示している行を返す。page は状態行の「N 件」に使う。
 // 行そのものを返すので、絞り込みの結果を View() の文字列一致で確かめずに済む。
 //
-// 内部のスライスをそのまま返さず写しを返す。返り値を呼び出し側が書き換えると Table の
-// 表示が崩れるためである。View のたびに確保することになるが、行数は高々数十であり、
-// 状態が壊れる事故の重さと比べれば許容できる。
+// 内部のスライスをそのまま返さず写しを返す（理由は SetItems の doc と同じ）。
 func (t Model[T]) Shown(section int) []T {
 	if section < 0 || section >= len(t.sections) {
 		return nil

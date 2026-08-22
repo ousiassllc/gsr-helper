@@ -116,10 +116,12 @@ func (t Model[T]) filterView() string {
 
 // applyFilter は絞り込み文字列を全区画に反映する。
 func (t *Model[T]) applyFilter() {
+	// 目印は絞り込む前に取る。絞り込みで上の行が落ちても、残っていれば同じ行に留まる。
+	a := t.anchor()
 	for i := range t.sections {
 		t.filterSection(i)
 	}
-	t.normalizeFocus()
+	t.normalizeFocus(a)
 	t.layout()
 }
 
