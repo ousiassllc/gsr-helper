@@ -98,6 +98,20 @@ func TestArgsByKey(t *testing.T) {
 			want: []string{"--token", "***", "***", "--name", "build01"},
 		},
 		{
+			// 値が「秘密情報キーらしいオプション」の形をしていても、キー名から
+			// マスクした値を素の文字列で書き戻してはならない。
+			name: "秘密情報キーに見える値でもマスクを解除しない",
+			args: []string{"--token", "--url=x-api-key"},
+			want: []string{"--token", "***"},
+		},
+		{
+			// -HAuthorization: ... のように 1 要素に密着した形。要素内の秘密情報を
+			// マスクし、かつ次の要素（無関係な --url）を潰さない。
+			name: "密着形のヘッダは自要素をマスクし次の要素を潰さない",
+			args: []string{"api", "-HAuthorization: Bearer ABCDEFGH", "--url", "https://x"},
+			want: []string{"api", "-HAuthorization: ***", "--url", "https://x"},
+		},
+		{
 			name: "Authorization ヘッダはヘッダ名を残して値を置換する",
 			args: []string{"api", "-H", "Authorization: Bearer ABCDEFGH"},
 			want: []string{"api", "-H", "Authorization: ***"},
@@ -196,6 +210,23 @@ func TestArgsIsIdempotent(t *testing.T) {
 	for _, arg := range once {
 		if arg == "supersecrettoken" {
 			t.Errorf("マスク漏れがある: %q", once)
+		}
+	}
+}
+
+// secrets を渡さない経路（実行前プレビュー）でも冪等であることを確かめる。
+// 段 1 は要素同士を見るため、二度目の適用でマスク済みの値をキーとして
+// 読み直すと結果が変わり得る。
+func TestArgsByKeyIsIdempotent(t *testing.T) {
+	for _, args := range [][]string{
+		{"--token", "ABCDEFGH"},
+		{"--token", "--url=x-api-key"},
+		{"api", "-HAuthorization: Bearer ABCDEFGH", "--url", "https://x"},
+	} {
+		once := Args(args)
+		twice := Args(once)
+		if !slices.Equal(once, twice) {
+			t.Errorf("二重適用で結果が変わった\n once: %q\ntwice: %q", once, twice)
 		}
 	}
 }

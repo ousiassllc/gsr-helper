@@ -80,8 +80,10 @@ func normalizeKey(name string) string {
 
 // isSecretKey はオプション名が秘密情報を伴うものかを判定する。
 //
-// ハイフン 0 個でも真を返すため、「次の要素をマスクする」判定に使う側では
-// ハイフンを別途必須にすること（byKey を参照）。
+// 判定対象は「オプション名」であって引数 1 要素の全文ではない。値が密着した
+// -HAuthorization:Bearer x のような要素をそのまま渡すと部分一致で真になり、
+// 「次の要素が値」という誤った解釈につながる。次の要素をマスクする判定に
+// 使う側は optionName で名前だけを取り出すこと（byKey を参照）。
 func isSecretKey(name string) bool {
 	key := normalizeKey(name)
 	if slices.Contains(secretKeys, key) {
@@ -100,46 +102,79 @@ func isHeaderKey(name string) bool {
 	return slices.Contains(headerKeys, normalizeKey(name))
 }
 
-// isSecretFlag はハイフン付きの秘密情報キー（= 値ではなくオプション名）かを返す。
-func isSecretFlag(arg string) bool {
-	return strings.HasPrefix(arg, "-") && (isSecretKey(arg) || isHeaderKey(arg))
+// optionName は arg が「オプション名だけの要素」ならその名前を返す。
+//
+// 値が密着した要素（-HAuthorization: Bearer x, --token=x, 位置引数）を
+// オプション名と見なさないための門。名前として許すのは先頭のハイフンに続く
+// [A-Za-z0-9._-] のみで、空白・":"・"=" が現れた時点で名前ではないと判断する。
+// これを通さずに要素全文でキー判定をすると、値が密着した要素を「キー」と誤認し
+// 無関係な次の要素を潰したうえで本体の秘密情報を残すことになる。
+func optionName(arg string) (string, bool) {
+	if !strings.HasPrefix(arg, "-") {
+		return "", false
+	}
+	name := strings.TrimLeft(arg, "-")
+	if name == "" {
+		return "", false
+	}
+	for i := 0; i < len(name); i++ {
+		c := name[i]
+		switch {
+		case c >= 'A' && c <= 'Z', c >= 'a' && c <= 'z', c >= '0' && c <= '9':
+		case c == '.', c == '_', c == '-':
+		default:
+			return "", false
+		}
+	}
+	return name, true
 }
 
 // byKey は段 1。オプション名から値を特定してマスクした新しいスライスを返す。
 //
-// 判定は必ず入力の args を見る。書き込み先の out を見ると、直前に *** で
-// 潰した要素をキーとして読み直すことになり、判定が結果に依存してしまう。
+// 2 パスに分けるのは、隣を見る処理と要素単体の処理を 1 パスに混ぜると、
+// 既にマスクした要素を後の反復がキーとして読み直し、素の値を書き戻してしまう
+// ためである（--token --url=x-api-key で out[1] のマスクが解除されていた）。
+// パス 1 で各要素を自身の内容だけからマスクし、パス 2 で隣接する値を追加で
+// マスクする。どちらのパスもマスクを増やす方向にしか書き換えず、判定の入力は
+// 常に生の args、書き込みは常により強くマスクされた内容なので、順序や重複適用で
+// マスクが弱まることがない（冪等性もこの不変条件から従う）。
 func byKey(args []string) []string {
 	out := make([]string, len(args))
 	copy(out, args)
 
-	for i := 0; i < len(args); i++ {
-		if key, val, ok := strings.Cut(args[i], "="); ok {
+	// パス 1: 要素単体のマスク。隣を一切見ない。
+	for i, arg := range args {
+		if key, val, ok := strings.Cut(arg, "="); ok {
 			out[i] = maskInline(key, val)
 			continue
 		}
-		// 次の要素を値として扱うのはハイフン付きのキーのときだけ。
-		// gh auth token --hostname X や gh secret set NAME のような位置引数に
-		// まで反応すると、秘密でない次の引数を潰して監査ログの追跡可能性
-		// （実行コマンドの全文）を削るためである。
-		if !strings.HasPrefix(args[i], "-") || i+1 >= len(args) {
+		// KEY=VALUE でない要素はヘッダ 1 行の可能性がある。maskHeader は
+		// ":" の前が秘密情報を示すときだけ置換するため、-H で渡された行と
+		// -HAuthorization: ... の密着形の両方をここで潰せる。
+		out[i] = maskHeader(arg)
+	}
+
+	// パス 2: オプション名の次の要素を値としてマスクする。
+	// 値として扱うのはオプション名だけの要素の直後に限る。gh auth token
+	// --hostname X や gh secret set NAME のような位置引数にまで反応すると、
+	// 秘密でない次の引数を潰して監査ログの追跡可能性（実行コマンドの全文）を
+	// 削るためである。
+	for i := range args {
+		name, ok := optionName(args[i])
+		if !ok || i+1 >= len(args) {
 			continue
 		}
 		switch {
-		case isHeaderKey(args[i]):
-			out[i+1] = maskHeader(args[i+1])
-		case isSecretKey(args[i]):
+		case isHeaderKey(name):
+			// パス 1 の結果に重ねてマスクする。args を読み直すとパス 1 の
+			// マスクを取り消すことになる。
+			out[i+1] = maskHeader(out[i+1])
+		case isSecretKey(name):
 			// --token VALUE の形。次の要素が --name のようにオプションに見えても
 			// マスクする（値なのかオプションなのかを判定するより安全側を採る）。
+			// キーが連続する --token --token SECRET でも、各 i を独立に見るため
+			// 3 番目の本物の値までマスクされる。
 			out[i+1] = Placeholder
-		default:
-			continue
-		}
-		if !isSecretFlag(args[i+1]) {
-			// マスクした値は読み飛ばす。ただし飛ばす先が自身も秘密情報キーの形
-			// （--token --token SECRET）なら飛ばさない。飛ばすと本物の値である
-			// その次の要素が素のまま監査ログに残る。
-			i++
 		}
 	}
 	return out
