@@ -117,9 +117,7 @@ func (d *Model) SetSize(w, h int) {
 func (d *Model) SetState(st page.StateMsg) {
 	d.keys, d.styles = st.Keys, st.Styles
 	d.list.Restyle(st.Keys.List, st.Styles)
-	if st.Caps != (appconfig.Caps{}) {
-		d.caps = st.Caps
-	}
+	d.caps = st.Caps
 	if r, ok := findRunner(st.Result.Runners, d.target.Dir); ok {
 		d.target = r
 	}
