@@ -47,7 +47,7 @@ type StateMsg struct {
 	// タブを足す Issue ごとにこの構造体と親 Model の 2 箇所を直すことになる。
 	//
 	// **systemctl が無い環境でも nil にはしない。** 検出（discover.go）は Executor を
-	// nil にして systemd の参照を落とす縮退を持つが、それは runner.ScanUnits の契約で
+	// nil にして systemd の参照を落とす縮退を持つが、それは runner.Discover の契約で
 	// あってこの層の約束ではない。page は systemctl を使えるかを Caps.Systemd で判断し、
 	// nil 判定を各タブに書かせない。
 	//

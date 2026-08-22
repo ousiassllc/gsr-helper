@@ -130,7 +130,7 @@ var errTest = errors.New("検出が間に合いませんでした")
 
 // 期限切れ・失敗した周期の部分結果で直前の成功結果を上書きしない。
 //
-// runner.ScanUnits は ctx がキャンセルされた時点で残りの systemctl show を発行せず、
+// runner.Discover は ctx がキャンセルされた時点で残りの systemctl show を発行せず、
 // 取れた分だけを返す。その部分結果を採ると systemd 管理の runner が run.sh / - と
 // 誤表示され、⚠ が誤って点き、孤児ユニットも過少報告される。
 func TestDiscoverErrorKeepsLastResult(t *testing.T) {
