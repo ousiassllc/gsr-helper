@@ -8,15 +8,29 @@ import (
 
 	"charm.land/lipgloss/v2"
 
-	"github.com/ousiassllc/gsr-helper/internal/appconfig"
-	"github.com/ousiassllc/gsr-helper/internal/exec"
-	"github.com/ousiassllc/gsr-helper/internal/runner"
-	"github.com/ousiassllc/gsr-helper/internal/runner/systemd"
 	"github.com/ousiassllc/gsr-helper/internal/ui/atom"
-	"github.com/ousiassllc/gsr-helper/internal/ui/keymap"
-	"github.com/ousiassllc/gsr-helper/internal/ui/tabset"
+	"github.com/ousiassllc/gsr-helper/internal/ui/molecule"
 	"github.com/ousiassllc/gsr-helper/internal/ui/token"
 )
+
+// specTabs は screens.md の共通レイアウトが定める 7 タブを表示用の値で返す。
+//
+// 親 Model や page を組み立てないのは、chrome が受け取るのが表示用の値だけだから
+// である（ドメインの型を扱わない molecule 階層）。未実装のタブ 3〜7 を Enabled:
+// false にして、選択可・選択不可の 2 状態を再現する。
+func specTabs() []molecule.TabView {
+	titles := []string{"Runners", "Jobs", "Disk", "Logs", "Doctor", "Config", "Setup"}
+	tabs := make([]molecule.TabView, 0, len(titles))
+	for i, title := range titles {
+		tabs = append(tabs, molecule.TabView{
+			Key:     strconv.Itoa(i + 1),
+			Title:   title,
+			Active:  i == 0,
+			Enabled: i < 2,
+		})
+	}
+	return tabs
+}
 
 // testView は幅 80・色無しの 1 フレーム分の入力を返す。
 //
@@ -24,17 +38,19 @@ import (
 func testView() View {
 	styles := token.NewStyles(true, false)
 	return View{
-		Host:   "build01",
-		Caps:   appconfig.Caps{Root: true, Systemd: true, GitHubToken: true},
-		Tabs:   tabset.New(appconfig.Caps{}, exec.NewFake(), keymap.New(), styles, true),
-		Active: 0,
-		Result: runner.Result{},
-		Err:    nil,
-		Notice: "",
-		Status: "",
-		Hints:  nil,
-		Width:  80,
-		Styles: styles,
+		Host:        "build01",
+		Root:        true,
+		Systemd:     true,
+		HasToken:    true,
+		Tabs:        specTabs(),
+		OrphanUnits: 0,
+		Warnings:    0,
+		Err:         nil,
+		Notice:      "",
+		Status:      "",
+		Hints:       nil,
+		Width:       80,
+		Styles:      styles,
 	}
 }
 
@@ -65,10 +81,11 @@ func TestTabBarShowsEverySpecTabWithin80(t *testing.T) {
 // 選択中のタブにはカーソル記号が付き、無効なタブはキーが丸括弧になる。
 //
 // 3 状態（選択中・選択可・選択不可）を色だけで区別しない（screens.md の設計原則 4）。
-// Active の値を親から正しく渡していることを、記号の位置で確かめる。
+// 親が渡した Active を正しく反映していることを、記号の位置で確かめる。
 func TestTabBarMarksActiveAndDisabledTabs(t *testing.T) {
 	v := testView()
-	v.Active = 1
+	v.Tabs[0].Active = false
+	v.Tabs[1].Active = true
 
 	got := TabBar(v)
 	if !strings.Contains(got, token.IconCursor+"[2]Jobs") {
@@ -85,10 +102,8 @@ func TestTabBarMarksActiveAndDisabledTabs(t *testing.T) {
 // 状態行の左側には孤児ユニット件数・警告件数・直近のエラーが並ぶ。
 func TestStatusShowsCounts(t *testing.T) {
 	v := testView()
-	v.Result = runner.Result{
-		OrphanUnits: []systemd.State{{Unit: "actions.runner.foo.a.service"}},
-		Warnings:    []error{errors.New("警告 A"), errors.New("警告 B")},
-	}
+	v.OrphanUnits = 1
+	v.Warnings = 2
 	v.Err = errors.New("検出に失敗しました")
 
 	got := Status(v)

@@ -91,12 +91,15 @@ internal/ui/
 ```mermaid
 graph TD
     App[app<br/>親 Model]
+    Tabs[tabset]
+    Chrome[chrome]
     Page[page]
     Tmpl[template]
     Org[organism]
     OrgT[organism/table]
     OrgP[organism/pane<br/>organism/dialog※未実装]
     Mol[molecule]
+    Row[molecule/listrow]
     Atom[atom]
     Tok[token]
     Key[keymap]
@@ -104,21 +107,31 @@ graph TD
     Domain[ドメイン層<br/>runner / svc / disk / logs / doctor / config / setup]
     Bub[bubbles / huh]
 
+    App --> Tabs
+    App --> Chrome
     App --> Page
     App --> Tmpl
     App --> Key
     App --> Mol
-    App --> Atom
     App --> Tok
+    App -.->|tea.Cmd 内で呼ぶ| Domain
+    Tabs --> Page
+    Tabs --> Key
+    Tabs --> Tok
+    Chrome --> Mol
+    Chrome --> Atom
+    Chrome --> Tok
     Page --> Tmpl
     Page --> Org
     Page --> OrgT
     Page --> OrgP
+    Page --> Row
     Page --> Key
     Page --> Atom
     Page --> Tok
     Page -.->|tea.Cmd 内で呼ぶ| Domain
     Org --> Mol
+    Org --> Atom
     Org --> Bub
     Org --> Key
     Org --> Tok
@@ -130,13 +143,18 @@ graph TD
     OrgP --> Bub
     OrgP --> Key
     OrgP --> Tok
+    Row --> Atom
+    Row --> Tok
+    Row -.->|テストのみ| Mol
     Mol --> Atom
     Atom --> Tok
     Tmpl --> Tok
     Key --> Bub
 ```
 
-本体以外の領域（ヘッダ・タブ行・状態行・フッタ）を組み立てる `ui/chrome` が `molecule` / `atom` / `token` を直に import するのは、そこが組み立ての持ち場だからである。上位から下位への飛び越し参照は許容する規則に収まる。
+本体以外の領域（ヘッダ・タブ行・状態行・フッタ）を組み立てる `ui/chrome` が import するのは `molecule` / `atom` / `token` **だけ**である。組み立ての持ち場がそこであり、上位から下位への飛び越し参照は許容する規則に収まる。逆に `chrome` は `tabset` も `page` もドメイン層も import しない。molecule 階層に属する以上ドメインの型を受け取れないので、`chrome.View` が持つのはヘッダのバッジ 3 つ（`Root` / `Systemd` / `HasToken`）と状態行の件数 2 つ（`OrphanUnits` / `Warnings`）という表示用の値である。`appconfig.Caps` / `runner.Result` / `[]tabset.Tab` からその写しを作るのは上位である親 Model の `chromeView` / `tabViews` で、`molecule.TabView` への写し替え（選択中かどうかを添字と `active` の比較で解決する）もそこにある。親 Model が `molecule` を import するのはこの 1 手のためである。
+
+`molecule/listrow` が `molecule` を参照するのはテストだけである（列の選択 `molecule.Columns` を期待値の組み立てに使う）。本番の経路では `organism/table` が `molecule.Columns` で列を決め、決まった列を行ビルダへ渡す。向きは常に `listrow` → `molecule` であり、逆は無い（後述の「`ui/molecule` を分割した判断」）。
 
 ### 依存の規則
 
@@ -145,7 +163,7 @@ graph TD
 | `token` は `lipgloss` のみ import する | 最下層。色の定義を token の外に作らない。`huh.Theme` の組み立てを足すときも token 内に置く（後述の「`Form` と huh」。`huh` は未導入） |
 | `keymap` は `bubbles/key` のみ import する | token と並ぶ最下層。キー定義が他の階層に依存すると参照方向が壊れる |
 | `atom` は `token` と `lipgloss` のみに依存する | 表示単位を単体でテストできる状態に保つ。`lipgloss` を許すのは表示幅の計算（`lipgloss.Width`）と ANSI 安全な切り詰めのためで、**幅を数える実装をここ 1 箇所に閉じる**という規則の裏返しである |
-| `molecule` は `atom` / `token` と `lipgloss` のみ。**molecule 同士は参照しない** | 同階層参照を許すと階層が意味を失う。共通化したい場合は atom に降ろすか organism に上げる |
+| `molecule` は `atom` / `token` と `lipgloss` のみ。**molecule 同士は参照しない**（唯一の例外は `molecule/listrow` → `molecule` の一方向。逆は作らない） | 同階層参照を双方向に許すと階層が意味を失う。共通化したい場合は atom に降ろすか organism に上げる。`listrow` を分けたのは増え方の違い（タブ数に比例する行ビルダ）であって別階層にしたわけではないので、列の選択だけは `molecule` を向いてよい |
 | `organism` は `molecule` / `atom` / `token` / `keymap` と `bubbles` / `bubbletea` / `lipgloss` を使う | 一覧・スクロール・テキスト入力・フォームの実装は既存ライブラリに委ねる。`bubbletea` を許すのは `Update(tea.Msg)` と `tea.Cmd` のためで、`tea.Model` は実装しない（※） |
 | `organism` と `organism/table` / `organism/pane` / `organism/dialog` は**どの向きにも import しない** | 分割の目的は行数上限の分散であり、部品同士の依存を増やすことではない。組み合わせるのは `page` |
 | `template` は `token` と `lipgloss` のみ。`organism` / `page` を import しない | 枠が中身を知ると、画面ごとに枠が分岐する。`lipgloss` は行の切り詰め（装飾済み文字列の ANSI 列を壊さないため）に使う |
@@ -885,7 +903,7 @@ Disk / Logs / Doctor タブの部品を足すときは、まずその部品が�
 
 `page` 階層も同じ理由で分ける。`page`（共通の `Msg`・`Overlay`・page の寿命）・`page/action`（操作の識別と可否の判定）・`page/<tab>`（タブ 1 枚）・`page/runnerdetail`（複数タブが共用するモーダル）・`page/pagetest`（テスト用フィクスチャ）である。依存は `page/action` → `page` の一方向で、`page` は `page/action` を import しない（`page` が持つのは未対応の理由の文言と `BindingKey` だけである）。`page/pagetest` を独立させるのは、`page/<tab>` のテストが共有状態と `Msg` の記録を使い回せるようにするためで、`page` 自身の内部テストからは import が循環するため使えない。
 
-`molecule` も同じ理由で上限に近づくが、**こちらは分割しない。** 「molecule 同士は参照しない」という同階層参照の禁止は Go の import では強制できず（`molecule/row` から `molecule/bar` を import できてしまう）、規則を構造で守るという本書の方針と衝突するためである。代わりに行系 molecule のテストを共通ヘルパへ寄せて 1 部品あたりの行数を抑える。
+`molecule` も同じ理由で上限に近づいたため、**`molecule` と `molecule/listrow` の 2 つに分けた。** 分ける軸は増え方である。画面全体で 1 つしかない部品（`CapsBar` / `TabBar` / `KeyBar` / `ActionRow` / `Columns`）は `molecule` 直下に残し、**一覧タブの数に比例して増える行ビルダ**（`RunnerRow` / `JobRow` / `OrphanRow`）を `molecule/listrow` へ出した（後述の「`ui/molecule` を分割した判断」）。「molecule 同士は参照しない」という同階層参照の禁止はこの 2 つの間でも生きており、**`listrow` → `molecule` の一方向だけを例外として認める**（列の選択 `molecule.Columns` をテストの期待値作りに使う）。逆向き、すなわち `molecule` から `listrow` への参照は作らない。向きが一方向である限り階層は意味を失わないので、`page` / `organism` の分割と同じ扱いである。
 
 ## 実装状況
 
@@ -913,13 +931,13 @@ Disk / Logs / Doctor タブの部品を足すときは、まずその部品が�
 | ディレクトリ | 行数 | 残り | 判定 |
 |------------|------|------|------|
 | `ui/organism/table` | 2061 | -61 | **WARN（超過中）** |
-| `ui` | 1821 | 179 | pass |
+| `ui` | 1845 | 155 | pass |
 | `ui/page` | 1604 | 396 | pass |
 | `ui/page/runners` | 1198 | 802 | pass |
 | `ui/molecule` | 1197 | 803 | pass |
 | `ui/page/runnerdetail` | 1175 | 825 | pass |
 | `ui/atom` | 983 | 1017 | pass |
-| `ui/keymap` | 961 | 1039 | pass |
+| `ui/keymap` | 974 | 1026 | pass |
 | `ui/page/jobs` | 896 | 1104 | pass |
 | `ui/page/action` | 755 | 1245 | pass |
 | `ui/organism/pane` | 691 | 1309 | pass |
@@ -929,22 +947,22 @@ Disk / Logs / Doctor タブの部品を足すときは、まずその部品が�
 | `ui/organism` | 521 | 1479 | pass |
 | `ui/page/pagetest` | 424 | 1576 | pass |
 | `ui/tabset` | 344 | 1656 | pass |
-| `ui/chrome` | 268 | 1732 | pass |
+| `ui/chrome` | 283 | 1717 | pass |
 
 #### 一覧タブを 2 枚足せる余裕（Issue #35）
 
 残る Disk / Logs / Doctor のうち一覧を持つタブは、行ビルダを `ui/molecule/listrow` へ、列定義を `ui/token` へ足す。既存の行ビルダはテスト込みで `runner_row` 271 行 / `job_row` 109 行 / `orphan_row` 110 行なので、**2 枚ぶんでも最大 550 行程度**である。`ui/molecule/listrow` の残り 1392 行はこれを 2 枚どころか 5 枚ぶん受けられる。
 
-`ui` 直下は**タブが増えても 1 行も増えない**。タブを知るのは `ui/tabset` だけであり、親 Model は `[]tabset.Tab` を走査するだけだからである（「タブを 1 つ追加するときに触る箇所」）。残り 179 行は親 Model 自身のテストのための余裕である。
+`ui` 直下は**タブが増えても 1 行も増えない**。タブを知るのは `ui/tabset` だけであり、親 Model は `[]tabset.Tab` を走査するだけだからである（「タブを 1 つ追加するときに触る箇所」）。残り 155 行は親 Model 自身のテストのための余裕である。
 
-#### `ui` 直下を分割した判断（2194 → 1821 行）
+#### `ui` 直下を分割した判断（2194 → 1845 行）
 
 以前の版は「`ui` 直下は WARN だが分割しない」としていた。理由は「切り出せるのは親の一部の判断だけで、`page` のようにパッケージ境界で依存を強制できる分け方にならない」というものである。**これは `tabset` を見落としていた。** タブのメタ情報と並びは、`page/<tab>` を import する唯一の場所であり、切り出せば「親 Model は個別のタブを知らない」という本書の中心的な主張がそのまま import の向きになる。行数の分散だけでなく依存の強制が得られるので、`page/action` を切り出したのと同じ性質の分割である。
 
-実際に行ったのは次の 2 つで、2194 行から 1821 行へ下げた。
+実際に行ったのは次の 2 つで、2194 行から 1845 行へ下げた。
 
 - **`ui/tabset`（344 行）** — タブのメタ情報と並び、およびそのテスト。タブを足す Issue が触るのはここであって親 Model ではない
-- **`ui/chrome`（268 行）** — ヘッダ・タブ行・状態行・フッタの組み立て。親 Model の型も bubbletea も知らない純粋関数にしたので、`App` を組み立てずに検証できる。`ui` 側に残るのは `App` の値を `chrome.View` へ写す 1 メソッドだけである
+- **`ui/chrome`（283 行）** — ヘッダ・タブ行・状態行・フッタの組み立て。親 Model の型も bubbletea もドメインの型も知らない純粋関数にしたので、`App` も `page` も組み立てずに表示用の値だけで検証できる。`ui` 側に残るのは `App` の値を `chrome.View` へ写す `chromeView` / `tabViews` の 2 メソッドだけである
 
 **検証の道具を `page/pagetest` へ寄せる**方針は引き続き有効である。親の検証はタブを差し替えて行うため道具立てが page 側と同じであり（キー入力の組み立て・能力・`Cmd` の展開・長寿命の処理を持つ page）、`ui` 直下に置くと道具の重複で行数だけが増える。`ui` 直下の `spy` は `pagetest.Spy` とほぼ同じもので、**次に `ui` 直下へ足すときはまずこれを寄せること**（キーの差し戻しを `pagetest.Spy` の任意の振る舞いにすれば約 55 行が減る）。
 
@@ -952,7 +970,7 @@ Disk / Logs / Doctor タブの部品を足すときは、まずその部品が�
 
 `molecule` 直下には、画面全体で 1 つしかない部品（`CapsBar` / `TabBar` / `KeyBar` / `ActionRow` / `Columns`）と、**一覧タブの数に比例して増える行ビルダ**（`RunnerRow` / `JobRow` / `OrphanRow`）が同居していた。増え方が違うものを同じ予算に載せているのが問題なので、後者を `ui/molecule/listrow` へ分けた。行ビルダだけが使っていたセルの組み立て（`styledCell` / `dashCell` / `columnAlign`）も一緒に移している。
 
-依存は一方向である。`listrow` は列の選択に `molecule.Columns` を使うが、`molecule` は `listrow` を参照しない。
+依存は一方向である。`listrow` は列の選択に `molecule.Columns` を使うが（本番の経路では `organism/table` が列を決めて渡すため、実際に import するのは `listrow` のテストだけである）、`molecule` は `listrow` を参照しない。この一方向だけが「molecule 同士は参照しない」の例外であり、逆向きは作らない。
 
 #### `ui/organism/table` を分割しない判断（2061 行・WARN・エラー境界まで 139 行）
 
@@ -993,4 +1011,4 @@ Disk / Logs / Doctor タブの部品を足すときは、まずその部品が�
 | 1.15 | 2026-08-22 | 登録が返す `Cmd` を「最初の `page.StateMsg` で流す」と定め、`Init` では返せない理由を追記。`Overlay.Handles` が page 本体宛と決まっている `Msg`（`ResultMsg` と寿命の 3 つ）に偽を返す規則を追加。モーダルが受け取る `Msg` の表の `page.StateMsg` の行を「開いているモーダルにだけ配る」に修正。`pane.Detail` の `GotoTop` / `Offset` と、対象を差し替える側が先頭へ戻す義務・同じ対象の更新では戻さない義務を本文に明記。ディレクトリの行数表を実測値に更新し、`ui` 直下を分割しない判断と道具を `page/pagetest` へ寄せる方針を追加 | 親 `App` はどのタブの `Init()` も呼ばない（bubbletea が `Init` を呼ぶのはルート Model だけ）ため、`Register` が返した `Cmd` は `Init` に持たせた時点でランタイムへ届かず、文書が定めた「呼び出し側まで返すこと」が成立していなかった。寿命の 3 つの `Msg` は既定（開いていれば渡す）に落ちており、モーダルを開いたままタブを切り替えると page が長寿命の処理を畳めなかった。`page.StateMsg` の行は 1.11 で改めた `SetState` の規則と実装の双方に正面から矛盾していた。`pane.Detail` の位置 API とその義務は改訂履歴の理由欄にしか無く、本文からは読み取れなかった。行数表は実測とずれており、`ui` 直下は残り 14 行でエラー境界に達する状態だったのに、本書が定める「上限に近いディレクトリへ部品を足すときは先に分割の是非を検討する」の検討記録が無かった（Issue #26 / #32 / #41 のレビュー指摘） |
 | 1.16 | 2026-08-22 | `NewOverlay` の署名を `(tab int, st StateMsg) (Overlay, tea.Cmd)` に変更し、共有状態を丸ごと受け取ることと、ヘルプ登録の `Cmd` を呼び出し側へ返すことを本文に明記。`Cmd` を返す義務の列挙に `NewOverlay` を追加。決定の `case` を「`default` より前に置く」から「page が自分で持つ（`Overlay.Handles` と合わせた二重の守り。並びは関係しない）」に訂正。ディレクトリの行数の節に警告帯（2000〜2200）とエラー境界 2200 を明記し、`ui` と `ui/organism/table` が超過中（WARN）である事実と、それぞれ分割しない判断・理由・次の一手を追加。行数表を実測値に更新 | `NewOverlay` が初期の共有状態を `StateMsg{Keys, Styles, Dark}` だけで組んでいたため、構築時に登録したモーダルへリプレイされるのは `Exec = nil`・`Caps` ゼロ値・`Result` 空という半端な状態で、本書の「登録した時点で `Result` / `Caps` / `Exec` を持てる」に正面から反していた。しかも `NewOverlay` 自身がヘルプ登録の `Cmd` を捨てており、返す口が署名に無いため無条件の義務を構造的に守れず、除外の根拠が Go のコメントにしか無かった。決定の `case` の並びを規約として書いていたが、Go の型スイッチの `default` は記述位置に関わらず最後に評価されるため誤りであり、その規約を検査するテストは壊れた実装に対して決して失敗しなかった。行数の節は `ui` と `ui/organism/table` が上限を超えて WARN が出ている事実を伏せたまま「上限に最も近い」と書いており、警告帯とエラー境界が本文になく 2093 行が許容される理由を読者が判定できなかった（Issue #26 / #32 の 2 周目レビュー指摘） |
 | 1.17 | 2026-08-22 | 「ディレクトリの行数」の表を base 取り込み後の実測値に更新（`ui/page/runners` 1195 行・`ui/page/jobs` 893 行）。表の直後にあった「`ui/organism/table` は上限を超えており…先に分割すること」の段落を削除し、同じ節の「`ui/organism/table` を分割しない判断」へ一本化 | base（`feat/#1`）の取り込みで一覧と Jobs タブの行数が動き、表が実測とずれた。削除した段落は 1.14 の時点の記述で、1.16 で「分割しない」判断と次の一手を書いたあとも残っており、同じ節が「先に分割すること」と「分割しない」を同時に指示する形になっていた |
-| 1.18 | 2026-08-23 | `ui/tabset`（タブのメタ情報と並び）・`ui/chrome`（ヘッダ・タブ行・状態行・フッタの組み立て）・`ui/molecule/listrow`（一覧の行ビルダ）を切り出し、「タブ追加で触る範囲」の表に `molecule/listrow` と `token/width.go` を追加。ディレクトリの行数の表を実測値で更新し、`ui` 直下と `ui/molecule` を分割した判断を記録。`keymap.Set.Contexts()`（同時に有効なキーの集合）への登録をタブ追加時の項目として明記 | 表が挙げていた範囲（`page/<tab>` と `tabs.go` と keymap）は一覧を持つタブの実態を過小に見積もっており、行ビルダと列定義を足す先が読み取れなかった。その 2 つの置き場である `ui/molecule` は残り 236 行、`ui` 直下は上限超過（2194 行）で、Disk / Logs / Doctor のうち 2 枚目でどの Issue のスコープにも入らない分割が発生する状態だった。増え方の違うもの（画面全体で 1 つの部品と、タブ数に比例する行ビルダ）を同じ予算に載せているのが原因なので分けた。`ui` 直下は `page/<tab>` を import する唯一の場所（`tabset`）を切り出すことで、行数だけでなく「親 Model は個別のタブを知らない」という主張を import の向きで強制できるようになった（Issue #35 / #39 / #40） |
+| 1.18 | 2026-08-23 | `ui/tabset`（タブのメタ情報と並び）・`ui/chrome`（ヘッダ・タブ行・状態行・フッタの組み立て）・`ui/molecule/listrow`（一覧の行ビルダ）を切り出し、「タブ追加で触る範囲」の表に `molecule/listrow` と `token/width.go` を追加。ディレクトリの行数の表を実測値で更新し（`ui` 1845 行 / `ui/keymap` 974 行 / `ui/chrome` 283 行 / `ui/tabset` 344 行 / `ui/molecule` 1197 行 / `ui/molecule/listrow` 608 行）、`ui` 直下と `ui/molecule` を分割した判断を記録。`keymap.Set.Contexts()`（同時に有効なキーの集合）への登録をタブ追加時の項目として明記。`molecule` を分割しないとしていた段落を、分割した事実（増え方の軸で分ける／例外は `listrow` → `molecule` の一方向）へ書き換え、依存の規則の表と依存グラフも同じ内容に揃える。依存グラフに `chrome` / `tabset` / `molecule/listrow` のノードを追加し、辺を実装の import と突き合わせて修正 | 表が挙げていた範囲（`page/<tab>` と `tabs.go` と keymap）は一覧を持つタブの実態を過小に見積もっており、行ビルダと列定義を足す先が読み取れなかった。その 2 つの置き場である `ui/molecule` は残り 236 行、`ui` 直下は上限超過（2194 行）で、Disk / Logs / Doctor のうち 2 枚目でどの Issue のスコープにも入らない分割が発生する状態だった。増え方の違うもの（画面全体で 1 つの部品と、タブ数に比例する行ビルダ）を同じ予算に載せているのが原因なので分けた。`ui` 直下は `page/<tab>` を import する唯一の場所（`tabset`）を切り出すことで、行数だけでなく「親 Model は個別のタブを知らない」という主張を import の向きで強制できるようになった。**同じ文書が「`molecule` は分割しない」と「`molecule` を分割した」を同時に指示する形になっていた**ため、分割しない側の段落を書き換えて一本化した。依存グラフは `App --> Mol` / `App --> Atom` のまま新設 3 パッケージのノードが無く、直後の本文（`ui/chrome` が molecule / atom / token の import 元である）と同じ節で食い違っていた（Issue #35 / #39 / #40） |

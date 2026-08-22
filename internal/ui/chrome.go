@@ -2,6 +2,7 @@ package ui
 
 import (
 	"github.com/ousiassllc/gsr-helper/internal/ui/chrome"
+	"github.com/ousiassllc/gsr-helper/internal/ui/molecule"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 )
 
@@ -16,18 +17,41 @@ func pageChrome(tab int) page.ChromeMsg {
 }
 
 // chromeView は 1 フレーム分の入力を組み立てる。
+//
+// chrome は molecule 階層なのでドメインの型（appconfig.Caps / runner.Result）を
+// 受け取らない。表示に使う値へ落とすのは上位である親 Model の役目であり、その
+// 変換をここ 1 箇所に集めている（atomic-design.md の依存の規則）。
 func (a App) chromeView() chrome.View {
 	return chrome.View{
-		Host:   a.opts.Host,
-		Caps:   a.caps,
-		Tabs:   a.tabs,
-		Active: a.active,
-		Result: a.result,
-		Err:    a.err,
-		Notice: a.notice,
-		Status: a.chrome.Status,
-		Hints:  a.chrome.Footer,
-		Width:  a.width,
-		Styles: a.styles,
+		Host:        a.opts.Host,
+		Root:        a.caps.Root,
+		Systemd:     a.caps.Systemd,
+		HasToken:    a.caps.GitHubToken,
+		Tabs:        a.tabViews(),
+		OrphanUnits: len(a.result.OrphanUnits),
+		Warnings:    len(a.result.Warnings),
+		Err:         a.err,
+		Notice:      a.notice,
+		Status:      a.chrome.Status,
+		Hints:       a.chrome.Footer,
+		Width:       a.width,
+		Styles:      a.styles,
 	}
+}
+
+// tabViews はタブのメタ情報を表示用の値へ落とす。
+//
+// 選択中かどうかは添字と active の比較でここで解決し、chrome へは真偽値だけを
+// 渡す（chrome が tabset を import しないための境界）。
+func (a App) tabViews() []molecule.TabView {
+	views := make([]molecule.TabView, 0, len(a.tabs))
+	for i := range a.tabs {
+		views = append(views, molecule.TabView{
+			Key:     a.tabs[i].Key,
+			Title:   a.tabs[i].Title,
+			Active:  i == a.active,
+			Enabled: a.tabs[i].Enabled,
+		})
+	}
+	return views
 }

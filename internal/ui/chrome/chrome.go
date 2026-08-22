@@ -5,32 +5,41 @@
 // 親 Model（ui.App）の型も bubbletea も知らない純粋関数だけを置く。1 フレーム分の
 // 入力（View）を渡せば親 Model を組み立てずに検証でき、親側には「App の値を View へ
 // 写す」1 メソッドだけが残る（Issue #35 の ui 直下の分割）。
+//
+// molecule 階層の一部なので、**ドメインの型は受け取らない**（atomic-design.md の
+// 依存の規則）。`appconfig.Caps` や `runner.Result` ではなく、ヘッダと状態行が実際に
+// 使う真偽値と件数だけを View に持たせる。写し替えは親側の `ui.App.chromeView` が
+// 行う。
 package chrome
 
 import (
 	"strconv"
 	"strings"
 
-	"github.com/ousiassllc/gsr-helper/internal/appconfig"
-	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/ui/atom"
 	"github.com/ousiassllc/gsr-helper/internal/ui/molecule"
-	"github.com/ousiassllc/gsr-helper/internal/ui/tabset"
 	"github.com/ousiassllc/gsr-helper/internal/ui/token"
 )
 
-// View は 1 フレーム分の入力。親 Model が持つ値の写しだけを受け取る。
+// View は 1 フレーム分の入力。親 Model が持つ値を表示用の値へ落としたものだけを
+// 受け取る。
 type View struct {
 	// Host はヘッダに出すホスト名。
 	Host string
-	// Caps は能力判定の結果（ヘッダのバッジ）。
-	Caps appconfig.Caps
-	// Tabs はタブの並び、Active は選択中のタブの添字。
-	Tabs   []tabset.Tab
-	Active int
-	// Result と Err は状態行の左側（孤児ユニット件数・警告件数・直近のエラー）。
-	Result runner.Result
-	Err    error
+	// Root / Systemd / HasToken はヘッダのバッジ（能力判定の結果）。
+	// appconfig.Caps をそのまま受け取らないのは、molecule 以下がドメインの型を
+	// 扱わないためである。
+	Root     bool
+	Systemd  bool
+	HasToken bool
+	// Tabs はタブの並び。選択中かどうかは各要素の Active が持つ。
+	Tabs []molecule.TabView
+	// OrphanUnits と Warnings は状態行の左側に出す件数。
+	OrphanUnits int
+	Warnings    int
+	// Err は状態行の左側に出す直近のエラー。error は標準ライブラリの型であり
+	// ドメインの型ではないので、文言を組み立て直さずそのまま受け取る。
+	Err error
 	// Notice は親が出す一時的な案内（無効なタブの理由）。次の打鍵で消える。
 	Notice string
 	// Status は page が ChromeMsg で報告した状態行の右側。
@@ -50,25 +59,16 @@ type View struct {
 func Header(v View) string {
 	return molecule.CapsBar(molecule.CapsView{
 		Host:       v.Host,
-		Root:       v.Caps.Root,
-		Systemd:    v.Caps.Systemd,
+		Root:       v.Root,
+		Systemd:    v.Systemd,
 		GitHubUser: "",
-		HasToken:   v.Caps.GitHubToken,
+		HasToken:   v.HasToken,
 	}, v.Width, v.Styles)
 }
 
 // TabBar はタブ行を返す。
 func TabBar(v View) string {
-	views := make([]molecule.TabView, 0, len(v.Tabs))
-	for i := range v.Tabs {
-		views = append(views, molecule.TabView{
-			Key:     v.Tabs[i].Key,
-			Title:   v.Tabs[i].Title,
-			Active:  i == v.Active,
-			Enabled: v.Tabs[i].Enabled,
-		})
-	}
-	return molecule.TabBar(views, v.Width, v.Styles)
+	return molecule.TabBar(v.Tabs, v.Width, v.Styles)
 }
 
 // Status は状態行を返す。
@@ -94,12 +94,12 @@ func right(v View) string {
 // counts は検出結果から状態行の左側を組み立てる。
 func counts(v View) string {
 	var parts []string
-	if n := len(v.Result.OrphanUnits); n > 0 {
+	if v.OrphanUnits > 0 {
 		parts = append(parts, v.Styles.Warn.Render(
-			token.IconWarn+" 孤児ユニット "+strconv.Itoa(n)+" 件"))
+			token.IconWarn+" 孤児ユニット "+strconv.Itoa(v.OrphanUnits)+" 件"))
 	}
-	if n := len(v.Result.Warnings); n > 0 {
-		parts = append(parts, v.Styles.Warn.Render("警告 "+strconv.Itoa(n)+" 件"))
+	if v.Warnings > 0 {
+		parts = append(parts, v.Styles.Warn.Render("警告 "+strconv.Itoa(v.Warnings)+" 件"))
 	}
 	if v.Err != nil {
 		// エラーで画面遷移を巻き戻さず、状態行に出すだけにする
