@@ -64,7 +64,7 @@ func newFlagSet(o *opts) (*flag.FlagSet, *rootList, *seconds) {
 	refresh := &seconds{raw: ""}
 	fs.Var(roots, "root", "追加の走査ルート（複数指定可）")
 	fs.StringVar(&o.config, "config", "", "設定ファイルのパス")
-	fs.Var(refresh, "refresh", "自動更新間隔（秒。1 以上）")
+	fs.Var(refresh, "refresh", "自動更新間隔（秒。1〜3600）")
 	fs.BoolVar(&o.noColor, "no-color", false, "色を使わない（NO_COLOR も尊重する）")
 	fs.BoolVar(&o.version, "version", false, "バージョンを表示して終了する")
 	return fs, roots, refresh
