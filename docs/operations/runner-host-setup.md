@@ -2,7 +2,7 @@
 
 新しい runner ホストを用意するときに **ホスト側で必要な作業**をまとめる。2 台目以降はこの手順をそのまま実行すればよい。
 
-ここに挙げた項目は gsr-helper の doctor が「ジョブ実行の前提」として検査する（[FR-43 / FR-44](../requirements/functional.md)）。**本ツールは検出と手順の提示までを行い、ホストの変更は行わない**（[セキュリティ設計](../architecture/security.md#パスワード不要-sudo-の要求への対応)）。
+ここに挙げた項目のうち **gsr-helper の doctor が「ジョブ実行の前提」として検査するのは [FR-43 / FR-44](../requirements/functional.md) が定める範囲**であり、**C コンパイラは現時点では doctor の検査対象ではない**（[doctor での検出](#doctor-での検出)）。**本ツールは検出と手順の提示までを行い、ホストの変更は行わない**（[セキュリティ設計](../architecture/security.md#パスワード不要-sudo-の要求への対応)）。
 
 ## 前提
 
@@ -67,7 +67,7 @@ org（`ousiassllc`）レベルに登録した runner は、**runner group の対
 
 ## C コンパイラ
 
-**`gcc` をホストに入れる**（導入は[手順](#手順)の 5 に含む）。CI の `test` ジョブは `make test`（= `go test -race ./...`）を実行し、**競合検出は cgo を必要とする**ため C コンパイラが無いとジョブが失敗する（実測: `CGO_ENABLED=0 go test -race` が `-race requires cgo` で失敗する）。`actions/setup-go` は Go ツールチェーンだけを導入し、C コンパイラは入れない。
+**`gcc` をホストに入れる**（導入は[手順](#手順)の 5 に含む）。CI の `test` ジョブは `make test`（= `go test -race ./...`）を実行し、**競合検出は cgo を必要とする**ため C コンパイラが無いとジョブが失敗する（実測: `CGO_ENABLED=0 go test -race` が `-race requires cgo` で失敗する）。`actions/setup-go` は Go ツールチェーンだけを導入し、C コンパイラは入れない。なお**これは CI の `test` ジョブの前提であり、doctor の検査対象（FR-43）には含まれない**。doctor へ追加するかは製品要件の変更として別途判断する。
 
 ## 言語ツールチェーン
 
@@ -85,6 +85,8 @@ org（`ousiassllc`）レベルに登録した runner は、**runner group の対
 | C コンパイラ（`gcc`） | `-race requires cgo; enable cgo by setting CGO_ENABLED=1`（`make test` 実行時） |
 
 ## doctor での検出
+
+doctor が検査するのは [FR-43](../requirements/functional.md) が定める次の 4 点であり、**C コンパイラは含まない**。
 
 | 項目 | 判定方法 | Status |
 |------|---------|--------|
@@ -106,3 +108,4 @@ org（`ousiassllc`）レベルに登録した runner は、**runner group の対
 | 1.0 | 2026-08-21 | 新規作成 | 初版。doctor のジョブ実行の前提チェック（FR-43）の根拠となる実運用の手順を記録 |
 | 1.1 | 2026-08-22 | 「runner group の対象リポジトリ」節を追加し、対象リポジトリの限定と public リポジトリへ提供しない既定を維持する運用を明記 | self-hosted runner を掴めるリポジトリを絞ることが fork PR ガードの一次防御の 1 層であるにもかかわらず、手順として記録されていなかったため（Issue #17）。設定の確認には `admin:org` スコープが必要で CI から機械的に検証できないため、手動確認のタイミングもあわせて明記した |
 | 1.2 | 2026-08-22 | 「C コンパイラ」節を追加し、冒頭の「手順」ブロックに `build-essential` の導入（手順 5）と `gcc --version` の確認を追加、「各手順の注意」と「欠けているものと症状」にも対応する行を追記 | CI の `test` ジョブが `make test`（= `go test -race ./...`）を実行するようになり、競合検出は cgo を必要とするため C コンパイラがホストの前提に加わった。`actions/setup-go` は C コンパイラを導入しないため、欠けているとジョブが `-race requires cgo` で失敗する（Issue #21） |
+| 1.3 | 2026-08-22 | 冒頭の「ここに挙げた項目は doctor が検査する」という包括的な宣言を FR-43 / FR-44 の定める範囲に限定し、「C コンパイラ」節と「doctor での検出」節に C コンパイラが doctor の検査対象外である旨を明記 | 1.2 で C コンパイラを番号付きの手順 5 へ昇格させた一方、[FR-43](../requirements/functional.md) の検査対象はパスワード不要 sudo / `docker` / `docker buildx` / docker グループ所属の 4 点のままであり、冒頭の包括宣言と食い違っていた。FR-43 を 5 点へ拡張するのは製品要件の変更であり、開発環境・CI の土台整備を範囲とする本変更のスコープ外と判断したため、要件側ではなく本書の記述を限定する形で切り分けた |
