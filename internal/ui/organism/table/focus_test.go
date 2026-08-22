@@ -74,16 +74,26 @@ func TestSetItemsKeepsCheckedRowsByID(t *testing.T) {
 }
 
 // 絞り込みで行が減っても、残っていればカーソルは同じ行に留まる。
+//
+// 絞り込みは行の差し替えと同じ経路（normalizeFocus）を通る。カーソルより上の行が
+// 落ちると並びが詰まるため、生の添字を据え置くとその位置に来た別の行を選ぶ。
+//
+// 3 行から 2 行へ減り、かつ元の添字が別の行を指す並びを選ぶ。カーソルを添字 1
+// （bravo）に置き、alpha を落とすと添字 1 は bravo-2 になる。添字が範囲内に収まる
+// ので切り詰めも起きず、識別子で貼り直していなければ確実にずれる。
 func TestFilterKeepsCursorOnSameRow(t *testing.T) {
 	tbl := newTable(true, rows("alpha", "bravo", "bravo-2"))
-	tbl, _ = send(tbl, "j", "j")
-	if got := selectedName(tbl); got != "bravo-2" {
-		t.Fatalf("前提が崩れている: カーソル = %q, want bravo-2", got)
+	tbl, _ = send(tbl, "j")
+	if got := selectedName(tbl); got != "bravo" {
+		t.Fatalf("前提が崩れている: カーソル = %q, want bravo", got)
 	}
 
 	tbl, _ = send(tbl, "/", "b", "r", "a", "v", "o", "enter")
-	if got := selectedName(tbl); got != "bravo-2" {
-		t.Errorf("絞り込み後のカーソル = %q, want bravo-2", got)
+	if got, want := names(tbl.Shown(0)), []string{"bravo", "bravo-2"}; !slices.Equal(got, want) {
+		t.Fatalf("前提が崩れている: 絞り込み後の行 = %v, want %v", got, want)
+	}
+	if got := selectedName(tbl); got != "bravo" {
+		t.Errorf("絞り込み後のカーソル = %q, want bravo", got)
 	}
 }
 
