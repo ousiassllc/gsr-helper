@@ -339,7 +339,7 @@ type Executor interface {
 
 #### 分割したパッケージ
 
-行数上限のため 3 つに分ける。**`exec` → `exec/mask`・`exec/command` の一方向依存**とし、逆向きの参照は作らない。
+行数上限のため 3 つに分ける。依存は **`exec/command` → `exec`・`exec/mask` の一方向**である。契約（`Executor` / `Result` / `Options`）を最下層に置き、それを実装する側が上に乗る形なので、`exec` はどちらのサブパッケージも import しない。
 
 | パッケージ | 置くもの |
 |-----------|---------|

@@ -24,7 +24,7 @@
 ├────────────────────────────────────────────────────────────────────────────┤
 │ ⚠ 孤児ユニット 1 件 / 警告 2 件                          選択: 2 件        │ ← 状態行
 │ s:開始 x:停止 X:強制 d:ドレイン D:削除 n:追加 u:更新 e:設定 l:ログ ?:ヘルプ │ ← フッタ 1 行目
-│ (s)(x)(X)(R)(D)(n)(u): root 権限が必要です（sudo で起動してください）       │ ← フッタ 2 行目
+│ (s)(x)(X)(D)(n)(u): root 権限が必要です（sudo で起動してください）          │ ← フッタ 2 行目
 └────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -96,14 +96,19 @@
 
 ```
   NAME          SCOPE        MANAGED   SVC        JOB       VERSION   _WORK
-▸ build01-1     org:foo      systemd   ● active   ▶ 4m12s   2.311.0    31.2G
-  build01-2     org:foo      systemd   ● active   idle      2.311.0     8.1G
-  build01-3 ⚠   foo/bar      run.sh    -          idle      2.309.0     2.0G
-  build01-4     org:foo      systemd   ○ inactive idle      2.311.0     0.4G
-  build01-5 ⚠   org:foo      ?         ? unknown  idle      2.311.0     0.4G
+▸ build01-1     org:foo      systemd   ● active   ▶ 4m12s   2.311.0        -
+  build01-2     org:foo      systemd   ● active   idle      2.311.0        -
+  build01-3 ⚠   foo/bar      run.sh    -          idle      2.309.0        -
+  build01-4     org:foo      systemd   ○ inactive idle      2.311.0        -
+  build01-5     org:foo      systemd   ? unknown  idle      2.311.0        -
+  build01-6 ⚠   org:foo      ?         -          idle      2.311.0        -
   ─ 孤児ユニット ────────────────────────────────────────────────────────────
   actions.runner.foo-bar.old01.service   ✗ failed   （対応ディレクトリなし）
 ```
+
+**`MANAGED: ?` と `SVC: ? unknown` は同じ行に並ばない。** 前者はユニット一覧そのものが取れなかった状態で、そのとき紐付いたユニットは 1 つも無いので SVC は `-` になる（`build01-6`）。後者はユニットが紐付いた上で `systemctl show` に失敗した状態なので、起動方式は `systemd` と判定できている（`build01-5`）。
+
+`_WORK` 列がすべて `-` なのは、**ディスク使用量の集計（[FR-27](../requirements/functional.md)）が未実装**だからである。Disk タブを実装する Issue が値を埋める。列そのものは幅の計算と落とす順に含まれるため、この版でも出す。
 
 | 記号 | 意味 |
 |------|------|
@@ -147,10 +152,10 @@
   スコープ      org:foo
   起動方式      systemd（actions.runner.foo.build01-1.service）
   サービス      ● active / enabled
-  ジョブ        ▶ 実行中 4m12s（foo/bar、Worker PID 284193）
-  バージョン    2.309.0  ⚠ 最新は 2.311.0（disableUpdate=true）
+  ジョブ        ▶ 実行中 4m12s（Worker PID 284193）
+  バージョン    2.309.0（disableUpdate=true）
   ディレクトリ  /opt/runners/build01-1
-  work          /opt/runners/build01-1/_work（31.2G）
+  work          /opt/runners/build01-1/_work
 
   操作
 ▸ l  ログを開く
@@ -165,8 +170,12 @@
   X  強制停止（⚠ 実行中のジョブは中断されます）
   D  削除（⚠ 登録解除 + サービス削除）
 
- enter:実行  j/k:選択  esc:戻る
+ enter:実行  j/k:選択  esc:戻る  ?:ヘルプ
 ```
+
+情報部の 3 つの項目は、この版では一覧と同じ理由で値が欠ける。**ジョブ行にリポジトリ名を出さない**のは `Runner.Worker` にその情報が無いためで、**バージョン行に `⚠ 最新は …` を出さない**のは最新版の取得（[FR-20](../requirements/functional.md)）が GitHub API を要するためである（未取得の状態を「古い」と示さない）。**work 行に使用量を併記しない**のは集計（[FR-27](../requirements/functional.md)）が未実装だからである。`disableUpdate=true` は `.runner` から読めるので出す。
+
+フッタの `?:ヘルプ` は共通レイアウトの規則どおり必ず付く（上記「共通レイアウト」）。操作キーの可否と理由は操作リストの各行に出るため、フッタには載せない。
 
 - **初期カーソルは常に安全側の先頭項目に置く。** 詳細を開き直すたびにリセットし、前回選んだ操作を覚えない。一覧の `enter` → 詳細の `enter` で破壊的操作に到達しないようにするための規則である。
 - 破壊的な操作は区切り線の下に置き、警告色で影響を併記する。
@@ -209,9 +218,11 @@
 
 ```
   RUNNER        REPOSITORY          ELAPSED   WORKER PID   _work
-▸ build01-1     foo/bar             4m12s     284193       /opt/runners/build01-1/_work/bar
-  build01-7     foo/baz             22m03s    291044       /opt/runners/build01-7/_work/baz
+▸ build01-1     -                   4m12s        284193    /opt/runners/build01-1/_work
+  build01-7     -                   22m03s       291044    /opt/runners/build01-7/_work
 ```
+
+**`REPOSITORY` がすべて `-` で、`_work` がリポジトリ配下ではなく runner の work ディレクトリなのは、どちらもジョブのリポジトリ名が分からないためである。** `Runner.Worker` は `/proc` から検出したプロセスであり、そこにリポジトリの情報は無い。名前は Worker ログの解析（[FR-23〜FR-26](../requirements/functional.md)）から得るもので、Logs タブを実装する Issue が両方の列を埋める。
 
 実行中ジョブが無い場合はその旨を表示する。`l` で該当ジョブの Worker ログへ直接移動する。
 

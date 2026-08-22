@@ -56,7 +56,7 @@ graph TD
 - **ドメイン層は UI に依存しない。** 進捗の通知が必要な処理はチャネルまたはコールバックで結果を流し、UI 層がそれを `tea.Msg` に変換する。
 - **外部プロセスの実行は必ず `exec` 層を経由する。** ドメイン層が `os/exec` を直接呼ぶことを禁止する。監査ログとタイムアウトを漏れなく適用するための制約である。
 - **UI 層の内部も階層化する。** `internal/ui` は Atomic Design に沿って token / keymap / atom / molecule / organism / template / page に分け、依存の方向をパッケージの import で強制する。ドメイン層を `tea.Cmd` で呼ぶのは page のみとする（[TUI コンポーネント設計](../ui/atomic-design.md)）。
-- **`bubbles` / `huh` に依存するのは organism と keymap のみ。** スクロール・テキスト入力・計時・フォームは既存部品に委ね、`atom` / `molecule` / `template` は文字列を返す純粋関数に保つ。
+- **`atom` / `molecule` / `template` は bubbletea / bubbles を import しない。** スクロール・テキスト入力・計時・フォームは既存部品（`bubbles` / `huh`）に委ねるが、それを使うのは organism 以上に限り、下位 3 階層は文字列を返す純粋関数に保つ。`bubbles/key` は例外的に keymap から親 Model・page・organism まで届く（キー定義を 1 箇所に集約した結果であり、`key.Binding` を組み立てるのは keymap だけである）。
 
 ## 技術選定
 

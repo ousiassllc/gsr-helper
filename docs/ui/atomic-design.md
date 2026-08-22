@@ -208,8 +208,8 @@ graph TD
 
 | 入力 | 取得元 | 扱い |
 |------|-------|------|
-| 背景の明暗 | 起動時に端末の背景色を問い合わせ、応答の `tea.Msg` から判定する | 親 Model が保持し、`token.Styles(dark)` の引数として page → organism → molecule / atom へ渡す。応答が得られない端末では暗背景として扱う |
-| 色を使うか | `NO_COLOR` / `--no-color` / 非 TTY | `cmd/gsr-helper` が判定して親 Model に渡す。無効時は `token.Styles` が素通しのスタイルを返す |
+| 背景の明暗 | 起動時に端末の背景色を問い合わせ、応答の `tea.Msg` から判定する | 親 Model が保持し、`token.NewStyles` の第 1 引数にする。解決済みの `token.Styles` を page → organism → molecule / atom へ渡す。応答が得られない端末では暗背景として扱う |
+| 色を使うか | `NO_COLOR` / `--no-color` / 非 TTY | `cmd/gsr-helper` が判定して親 Model に渡す。`token.NewStyles` の第 2 引数にし、無効時は素通しのスタイルを解決する |
 
 `NO_COLOR` の判定を `cmd` に置くのは、`--no-color` フラグとの合流点を 1 箇所にするためである。`lipgloss` 自身もカラープロファイルを判定するが、**本ツールの表示可否はこの 1 つの値で決める**。判定箇所が 2 つあると、片方だけ効いた状態を追えなくなる。
 
@@ -306,7 +306,7 @@ func Columns(all []token.Column, width int, rules token.ColumnRules) []token.Col
 | `CommandBlock` | 実行するコマンド全文の整形（折り返し・継続行） | 確認ダイアログ全般 |
 | `KeyBar` | `KeyHint` の並び。収まらない分は `?:ヘルプ` に集約する | フッタ |
 | `TabBar` | `[1]Runners [2]Jobs …`。無効なタブはグレーアウト | 共通レイアウト |
-| `CapsBar` | `host: build01  root  disk: 82% ⚠  gh: ousiass` | ヘッダ |
+| `CapsBar` | `host: build01  root  gh: 認証済み`（root が無ければ `read-only`、systemctl が無ければ `systemd なし` を挟む） | ヘッダ |
 | `SummaryCounts` | `OK 14  WARN 2  FAIL 1  SKIP 1` | Doctor / 状態行 |
 
 このうち実装済みは `Columns` / `RunnerRow` / `OrphanRow` / `JobRow` / `ActionRow` / `KeyBar` / `TabBar` / `CapsBar` である。残りはタブ 3〜7 とダイアログのものなので未実装である（後述の「実装状況」）。
