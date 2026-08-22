@@ -22,10 +22,14 @@ const (
 	Right
 )
 
-// Cell は文字列を指定幅に揃えた 1 セルを返す。
+// Cell は文字列を指定幅に揃えた 1 セルを返す。幅を超える分は Truncate が中略する。
 //
-// 装飾前の文字列を渡すこと。装飾済み（ANSI 列を含む）文字列は幅を超えたときの
-// 切り詰めで壊れるため、装飾済みの値は Pad を使う。
+// 装飾済み（ANSI 列を含む）の文字列を渡してもよい。中略は lipgloss に委ねており、
+// ANSI 列も書記素も割らない（Truncate の doc と TestTruncateKeepsANSISequenceIntact）。
+// ただし**中略記号は装飾の外側に付く**（`ESC[..m● ac ESC[m…`）ので、中略される幅で
+// 装飾を末尾まで届かせたい場合は装飾前の文字列を渡して呼び出し側で装飾する。
+//
+// 幅を超えても中略させたくない場合は Pad を使う（Pad は切り詰めない）。
 func Cell(s string, width int, a Align) string {
 	if width <= 0 {
 		return ""

@@ -80,10 +80,25 @@ func TestTruncate(t *testing.T) {
 	}
 }
 
+// Pad は幅を超えても切り詰めないので、装飾済みの文字列にも使える。
+//
+// 入力は colorStyles で組む。plainStyles では Render が恒等（色が無効）になり、
+// ANSI 列を 1 つも含まない文字列を相手に「装飾済みでも使える」ことを検証した
+// つもりになる（Issue #47）。前提が崩れたら気付けるよう、入力に ANSI 列が
+// 含まれること自体をここで確かめる。
 func TestPadDoesNotTruncate(t *testing.T) {
-	styled := plainStyles().OK.Render("● active")
+	styled := colorStyles().OK.Render("● active")
+	if !strings.ContainsRune(styled, '\x1b') {
+		t.Fatalf("入力が装飾されていない: %q（colorStyles が色を出していない）", styled)
+	}
+
+	// 表示幅（8 セル）より狭い幅を渡しても、装飾ごとそのまま返る。
 	if got := Pad(styled, 3, Left); got != styled {
 		t.Errorf("Pad は幅を超えても切り詰めない: %q", got)
+	}
+	// 埋める幅は ANSI 列を除いた表示幅から数える。
+	if got, want := Pad(styled, 12, Left), styled+"    "; got != want {
+		t.Errorf("装飾済みの Pad = %q, want %q", got, want)
 	}
 	if got, want := Pad("ab", 4, Right), "  ab"; got != want {
 		t.Errorf("Pad 右寄せ = %q, want %q", got, want)
