@@ -121,14 +121,22 @@ func runnerView(r runner.Runner) molecule.RunnerView {
 
 // warned は行に注意記号を出すかを返す。
 //
-// この版で判定できるのは「サービスが異常終了している」「systemd 管理外のため
-// サービス制御ができない」「バージョンが読めない」の 3 つである。バージョンの
-// 新旧には最新版の取得が必要で、権限異常の判定は doctor の担当なので含めない。
+// 記号の意味は「この行は要注意である」の 1 つだけで、次のいずれかに当てはまるときに
+// 付ける。すなわち、サービスが異常終了している、サービス制御ができないか可否を判定
+// できない（systemd 管理外、または systemd の管理状態が判定できなかった）、バージョンが
+// 読めない、のいずれかである。
+//
+// 管理状態が判定できない runner にも付けるのは、run.sh 直起動と分かっている runner より
+// 要注意だからである。ユニット一覧が取れておらず、サービス制御の可否すら決められない
+// （page.Allow はこの状態で開始・停止・再起動・enable の切替を塞ぐ）。
+// バージョンの新旧には最新版の取得が必要で、権限異常の判定は doctor の担当なので含めない。
 func warned(r runner.Runner) bool {
 	if r.Svc != nil && (r.Svc.Active == "failed" || r.Svc.Sub == "failed") {
 		return true
 	}
-	return r.Managed == runner.ManagedStandalone || r.Version == ""
+	return r.Managed == runner.ManagedStandalone ||
+		r.Managed == runner.ManagedUnavailable ||
+		r.Version == ""
 }
 
 // runnerRows は検出結果を runner の行に変換する。

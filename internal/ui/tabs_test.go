@@ -6,6 +6,7 @@ import (
 
 	"github.com/ousiassllc/gsr-helper/internal/appconfig"
 	"github.com/ousiassllc/gsr-helper/internal/ui/keymap"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 	"github.com/ousiassllc/gsr-helper/internal/ui/token"
 )
 
@@ -125,6 +126,18 @@ func TestTabsGetInitialState(t *testing.T) {
 		}
 		if v := tb.Model.View(); v.Content == "" {
 			t.Errorf("タブ %s が初期状態で何も描けていない", tb.Title)
+		}
+	}
+}
+
+// 無効なタブの理由は未対応の操作と同じ文言を使う。
+//
+// 利用者にとって「無効なタブ」と「未対応の操作」は同じ意味（この版ではまだ使えない）
+// なので、文言は 1 つの定数（page.ReasonUnsupported）から来なければならない。
+func TestDisabledTabReasonIsShared(t *testing.T) {
+	for _, tb := range newTestTabs(testCaps()) {
+		if !tb.Enabled && tb.Reason != page.ReasonUnsupported {
+			t.Errorf("タブ %s の理由 = %q, want %q", tb.Title, tb.Reason, page.ReasonUnsupported)
 		}
 	}
 }

@@ -2,6 +2,7 @@ package page
 
 import (
 	"strings"
+	"testing"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -9,6 +10,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/appconfig"
 	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/runner/scope"
+	"github.com/ousiassllc/gsr-helper/internal/ui/atom"
 	"github.com/ousiassllc/gsr-helper/internal/ui/keymap"
 	"github.com/ousiassllc/gsr-helper/internal/ui/token"
 )
@@ -99,3 +101,59 @@ func standaloneRunner() runner.Runner {
 
 // testKeys はキー定義の集約を返す。
 func testKeys() keymap.Set { return keymap.New() }
+
+// stubModal は登録したモーダルが受け取った Msg を記録するテスト用の中身。
+//
+// 重なりの規則を種類に依らず検証するために使う（具体的なモーダルを混ぜると、
+// 検証しているのが規則なのか中身なのか分からなくなる）。
+type stubModal struct {
+	body   string
+	keys   []string
+	states int
+	size   SizeMsg
+}
+
+// tea.Model を実装していることをコンパイル時に確かめる。
+var _ tea.Model = (*stubModal)(nil)
+
+// newStub は本文を持つモーダルを組み立てる。
+func newStub(body string) Modal {
+	return Modal{
+		Model: &stubModal{body: body, keys: nil, states: 0, size: SizeMsg{W: 0, H: 0}},
+		Title: func(tea.Model) string { return body },
+		Hints: func(tea.Model) []atom.Hint {
+			return []atom.Hint{{Key: "y", Desc: "実行", Enabled: true, Reason: ""}}
+		},
+	}
+}
+
+func (m *stubModal) Init() tea.Cmd { return nil }
+
+func (m *stubModal) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyPressMsg:
+		m.keys = append(m.keys, msg.String())
+	case StateMsg:
+		m.states++
+	case SizeMsg:
+		m.size = msg
+	}
+	return m, nil
+}
+
+func (m *stubModal) View() tea.View { return tea.NewView(m.body) }
+
+// stubOf は登録した stubModal を取り出す。
+func stubOf(t *testing.T, o Overlay, kind ModalKind) *stubModal {
+	t.Helper()
+
+	m, ok := o.Modal(kind)
+	if !ok {
+		t.Fatalf("%q が登録されていない", kind)
+	}
+	stub, ok := m.Model.(*stubModal)
+	if !ok {
+		t.Fatalf("%q の Model = %T, want *stubModal", kind, m.Model)
+	}
+	return stub
+}

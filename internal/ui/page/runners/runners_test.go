@@ -247,3 +247,27 @@ func TestListHintsUseSameKeyNotationAsDetail(t *testing.T) {
 		t.Errorf("絞り込みのキーの表記 = %q, want %q", got, "/")
 	}
 }
+
+// systemd の管理状態が判定できない runner の行にも注意記号を出す。
+//
+// この状態の runner は「ユニットが無い」と区別できないまま run.sh 直起動として
+// 表示されていた行であり、注意記号もそれで付いていた。管理状態が分からない方が
+// 直起動と分かっているより要注意なので、記号を落としてはならない。
+func TestUnavailableManagedRowIsWarned(t *testing.T) {
+	st := testState(80, 16)
+	r := sampleRunner("build01-9", false)
+	r.UnitName, r.Svc, r.Managed = "", nil, runner.ManagedUnavailable
+	st.Result = runner.Result{Runners: []runner.Runner{r}, OrphanUnits: nil, Warnings: nil}
+
+	m, _ := runners.New(0, st).Update(st)
+	for _, line := range strings.Split(m.View().Content, "\n") {
+		if !strings.Contains(line, "build01-9") {
+			continue
+		}
+		if !strings.Contains(line, token.IconWarn) {
+			t.Errorf("管理状態が判定できない行 = %q, 注意記号が無い", line)
+		}
+		return
+	}
+	t.Fatal("対象の runner の行が見つからない")
+}

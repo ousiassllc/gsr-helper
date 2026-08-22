@@ -51,7 +51,38 @@ func TestDetailMatchesSpec(t *testing.T) {
 	}
 }
 
-// Footer / Detail に載るのは Bindings にある操作だけである（打てないキーを出さない）。
+// Jobs タブのフッタは screens.md の Jobs タブの 4 操作を Footer と同じ表記で返す。
+//
+// 削除（D）と設定編集（e）を出さないのは、この 2 つを詳細画面から辿る操作としている
+// ためである。表記を Footer と共有するのは、同じキーの説明文が画面によって食い違わない
+// ようにするためである（page 側で文言を書き直させない）。
+func TestJobsFooterMatchesSpec(t *testing.T) {
+	r := NewRunnerKeys()
+	want := []struct{ key, desc string }{
+		{"d", "ドレイン"}, {"X", "強制"}, {"R", "再起動"}, {"l", "ログ"},
+	}
+
+	shared := make(map[string]string, len(r.Footer()))
+	for _, f := range r.Footer() {
+		shared[f.Binding.Keys()[0]] = f.Desc
+	}
+
+	jobs := r.JobsFooter()
+	if len(jobs) != len(want) {
+		t.Fatalf("Jobs タブのフッタ = %d 件, want %d 件", len(jobs), len(want))
+	}
+	for i, f := range jobs {
+		k := f.Binding.Keys()[0]
+		if k != want[i].key || f.Desc != want[i].desc {
+			t.Errorf("%d 番目 = %q/%q, want %q/%q", i, k, f.Desc, want[i].key, want[i].desc)
+		}
+		if d, ok := shared[k]; ok && d != f.Desc {
+			t.Errorf("キー %q の表記 = %q, Footer の %q と食い違う", k, f.Desc, d)
+		}
+	}
+}
+
+// フッタと詳細に載るのは Bindings にある操作だけである（打てないキーを出さない）。
 func TestFooterAndDetailAreSubsetsOfBindings(t *testing.T) {
 	r := NewRunnerKeys()
 	all := keysOf(r.Bindings())
@@ -60,7 +91,13 @@ func TestFooterAndDetailAreSubsetsOfBindings(t *testing.T) {
 	for _, f := range r.Footer() {
 		footer = append(footer, f.Binding.Keys()[0])
 	}
-	for name, keys := range map[string][]string{"Footer": footer, "Detail": keysOf(r.Detail())} {
+	jobs := make([]string, 0, len(r.JobsFooter()))
+	for _, f := range r.JobsFooter() {
+		jobs = append(jobs, f.Binding.Keys()[0])
+	}
+	for name, keys := range map[string][]string{
+		"Footer": footer, "JobsFooter": jobs, "Detail": keysOf(r.Detail()),
+	} {
 		for _, k := range keys {
 			if !slices.Contains(all, k) {
 				t.Errorf("%s のキー %q が Bindings に無い", name, k)

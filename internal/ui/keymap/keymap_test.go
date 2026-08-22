@@ -144,18 +144,14 @@ func TestNoDuplicateKeysInSameContext(t *testing.T) {
 
 // listNormal は一覧の通常モードで同時に有効な List のキーを返す。
 //
-// 入力中にのみ有効な Accept / Cancel だけを除く。フィールドを増やしたときに
-// 除外の判断を迫るため、件数が List のフィールド数と合うことを検証する。
+// List.Bindings がその集合そのものである（入力中にのみ有効な Accept / Cancel は
+// FilterBindings が持つ）。フィールドを増やしたときに除外の判断を迫るため、
+// 件数が List のフィールド数と合うことを検証する。
 func listNormal(t *testing.T, l List) []key.Binding {
 	t.Helper()
 
-	const inputOnly = 2 // Accept / Cancel
-
-	out := []key.Binding{
-		l.Up, l.Down, l.Top, l.Bottom, l.PageDown, l.PageUp,
-		l.Toggle, l.SelectAll, l.Filter, l.Enter,
-	}
-	if want := reflect.TypeOf(l).NumField() - inputOnly; len(out) != want {
+	out := l.Bindings()
+	if want := reflect.TypeOf(l).NumField() - len(l.FilterBindings()); len(out) != want {
 		t.Fatalf("通常モードのキー数 = %d, want %d（List にキーを追加したらテストも追う）", len(out), want)
 	}
 	return out
@@ -209,23 +205,6 @@ func TestRunnerOrderPutsDestructiveLast(t *testing.T) {
 		for _, destructive := range []string{"x", "X", "D"} {
 			if index[safe] > index[destructive] {
 				t.Errorf("安全な操作 %q が破壊的な操作 %q より後にある", safe, destructive)
-			}
-		}
-	}
-}
-
-func TestFullHelpGroupsAreNotEmpty(t *testing.T) {
-	groups := New().FullHelp()
-	if len(groups) == 0 {
-		t.Fatal("FullHelp が空である")
-	}
-	for i, g := range groups {
-		if len(g) == 0 {
-			t.Errorf("FullHelp のグループ %d が空である", i)
-		}
-		for _, b := range g {
-			if b.Help().Key == "" || b.Help().Desc == "" {
-				t.Errorf("FullHelp のグループ %d に説明文の無いキーがある", i)
 			}
 		}
 	}

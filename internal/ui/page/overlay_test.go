@@ -1,22 +1,27 @@
 package page
 
 import (
-	"strconv"
 	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
+)
 
-	"github.com/ousiassllc/gsr-helper/internal/appconfig"
-	"github.com/ousiassllc/gsr-helper/internal/runner"
-	"github.com/ousiassllc/gsr-helper/internal/ui/template"
-	"github.com/ousiassllc/gsr-helper/internal/ui/token"
+// 重なりの規則そのもの（キーは最上位だけ・esc は 1 枚・同じ種類は重ねない）を、
+// 種類に依らない stub で検証する。具体的なモーダルを混ぜた検証は登録する側
+// （page/runnerdetail）が持つ。
+
+// 検証に使うモーダルの種類。どちらも stubModal を登録する。
+const (
+	kindFirst  ModalKind = "first"
+	kindSecond ModalKind = "second"
 )
 
 // newOverlay はモーダルを 1 枚も開いていない状態で返す。
 func newOverlay() Overlay {
 	o := NewOverlay(testKeys(), testStyles(), true)
+	o.Register(kindFirst, newStub("1 枚目"))
+	o.Register(kindSecond, newStub("2 枚目"))
 	o.SetSize(80, 20)
 	return o
 }
@@ -50,41 +55,42 @@ func TestOverlayInactive(t *testing.T) {
 	if o.Hints() != nil {
 		t.Error("開いていないのにフッタのヒントがある")
 	}
+	if got := stubOf(t, o, kindFirst).keys; len(got) != 0 {
+		t.Errorf("開いていないモーダルにキーが届いている（%v）", got)
+	}
 }
 
-// モーダルが 1 枚のとき、キーは最上位にのみ届く。
+// キーは最上位の 1 枚にのみ届く。背後のモーダルにも page にも流さない。
 func TestOverlayDeliversToTopOnly(t *testing.T) {
 	o := newOverlay()
-	o.OpenDetail(sampleRunner(), fullCaps())
-	if !o.Active() {
-		t.Fatal("詳細を開いたのに Active が偽である")
+	o.Open(kindFirst, nil)
+	o, _ = sendOverlay(o, "j", "x")
+	if got := len(stubOf(t, o, kindFirst).keys); got != 2 {
+		t.Fatalf("最上位が受け取ったキー = %d 件, want 2", got)
 	}
 
-	o, _ = sendOverlay(o, "j", "j")
-	if got := o.detail.Cursor(); got != 2 {
-		t.Fatalf("詳細のカーソル = %d, want 2", got)
+	o.Open(kindSecond, nil)
+	o, _ = sendOverlay(o, "j", "x")
+	if got := len(stubOf(t, o, kindFirst).keys); got != 2 {
+		t.Errorf("背後のモーダルが受け取ったキー = %d 件, want 2（キーが背後に流れている）", got)
 	}
-
-	// ヘルプを重ねると、同じキーは最上位（ヘルプ）にのみ渡り、背後の詳細は動かない。
-	o.OpenHelp()
-	o, _ = sendOverlay(o, "j", "j")
-	if got := o.detail.Cursor(); got != 2 {
-		t.Errorf("背後の詳細のカーソル = %d, want 2（キーが背後に流れている）", got)
+	if got := len(stubOf(t, o, kindSecond).keys); got != 2 {
+		t.Errorf("最上位が受け取ったキー = %d 件, want 2", got)
 	}
 }
 
 // esc は 1 枚だけ閉じる。
 func TestOverlayCloseOneByOne(t *testing.T) {
 	o := newOverlay()
-	o.OpenDetail(sampleRunner(), fullCaps())
-	o.OpenHelp()
+	o.Open(kindFirst, nil)
+	o.Open(kindSecond, nil)
 
 	o, _ = sendOverlay(o, "esc")
 	if !o.Active() {
 		t.Fatal("esc で 2 枚とも閉じている")
 	}
-	if !strings.Contains(o.View(), "build01-1") {
-		t.Error("ヘルプを閉じた後に詳細が最上位になっていない")
+	if !strings.Contains(o.View(), "1 枚目") {
+		t.Error("1 枚閉じた後に背後のモーダルが最上位になっていない")
 	}
 
 	o, _ = sendOverlay(o, "esc")
@@ -113,7 +119,7 @@ func TestOverlayActiveMatchesStack(t *testing.T) {
 		want bool
 		name string
 	}{
-		{func(o *Overlay) { o.OpenDetail(sampleRunner(), fullCaps()) }, true, "詳細を開く"},
+		{func(o *Overlay) { o.Open(kindFirst, nil) }, true, "1 枚開く"},
 		{func(o *Overlay) { o.OpenHelp() }, true, "ヘルプを重ねる"},
 		{func(o *Overlay) { o.Close() }, true, "1 枚閉じる"},
 		{func(o *Overlay) { o.Close() }, false, "全部閉じる"},
@@ -127,139 +133,36 @@ func TestOverlayActiveMatchesStack(t *testing.T) {
 	}
 }
 
-// フッタのヒントは最上位のモーダルのものになる。
-func TestOverlayHints(t *testing.T) {
+// フッタのヒントと見出しは最上位のモーダルのものになる。
+func TestOverlayHintsAndTitleFollowTop(t *testing.T) {
 	o := newOverlay()
-	o.OpenDetail(sampleRunner(), fullCaps())
-	if got := len(o.Hints()); got != len(o.detail.Hints()) {
-		t.Errorf("詳細のヒント件数 = %d, want %d", got, len(o.detail.Hints()))
+	o.Open(kindFirst, nil)
+	if got := o.Hints(); len(got) != 1 || got[0].Key != "y" {
+		t.Errorf("フッタのヒント = %+v, want 登録したモーダルのもの", got)
 	}
 
+	// ヘルプは閉じるキーを必ず出し、収まらないときだけスクロールのキーを添える。
 	o.OpenHelp()
 	hints := o.Hints()
-	if len(hints) != 1 || hints[0].Key != "esc" {
-		t.Errorf("ヘルプのヒント = %+v, want esc のみ", hints)
+	if len(hints) == 0 || hints[len(hints)-1].Key != "esc" {
+		t.Errorf("ヘルプのヒント = %+v, want 末尾に esc", hints)
 	}
 }
 
-// 背景の明暗が変わったら配色を持つ部品を作り直し、開いている詳細は開き直す。
-func TestOverlaySetStateRestyles(t *testing.T) {
+// 共有状態と大きさは、開いていないモーダルにも配る。
+//
+// 開いた瞬間に古い配色・古い検出結果・古い大きさで描かれることを防ぐためである。
+func TestOverlaySetStateReachesEveryModal(t *testing.T) {
 	o := newOverlay()
-	o.OpenDetail(sampleRunner(), fullCaps())
-	o, _ = sendOverlay(o, "j")
-	if got := o.detail.Cursor(); got != 1 {
-		t.Fatalf("詳細のカーソル = %d, want 1", got)
-	}
+	o.SetState(StateMsg{Keys: testKeys(), Styles: testStyles(), Dark: true, BodyW: 100, BodyH: 30})
 
-	st := StateMsg{
-		Caps: fullCaps(), Styles: token.NewStyles(false, false), Keys: testKeys(), Dark: false,
-		BodyW: 80, BodyH: 20,
-	}
-	o.SetState(st)
-	if !o.Active() {
-		t.Error("配色の切り替えでモーダルが閉じている")
-	}
-	if got := o.detail.Cursor(); got != 0 {
-		t.Errorf("開き直した後のカーソル = %d, want 0（安全側へ戻す）", got)
-	}
-	if !strings.Contains(o.View(), "build01-1") {
-		t.Error("開き直した詳細の対象が引き継がれていない")
-	}
-
-	// 明暗が変わらない StateMsg では作り直さない（カーソルを保つ）。
-	o, _ = sendOverlay(o, "j")
-	o.SetState(st)
-	if got := o.detail.Cursor(); got != 1 {
-		t.Errorf("同じ明暗での Cursor = %d, want 1", got)
-	}
-}
-
-// 詳細画面の各行はモーダルの中で折り返さない。
-//
-// SetSize が中身へ配る幅（template.ModalPadding）と template.Modal が枠へ渡す幅が
-// 食い違うと、操作リストの行が 2 行に割れて「押せない理由」が読めなくなる（FR-46）。
-// 幅を複数点で固定し、真実が 2 箇所に分かれたら落ちるようにする。
-//
-// 能力と runner の状態の組み合わせも合わせて走査する。理由（screens.md「無効な操作の
-// 表示」）は文言ごとに長さが違い、最長の組み合わせだけが幅 80 で溢れていた。
-func TestOverlayDetailDoesNotWrapInModal(t *testing.T) {
-	const height = 40
-	padW, _ := template.ModalPadding()
-	for _, width := range []int{60, 72, 80, 100} {
-		t.Run(strconv.Itoa(width), func(t *testing.T) {
-			for _, c := range detailCases() {
-				o := NewOverlay(testKeys(), testStyles(), true)
-				o.SetSize(width, height)
-				o.OpenDetail(c.target, c.caps)
-
-				view := o.View()
-				for i, line := range strings.Split(view, "\n") {
-					if w := lipgloss.Width(line); w > width {
-						t.Errorf("%s: %d 行目の表示幅 = %d, want <= %d", c.name, i+1, w, width)
-					}
-				}
-				// 折り返された行は改行が入るため、1 行としては現れない。
-				//
-				// 内側幅を超える行の除外は不要になった。無効な操作は影響を併記せず、
-				// 理由を幅に収める（molecule.ActionRow）ため、全行が内側幅に収まる。
-				inner := width - padW
-				for _, line := range strings.Split(o.detail.View(), "\n") {
-					line = strings.TrimRight(line, " ")
-					if line == "" {
-						continue
-					}
-					if w := lipgloss.Width(line); w > inner {
-						t.Errorf("%s: 詳細の行 %q の表示幅 = %d, want <= %d", c.name, line, w, inner)
-						continue
-					}
-					if !strings.Contains(view, line) {
-						t.Errorf("%s: 詳細の行 %q が折り返している:\n%s", c.name, line, view)
-					}
-				}
-			}
-		})
-	}
-}
-
-// detailCase は詳細画面を開く条件の 1 通り。
-type detailCase struct {
-	name   string
-	target runner.Runner
-	caps   appconfig.Caps
-}
-
-// detailCases は操作の可否が変わる条件を網羅して返す。
-//
-// 能力（root / systemd / gh 認証）の有無と runner の状態（systemd 管理・run.sh 直起動・
-// ジョブ実行中）を掛け合わせると、screens.md「無効な操作の表示」の理由が一通り現れる。
-// docker / journal と sudo ユーザは操作の可否に効かないため振らない（page.Allow）。
-func detailCases() []detailCase {
-	targets := []struct {
-		name string
-		r    runner.Runner
-	}{
-		{"systemd", sampleRunner()},
-		{"ジョブ実行中", busyRunner()},
-		{"直起動", standaloneRunner()},
-	}
-
-	out := make([]detailCase, 0, len(targets)*8)
-	for _, tg := range targets {
-		for mask := range 8 {
-			caps := appconfig.Caps{
-				Root:        mask&1 != 0,
-				Systemd:     mask&2 != 0,
-				GitHubToken: mask&4 != 0,
-				Docker:      true,
-				Journal:     true,
-				SudoUser:    "ousiass",
-			}
-			out = append(out, detailCase{
-				name:   tg.name + "/caps" + strconv.Itoa(mask),
-				target: tg.r,
-				caps:   caps,
-			})
+	for _, kind := range []ModalKind{kindFirst, kindSecond} {
+		stub := stubOf(t, o, kind)
+		if stub.states != 1 {
+			t.Errorf("%q が受け取った共有状態 = %d 件, want 1", kind, stub.states)
+		}
+		if stub.size.W == 0 || stub.size.W >= 100 {
+			t.Errorf("%q が受け取った幅 = %d, want 枠の分を引いた値", kind, stub.size.W)
 		}
 	}
-	return out
 }

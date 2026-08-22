@@ -12,13 +12,6 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/ui/token"
 )
 
-// reasonUnimplemented は未実装のタブを無効にする理由。
-//
-// タブ行に 7 枚すべてを出すのは、押しても何も起きないキーを作らないためである
-// （screens.md の共通レイアウトは 7 タブを常に出す）。無効なタブはグレーアウトし、
-// 番号キーを押したらこの理由を状態行に出す。
-const reasonUnimplemented = "この版では未対応です"
-
 // tab はタブ 1 枚のメタ情報。タブの追加はこのスライスへの 1 要素追加だけで済む。
 //
 // 親 Model は []tab を走査するだけで個別のタブを知らない。共有状態は 1 本の Msg で
@@ -38,9 +31,15 @@ type tab struct {
 // リサイズと検出が届く前でも、page が配色とキー定義を持った状態で描画できるように
 // するためである。
 //
-// 3〜7 は未実装なので Model を持たず、Enabled を false にして理由を添える。無効な
-// タブへはキーも StateMsg も配らない（app.go の live）。後続 Issue は該当する 1 行を
-// 実装済みのタブに差し替えるだけで有効化できる。
+// タブ行に 7 枚すべてを出すのは、押しても何も起きないキーを作らないためである
+// （screens.md の共通レイアウトは 7 タブを常に出す）。3〜7 は未実装なので Model を
+// 持たず、Enabled を false にして理由を添える。無効なタブはグレーアウトし、番号キーを
+// 押したらこの理由を状態行に出す。無効なタブへはキーも StateMsg も配らない
+// （app.go の live）。後続 Issue は該当する 1 行を実装済みのタブに差し替えるだけで
+// 有効化できる。
+//
+// 理由には page.ReasonUnsupported を使う。未対応の操作（page.Allow）と同じ文言に
+// なるのは、利用者にとって「この版ではまだ使えない」という同じ意味だからである。
 //
 // Enabled / Reason は能力（Caps）でタブを無効化する枠も兼ねる。実装済みの 2 枚は
 // いずれも能力を必要としない（runner の一覧とジョブの一覧はホスト内の読み取りだけで
@@ -61,11 +60,11 @@ func newTabs(caps appconfig.Caps, keys keymap.Set, s token.Styles, dark bool) []
 	return []tab{
 		{Key: "1", Title: "Runners", Model: runners.New(0, init), Enabled: true, Reason: ""},
 		{Key: "2", Title: "Jobs", Model: jobs.New(1, init), Enabled: true, Reason: ""},
-		{Key: "3", Title: "Disk", Model: nil, Enabled: false, Reason: reasonUnimplemented},
-		{Key: "4", Title: "Logs", Model: nil, Enabled: false, Reason: reasonUnimplemented},
-		{Key: "5", Title: "Doctor", Model: nil, Enabled: false, Reason: reasonUnimplemented},
-		{Key: "6", Title: "Config", Model: nil, Enabled: false, Reason: reasonUnimplemented},
-		{Key: "7", Title: "Setup", Model: nil, Enabled: false, Reason: reasonUnimplemented},
+		{Key: "3", Title: "Disk", Model: nil, Enabled: false, Reason: page.ReasonUnsupported},
+		{Key: "4", Title: "Logs", Model: nil, Enabled: false, Reason: page.ReasonUnsupported},
+		{Key: "5", Title: "Doctor", Model: nil, Enabled: false, Reason: page.ReasonUnsupported},
+		{Key: "6", Title: "Config", Model: nil, Enabled: false, Reason: page.ReasonUnsupported},
+		{Key: "7", Title: "Setup", Model: nil, Enabled: false, Reason: page.ReasonUnsupported},
 	}
 }
 

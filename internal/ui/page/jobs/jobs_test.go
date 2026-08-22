@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
@@ -156,18 +157,18 @@ func TestEnterOpensRunnerDetail(t *testing.T) {
 	}
 }
 
-// フッタは screens.md の Jobs タブの文言をキーごとに出す（FR-47）。
+// フッタは screens.md の Jobs タブの操作を短い表記で出す（FR-47）。
 //
 // 一律の接頭辞を付けると「l:runner をログを開く」のように日本語として崩れる上に
-// 幅 80 に収まらないため、キーごとの文言を仕様側に固定する。操作対象が runner で
-// あることは先頭の `enter:runner の詳細` が示す。
+// 幅 80 に収まらない。操作対象が runner であることは先頭の `enter:runner の詳細` が
+// 示し、以降のキーと表記は keymap.RunnerKeys.JobsFooter が持つ。
 func TestFooterUsesSpecWordingPerKey(t *testing.T) {
 	_, c := newModel(t, busyRunner("build01-1", 1))
 
 	want := []struct{ key, desc string }{
 		{"enter", "runner の詳細"},
 		{"d", "ドレイン"},
-		{"X", "強制停止"},
+		{"X", "強制"},
 		{"R", "再起動"},
 		{"l", "ログ"},
 	}
@@ -195,7 +196,7 @@ func TestFooterShowsEverySpecKeyAtWidth80(t *testing.T) {
 
 	line := strings.Split(molecule.KeyBar(c.Footer, 80, token.NewStyles(true, false)), "\n")[0]
 	for _, want := range []string{
-		"enter:runner の詳細", "d:ドレイン", "X:強制停止", "R:再起動", "l:ログ", "?:ヘルプ",
+		"enter:runner の詳細", "d:ドレイン", "X:強制", "R:再起動", "l:ログ", "?:ヘルプ",
 	} {
 		if !strings.Contains(line, want) {
 			t.Errorf("フッタ 1 行目に %q が無い: %q", want, line)
@@ -243,4 +244,30 @@ func cursorRow(t *testing.T, m tea.Model) string {
 	}
 	t.Fatal("カーソル行が見つからない")
 	return ""
+}
+
+// フッタのキーと表記は keymap から来る（Jobs タブ側に第 2 の定義を持たない）。
+//
+// ドレインのキーを差し替えるとフッタのキーも変わる。page が独自の表を持つと、キーを
+// 差し替えてもフッタだけが古いキーと表記を出し続ける（コンパイルエラーにならない）。
+func TestFooterFollowsKeymap(t *testing.T) {
+	st := testState(busyRunner("build01-1", 1))
+	st.Keys.Runner.Drain = key.NewBinding(key.WithKeys("Q"), key.WithHelp("Q", "ドレイン停止"))
+
+	_, cmd := jobs.New(1, st).Update(st)
+	c := chrome(t, cmd)
+
+	want := st.Keys.Runner.JobsFooter()
+	if len(c.Footer) != len(want)+1 {
+		t.Fatalf("フッタのヒント = %+v, want %d 件（先頭の enter を含む）", c.Footer, len(want)+1)
+	}
+	for i, w := range want {
+		got, wantKey := c.Footer[i+1], w.Binding.Keys()[0]
+		if got.Key != wantKey || got.Desc != w.Desc {
+			t.Errorf("%d 番目のヒント = %q/%q, want %q/%q", i, got.Key, got.Desc, wantKey, w.Desc)
+		}
+	}
+	if got := c.Footer[1].Key; got != "Q" {
+		t.Errorf("差し替えたドレインのキー = %q, want Q", got)
+	}
 }

@@ -14,6 +14,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/ui/atom"
 	"github.com/ousiassllc/gsr-helper/internal/ui/organism/table"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/runnerdetail"
 )
 
 const (
@@ -35,12 +36,18 @@ type Model struct {
 var _ tea.Model = Model{}
 
 // New は Runners タブを組み立てる。tab は親が持つタブ番号で、ChromeMsg に載せる。
+//
+// モーダルは画面が登録する。重なりの規則（キーは最上位だけ・esc は 1 枚）は
+// page.Overlay が種類に依らず担保するので、タブを足す Issue は自分のモーダルを
+// Register するだけで済む。
 func New(tab int, st page.StateMsg) Model {
+	overlay := page.NewOverlay(st.Keys, st.Styles, st.Dark)
+	overlay.Register(runnerdetail.Kind, runnerdetail.New(st))
 	return Model{
 		tab:     tab,
 		st:      st,
 		tbl:     newTable(st.Keys, st.Styles),
-		overlay: page.NewOverlay(st.Keys, st.Styles, st.Dark),
+		overlay: overlay,
 	}
 }
 
@@ -130,7 +137,7 @@ func (m *Model) openDetail() {
 	if !ok || cur.isOrphan {
 		return
 	}
-	m.overlay.OpenDetail(cur.runner, m.st.Caps)
+	runnerdetail.Open(&m.overlay, cur.runner, m.st.Caps)
 }
 
 // back は esc の「選択のクリア / 1 つ前の状態へ戻る」を処理する。

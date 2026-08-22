@@ -1,4 +1,4 @@
-package page
+package runnerdetail
 
 import (
 	"strings"
@@ -8,21 +8,23 @@ import (
 
 	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/ui/organism"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
 )
 
 // newDetail は詳細画面を開いた状態で返す。
-func newDetail() RunnerDetail {
-	d := NewRunnerDetail(testKeys(), testStyles())
+func newDetail() Model {
+	d := newModel(pagetest.Keys(), pagetest.Styles())
 	d.SetSize(72, 24)
-	d.Open(sampleRunner(), fullCaps())
+	d.Open(pagetest.SampleRunner(), pagetest.Caps())
 	return d
 }
 
 // sendDetail はキーを順に送り、最後の Cmd を返す。
-func sendDetail(d RunnerDetail, keys ...string) (RunnerDetail, tea.Cmd) {
+func sendDetail(d Model, keys ...string) (Model, tea.Cmd) {
 	var cmd tea.Cmd
 	for _, k := range keys {
-		d, cmd = d.Update(press(k))
+		d, cmd = d.Update(pagetest.Press(k))
 	}
 	return d, cmd
 }
@@ -35,7 +37,7 @@ func TestRunnerDetailResetsCursorOnOpen(t *testing.T) {
 		t.Fatal("カーソルが動いていない")
 	}
 
-	d.Open(busyRunner(), fullCaps())
+	d.Open(pagetest.BusyRunner(), pagetest.Caps())
 	if got := d.Cursor(); got != 0 {
 		t.Errorf("開き直した後のカーソル = %d, want 0", got)
 	}
@@ -59,7 +61,7 @@ func TestRunnerDetailInfoItems(t *testing.T) {
 		}
 	}
 
-	r := sampleRunner()
+	r := pagetest.SampleRunner()
 	for _, want := range []string{
 		r.Scope.String(), r.UnitName, "active", "enabled", r.Version, "disableUpdate=true", r.WorkDir,
 	} {
@@ -67,16 +69,16 @@ func TestRunnerDetailInfoItems(t *testing.T) {
 			t.Errorf("値 %q が出ていない", want)
 		}
 	}
-	if !strings.Contains(got, detailHeading) {
+	if !strings.Contains(got, heading) {
 		t.Errorf("操作リストの見出しが出ていない")
 	}
 }
 
 // ジョブ実行中は経過時間と Worker の PID を出す。
 func TestRunnerDetailBusyJob(t *testing.T) {
-	d := NewRunnerDetail(testKeys(), testStyles())
+	d := newModel(pagetest.Keys(), pagetest.Styles())
 	d.SetSize(72, 24)
-	d.Open(busyRunner(), fullCaps())
+	d.Open(pagetest.BusyRunner(), pagetest.Caps())
 
 	got := d.View()
 	for _, want := range []string{"実行中", "284193"} {
@@ -106,7 +108,7 @@ func TestRunnerDetailRoutesKeysToChoiceList(t *testing.T) {
 	d := newDetail()
 	d.list.SetItems([]organism.Choice{
 		{Key: "l", Desc: "ログを開く", Impact: "", Reason: "", Enabled: true, DividerBefore: false},
-		{Key: "D", Desc: "削除", Impact: "", Reason: reasonBusy, Enabled: false, DividerBefore: true},
+		{Key: "D", Desc: "削除", Impact: "", Reason: "ジョブ実行中です", Enabled: false, DividerBefore: true},
 	})
 
 	_, cmd := sendDetail(d, "l")
@@ -129,7 +131,7 @@ func TestRunnerDetailRoutesKeysToChoiceList(t *testing.T) {
 // この版では操作リストの全項目が実行できず、理由が添えられる。
 func TestRunnerDetailShowsReasons(t *testing.T) {
 	got := newDetail().View()
-	if !strings.Contains(got, reasonUnsupported) {
+	if !strings.Contains(got, page.ReasonUnsupported) {
 		t.Errorf("実行できない理由が出ていない")
 	}
 }
@@ -155,25 +157,46 @@ func TestRunnerDetailHints(t *testing.T) {
 
 // 未稼働の runner は起動方式を "-" にせず、値なしと区別できる文で出す。
 func TestRunnerDetailManagedUnknown(t *testing.T) {
-	r := sampleRunner()
+	r := pagetest.SampleRunner()
 	r.Managed, r.Svc, r.Listener, r.UnitName = runner.ManagedUnknown, nil, nil, ""
 
-	d := NewRunnerDetail(testKeys(), testStyles())
+	d := newModel(pagetest.Keys(), pagetest.Styles())
 	d.SetSize(80, 24)
-	d.Open(r, fullCaps())
+	d.Open(r, pagetest.Caps())
 
 	got := d.View()
-	if !strings.Contains(got, detailManagedUnknown) {
+	if !strings.Contains(got, managedUnknownText) {
 		t.Errorf("起動方式 = %q, 未稼働であることが読み取れない", got)
 	}
 
 	// systemd 管理と run.sh 直起動はこれまでどおり短い表記で出す。
-	d.Open(sampleRunner(), fullCaps())
-	if !strings.Contains(d.View(), "systemd（"+sampleRunner().UnitName+"）") {
+	d.Open(pagetest.SampleRunner(), pagetest.Caps())
+	if !strings.Contains(d.View(), "systemd（"+pagetest.SampleRunner().UnitName+"）") {
 		t.Error("systemd 管理の起動方式にユニット名が添えられていない")
 	}
-	d.Open(standaloneRunner(), fullCaps())
+	d.Open(pagetest.StandaloneRunner(), pagetest.Caps())
 	if !strings.Contains(d.View(), "run.sh") {
 		t.Error("run.sh 直起動の起動方式が出ていない")
+	}
+}
+
+// systemd の状態が判定できない runner は、未稼働（ユニットなし）と書き分ける。
+//
+// 記号だけ（? / -）だと、ユニットが無いのか分からないのかを読み分けられず、
+// 利用者が「登録されていない」と誤って判断して登録し直しに向かってしまう。
+func TestRunnerDetailManagedUnavailable(t *testing.T) {
+	r := pagetest.SampleRunner()
+	r.Managed, r.Svc, r.Listener, r.UnitName = runner.ManagedUnavailable, nil, nil, ""
+
+	d := newModel(pagetest.Keys(), pagetest.Styles())
+	d.SetSize(80, 24)
+	d.Open(r, pagetest.Caps())
+
+	got := d.View()
+	if !strings.Contains(got, managedUnavailableText) {
+		t.Errorf("起動方式 = %q, want %q（判定できないことの説明）", got, managedUnavailableText)
+	}
+	if strings.Contains(got, managedUnknownText) {
+		t.Error("判定不能を未稼働と同じ文で出している")
 	}
 }

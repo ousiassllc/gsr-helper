@@ -76,6 +76,25 @@ func (c *ChoiceList) SetItems(items []Choice) {
 	c.cursor = 0
 }
 
+// UpdateItems は項目の内容を差し替え、カーソル位置を保つ。
+//
+// 同じ対象の状態が変わったとき（3 秒ごとの再検出でジョブが始まった等）に使う。
+// SetItems を使うとカーソルが先頭へ戻り、操作を選んでいる途中で選択がずれる。
+// **対象そのものを差し替えるときは SetItems を使うこと**（FR-46 の「一覧の enter →
+// 詳細の enter で破壊的操作に到達しない」は先頭へ戻すことで担保している）。
+func (c *ChoiceList) UpdateItems(items []Choice) {
+	c.items = items
+	c.cursor = min(max(c.cursor, 0), max(len(items)-1, 0))
+}
+
+// Restyle は配色とキー定義を差し替える。項目とカーソル位置は保つ。
+//
+// 作り直さずに差し替えるのは、共有状態が 3 秒ごとに配られるためである。毎回
+// 作り直すとカーソルが先頭へ戻り、操作を選べない。
+func (c *ChoiceList) Restyle(keys keymap.List, s token.Styles) {
+	c.keys, c.styles = keys, s
+}
+
 // SetWidth は 1 行の幅を設定する。実行不可の理由を右端に出すために使う。
 func (c *ChoiceList) SetWidth(w int) {
 	c.width = w

@@ -71,11 +71,11 @@ func NewList() List {
 		),
 		Accept: key.NewBinding(
 			key.WithKeys("enter"),
-			key.WithHelp("enter", "確定"),
+			key.WithHelp("enter", "絞り込みを確定"),
 		),
 		Cancel: key.NewBinding(
 			key.WithKeys("esc"),
-			key.WithHelp("esc", "取消"),
+			key.WithHelp("esc", "絞り込みを取消"),
 		),
 		Enter: key.NewBinding(
 			key.WithKeys("enter"),
@@ -84,12 +84,25 @@ func NewList() List {
 	}
 }
 
-// Bindings は一覧のキーをヘルプに並べる順で返す。
+// Bindings は通常モードで有効な一覧のキーをヘルプに並べる順で返す。
+//
+// 入力中にのみ有効な Accept / Cancel は含めない（FilterBindings が返す）。同じ
+// グループに混ぜると、? の一覧に enter が「確定」と「詳細を開く」の 2 行で並び、
+// どちらが効くのか読み取れない（esc も Global.Back と食い違う）。有効になる状況が
+// 違うキーはグループを分けて示す。
 func (l List) Bindings() []key.Binding {
 	return []key.Binding{
 		l.Up, l.Down, l.Top, l.Bottom, l.PageDown, l.PageUp,
 		l.Toggle, l.SelectAll,
-		l.Filter, l.Accept, l.Cancel,
+		l.Filter,
 		l.Enter,
 	}
+}
+
+// FilterBindings は絞り込みの入力中にのみ有効なキーを返す。
+//
+// 入力中はグローバルキーを解釈しない（atomic-design.md のキー入力の配送）ため、
+// この 2 つと ctrl+c だけが効く状態である。
+func (l List) FilterBindings() []key.Binding {
+	return []key.Binding{l.Accept, l.Cancel}
 }

@@ -123,6 +123,26 @@ func (r RunnerKeys) Footer() []FooterKey {
 	}
 }
 
+// JobsFooter は Jobs タブのフッタに出す操作を screens.md の Jobs タブの順で返す。
+//
+// Footer の部分集合を別に返すのは、Jobs タブが載せる操作が 4 つ（ドレイン・強制停止・
+// 再起動・ログ）だけだからである。削除（D）と設定編集（e）を出さないのは、screens.md の
+// Jobs タブでこの 2 つを詳細画面から辿る操作としているためで、フッタの先頭に置く
+// `enter:runner の詳細` がその入口になる。再起動（R）は逆に、幅の都合で Footer に
+// 入れられなかったものをここで出す（Jobs タブは出すキーが少なく幅に余裕がある）。
+//
+// 表記は Footer と同じ短いものを使う。page 側で書き直してはならない。キーと説明文の
+// 出どころを 1 つにするのが keymap の存在理由であり、page が独自の文言を持つと、
+// キーを差し替えたときに Jobs タブのフッタだけが古い表記のまま残る。
+func (r RunnerKeys) JobsFooter() []FooterKey {
+	return []FooterKey{
+		{Binding: r.Drain, Desc: "ドレイン"},
+		{Binding: r.Kill, Desc: "強制"},
+		{Binding: r.Restart, Desc: "再起動"},
+		{Binding: r.Logs, Desc: "ログ"},
+	}
+}
+
 // Detail は詳細画面の操作リストに並べる操作を返す。
 //
 // 並びは screens.md の詳細画面（l / s / d / R / E / e / u ─ x / X / D）に一致させる。

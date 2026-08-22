@@ -19,9 +19,9 @@ import (
 func TestHelpShowsEveryBinding(t *testing.T) {
 	stop := key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "停止"))
 	stop.SetEnabled(false)
-	groups := append(keymap.New().FullHelp(), []key.Binding{stop})
+	groups := append(keymap.New().RunnerListHelp(), []key.Binding{stop})
 
-	h := pane.NewHelp(testStyles(), groups)
+	h := pane.NewHelp(testStyles(), groups, keymap.NewList())
 	h.SetSize(400, 0)
 
 	got := h.View()
@@ -41,15 +41,15 @@ func TestHelpShowsEveryBinding(t *testing.T) {
 // 色を使わない設定では出力に ANSI 列を含まない。bubbles/help の既定スタイルに任せると、
 // 色を無効にしても lipgloss のカラープロファイル判定で装飾が入ってしまう。
 func TestHelpFollowsColorSetting(t *testing.T) {
-	groups := keymap.New().FullHelp()
+	groups := keymap.New().RunnerListHelp()
 
-	plain := pane.NewHelp(testStyles(), groups)
+	plain := pane.NewHelp(testStyles(), groups, keymap.NewList())
 	plain.SetSize(400, 0)
 	if got := plain.View(); strings.Contains(got, "\x1b[") {
 		t.Errorf("色が無効なのに ANSI 列がある: %q", got)
 	}
 
-	colored := pane.NewHelp(token.NewStyles(true, true), groups)
+	colored := pane.NewHelp(token.NewStyles(true, true), groups, keymap.NewList())
 	colored.SetSize(400, 0)
 	if got := colored.View(); !strings.Contains(got, "\x1b[") {
 		t.Error("色が有効なのに装飾が付いていない")
@@ -58,7 +58,7 @@ func TestHelpFollowsColorSetting(t *testing.T) {
 
 // SetSize が反映される。幅は bubbles/help の列組み、高さは行数の切り詰めに効く。
 func TestHelpSetSize(t *testing.T) {
-	h := pane.NewHelp(testStyles(), keymap.New().FullHelp())
+	h := pane.NewHelp(testStyles(), keymap.New().RunnerListHelp(), keymap.NewList())
 
 	h.SetSize(400, 0)
 	full := lipgloss.Height(h.View())
@@ -82,4 +82,68 @@ func TestHelpSetSize(t *testing.T) {
 	if got := lipgloss.Width(h.View()); got >= wide {
 		t.Errorf("幅 30 のときの表示幅 = %d, want %d 未満", got, wide)
 	}
+}
+
+// 高さに収まらない行はスクロールで読める。
+//
+// 切り詰めるだけだと、モーダルの最上位に居る間はキーが背後へ流れない（page/overlay.go）
+// ため、隠れた行に到達する手段が無くなる（atomic-design.md は スクロール位置 を Help の
+// ローカル状態と定めている）。
+func TestHelpScrollsToClippedRows(t *testing.T) {
+	groups := keymap.New().RunnerListHelp()
+	h := pane.NewHelp(testStyles(), groups, keymap.NewList())
+
+	// 全体の行数を測ってから、収まらない高さを与える。
+	h.SetSize(40, 0)
+	full := lipgloss.Height(h.View())
+	if full < 4 {
+		t.Fatalf("全キー一覧の行数 = %d, want 4 以上", full)
+	}
+
+	const height = 2
+	h.SetSize(40, height)
+	if !h.Scrollable() {
+		t.Fatal("収まらないのに Scrollable が false")
+	}
+	first := h.View()
+
+	// 末尾へ送ると最後の行が見える。切り詰めるだけの実装では到達できない。
+	last := lastLine(t, groups, 40)
+	h, _ = h.Update(press("G"))
+	if got := h.View(); !strings.Contains(got, strings.TrimSpace(last)) {
+		t.Errorf("末尾へ送った表示 = %q, want 最終行 %q を含む", got, last)
+	}
+	if lipgloss.Height(h.View()) != height {
+		t.Errorf("スクロール後の行数 = %d, want %d", lipgloss.Height(h.View()), height)
+	}
+
+	// 先頭へ戻る。1 行ずつのスクロールも効く。
+	h, _ = h.Update(press("g"))
+	if h.View() != first {
+		t.Error("g で先頭へ戻っていない")
+	}
+	h, _ = h.Update(press("j"))
+	if h.View() == first {
+		t.Error("j で 1 行もスクロールしていない")
+	}
+	h, _ = h.Update(press("k"))
+	if h.View() != first {
+		t.Error("k で戻っていない")
+	}
+
+	// 端を越えては動かない。
+	h, _ = h.Update(press("k"))
+	if h.View() != first {
+		t.Error("先頭より上へスクロールしている")
+	}
+}
+
+// lastLine は全キー一覧の最終行を返す。
+func lastLine(t *testing.T, groups [][]key.Binding, width int) string {
+	t.Helper()
+
+	full := pane.NewHelp(testStyles(), groups, keymap.NewList())
+	full.SetSize(width, 0)
+	lines := strings.Split(full.View(), "\n")
+	return lines[len(lines)-1]
 }

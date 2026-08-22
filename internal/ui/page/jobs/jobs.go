@@ -15,6 +15,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/ui/atom"
 	"github.com/ousiassllc/gsr-helper/internal/ui/organism/table"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/runnerdetail"
 )
 
 const (
@@ -38,12 +39,17 @@ type Model struct {
 var _ tea.Model = Model{}
 
 // New は Jobs タブを組み立てる。tab は親が持つタブ番号で、ChromeMsg に載せる。
+//
+// モーダルは画面が登録する（page.Overlay の doc）。Jobs タブが開くのは runner の
+// 詳細画面だけで、操作対象がジョブではなく runner であることと対応する（FR-47）。
 func New(tab int, st page.StateMsg) Model {
+	overlay := page.NewOverlay(st.Keys, st.Styles, st.Dark)
+	overlay.Register(runnerdetail.Kind, runnerdetail.New(st))
 	return Model{
 		tab:     tab,
 		st:      st,
 		tbl:     newTable(st.Keys, st.Styles),
-		overlay: page.NewOverlay(st.Keys, st.Styles, st.Dark),
+		overlay: overlay,
 	}
 }
 
@@ -120,7 +126,7 @@ func (m *Model) openDetail() {
 	if !ok {
 		return
 	}
-	m.overlay.OpenDetail(cur.runner, m.st.Caps)
+	runnerdetail.Open(&m.overlay, cur.runner, m.st.Caps)
 }
 
 // chrome は親へ本体以外の状態を知らせる Cmd を返す。
@@ -154,34 +160,16 @@ func (m Model) status() string {
 	return ""
 }
 
-// footerKey は Jobs タブのフッタ 1 項目のキーと文言。
-type footerKey struct {
-	key  string
-	desc string
-}
-
-// footerKeys は Jobs タブのフッタに出す操作と文言を返す（screens.md の Jobs タブ）。
-//
-// 操作対象がジョブではなく runner であることを画面上で明示する（FR-47）が、
-// **明示は先頭の `enter:runner の詳細` に代表させる**。全キーに「runner を」を
-// 付けると幅 80 に収まらず、有効なキーがフッタから落ちる（設計原則 1 に反する）。
-//
-// 出す操作は screens.md の Jobs タブが挙げる 4 つ（ドレイン・強制停止・再起動・
-// ログ）に限る。削除と設定編集は詳細画面から行う。文言は Runners タブのフッタと
-// 同じく短い表記を使う（説明は ? の全キー一覧が担う）。
-func footerKeys() []footerKey {
-	return []footerKey{
-		{key: "d", desc: "ドレイン"},
-		{key: "X", desc: "強制停止"},
-		{key: "R", desc: "再起動"},
-		{key: "l", desc: "ログ"},
-	}
-}
-
 // footer はフッタのキーヒントを返す。
 //
-// 可否と理由の判定は page.Allowed に任せ、Jobs タブ側で操作可否を作り直さない。
-// 同じ操作の理由が Runners タブと食い違わないようにするためである。
+// 出す操作と表記は keymap.RunnerKeys.JobsFooter に従い、Jobs タブ側では持たない。
+// キーと説明文の出どころを 1 つにするためである（page が文言を書き直すと、キーを
+// 差し替えたときにこのフッタだけが古くなる）。可否と理由の判定も page.Allowed に
+// 任せ、同じ操作の理由が Runners タブと食い違わないようにする。
+//
+// 先頭の `enter:runner の詳細` は、操作対象がジョブではなく runner であることの明示を
+// 兼ねる（FR-47）。全キーに「runner を」を付けると幅 80 に収まらず、有効なキーが
+// フッタから落ちる（設計原則 1 に反する）。
 func (m Model) footer() []atom.Hint {
 	if m.overlay.Active() {
 		return m.overlay.Hints()
@@ -191,19 +179,21 @@ func (m Model) footer() []atom.Hint {
 		return nil
 	}
 
-	keys := footerKeys()
-	hints := make([]atom.Hint, 0, len(keys)+1)
+	keys := m.st.Keys.Runner
+	footer := keys.JobsFooter()
+	hints := make([]atom.Hint, 0, len(footer)+1)
 	hints = append(hints, atom.Hint{
 		Key:     page.BindingKey(m.st.Keys.List.Enter),
 		Desc:    detailDesc,
 		Enabled: true,
 		Reason:  "",
 	})
-	for _, f := range keys {
-		enabled, reason := page.Allowed(f.key, cur.runner, m.st.Caps)
+	for _, f := range footer {
+		k := page.BindingKey(f.Binding)
+		enabled, reason := page.Allowed(k, cur.runner, m.st.Caps, keys)
 		hints = append(hints, atom.Hint{
-			Key:     f.key,
-			Desc:    f.desc,
+			Key:     k,
+			Desc:    f.Desc,
 			Enabled: enabled,
 			Reason:  reason,
 		})
