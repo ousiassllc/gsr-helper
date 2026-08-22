@@ -4,17 +4,21 @@ import "charm.land/bubbles/v2/key"
 
 // Set は 1 つの画面で参照するキー定義の集約。
 type Set struct {
-	Global Global
-	List   List
-	Runner RunnerKeys
+	Global  Global
+	List    List
+	Runner  RunnerKeys
+	Disk    DiskKeys
+	Confirm ConfirmKeys
 }
 
 // New はキー定義の集約を返す。
 func New() Set {
 	return Set{
-		Global: NewGlobal(),
-		List:   NewList(),
-		Runner: NewRunnerKeys(),
+		Global:  NewGlobal(),
+		List:    NewList(),
+		Runner:  NewRunnerKeys(),
+		Disk:    NewDiskKeys(),
+		Confirm: NewConfirmKeys(),
 	}
 }
 
@@ -56,6 +60,12 @@ func (s Set) Contexts() []Context {
 	normal = append(normal, s.List.Bindings()...)
 	normal = append(normal, s.Runner.Bindings()...)
 
+	// Disk タブの通常モード。runner の操作キーは効かず、代わりに Disk 固有の
+	// キーが有効になる（選択と再集計は List.Toggle / Global.Refresh を使い回す）。
+	disk := s.Global.Bindings()
+	disk = append(disk, s.List.Bindings()...)
+	disk = append(disk, s.Disk.Bindings()...)
+
 	return []Context{
 		{
 			Name:   "一覧画面（通常モード）",
@@ -63,10 +73,28 @@ func (s Set) Contexts() []Context {
 			Keys:   normal,
 		},
 		{
+			Name:   "Disk タブ（通常モード）",
+			Fields: []string{"Global", "List", "Disk"},
+			Keys:   disk,
+		},
+		{
 			// 入力中はグローバルキーを解釈せず、確定・取消・中断のみが有効。
 			Name:   "入力中",
 			Fields: []string{"Global", "List"},
 			Keys:   []key.Binding{s.List.Accept, s.List.Cancel, s.Global.Interrupt},
+		},
+		{
+			// 確認ダイアログ表示中はモーダルの背後へキーが流れないため、
+			// y / n と、キャンセルを兼ねる esc / enter、中断の ctrl+c だけが効く
+			// （page/overlay.go のキー配送）。List と Global から由来するキーを
+			// 混ぜているのは、esc と enter を ConfirmKeys で再定義せず
+			// Global.Back / List.Accept を使い回すためである（ConfirmKeys の doc）。
+			Name:   "確認ダイアログ",
+			Fields: []string{"Global", "List", "Confirm"},
+			Keys: []key.Binding{
+				s.Confirm.Yes, s.Confirm.No,
+				s.Global.Back, s.List.Accept, s.Global.Interrupt,
+			},
 		},
 	}
 }
@@ -100,4 +128,13 @@ func (s Set) Help(groups ...[]key.Binding) [][]key.Binding {
 // 使わず Help に自分のグループを渡す。
 func (s Set) RunnerListHelp() [][]key.Binding {
 	return s.Help(s.List.Bindings(), s.List.FilterBindings(), s.Runner.Order())
+}
+
+// DiskHelp は Disk タブが ? に出すグループを返す。
+//
+// 一覧のキー・絞り込み中のキー・Disk 固有のキーを持つ画面のための組み合わせである
+// （RunnerListHelp と同じ形。載せる操作キーの集合だけが違う）。runner の操作キーは
+// この画面では効かないので渡さない。
+func (s Set) DiskHelp() [][]key.Binding {
+	return s.Help(s.List.Bindings(), s.List.FilterBindings(), s.Disk.Bindings())
 }

@@ -14,14 +14,70 @@ func TestWidthMinIsBelowTarget(t *testing.T) {
 
 // 常に表示する列が落とす順に含まれていると、幅不足で消えてしまう。
 func TestColumnsAlwaysAreNotDroppable(t *testing.T) {
-	drop := make(map[string]bool, len(RunnerColumnRules().Drop))
-	for _, id := range RunnerColumnRules().Drop {
-		drop[id] = true
-	}
-	for _, id := range RunnerColumnRules().Keep {
-		if drop[id] {
-			t.Errorf("列 %s は常に表示する列だが落とす順に含まれている", id)
+	for name, rules := range map[string]ColumnRules{
+		"RunnerColumnRules": RunnerColumnRules(),
+		"DiskColumnRules":   DiskColumnRules(),
+	} {
+		drop := make(map[string]bool, len(rules.Drop))
+		for _, id := range rules.Drop {
+			drop[id] = true
 		}
+		for _, id := range rules.Keep {
+			if drop[id] {
+				t.Errorf("%s: 列 %s は常に表示する列だが落とす順に含まれている", name, id)
+			}
+		}
+	}
+}
+
+// 列の定義は、表示を保証する幅（WidthTarget）に全列が収まっていなければならない。
+//
+// 収まらない定義を置くと、幅 80 の端末でも molecule.Columns が列を落とす。各列の
+// doc コメントが宣言している必要幅の計算を、定義そのものと突き合わせる。
+//
+// 行頭とセル間の見積もりは molecule の columnPrefix / columnGutter と同じ値である。
+// token から molecule を参照すると import が循環するため、ここでは同じ値を置き、
+// 食い違いは列の doc コメントで揃える（RunnerColumns の doc）。
+func TestColumnSetsFitTargetWidth(t *testing.T) {
+	const (
+		prefix = 6 // カーソル 1 + 間隔 1 + チェックボックス 3 + 間隔 1
+		gutter = 1 // 列と列の間隔。最終列の後ろには入らない
+	)
+
+	for name, cols := range map[string][]Column{
+		"RunnerColumns": RunnerColumns(),
+		"OrphanColumns": OrphanColumns(),
+		"JobColumns":    JobColumns(),
+		"DiskColumns":   DiskColumns(),
+	} {
+		total := prefix + gutter*(len(cols)-1)
+		for _, c := range cols {
+			total += c.Width
+		}
+		if total > WidthTarget {
+			t.Errorf("%s の必要幅 = %d, want %d 以下", name, total, WidthTarget)
+		}
+	}
+}
+
+// Disk タブの列は、常に表示する列と落とす順の両方を網羅している。
+//
+// 網羅を確かめるのは、落とす順に載っていない列が末尾から落ちるためである。
+// 意図せず「順の宣言から漏れた列」があると、宣言した順とは違う順で消える。
+func TestDiskColumnsCoverAlwaysAndDropOrder(t *testing.T) {
+	have := make(map[string]bool)
+	for _, c := range DiskColumns() {
+		have[c.ID] = true
+	}
+	rules := DiskColumnRules()
+	for _, id := range append(rules.Keep, rules.Drop...) {
+		if !have[id] {
+			t.Errorf("DiskColumns に列 %s がない", id)
+		}
+	}
+	if len(DiskColumns()) != len(rules.Keep)+len(rules.Drop) {
+		t.Errorf("DiskColumns の列数 %d が常時表示 %d + 省略対象 %d と一致しない",
+			len(DiskColumns()), len(rules.Keep), len(rules.Drop))
 	}
 }
 
@@ -47,6 +103,7 @@ func TestColumnsAreWellFormed(t *testing.T) {
 		"RunnerColumns": RunnerColumns(),
 		"OrphanColumns": OrphanColumns(),
 		"JobColumns":    JobColumns(),
+		"DiskColumns":   DiskColumns(),
 	}
 	for name, cols := range sets {
 		if len(cols) == 0 {

@@ -25,6 +25,10 @@ const (
 	ColRepository = "REPOSITORY"
 	ColElapsed    = "ELAPSED"
 	ColWorkerPID  = "WORKER_PID"
+	ColTarget     = "TARGET"
+	ColSize       = "SIZE"
+	ColFiles      = "FILES"
+	ColPath       = "PATH"
 )
 
 // Column は一覧の列 1 つ分の定義。organism.Table が table.Column に変換する。
@@ -88,6 +92,31 @@ func JobColumns() []Column {
 	}
 }
 
+// DiskColumns は Disk タブの削除候補一覧の列を返す（screens.md の Disk タブ）。
+//
+// 必要幅は行頭 6（カーソル 1 + 間隔 1 + チェックボックス 3 + 間隔 1）+ 列幅合計 70 +
+// 列間 3 = 79 セルで、WidthTarget（80）で 1 セル余る。行頭の内訳は molecule の
+// columnPrefix と揃えること。
+//
+// 各列の幅の根拠は次のとおりである。
+//   - TARGET 24: 最長の対象名「docker / dangling images」がちょうど収まる。
+//   - SIZE 11: 集計中の表示「（集計中…）」が 11 セルある。数値（102.4M）より
+//     こちらが幅を決める。切り詰めると集計中と集計失敗を読み分けられない。
+//   - FILES 9: 7 桁（1,234,567）まで区切り付きで収まる。
+//   - PATH 26: 選択できない理由「ジョブ実行中のため削除不可」（26 セル）が収まる。
+//     理由はこの列に載るため（molecule/listrow.DiskTargetRow）、パスではなく理由の
+//     長さで決めてある。パスは atom.Path が中間を中略して収める。
+//
+// SIZE と FILES を右寄せにするのは、桁の違う数値を縦に並べて比較する列だからである。
+func DiskColumns() []Column {
+	return []Column{
+		{ID: ColTarget, Title: "TARGET", Width: 24, Right: false},
+		{ID: ColSize, Title: "SIZE", Width: 11, Right: true},
+		{ID: ColFiles, Title: "FILES", Width: 9, Right: true},
+		{ID: ColPath, Title: "PATH", Width: 26, Right: false},
+	}
+}
+
 // ColumnRules は幅が足りないときの列の落とし方。一覧の区画ごとに持つ。
 //
 // 落とし方を区画の定義と一緒に持つのは、**タブを 1 枚足すたびに共有の並びを
@@ -111,5 +140,19 @@ func RunnerColumnRules() ColumnRules {
 	return ColumnRules{
 		Drop: []string{ColWork, ColVersion, ColManaged, ColScope},
 		Keep: []string{ColName, ColSvc, ColJob},
+	}
+}
+
+// DiskColumnRules は Disk タブの削除候補一覧の落とし方を返す。
+//
+// TARGET と SIZE は落とさない。**どれを消すとどれだけ空くのか**がこの画面の目的で
+// あり（FR-28）、対象名か容量のどちらかが消えると選ぶ判断ができない。
+//
+// 先に落とすのは PATH である。対象名（TARGET）に runner 名と `_work` 配下の相対位置が
+// 入っており、パスはその補足だからである。次が FILES で、削除の判断はサイズで足りる。
+func DiskColumnRules() ColumnRules {
+	return ColumnRules{
+		Drop: []string{ColPath, ColFiles},
+		Keep: []string{ColTarget, ColSize},
 	}
 }

@@ -47,6 +47,9 @@ func allBindings(s Set) []named {
 		{"Runner.Update", s.Runner.Update},
 		{"Runner.Edit", s.Runner.Edit},
 		{"Runner.Logs", s.Runner.Logs},
+		{"Disk.Clean", s.Disk.Clean},
+		{"Confirm.Yes", s.Confirm.Yes},
+		{"Confirm.No", s.Confirm.No},
 	}
 }
 
@@ -73,7 +76,9 @@ func TestAllBindingsCoversEveryField(t *testing.T) {
 	s := New()
 	want := reflect.TypeOf(s.Global).NumField() +
 		reflect.TypeOf(s.List).NumField() +
-		reflect.TypeOf(s.Runner).NumField()
+		reflect.TypeOf(s.Runner).NumField() +
+		reflect.TypeOf(s.Disk).NumField() +
+		reflect.TypeOf(s.Confirm).NumField()
 	if got := len(allBindings(s)); got != want {
 		t.Fatalf("検証対象の件数 = %d, want %d（Binding を追加したらテストも追う）", got, want)
 	}
@@ -113,6 +118,9 @@ func TestKeyAssignmentsMatchSpec(t *testing.T) {
 		"Runner.Update":    {"u"},
 		"Runner.Edit":      {"e"},
 		"Runner.Logs":      {"l"},
+		"Disk.Clean":       {"c"},
+		"Confirm.Yes":      {"y"},
+		"Confirm.No":       {"n"},
 	}
 	for _, b := range allBindings(New()) {
 		if !reflect.DeepEqual(b.binding.Keys(), want[b.name]) {
