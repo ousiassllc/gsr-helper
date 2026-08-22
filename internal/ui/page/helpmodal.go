@@ -27,6 +27,8 @@ type helpModal struct {
 	help  pane.Help
 	keys  keymap.Set
 	scope HelpScope
+	// size は最後に受け取った領域。作り直した Help へ、位置を戻す**前に**配り直す。
+	size SizeMsg
 }
 
 // tea.Model を実装していることをコンパイル時に確かめる。
@@ -38,6 +40,7 @@ func newHelpModal(st StateMsg, scope HelpScope) Modal {
 		help:  pane.NewHelp(st.Styles, scope(st.Keys), st.Keys.List),
 		keys:  st.Keys,
 		scope: scope,
+		size:  SizeMsg{W: 0, H: 0},
 	}
 	return Modal{
 		Model: m,
@@ -58,12 +61,19 @@ func (m helpModal) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case StateMsg:
 		// 配色とキー定義が変わったら同じ範囲で組み直し、スクロール位置は引き継ぐ。
 		// 位置を戻すと、背景色の応答が届いただけで読んでいた場所を失う。
+		//
+		// **大きさを配り直してから位置を戻す。** SetOffset は高さで丸めるため、
+		// 高さが未確定（NewHelp の直後は 0）のうちに呼ぶと位置は 0 に潰れ、後から
+		// SizeMsg で高さが入っても戻らない。共有状態は 3 秒ごとに届くので、
+		// 順序を誤るとヘルプを読んでいる間ずっと先頭へ戻され続ける。
 		off := m.help.Offset()
 		m.keys = msg.Keys
 		m.help = pane.NewHelp(msg.Styles, m.scope(msg.Keys), msg.Keys.List)
+		m.help.SetSize(m.size.W, m.size.H)
 		m.help.SetOffset(off)
 		return m, nil
 	case SizeMsg:
+		m.size = msg
 		m.help.SetSize(msg.W, msg.H)
 		return m, nil
 	default:

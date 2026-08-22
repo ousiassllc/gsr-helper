@@ -85,12 +85,18 @@ func newModel(keys keymap.Set, s token.Styles) Model {
 //
 // 操作リストのカーソルは organism.ChoiceList.SetItems が常に先頭（安全側）へ戻す。
 // 一覧の enter → 詳細の enter で破壊的操作に到達しないための規則（FR-46）である。
+//
+// **情報部のスクロールも先頭へ戻す。** 80x24 では情報部に配れる行数が 1 行まで
+// 潰れる（infoHeight）ため、位置を持ち越すと別の runner の詳細が読んでいた場所から
+// 始まり、前の runner の続きを今の runner の情報として読むことになる。同じ対象の
+// 状態が変わっただけの SetState では戻さない（読んでいた場所を失う）。
 func (d *Model) Open(r runner.Runner, caps appconfig.Caps) {
 	d.target, d.caps = r, caps
 	items := page.Choices(r, caps, d.keys.Runner)
 	d.list.SetItems(items)
 	d.opRows = len(items) + 1 // 破壊的操作の前に置く区切り線 1 本
 	d.refresh()
+	d.info.GotoTop()
 }
 
 // SetSize は詳細に割り当てられた領域を設定する。

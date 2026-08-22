@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
@@ -175,5 +176,78 @@ func TestChoiceListRowsFitWidth(t *testing.T) {
 				t.Errorf("幅 %d: %d 行目の幅 = %d（%q）", width, i, w, line)
 			}
 		}
+	}
+}
+
+// UpdateItems は内容を差し替えてもカーソル位置を保つ。
+//
+// 同じ対象の状態が変わっただけ（3 秒ごとの再検出でジョブが始まった等）でカーソルが
+// 先頭へ戻ると、操作を選んでいる途中で選択がずれる。本番の呼び出し元は
+// page/runnerdetail/detail.go の SetState である（Issue #30）。
+func TestChoiceListUpdateItemsKeepsCursor(t *testing.T) {
+	c := newChoices(detailChoices())
+	c, _ = sendChoice(c, "j", "j")
+	if got := c.Cursor(); got != 2 {
+		t.Fatalf("カーソル = %d, want 2", got)
+	}
+
+	// 同じ件数で内容だけが変わる。
+	next := detailChoices()
+	next[2].Enabled = false
+	next[2].Reason = "ジョブ実行中です"
+	c.UpdateItems(next)
+	if got := c.Cursor(); got != 2 {
+		t.Errorf("内容の差し替え後のカーソル = %d, want 2", got)
+	}
+	if !strings.Contains(c.View(), "ジョブ実行中です") {
+		t.Error("差し替えた内容が描かれていない")
+	}
+
+	// 件数が減ったら末尾へ丸める（範囲外を指したままにしない）。
+	c.UpdateItems(detailChoices()[:2])
+	if got := c.Cursor(); got != 1 {
+		t.Errorf("件数が減った後のカーソル = %d, want 1", got)
+	}
+
+	// 空になっても 0 に収まる。
+	c.UpdateItems(nil)
+	if got := c.Cursor(); got != 0 {
+		t.Errorf("空にした後のカーソル = %d, want 0", got)
+	}
+
+	// SetItems は逆に先頭（安全側）へ戻す（FR-46）。
+	c.SetItems(detailChoices())
+	c, _ = sendChoice(c, "j", "j")
+	c.SetItems(detailChoices())
+	if got := c.Cursor(); got != 0 {
+		t.Errorf("SetItems の後のカーソル = %d, want 0（安全側へ戻していない）", got)
+	}
+}
+
+// Restyle は配色とキー定義を差し替え、項目とカーソル位置は保つ。
+//
+// 共有状態は 3 秒ごとに配られるため、作り直すとカーソルが先頭へ戻って操作を
+// 選べない。本番の呼び出し元は page/runnerdetail/detail.go の SetState である。
+func TestChoiceListRestyleKeepsItemsAndCursor(t *testing.T) {
+	c := newChoices(detailChoices())
+	c, _ = sendChoice(c, "j", "j")
+	before := c.View()
+
+	c.Restyle(keymap.NewList(), token.NewStyles(false, false))
+	if got := c.Cursor(); got != 2 {
+		t.Errorf("配色の差し替え後のカーソル = %d, want 2", got)
+	}
+	if lipgloss.Width(c.View()) != lipgloss.Width(before) {
+		t.Error("配色の差し替えで項目が失われている")
+	}
+
+	// 差し替えたキー定義で動く（Up / Down が別のキーになっても追随する）。
+	alt := keymap.NewList()
+	alt.Up = key.NewBinding(key.WithKeys("p"))
+	alt.Down = key.NewBinding(key.WithKeys("n"))
+	c.Restyle(alt, testStyles())
+	c, _ = sendChoice(c, "n")
+	if got := c.Cursor(); got != 3 {
+		t.Errorf("差し替えたキーでの移動後のカーソル = %d, want 3", got)
 	}
 }
