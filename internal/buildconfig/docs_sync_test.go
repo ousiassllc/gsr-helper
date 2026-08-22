@@ -12,6 +12,7 @@ import (
 var embeddedConfigFiles = []string{
 	"Makefile",
 	".github/workflows/ci.yml",
+	".github/dependabot.yml",
 	".golangci.yml",
 	".linterly.yml",
 	".linterlyignore",

@@ -26,8 +26,12 @@ sudo apt-get update && sudo apt-get install -y docker.io docker-buildx
 sudo usermod -aG docker <runner-user>
 sudo systemctl restart 'actions.runner.*'   # 既存プロセスには反映されないので必須
 
+# 5. C コンパイラ
+#    make test は go test -race で走り、競合検出は cgo（= gcc）を必要とする
+sudo apt-get install -y build-essential
+
 # 確認
-docker version && docker buildx version
+docker version && docker buildx version && gcc --version
 ```
 
 ### 各手順の注意
@@ -38,6 +42,7 @@ docker version && docker buildx version
 | 1. パスワード不要 sudo | `NOPASSWD: ALL` は、この runner で実行される**任意のワークフローに実質 root を与える**ことを意味する。public リポジトリで使う runner では特に危険なため、可能なら必要なコマンドに限定する |
 | 2-3. Docker と Buildx | `docker.io` パッケージには buildx が含まれない。`docker-buildx` を明示的に入れる |
 | 4. docker グループ | **`usermod` は既存プロセスに反映されない。** runner を再起動しないと、グループに追加済みでも `permission denied` が出続ける |
+| 5. C コンパイラ | `actions/setup-go` は Go ツールチェーンだけを導入し、**C コンパイラは入れない**。欠けていると `make test`（= `go test -race ./...`）が `-race requires cgo` で失敗する（[C コンパイラ](#c-コンパイラ)） |
 
 ## ラベル
 
@@ -62,12 +67,7 @@ org（`ousiassllc`）レベルに登録した runner は、**runner group の対
 
 ## C コンパイラ
 
-**`gcc` をホストに入れる。** CI の `test` ジョブは `make test`（= `go test -race ./...`）を実行し、**競合検出は cgo を必要とする**ため C コンパイラが無いとジョブが失敗する（実測: `CGO_ENABLED=0 go test -race` が `-race requires cgo` で失敗する）。`actions/setup-go` は Go ツールチェーンだけを導入し、C コンパイラは入れない。
-
-```bash
-sudo apt-get install -y build-essential
-gcc --version   # 確認
-```
+**`gcc` をホストに入れる**（導入は[手順](#手順)の 5 に含む）。CI の `test` ジョブは `make test`（= `go test -race ./...`）を実行し、**競合検出は cgo を必要とする**ため C コンパイラが無いとジョブが失敗する（実測: `CGO_ENABLED=0 go test -race` が `-race requires cgo` で失敗する）。`actions/setup-go` は Go ツールチェーンだけを導入し、C コンパイラは入れない。
 
 ## 言語ツールチェーン
 
@@ -105,4 +105,4 @@ gcc --version   # 確認
 |----|------|---------|---------|
 | 1.0 | 2026-08-21 | 新規作成 | 初版。doctor のジョブ実行の前提チェック（FR-43）の根拠となる実運用の手順を記録 |
 | 1.1 | 2026-08-22 | 「runner group の対象リポジトリ」節を追加し、対象リポジトリの限定と public リポジトリへ提供しない既定を維持する運用を明記 | self-hosted runner を掴めるリポジトリを絞ることが fork PR ガードの一次防御の 1 層であるにもかかわらず、手順として記録されていなかったため（Issue #17）。設定の確認には `admin:org` スコープが必要で CI から機械的に検証できないため、手動確認のタイミングもあわせて明記した |
-| 1.2 | 2026-08-22 | 「C コンパイラ」節を追加し、`build-essential` の導入手順と「欠けているものと症状」への行を追記 | CI の `test` ジョブが `make test`（= `go test -race ./...`）を実行するようになり、競合検出は cgo を必要とするため C コンパイラがホストの前提に加わった。`actions/setup-go` は C コンパイラを導入しないため、欠けているとジョブが `-race requires cgo` で失敗する（Issue #21） |
+| 1.2 | 2026-08-22 | 「C コンパイラ」節を追加し、冒頭の「手順」ブロックに `build-essential` の導入（手順 5）と `gcc --version` の確認を追加、「各手順の注意」と「欠けているものと症状」にも対応する行を追記 | CI の `test` ジョブが `make test`（= `go test -race ./...`）を実行するようになり、競合検出は cgo を必要とするため C コンパイラがホストの前提に加わった。`actions/setup-go` は C コンパイラを導入しないため、欠けているとジョブが `-race requires cgo` で失敗する（Issue #21） |
