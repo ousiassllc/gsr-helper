@@ -1,4 +1,4 @@
-package appconfig
+package hostcaps
 
 import (
 	"context"
@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ousiassllc/gsr-helper/internal/appconfig/confpath"
 	"github.com/ousiassllc/gsr-helper/internal/exec"
 )
 
@@ -44,7 +45,7 @@ func fakePATH(t *testing.T) {
 	}
 	t.Setenv("PATH", dir)
 	t.Setenv(envGHToken, "")
-	t.Setenv(envSudoUser, "")
+	t.Setenv(confpath.EnvSudoUser, "")
 }
 
 // okResult は「応答した」と判定される結果。
@@ -155,7 +156,7 @@ func TestDetectSudoUser(t *testing.T) {
 		{name: "不正な文字種", env: "-x", want: ""},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			p := testProbes(nil, map[string]string{envSudoUser: tt.env}, 1000)
+			p := testProbes(nil, map[string]string{confpath.EnvSudoUser: tt.env}, 1000)
 			if got := detect(context.Background(), exec.NewFake(), p, testTimeout).SudoUser; got != tt.want {
 				t.Errorf("SudoUser = %q, want %q", got, tt.want)
 			}

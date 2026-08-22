@@ -1,4 +1,4 @@
-package appconfig
+package confpath
 
 // t.Setenv を使うため、このファイルのテストは t.Parallel() を付けない。
 
@@ -38,28 +38,28 @@ func TestResolveOwner(t *testing.T) {
 	tests := []struct {
 		name      string
 		sudoUser  string
-		wantOwner owner
+		wantOwner Owner
 		wantCall  bool
 	}{
-		{name: "未設定なら実行ユーザー", sudoUser: "", wantOwner: owner{name: "root", home: "/root", uid: 0, gid: 0}},
+		{name: "未設定なら実行ユーザー", sudoUser: "", wantOwner: Owner{name: "root", home: "/root", uid: 0, gid: 0}},
 		{
 			name:      "設定されていれば SUDO_USER",
 			sudoUser:  "ousiass",
-			wantOwner: owner{name: "ousiass", home: "/home/ousiass", uid: 1000, gid: 1000},
+			wantOwner: Owner{name: "ousiass", home: "/home/ousiass", uid: 1000, gid: 1000},
 			wantCall:  true,
 		},
 		{
 			name:      "存在しないユーザーなら実行ユーザー",
 			sudoUser:  "nosuchuser",
-			wantOwner: owner{name: "root", home: "/root", uid: 0, gid: 0},
+			wantOwner: Owner{name: "root", home: "/root", uid: 0, gid: 0},
 			wantCall:  true,
 		},
-		{name: "- 始まりは検証で弾く", sudoUser: "-x", wantOwner: owner{name: "root", home: "/root", uid: 0, gid: 0}},
-		{name: "空白入りは検証で弾く", sudoUser: "ou siass", wantOwner: owner{name: "root", home: "/root", uid: 0, gid: 0}},
+		{name: "- 始まりは検証で弾く", sudoUser: "-x", wantOwner: Owner{name: "root", home: "/root", uid: 0, gid: 0}},
+		{name: "空白入りは検証で弾く", sudoUser: "ou siass", wantOwner: Owner{name: "root", home: "/root", uid: 0, gid: 0}},
 		{
 			name:      "33 文字は検証で弾く",
 			sudoUser:  strings.Repeat("a", maxUserNameLen+1),
-			wantOwner: owner{name: "root", home: "/root", uid: 0, gid: 0},
+			wantOwner: Owner{name: "root", home: "/root", uid: 0, gid: 0},
 		},
 	}
 
@@ -93,7 +93,7 @@ func TestResolveOwnerSelfError(t *testing.T) {
 }
 
 func TestConfigPath(t *testing.T) {
-	o := owner{name: "ousiass", home: "/home/ousiass", uid: 1000, gid: 1000}
+	o := Owner{name: "ousiass", home: "/home/ousiass", uid: 1000, gid: 1000}
 
 	tests := []struct {
 		name string
@@ -113,8 +113,8 @@ func TestConfigPath(t *testing.T) {
 			if got != tt.want {
 				t.Errorf("configPath() = %s, want %s", got, tt.want)
 			}
-			if !strings.HasSuffix(got, filepath.Join(appDirName, configFileName)) {
-				t.Errorf("configPath() が %s で終わっていない: %s", filepath.Join(appDirName, configFileName), got)
+			if !strings.HasSuffix(got, filepath.Join(DirName, FileName)) {
+				t.Errorf("configPath() が %s で終わっていない: %s", filepath.Join(DirName, FileName), got)
 			}
 		})
 	}
@@ -125,8 +125,8 @@ func TestConfigPath(t *testing.T) {
 //
 // 実行ユーザーではなく lookup を差し替えて uid 1000 を与える。実効 UID に
 // 依存しないので、root で make test しても sudo 下の本来の状況を検証できる。
-func TestDefaultPathAvoidsRootHome(t *testing.T) {
-	t.Setenv(envXDGConfigHome, "/root/.config")
+func TestConfigPathAvoidsRootHome(t *testing.T) {
+	t.Setenv(EnvXDGConfigHome, "/root/.config")
 	known := map[string]*user.User{"ousiass": fakeUser("ousiass", "/home/ousiass", "1000", "1000")}
 
 	var calls []string
@@ -136,9 +136,9 @@ func TestDefaultPathAvoidsRootHome(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolveOwner() でエラー: %v", err)
 	}
-	got := defaultPathFor(o)
+	got := o.ConfigPath()
 	if want := "/home/ousiass/.config/gsr-helper/config.yaml"; got != want {
-		t.Errorf("defaultPathFor() = %s, want %s", got, want)
+		t.Errorf("ConfigPath() = %s, want %s", got, want)
 	}
 }
 
@@ -148,7 +148,7 @@ func TestDefaultPathAvoidsRootHome(t *testing.T) {
 func TestChownDirsDoesNotFollowSymlink(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, "target") // 作らない = リンク先が無い状態
-	link := filepath.Join(dir, appDirName)
+	link := filepath.Join(dir, DirName)
 	if err := os.Symlink(target, link); err != nil {
 		t.Fatalf("準備に失敗: %v", err)
 	}
@@ -163,7 +163,7 @@ func TestChownDirsDoesNotFollowSymlink(t *testing.T) {
 // root 実行時に締め直す対象は「作ったディレクトリ」と leaf だけであること。
 func TestMkdirOwnedFSTargets(t *testing.T) {
 	home := t.TempDir()
-	dir := filepath.Join(home, ".config", appDirName)
+	dir := filepath.Join(home, ".config", DirName)
 
 	var chowned, chmodded []string
 	ops := fsOps{
@@ -171,7 +171,8 @@ func TestMkdirOwnedFSTargets(t *testing.T) {
 		chmod:   func(p string, _ os.FileMode) error { chmodded = append(chmodded, p); return nil },
 		lchown:  func(p string, _, _ int) error { chowned = append(chowned, p); return nil },
 	}
-	if err := mkdirOwnedFS(dir, owner{name: "u", home: home, uid: 1000, gid: 1000}, ops); err != nil {
+	o := Owner{name: "u", home: home, uid: 1000, gid: 1000}
+	if err := o.mkdirOwnedFS(dir, ops); err != nil {
 		t.Fatalf("mkdirOwnedFS() でエラー: %v", err)
 	}
 	if want := []string{filepath.Join(home, ".config"), dir}; !reflect.DeepEqual(chowned, want) {
@@ -186,9 +187,10 @@ func TestMkdirOwnedFSTargets(t *testing.T) {
 // root 所有 0700 のホームができ、当該ユーザーが自分の設定を読めなくなる。
 func TestMkdirOwnedRequiresExistingHome(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "newuser")
-	dir := filepath.Join(home, ".config", appDirName)
+	dir := filepath.Join(home, ".config", DirName)
 
-	if err := mkdirOwned(dir, owner{name: "newuser", home: home, uid: 1000, gid: 1000}); err == nil {
+	o := Owner{name: "newuser", home: home, uid: 1000, gid: 1000}
+	if err := o.MkdirOwned(dir); err == nil {
 		t.Fatal("ホームが無いのにエラーを返していない")
 	}
 	if _, err := os.Stat(home); !errors.Is(err, fs.ErrNotExist) {
@@ -200,20 +202,20 @@ func TestChownTarget(t *testing.T) {
 	tests := []struct {
 		name             string
 		euid             int
-		own              owner
+		own              Owner
 		wantUID, wantGID int
 		wantOK           bool
 	}{
-		{name: "非 root では chown しない", euid: 1000, own: owner{uid: 1000, gid: 1000}},
-		{name: "root 実行で root 所有なら不要", euid: 0, own: owner{uid: 0, gid: 0}},
-		{name: "root 実行で別ユーザー所有なら chown", euid: 0, own: owner{uid: 1000, gid: 1000}, wantUID: 1000, wantGID: 1000, wantOK: true},
+		{name: "非 root では chown しない", euid: 1000, own: Owner{uid: 1000, gid: 1000}},
+		{name: "root 実行で root 所有なら不要", euid: 0, own: Owner{uid: 0, gid: 0}},
+		{name: "root 実行で別ユーザー所有なら chown", euid: 0, own: Owner{uid: 1000, gid: 1000}, wantUID: 1000, wantGID: 1000, wantOK: true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			uid, gid, ok := chownTarget(tt.euid, tt.own)
+			uid, gid, ok := tt.own.ChownTarget(tt.euid)
 			if uid != tt.wantUID || gid != tt.wantGID || ok != tt.wantOK {
-				t.Errorf("chownTarget() = (%d, %d, %v), want (%d, %d, %v)", uid, gid, ok, tt.wantUID, tt.wantGID, tt.wantOK)
+				t.Errorf("ChownTarget() = (%d, %d, %v), want (%d, %d, %v)", uid, gid, ok, tt.wantUID, tt.wantGID, tt.wantOK)
 			}
 		})
 	}

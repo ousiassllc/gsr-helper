@@ -1,10 +1,11 @@
-package appconfig
+package hostcaps
 
 import (
 	"context"
 	"strings"
 	"time"
 
+	"github.com/ousiassllc/gsr-helper/internal/appconfig/confpath"
 	"github.com/ousiassllc/gsr-helper/internal/exec"
 )
 
@@ -40,7 +41,7 @@ func hasTokenDefault(ctx context.Context, ex exec.Executor, p probes, timeout ti
 	}
 
 	// sudo -u の引数になるため文字種を検証済みの値を使う。不正ならこの経路を飛ばす。
-	if su := sudoUserFromEnv(p.getenv); p.geteuid() == 0 && su != "" {
+	if su := confpath.SudoUserFrom(p.getenv); p.geteuid() == 0 && su != "" {
 		if runProbe(ctx, ex, "caps.token", timeout, "sudo", "-u", su, "gh", "auth", "token") {
 			return true
 		}

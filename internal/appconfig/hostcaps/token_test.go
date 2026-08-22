@@ -1,10 +1,11 @@
-package appconfig
+package hostcaps
 
 import (
 	"context"
 	"slices"
 	"testing"
 
+	"github.com/ousiassllc/gsr-helper/internal/appconfig/confpath"
 	"github.com/ousiassllc/gsr-helper/internal/exec"
 )
 
@@ -27,7 +28,7 @@ func TestDetectGitHubToken(t *testing.T) {
 		{
 			name:      "sudo 経路（SUDO_USER + root）",
 			avail:     []string{"gh"},
-			env:       map[string]string{envSudoUser: "ousiass"},
+			env:       map[string]string{confpath.EnvSudoUser: "ousiass"},
 			euid:      0,
 			want:      true,
 			wantCalls: []string{"sudo -u ousiass gh auth token"},
@@ -35,7 +36,7 @@ func TestDetectGitHubToken(t *testing.T) {
 		{
 			name:      "非 root なら直接 gh のみ",
 			avail:     []string{"gh"},
-			env:       map[string]string{envSudoUser: "ousiass"},
+			env:       map[string]string{confpath.EnvSudoUser: "ousiass"},
 			euid:      1000,
 			want:      true,
 			wantCalls: []string{"gh auth token"},
@@ -43,7 +44,7 @@ func TestDetectGitHubToken(t *testing.T) {
 		{
 			name:      "sudo 経路が失敗したら直接 gh にフォールバック",
 			avail:     []string{"gh"},
-			env:       map[string]string{envSudoUser: "ousiass"},
+			env:       map[string]string{confpath.EnvSudoUser: "ousiass"},
 			euid:      0,
 			fail:      []string{"sudo"},
 			want:      true,
@@ -52,7 +53,7 @@ func TestDetectGitHubToken(t *testing.T) {
 		{
 			name:      "両経路が失敗",
 			avail:     []string{"gh"},
-			env:       map[string]string{envSudoUser: "ousiass"},
+			env:       map[string]string{confpath.EnvSudoUser: "ousiass"},
 			euid:      0,
 			fail:      []string{"sudo", "gh"},
 			want:      false,
@@ -61,7 +62,7 @@ func TestDetectGitHubToken(t *testing.T) {
 		{
 			name:  "SUDO_USER の文字種が不正なら sudo 経路を飛ばす",
 			avail: []string{"gh"},
-			env:   map[string]string{envSudoUser: "-x"},
+			env:   map[string]string{confpath.EnvSudoUser: "-x"},
 			euid:  0,
 			want:  true, wantCalls: []string{"gh auth token"},
 		},

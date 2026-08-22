@@ -1,9 +1,13 @@
-// Package appconfig は gsr-helper 自身の設定（YAML）の読み書きと、起動時の能力判定を担う。
+// Package appconfig は gsr-helper 自身の設定（YAML）の読み書きを担う。
 //
 // 設定ファイルはすべての項目に既定値を持ち、ファイルが存在しなくても動作する
 // （初回起動を異常として扱わない）。配置先は実行ユーザー（sudo 実行時は SUDO_USER）の
 // 設定ディレクトリで、root のホームには置かない。詳細は docs/architecture/security.md
 // の「設定と状態ファイルの所有者に注意する」を参照。
+//
+// 配置先の決定と所有者・パーミッションは internal/appconfig/confpath、起動時の
+// 能力判定は internal/appconfig/hostcaps にある。本パッケージはそれらの入口を
+// 再公開する（alias.go）ので、呼び出し側は appconfig だけを import すればよい。
 package appconfig
 
 import (
@@ -17,6 +21,8 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/ousiassllc/gsr-helper/internal/appconfig/confpath"
 )
 
 // 既定値。設定ファイルが無い場合も項目が省略された場合もこの値になる。
@@ -195,17 +201,17 @@ func Save(cfg Config, path string) error {
 	if err != nil {
 		return err
 	}
-	o, err := defaultOwner()
+	o, err := confpath.Resolve()
 	if err != nil {
 		return err
 	}
 	if path == "" {
-		path = defaultPathFor(o)
+		path = o.ConfigPath()
 	}
 	path = filepath.Clean(path)
 
 	dir := filepath.Dir(path)
-	if err := mkdirOwned(dir, o); err != nil {
+	if err := o.MkdirOwned(dir); err != nil {
 		return err
 	}
 	b, err := yaml.Marshal(cfg)
@@ -224,7 +230,7 @@ func Save(cfg Config, path string) error {
 // rename 後に親ディレクトリの fsync はしない。ここで守るのは「中途半端な内容の
 // 設定ファイルを残さない」ことまでで、電源断で rename 自体が失われることは
 // 許容する（失われても既定値で起動でき、利用者が書き直せば済む）。
-func writeAtomic(path, dir string, b []byte, o owner) error {
+func writeAtomic(path, dir string, b []byte, o confpath.Owner) error {
 	f, err := os.CreateTemp(dir, ".config.yaml.*")
 	if err != nil {
 		return fmt.Errorf("%s への一時ファイルの作成に失敗しました: %w", dir, err)
@@ -242,7 +248,7 @@ func writeAtomic(path, dir string, b []byte, o owner) error {
 }
 
 // writeTemp は一時ファイルにパーミッション・所有者・内容を設定する。
-func writeTemp(f *os.File, b []byte, o owner) error {
+func writeTemp(f *os.File, b []byte, o confpath.Owner) error {
 	err := fillTemp(f, b, o)
 	// Close の戻り値も確認する。書き込みの失敗は Close の時点で初めて現れることがある。
 	if cerr := f.Close(); err == nil && cerr != nil {
@@ -252,12 +258,12 @@ func writeTemp(f *os.File, b []byte, o owner) error {
 }
 
 // fillTemp は open 済みの一時ファイルを目的の状態にする。
-func fillTemp(f *os.File, b []byte, o owner) error {
+func fillTemp(f *os.File, b []byte, o confpath.Owner) error {
 	// os.CreateTemp は 0600 で作るが umask の影響を受けるため明示的に設定する。
-	if err := f.Chmod(filePerm); err != nil {
+	if err := f.Chmod(confpath.FileMode); err != nil {
 		return fmt.Errorf("一時ファイルのパーミッション設定に失敗しました: %w", err)
 	}
-	if uid, gid, ok := chownTarget(os.Geteuid(), o); ok {
+	if uid, gid, ok := o.ChownTarget(os.Geteuid()); ok {
 		if err := f.Chown(uid, gid); err != nil {
 			return fmt.Errorf("一時ファイルの所有者変更に失敗しました: %w", err)
 		}

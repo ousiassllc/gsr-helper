@@ -1,4 +1,14 @@
-package appconfig
+// Package hostcaps は起動時に 1 回だけホストの能力（root / systemd / docker /
+// journal / GitHub トークン）を判定する。
+//
+// appconfig から分離しているのは次の 2 点による。
+//   - 能力判定は外部コマンドを発行する副作用であり、設定ファイルの読み書きとは
+//     独立した責務である。設定を読むだけの呼び出し側にプロセス起動の実装を
+//     引き込まない。
+//   - 判定は起動シーケンス上にあり時間予算を持つ（docs/requirements/
+//     non-functional.md の「起動から一覧表示まで 1 秒以内」）。その予算に関する
+//     定数と縮退の方針をこのパッケージに閉じる。
+package hostcaps
 
 import (
 	"bytes"
@@ -7,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ousiassllc/gsr-helper/internal/appconfig/confpath"
 	"github.com/ousiassllc/gsr-helper/internal/exec"
 )
 
@@ -119,7 +130,7 @@ func detect(ctx context.Context, ex exec.Executor, p probes, timeout time.Durati
 		Docker:      docker,
 		Journal:     available(p, "journalctl"),
 		GitHubToken: token,
-		SudoUser:    sudoUserFromEnv(p.getenv),
+		SudoUser:    confpath.SudoUserFrom(p.getenv),
 	}
 }
 
@@ -168,11 +179,3 @@ func runProbe(
 	}
 	return res.ExitCode == 0 && len(bytes.TrimSpace(res.Stdout)) > 0
 }
-
-// SudoUser は検証済みの SUDO_USER を返す。文字種が不正なら空文字を返す。
-//
-// Caps.SudoUser と同じ値だが、Caps を得る前（監査ログを開く時点。Detect は Executor を
-// 必要とし、Executor は監査ログを必要とする）にも要るため関数として公開する。無いと
-// 呼び出し側が生の環境変数を読み直し、検証の有無が食い違う。Caps を持っているなら
-// Caps.SudoUser を使うこと。
-func SudoUser() string { return sudoUserFromEnv(os.Getenv) }

@@ -9,13 +9,15 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/ousiassllc/gsr-helper/internal/appconfig/confpath"
 )
 
 // clearOwnerEnv は所有者解決が実行環境の SUDO_USER に左右されないようにする。
 func clearOwnerEnv(t *testing.T) {
 	t.Helper()
-	t.Setenv(envSudoUser, "")
-	t.Setenv(envXDGConfigHome, "")
+	t.Setenv(confpath.EnvSudoUser, "")
+	t.Setenv(confpath.EnvXDGConfigHome, "")
 }
 
 // assertPerm は target のパーミッションを検証する。
@@ -117,8 +119,8 @@ func TestLoadUnknownKeyMessage(t *testing.T) {
 
 // --config /dev/zero のような指定でメモリを食い潰さないこと。
 func TestLoadRejectsHugeFile(t *testing.T) {
-	path := filepath.Join(t.TempDir(), configFileName)
-	if err := os.WriteFile(path, bytes.Repeat([]byte("#"), maxConfigSize+1), filePerm); err != nil {
+	path := filepath.Join(t.TempDir(), confpath.FileName)
+	if err := os.WriteFile(path, bytes.Repeat([]byte("#"), maxConfigSize+1), confpath.FileMode); err != nil {
 		t.Fatalf("準備に失敗: %v", err)
 	}
 	if _, err := Load(path); err == nil {
@@ -148,8 +150,8 @@ func TestSavePermissions(t *testing.T) {
 		{name: "既存の緩いファイルを 600 に直す", predir: 0o700, prefile: 0o644},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			dir := filepath.Join(t.TempDir(), "a", appDirName)
-			path := filepath.Join(dir, configFileName)
+			dir := filepath.Join(t.TempDir(), "a", confpath.DirName)
+			path := filepath.Join(dir, confpath.FileName)
 			if tt.predir != 0 {
 				if err := os.MkdirAll(dir, tt.predir); err != nil {
 					t.Fatalf("準備に失敗: %v", err)
@@ -163,8 +165,8 @@ func TestSavePermissions(t *testing.T) {
 			if err := Save(Default(), path); err != nil {
 				t.Fatalf("Save() でエラー: %v", err)
 			}
-			assertPerm(t, path, filePerm)
-			assertPerm(t, dir, dirPerm)
+			assertPerm(t, path, confpath.FileMode)
+			assertPerm(t, dir, confpath.DirMode)
 		})
 	}
 }
@@ -188,7 +190,7 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 		},
 	}
 	for _, want := range []Config{full, Default()} {
-		path := filepath.Join(t.TempDir(), configFileName)
+		path := filepath.Join(t.TempDir(), confpath.FileName)
 		if err := Save(want, path); err != nil {
 			t.Fatalf("Save() でエラー: %v", err)
 		}
@@ -216,7 +218,7 @@ func TestSaveInvalidLeavesNoFile(t *testing.T) {
 	cfg := Default()
 	cfg.ScanDepth = 99
 
-	if err := Save(cfg, filepath.Join(dir, configFileName)); err == nil {
+	if err := Save(cfg, filepath.Join(dir, confpath.FileName)); err == nil {
 		t.Fatal("範囲外の scan_depth でエラーを返していない")
 	}
 	entries, err := os.ReadDir(dir)
@@ -232,7 +234,7 @@ func TestSaveInvalidLeavesNoFile(t *testing.T) {
 // configPath はホーム配下の絶対パスだけを尊重するため、t.TempDir() ではなく
 // ホーム配下の一時ディレクトリを XDG_CONFIG_HOME に向ける。
 func TestDefaultPathRoundTrip(t *testing.T) {
-	t.Setenv(envSudoUser, "")
+	t.Setenv(confpath.EnvSudoUser, "")
 	self, err := user.Current()
 	if err != nil {
 		t.Fatalf("user.Current() でエラー: %v", err)
@@ -244,7 +246,7 @@ func TestDefaultPathRoundTrip(t *testing.T) {
 		t.Skipf("ホーム配下に一時ディレクトリを作れない: %v", err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(base) })
-	t.Setenv(envXDGConfigHome, base)
+	t.Setenv(confpath.EnvXDGConfigHome, base)
 
 	if got, eerr := Exists(""); got || eerr != nil {
 		t.Fatalf("Exists() = %v, %v, want false, nil", got, eerr)

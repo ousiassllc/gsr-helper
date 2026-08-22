@@ -1,4 +1,14 @@
-package appconfig
+// Package confpath は gsr-helper 自身の設定ファイルの配置先と、その所有者・
+// パーミッションを決める。
+//
+// appconfig から分離しているのは次の 2 点による。
+//   - 「どこに置き、誰の所有にするか」は YAML の読み書きとは独立した責務であり、
+//     sudo 実行時の所有者事故（docs/architecture/security.md）を防ぐ規則が
+//     ここに集まる。設定の内容を扱うコードと混ぜない。
+//   - SUDO_USER の検証もここに置く。配置先の決定と能力判定（hostcaps）の
+//     両方がこの値を読むため、検証を 1 か所に寄せないと「配置先は検証済みの
+//     値なのに記録は生値」のようなずれが起きる。
+package confpath
 
 import (
 	"fmt"
@@ -10,25 +20,36 @@ import (
 	"strings"
 )
 
+// 配置先の決定に読む環境変数。検証を伴う読み取りをこのパッケージに寄せるため、
+// 名前も公開して呼び出し側とテストが同じ定数を使えるようにする。
 const (
-	// envSudoUser / envXDGConfigHome は配置先の決定に読む環境変数。
-	envSudoUser      = "SUDO_USER"
-	envXDGConfigHome = "XDG_CONFIG_HOME"
-
-	// 設定ファイルの相対位置。生成するパスは常に gsr-helper/config.yaml で終わる。
-	appDirName     = "gsr-helper"
-	configFileName = "config.yaml"
-
-	// security.md の表のとおり、設定ファイルは 600、ディレクトリは 700。
-	dirPerm  os.FileMode = 0o700
-	filePerm os.FileMode = 0o600
-
-	// maxUserNameLen は SUDO_USER として受け付ける長さの上限。
-	maxUserNameLen = 32
+	// EnvSudoUser は sudo 実行時の起動ユーザーを示す環境変数。
+	EnvSudoUser = "SUDO_USER"
+	// EnvXDGConfigHome は設定ディレクトリを上書きする環境変数。
+	EnvXDGConfigHome = "XDG_CONFIG_HOME"
 )
 
-// owner は設定ファイルを所有すべきユーザー。
-type owner struct {
+// 設定ファイルの相対位置。生成するパスは常に gsr-helper/config.yaml で終わる。
+const (
+	// DirName は設定ファイルを置くディレクトリ名。
+	DirName = "gsr-helper"
+	// FileName は設定ファイル名。
+	FileName = "config.yaml"
+)
+
+// security.md の表のとおり、設定ファイルは 600、ディレクトリは 700。
+const (
+	// DirMode は設定ディレクトリのパーミッション。
+	DirMode os.FileMode = 0o700
+	// FileMode は設定ファイルのパーミッション。
+	FileMode os.FileMode = 0o600
+)
+
+// maxUserNameLen は SUDO_USER として受け付ける長さの上限。
+const maxUserNameLen = 32
+
+// Owner は設定ファイルを所有すべきユーザー。
+type Owner struct {
 	name string
 	home string
 	uid  int
@@ -51,36 +72,37 @@ type fsOps struct {
 // O_NOFOLLOW で断っているのと同じ脅威に、同じ方針で対処する）。
 var realFS = fsOps{geteuid: os.Geteuid, chmod: os.Chmod, lchown: os.Lchown}
 
-// DefaultPath は設定ファイルの既定の配置先を返す。
+// Default は設定ファイルの既定の配置先を返す。
 //
 // os.UserConfigDir は使わない。HOME を読むため sudo 下では /root を指しうるうえ、
 // sudoers の env_keep / always_set_home 次第で挙動が変わる。
 // os/user.Lookup(SUDO_USER).HomeDir から決めればホスト設定に依らず決定的になる。
-func DefaultPath() (string, error) {
-	o, err := defaultOwner()
+func Default() (string, error) {
+	o, err := Resolve()
 	if err != nil {
 		return "", err
 	}
-	return defaultPathFor(o), nil
+	return o.ConfigPath(), nil
 }
 
-// defaultPathFor は o にとっての既定の配置先を返す。
+// ConfigPath は o にとっての既定の配置先を返す。
 // XDG_CONFIG_HOME を読むのはここだけにして、環境変数の扱いを 1 か所に寄せる。
-func defaultPathFor(o owner) string {
-	return configPath(o, os.Getenv(envXDGConfigHome))
+func (o Owner) ConfigPath() string {
+	return configPath(o, os.Getenv(EnvXDGConfigHome))
 }
 
-// defaultOwner は実環境から所有者を解決する。
-func defaultOwner() (owner, error) {
-	return resolveOwner(sudoUserFromEnv(os.Getenv), user.Lookup, user.Current)
+// Resolve は実環境から所有者を解決する。
+func Resolve() (Owner, error) {
+	return resolveOwner(SudoUserFrom(os.Getenv), user.Lookup, user.Current)
 }
 
-// sudoUserFromEnv は SUDO_USER を読む。文字種が不正なら空を返す。
+// SudoUserFrom は getenv 経由で SUDO_USER を読む。文字種が不正なら空を返す。
+// getenv を引数に取るのは、能力判定（hostcaps）のテストで環境を差し替えるため。
 //
 // 読み取りと検証をこの 1 か所に寄せる。同じ値を別々の場所で読むと検証の有無が
 // 食い違い、「配置先は実行ユーザーなのに記録は生値」のようなずれが起きる。
-func sudoUserFromEnv(getenv func(string) string) string {
-	name := getenv(envSudoUser)
+func SudoUserFrom(getenv func(string) string) string {
+	name := getenv(EnvSudoUser)
 	if !validUserName(name) {
 		return ""
 	}
@@ -95,7 +117,7 @@ func resolveOwner(
 	sudoUser string,
 	lookup func(string) (*user.User, error),
 	self func() (*user.User, error),
-) (owner, error) {
+) (Owner, error) {
 	if validUserName(sudoUser) {
 		if u, err := lookup(sudoUser); err == nil {
 			if o, oerr := toOwner(u); oerr == nil {
@@ -105,34 +127,34 @@ func resolveOwner(
 	}
 	u, err := self()
 	if err != nil {
-		return owner{}, fmt.Errorf("実行ユーザーの取得に失敗しました: %w", err)
+		return Owner{}, fmt.Errorf("実行ユーザーの取得に失敗しました: %w", err)
 	}
 	return toOwner(u)
 }
 
-// toOwner は os/user の値を owner に変換する。
-func toOwner(u *user.User) (owner, error) {
+// toOwner は os/user の値を Owner に変換する。
+func toOwner(u *user.User) (Owner, error) {
 	uid, err := strconv.Atoi(u.Uid)
 	if err != nil {
-		return owner{}, fmt.Errorf("ユーザー %s の uid の解釈に失敗しました: %w", u.Username, err)
+		return Owner{}, fmt.Errorf("ユーザー %s の uid の解釈に失敗しました: %w", u.Username, err)
 	}
 	gid, err := strconv.Atoi(u.Gid)
 	if err != nil {
-		return owner{}, fmt.Errorf("ユーザー %s の gid の解釈に失敗しました: %w", u.Username, err)
+		return Owner{}, fmt.Errorf("ユーザー %s の gid の解釈に失敗しました: %w", u.Username, err)
 	}
-	return owner{name: u.Username, home: filepath.Clean(u.HomeDir), uid: uid, gid: gid}, nil
+	return Owner{name: u.Username, home: filepath.Clean(u.HomeDir), uid: uid, gid: gid}, nil
 }
 
 // configPath は所有者と XDG_CONFIG_HOME から設定ファイルのパスを組む純粋関数。
 //
 // XDG_CONFIG_HOME は「絶対パスかつ対象ユーザーのホーム配下」のときだけ尊重する。
 // sudo で root の値が引き継がれた場合に root のホームへ書かないためである。
-func configPath(o owner, xdgConfigHome string) string {
+func configPath(o Owner, xdgConfigHome string) string {
 	base := filepath.Join(o.home, ".config")
 	if x := filepath.Clean(xdgConfigHome); filepath.IsAbs(x) && underHome(o.home, x) {
 		base = x
 	}
-	return filepath.Join(base, appDirName, configFileName)
+	return filepath.Join(base, DirName, FileName)
 }
 
 // underHome は p が home と同じかその配下にあるかを返す。
@@ -147,17 +169,17 @@ func underHome(home, p string) bool {
 	return c == h || strings.HasPrefix(c, h+string(filepath.Separator))
 }
 
-// mkdirOwned は dir を 700 で作り、本ツールが責任を持つディレクトリだけを所有者に合わせる。
+// MkdirOwned は dir を 700 で作り、本ツールが責任を持つディレクトリだけを所有者に合わせる。
 //
 // MkdirAll の前に「存在しない祖先」を列挙し、その中でも対象ユーザーのホームより
 // 下にあるものだけを chown 対象にする。こうしておくと、既存のディレクトリや
 // /home のような共有ディレクトリを chown する事故が構造的に起こらない。
-func mkdirOwned(dir string, o owner) error {
-	return mkdirOwnedFS(dir, o, realFS)
+func (o Owner) MkdirOwned(dir string) error {
+	return o.mkdirOwnedFS(dir, realFS)
 }
 
 // mkdirOwnedFS は副作用を差し替えられる本体。
-func mkdirOwnedFS(dir string, o owner, ops fsOps) error {
+func (o Owner) mkdirOwnedFS(dir string, ops fsOps) error {
 	// ホームの作成は本ツールの責務ではない。root で作ると root 所有 0700 になり、
 	// 対象ユーザーが自分のホームを通れず設定を読めなくなる（security.md 4.）。
 	if fi, err := os.Stat(o.home); err != nil || !fi.IsDir() {
@@ -165,7 +187,7 @@ func mkdirOwnedFS(dir string, o owner, ops fsOps) error {
 	}
 
 	targets := missingDirs(dir, o.home)
-	if err := os.MkdirAll(dir, dirPerm); err != nil {
+	if err := os.MkdirAll(dir, DirMode); err != nil {
 		return fmt.Errorf("%s の作成に失敗しました: %w", dir, err)
 	}
 
@@ -174,8 +196,8 @@ func mkdirOwnedFS(dir string, o owner, ops fsOps) error {
 	// ファイルを作れず自分の設定を書けない（security.md 4.）。
 	// ~/.config のような共有の祖先と、--config で指された任意のディレクトリは
 	// 他の用途と共有されうるので触らない。線引きはディレクトリ名で行う。
-	if filepath.Base(dir) == appDirName {
-		if err := ops.chmod(dir, dirPerm); err != nil {
+	if filepath.Base(dir) == DirName {
+		if err := ops.chmod(dir, DirMode); err != nil {
 			return fmt.Errorf("%s のパーミッション設定に失敗しました: %w", dir, err)
 		}
 		if !slices.Contains(targets, dir) {
@@ -183,7 +205,7 @@ func mkdirOwnedFS(dir string, o owner, ops fsOps) error {
 		}
 	}
 
-	uid, gid, ok := chownTarget(ops.geteuid(), o)
+	uid, gid, ok := o.ChownTarget(ops.geteuid())
 	if !ok {
 		return nil
 	}
@@ -216,12 +238,12 @@ func missingDirs(dir, home string) []string {
 	return missing
 }
 
-// chownTarget は chown すべき uid/gid を返す。ok が false なら chown しない。
+// ChownTarget は chown すべき uid/gid を返す。ok が false なら chown しない。
 //
 // 実効 UID が 0 のときだけ、かつ対象が root 以外のときだけ chown する。
 // 非 root では必ず失敗する呼び出しになるため判定を純粋関数に切り出しており、
 // 非 root で動く CI でもこの分岐をテストできる。
-func chownTarget(euid int, o owner) (int, int, bool) {
+func (o Owner) ChownTarget(euid int) (int, int, bool) {
 	switch {
 	case euid != 0:
 		return 0, 0, false
@@ -251,3 +273,9 @@ func validUserName(name string) bool {
 	}
 	return true
 }
+
+// SudoUser は検証済みの SUDO_USER を返す。文字種が不正なら空文字を返す。
+//
+// 設定の配置先を決める値であり、監査ログの記録者や sudo -u の引数にもなる。
+// 生の環境変数を各所で読み直すと検証の有無が食い違うため、読み取りはここに寄せる。
+func SudoUser() string { return SudoUserFrom(os.Getenv) }
