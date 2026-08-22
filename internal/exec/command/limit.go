@@ -16,6 +16,8 @@ const (
 	// maxStderrCaptureBytes は標準エラー出力を取り込む上限。
 	//
 	// 暴走した子が標準エラー出力を吐き続けてもメモリを食い潰さないための保険。
+	// 上限を超えたときに残るのは末尾（limitedBuffer が古い先頭を捨てる）で、
+	// 抜粋を作る truncateHead と向きを揃えてある。
 	// 標準出力に同じ上限を置かないのは、呼び出し側が stdout を解析する
 	// （systemctl show / list-units）ため、切ると解析が黙って壊れるからである。
 	maxStderrCaptureBytes = 1 << 20 // 1 MiB
@@ -71,23 +73,35 @@ func dropPartialRuneAtStart(s string) string {
 	return s
 }
 
-// limitedBuffer は上限までしか保持しない書き込み先。
+// limitedBuffer は末尾の上限バイトぶんだけを保持する書き込み先。
 type limitedBuffer struct {
 	buf   []byte
 	limit int
 }
 
-// Write は上限までを保持し、超えた分は捨てる。
+// Write は末尾の limit バイトを保持し、あふれた古い先頭を捨てる。
+//
+// 残すのを末尾側にしているのは truncateHead と同じ理由で、失敗の原因は標準エラー
+// 出力の最後の数行に出るためである。両者の向きが食い違うと、取り込み段で末尾が
+// 落ちた後に truncateHead が末尾を探すことになり、原因の行が画面から消える。
 //
 // 捨てても成功として返すのは、エラーを返すと os/exec が取り込みを止めてパイプが
 // 閉じ、子が書き込みエラーで死んで本来観測したい終了コードが得られなくなるため
 // である。上限は「保持量」の制限であって、実行の打ち切りではない。
 func (b *limitedBuffer) Write(p []byte) (int, error) {
-	if room := b.limit - len(b.buf); room > 0 {
-		if len(p) < room {
-			room = len(p)
+	switch {
+	case b.limit <= 0:
+		// 何も保持しない。それでも書き込みは成功として返す（上記の理由）。
+	case len(p) >= b.limit:
+		// この 1 回で上限が埋まるので、既存の保持内容はすべて古い。
+		b.buf = append(b.buf[:0], p[len(p)-b.limit:]...)
+	default:
+		if over := len(b.buf) + len(p) - b.limit; over > 0 {
+			// 古い先頭を捨てて詰める。伸ばしてから切るのではなく先に詰めるのは、
+			// 保持量を一度も limit バイト超に膨らませないためである。
+			b.buf = append(b.buf[:0], b.buf[over:]...)
 		}
-		b.buf = append(b.buf, p[:room]...)
+		b.buf = append(b.buf, p...)
 	}
 	return len(p), nil
 }

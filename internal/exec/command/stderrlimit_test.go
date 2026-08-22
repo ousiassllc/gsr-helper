@@ -114,3 +114,50 @@ func TestCommandRunKeepsShortStderrInError(t *testing.T) {
 		t.Errorf("切っていないのに省略の印が付いている: %v", err)
 	}
 }
+
+func TestCommandRunKeepsStderrTailOverCaptureLimit(t *testing.T) {
+	// 取り込み上限を超えた場合も残すのは末尾でなければならない。取り込みが先頭を
+	// 残すと truncateHead が末尾を探しても既になく、原因の行が画面から消える。
+	res, _, err := runStderrFlood(t, floodOverCaptureKiB)
+
+	if !bytes.HasSuffix(res.Stderr, []byte(stderrFloodTail)) {
+		t.Error("取り込みが末尾ではなく先頭を残している")
+	}
+
+	var exitErr *ExitError
+	if !errors.As(err, &exitErr) {
+		t.Fatalf("*ExitError が返っていない: %v", err)
+	}
+	if !strings.HasPrefix(exitErr.Stderr, elisionPrefix) {
+		t.Errorf("省略の印が付いていない: %q", exitErr.Stderr[:min(len(exitErr.Stderr), 32)])
+	}
+	if !strings.HasSuffix(exitErr.Stderr, stderrFloodTail) {
+		t.Error("抜粋に原因の行が残っていない（取り込み段で末尾が落ちている）")
+	}
+}
+
+func TestLimitedBufferRetainsLastBytes(t *testing.T) {
+	// 小さな書き込みの積み上げでも 1 回の巨大な書き込みでも、残るのは末尾の
+	// limit バイトだけで、保持量が limit を超えない。
+	b := &limitedBuffer{limit: 8}
+	for i := range 10 {
+		if _, err := b.Write([]byte{byte('0' + i)}); err != nil {
+			t.Fatalf("Write が失敗した: %v", err)
+		}
+	}
+	if got := b.String(); got != "23456789" {
+		t.Errorf("小さな書き込みの積み上げ = %q, want %q", got, "23456789")
+	}
+
+	if n, err := b.Write([]byte("ABCDEFGHIJKL")); n != 12 || err != nil {
+		t.Fatalf("Write = (%d, %v), want (12, nil)", n, err)
+	}
+	if got := b.String(); got != "EFGHIJKL" {
+		t.Errorf("上限を 1 回で埋める書き込み = %q, want %q", got, "EFGHIJKL")
+	}
+
+	zero := &limitedBuffer{}
+	if n, err := zero.Write([]byte("x")); n != 1 || err != nil || len(zero.Bytes()) != 0 {
+		t.Errorf("limit 0 で (%d, %v, %d バイト保持), want (1, nil, 0 バイト)", n, err, len(zero.Bytes()))
+	}
+}
