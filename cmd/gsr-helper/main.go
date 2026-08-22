@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"slices"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -85,7 +84,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	app := ui.New(cfg, caps, ex, ui.Options{
 		Color:   colorEnabled(o.noColor, os.Getenv, isTerminal(os.Stdout)),
 		Refresh: o.refresh,
-		Roots:   append(slices.Clone(cfg.ScanRoots), o.roots...),
+		Roots:   appconfig.MergeScanRoots(cfg.ScanRoots, o.roots),
 		Host:    hostname(),
 	})
 	return runProgram(app, stderr)

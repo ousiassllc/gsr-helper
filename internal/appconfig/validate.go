@@ -41,8 +41,8 @@ func normalize(c Config) (Config, error) {
 	if c.RefreshInterval == 0 {
 		c.RefreshInterval = defaultRefreshInterval
 	}
-	if c.RefreshInterval < minRefresh || c.RefreshInterval > maxRefresh {
-		return Config{}, fmt.Errorf("refresh_interval は %d〜%d 秒で指定してください: %d", minRefresh, maxRefresh, c.RefreshInterval)
+	if err := ValidateRefresh("refresh_interval", c.RefreshInterval); err != nil {
+		return Config{}, err
 	}
 
 	if c.DiskThresholds, err = normalizeThresholds(c.DiskThresholds); err != nil {
@@ -76,22 +76,57 @@ func normalizeDefaults(d Defaults) (Defaults, error) {
 func normalizeRoots(roots []string) ([]string, error) {
 	out := make([]string, 0, len(roots))
 	for _, r := range roots {
-		r = strings.TrimSpace(r)
-		if r == "" {
+		if strings.TrimSpace(r) == "" {
 			continue
 		}
-		p, err := cleanAbs("scan_roots", r)
+		p, err := CleanScanRoot("scan_roots", r)
 		if err != nil {
 			return nil, err
 		}
-		if !slices.Contains(out, p) {
-			out = append(out, p)
+		out = append(out, p)
+	}
+	return MergeScanRoots(out, nil), nil
+}
+
+// ValidateRefresh は自動更新間隔（秒）が有効範囲かを確かめる。
+//
+// **設定ファイルの refresh_interval と CLI の --refresh はこの 1 箇所を通す。**
+// field は利用者に見せる項目名（"refresh_interval" / "--refresh"）。同じ設定に
+// 入口ごとの有効範囲があると、--refresh 86400 は通るのに refresh_interval: 86400 は
+// 起動を止めるという食い違いになる。
+func ValidateRefresh(field string, sec int) error {
+	if sec < minRefresh || sec > maxRefresh {
+		return fmt.Errorf("%s は %d〜%d 秒で指定してください: %d", field, minRefresh, maxRefresh, sec)
+	}
+	return nil
+}
+
+// CleanScanRoot は走査ルートを検証して Clean した絶対パスを返す。
+//
+// **設定ファイルの scan_roots と CLI の --root はこの 1 箇所を通す。**
+// field は利用者に見せる項目名（"scan_roots" / "--root"）。絶対パスと .. の検査は
+// 安全上の根拠があり（cleanAbs の doc）、入口によって迂回できてはならない。
+func CleanScanRoot(field, path string) (string, error) {
+	return cleanAbs(field, strings.TrimSpace(path))
+}
+
+// MergeScanRoots は設定ファイルの scan_roots に --root の値を足す。
+//
+// 入口をまたいだ重複を除き、cfg → extra の順序を保つ。走査ルートの重複除去は
+// ここだけにあり、設定ファイル内の重複も入口をまたいだ重複も同じ実装で落ちる。
+// 双方の要素が CleanScanRoot を通った値であることを前提とする（同じルートが違う
+// 表記のまま残ると重複と判定できない）。
+func MergeScanRoots(cfg, extra []string) []string {
+	out := make([]string, 0, len(cfg)+len(extra))
+	for _, r := range slices.Concat(cfg, extra) {
+		if r != "" && !slices.Contains(out, r) {
+			out = append(out, r)
 		}
 	}
 	if len(out) == 0 {
-		return nil, nil
+		return nil
 	}
-	return out, nil
+	return out
 }
 
 // normalizeThresholds は使用率の閾値を埋め、大小関係まで含めて検証する。

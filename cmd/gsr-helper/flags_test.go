@@ -34,7 +34,8 @@ func TestParseArgsDefaults(t *testing.T) {
 	}
 }
 
-// --refresh は 1 以上の秒数のみを受け付ける。
+// --refresh は 1〜3600 秒のみを受け付ける。有効範囲は設定ファイルの
+// refresh_interval と同じ（appconfig.ValidateRefresh を通す）。
 func TestParseArgsRefresh(t *testing.T) {
 	tests := map[string]struct {
 		args    []string
@@ -44,9 +45,14 @@ func TestParseArgsRefresh(t *testing.T) {
 		"未指定は 0（設定ファイルの値を使う）": {nil, 0, false},
 		"1 秒":     {[]string{"--refresh", "1"}, time.Second, false},
 		"5 秒":     {[]string{"--refresh", "5"}, 5 * time.Second, false},
+		"上限":      {[]string{"--refresh", "3600"}, 3600 * time.Second, false},
 		"0 は誤り":   {[]string{"--refresh", "0"}, 0, true},
 		"負値は誤り":   {[]string{"--refresh", "-3"}, 0, true},
 		"秒数以外は誤り": {[]string{"--refresh", "3s"}, 0, true},
+		// 設定ファイルでは maxRefresh(3600) で落ちる値。入口で有効範囲が
+		// 違うと、--refresh 86400 は通るのに refresh_interval: 86400 は
+		// 起動を止めるという食い違いになる。
+		"上限超過は誤り": {[]string{"--refresh", "86400"}, 0, true},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -74,9 +80,10 @@ func TestParseArgsRefresh(t *testing.T) {
 // いることをここで固定する。
 func TestParseArgsRefreshErrorIsJapaneseOnly(t *testing.T) {
 	tests := map[string]string{
-		"0":  "--refresh には 1 以上の秒数を指定してください: 0",
-		"-3": "--refresh には 1 以上の秒数を指定してください: -3",
-		"3s": "--refresh には秒数を指定してください: 3s",
+		"0":     "--refresh は 1〜3600 秒で指定してください: 0",
+		"-3":    "--refresh は 1〜3600 秒で指定してください: -3",
+		"86400": "--refresh は 1〜3600 秒で指定してください: 86400",
+		"3s":    "--refresh には秒数を指定してください: 3s",
 	}
 	for value, want := range tests {
 		t.Run(value, func(t *testing.T) {
@@ -92,12 +99,17 @@ func TestParseArgsRefreshErrorIsJapaneseOnly(t *testing.T) {
 }
 
 // 不明なフラグ・空の --root・余分な引数は誤りとして扱う。
+//
+// --root は設定ファイルの scan_roots と同じ検査（絶対パス・.. の禁止）を通す。
+// 入口によって検査を迂回できると、安全上の根拠がある検査が --root だけ効かない。
 func TestParseArgsRejectsBadInput(t *testing.T) {
 	for name, args := range map[string][]string{
-		"不明なフラグ":      {"--nope"},
-		"空の走査ルート":     {"--root", ""},
-		"余分な位置引数":     {"runners"},
-		"値の無い --root": {"--root"},
+		"不明なフラグ":            {"--nope"},
+		"空の走査ルート":           {"--root", ""},
+		"余分な位置引数":           {"runners"},
+		"値の無い --root":       {"--root"},
+		"--root の相対パス":      {"--root", "runners"},
+		"--root の .. を含むパス": {"--root", "/opt/../etc"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if o, err := parseArgs(args); err == nil {
@@ -249,5 +261,18 @@ func TestRunRejectsBrokenConfig(t *testing.T) {
 	}
 	if errOut.Len() == 0 {
 		t.Error("失敗の理由を出していない")
+	}
+}
+
+// --root は設定ファイルの scan_roots と同じく Clean した絶対パスになる。
+// 表記が揃っていないと、入口をまたいだ重複除去（appconfig.MergeScanRoots）が
+// 同じルートを別物として通してしまう。
+func TestParseArgsRootIsCleaned(t *testing.T) {
+	o, err := parseArgs([]string{"--root", "/opt/runners/", "--root", "/srv//runners"})
+	if err != nil {
+		t.Fatalf("解釈に失敗した: %v", err)
+	}
+	if want := []string{"/opt/runners", "/srv/runners"}; !slices.Equal(o.roots, want) {
+		t.Errorf("走査ルート = %v, want %v", o.roots, want)
 	}
 }
