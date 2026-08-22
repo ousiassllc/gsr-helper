@@ -7,6 +7,7 @@ import (
 
 	"github.com/ousiassllc/gsr-helper/internal/exec"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
 )
 
 // domainResult は page が発行したドメイン呼び出しの結果に相当するテスト用の Msg。
@@ -37,19 +38,28 @@ func TestTabMsgGoesBackToIssuingTab(t *testing.T) {
 }
 
 // 無効になったタブ宛の結果は捨てる（配る先の Model が無い）。
+//
+// **他のタブへ回さないことまで見る。** Cmd が nil であることだけを見ていた頃は、
+// 結果がタブ 0 へ誤配送されても緑のままだった（Issue #31）。捨てるべき Msg が別の
+// タブへ入ると、そのタブは自分が始めていない処理の結果で状態を書き換える。
 func TestTabMsgForDeadTabIsDropped(t *testing.T) {
-	a, _ := withSpies(newApp(exec.NewFake()))
+	a, spies := withSpies(newApp(exec.NewFake()))
 
 	// タブ 2（Disk）はこの版では Model を持たない。
 	if _, cmd := update(a, page.TabMsg{Tab: 2, Msg: domainResult{n: 1}}); cmd != nil {
 		t.Errorf("無効タブ宛の結果で Cmd が発行された（%T）", cmd)
 	}
+	for i, s := range spies {
+		if got := received(s); len(got) != 0 {
+			t.Errorf("無効タブ宛の結果が有効なタブ %d へ配られた（%v）", i, got)
+		}
+	}
 }
 
 // received は spy が受け取った domainResult を並び順に返す。
-func received(s *spy) []domainResult {
-	out := make([]domainResult, 0, len(s.msgs))
-	for _, m := range s.msgs {
+func received(s *pagetest.Spy) []domainResult {
+	out := make([]domainResult, 0, len(s.Msgs()))
+	for _, m := range s.Msgs() {
 		if r, ok := m.(domainResult); ok {
 			out = append(out, r)
 		}
@@ -74,10 +84,10 @@ func TestStateCarriesExecutorToEveryTab(t *testing.T) {
 	a, _ = update(a, tea.WindowSizeMsg{Width: 100, Height: 30})
 
 	for i, s := range spies {
-		if len(s.states) == 0 {
+		if len(s.States()) == 0 {
 			t.Fatalf("タブ %d に共有状態が配られていない", i)
 		}
-		if got := s.states[len(s.states)-1].Exec; got != fake {
+		if got := s.States()[len(s.States())-1].Exec; got != fake {
 			t.Errorf("タブ %d が受け取った Executor = %v, want 起動時のもの", i, got)
 		}
 	}

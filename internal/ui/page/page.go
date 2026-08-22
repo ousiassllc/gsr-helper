@@ -1,9 +1,13 @@
 // Package page はタブ共通の Msg と、タブ間で共有する部品を提供する。
 //
 // タブ 1 枚（tea.Model）はサブパッケージ page/<tab> に置き、このパッケージだけを
-// 共通の土台として参照する。page/<tab> → page の一方向依存は Go の import で
-// 強制されるため、タブ同士が参照し合うことはできない（タブ間で共有する状態は
-// 親 Model のみが持つという規則と揃う。atomic-design.md のディレクトリ構成）。
+// 共通の土台として参照する。page → page/<tab> の向きは循環になるため Go が禁じる。
+//
+// **タブ同士が参照し合わないことは Go では強制されない。** 新しいタブが page/runners を
+// 直に import してもコンパイルは通る。タブ間で共有する状態は親 Model のみが持つ、
+// という規則（atomic-design.md のディレクトリ構成）を実際に守らせているのは
+// page/pagetest/import_test.go の TestOnlyTabsetImportsTabs で、タブを import して
+// よいのは ui/tabset だけであることを本番ファイルの import から検査する。
 //
 // このパッケージが持つのは次の 3 つである。
 //   - 親 Model と page の間でやり取りする Msg（StateMsg / ChromeMsg）

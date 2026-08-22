@@ -9,6 +9,7 @@ import (
 
 	"github.com/ousiassllc/gsr-helper/internal/exec"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
 )
 
 // blocked はモーダル表示中と入力中の 2 つの状態を返す。
@@ -16,17 +17,17 @@ import (
 // どちらもグローバルキーを解釈しない状態であり、同じ配送の規則が働く。状態を持つのは
 // page 側であり、閉じ込めの判断も page が行う（page.GlobalKeyMsg の doc）ため、
 // spy の chrome に立てる。
-func blocked() map[string]func(s *spy) {
-	return map[string]func(s *spy){
-		"モーダル表示中": func(s *spy) { s.chrome.Modal = true },
-		"入力中":     func(s *spy) { s.chrome.Input = "絞り込み" },
+func blocked() map[string]func(s *pagetest.Spy) {
+	return map[string]func(s *pagetest.Spy){
+		"モーダル表示中": func(s *pagetest.Spy) { s.Chrome.Modal = true },
+		"入力中":     func(s *pagetest.Spy) { s.Chrome.Input = "絞り込み" },
 	}
 }
 
 // ctrl+c はどの状態でも親が処理して終了する。
 func TestInterruptQuitsInEveryState(t *testing.T) {
 	states := blocked()
-	states["通常"] = func(*spy) {}
+	states["通常"] = func(*pagetest.Spy) {}
 
 	for name, setup := range states {
 		t.Run(name, func(t *testing.T) {
@@ -41,7 +42,7 @@ func TestInterruptQuitsInEveryState(t *testing.T) {
 			if !isQuit(cmd) {
 				t.Errorf("ctrl+c の Msg = %T, want 終了を含む Cmd", cmd())
 			}
-			if len(spies[0].keys) != 0 {
+			if len(spies[0].Keys()) != 0 {
 				t.Error("ctrl+c を page へ渡している")
 			}
 		})
@@ -65,10 +66,10 @@ func TestGlobalKeysAreNotInterpretedWhenBlocked(t *testing.T) {
 				if next.active != 0 {
 					t.Errorf("キー %q でタブが %d に変わっている", k, next.active)
 				}
-				if len(spies[0].keys) != 1 {
+				if len(spies[0].Keys()) != 1 {
 					t.Errorf("キー %q が有効タブへ渡っていない", k)
 				}
-				if len(spies[1].keys) != 0 {
+				if len(spies[1].Keys()) != 0 {
 					t.Errorf("キー %q が無効タブへも渡っている", k)
 				}
 			}
@@ -107,8 +108,8 @@ func TestGlobalKeys(t *testing.T) {
 				t.Errorf("終了したか = %v, want %v", got, tt.wantQuit)
 			}
 			// どのキーもまず page へ渡る（親が先に解釈しない。keys.go の handleKey）。
-			if len(spies[0].keys) != len(tt.keys) {
-				t.Errorf("page へ渡ったキー = %d 件, want %d 件", len(spies[0].keys), len(tt.keys))
+			if len(spies[0].Keys()) != len(tt.keys) {
+				t.Errorf("page へ渡ったキー = %d 件, want %d 件", len(spies[0].Keys()), len(tt.keys))
 			}
 		})
 	}
@@ -165,8 +166,8 @@ func TestDisabledTabNumberShowsReason(t *testing.T) {
 	}
 	// 番号キーも page を経由する（親が先に解釈しない）。一覧は数字を使わないため、
 	// 押した番号が一覧の操作として解釈されることはない。
-	if len(spies[0].keys) != 1 {
-		t.Errorf("無効なタブの番号キーが page へ渡っていない（%d 件）", len(spies[0].keys))
+	if len(spies[0].Keys()) != 1 {
+		t.Errorf("無効なタブの番号キーが page へ渡っていない（%d 件）", len(spies[0].Keys()))
 	}
 
 	// 次の打鍵で案内は消える（状態行に残り続けない）。
@@ -187,8 +188,8 @@ func TestRefreshKeyEmitsDiscover(t *testing.T) {
 	if _, ok := cmd().(discoveredMsg); !ok {
 		t.Errorf("r の Msg = %T, want discoveredMsg", cmd())
 	}
-	if len(spies[0].keys) != 1 {
-		t.Errorf("r が page へ渡っていない（%d 件）", len(spies[0].keys))
+	if len(spies[0].Keys()) != 1 {
+		t.Errorf("r が page へ渡っていない（%d 件）", len(spies[0].Keys()))
 	}
 }
 
@@ -220,8 +221,8 @@ func TestSwitchTabRefreshesChrome(t *testing.T) {
 	if a.active != 1 {
 		t.Fatalf("有効タブ = %d, want 1", a.active)
 	}
-	if len(spies[1].states) != 1 {
-		t.Errorf("切り替え先へ配られた StateMsg = %d 件, want 1", len(spies[1].states))
+	if len(spies[1].States()) != 1 {
+		t.Errorf("切り替え先へ配られた StateMsg = %d 件, want 1", len(spies[1].States()))
 	}
 	if a.chrome.Tab != 1 {
 		t.Errorf("切り替え直後の chrome のタブ = %d, want 1", a.chrome.Tab)

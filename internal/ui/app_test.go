@@ -97,10 +97,10 @@ func TestDiscoveredDistributesToAllTabs(t *testing.T) {
 
 	a, _ = update(a, discoveredMsg{result: res, err: nil})
 	for i, s := range spies {
-		if len(s.states) != 1 {
-			t.Fatalf("タブ %d が受け取った StateMsg = %d 件, want 1", i, len(s.states))
+		if len(s.States()) != 1 {
+			t.Fatalf("タブ %d が受け取った StateMsg = %d 件, want 1", i, len(s.States()))
 		}
-		if got := len(s.states[0].Result.OrphanUnits); got != 1 {
+		if got := len(s.States()[0].Result.OrphanUnits); got != 1 {
 			t.Errorf("タブ %d に配られた孤児ユニット = %d 件, want 1", i, got)
 		}
 	}
@@ -157,7 +157,7 @@ func TestDiscoverErrorKeepsLastResult(t *testing.T) {
 	}
 
 	// page へ配られるスナップショットも直前の成功結果を保つ。
-	st := spies[0].states[len(spies[0].states)-1]
+	st := spies[0].States()[len(spies[0].States())-1]
 	if len(st.Result.Runners) != 1 {
 		t.Errorf("page へ配られた runner = %d 台, want 1", len(st.Result.Runners))
 	}
@@ -191,10 +191,10 @@ func TestWindowSizeDistributesBodySize(t *testing.T) {
 	_, _ = update(a, tea.WindowSizeMsg{Width: w, Height: h})
 	wantW, wantH := template.BodySize(w, h)
 	for i, s := range spies {
-		if len(s.states) != 1 {
-			t.Fatalf("タブ %d が受け取った StateMsg = %d 件, want 1", i, len(s.states))
+		if len(s.States()) != 1 {
+			t.Fatalf("タブ %d が受け取った StateMsg = %d 件, want 1", i, len(s.States()))
 		}
-		st := s.states[0]
+		st := s.States()[0]
 		if st.BodyW != wantW || st.BodyH != wantH {
 			t.Errorf("タブ %d に配られた領域 = %dx%d, want %dx%d", i, st.BodyW, st.BodyH, wantW, wantH)
 		}
@@ -216,7 +216,7 @@ func TestBackgroundColorResolvesStyles(t *testing.T) {
 		t.Error("明背景の応答で dark が偽になっていない")
 	}
 	for i, s := range spies {
-		if len(s.states) != 1 || s.states[0].Dark {
+		if len(s.States()) != 1 || s.States()[0].Dark {
 			t.Errorf("タブ %d に明背景の配色が配られていない", i)
 		}
 	}

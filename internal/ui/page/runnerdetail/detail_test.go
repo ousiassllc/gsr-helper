@@ -187,8 +187,7 @@ func TestRunnerDetailManagedUnknown(t *testing.T) {
 // 記号だけ（? / -）だと、ユニットが無いのか分からないのかを読み分けられず、
 // 利用者が「登録されていない」と誤って判断して登録し直しに向かってしまう。
 func TestRunnerDetailManagedUnavailable(t *testing.T) {
-	r := pagetest.SampleRunner()
-	r.Managed, r.Svc, r.Listener, r.UnitName = runner.ManagedUnavailable, nil, nil, ""
+	r := pagetest.UnavailableRunner()
 
 	d := newModel(pagetest.Keys(), pagetest.Styles())
 	d.SetSize(80, 24)

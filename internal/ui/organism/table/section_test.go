@@ -168,6 +168,11 @@ func TestTablePassesDisabledReasonToRender(t *testing.T) {
 	if !strings.Contains(disabled, reason) {
 		t.Errorf("選択できない行 = %q, want %q を含む", disabled, reason)
 	}
+	// 有効側の行が取れていることを先に確かめる。build01-1 の行が一致しなくて
+	// enabled が空のままだと、下の Contains は無条件に通る（Issue #31）。
+	if enabled == "" {
+		t.Fatal("選択できる行（build01-1）が描画に見つからない（前提が崩れている）")
+	}
 	if strings.Contains(enabled, reason) {
 		t.Errorf("選択できる行に理由が出ている（%q）", enabled)
 	}

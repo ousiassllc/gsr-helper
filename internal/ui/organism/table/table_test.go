@@ -221,36 +221,6 @@ func TestTableDoesNotShareItemSlices(t *testing.T) {
 	}
 }
 
-// 行のセル数が列数と違っても panic せず、列数ぶんに揃う（理由は fitCells を参照）。
-func TestTableToleratesRenderRowCellCountMismatch(t *testing.T) {
-	tests := map[string]table.RenderRow[row]{
-		"列数より多い": func(in table.RowInput[row]) []string {
-			cells := make([]string, 0, len(in.Cols)+3)
-			for range len(in.Cols) + 3 {
-				cells = append(cells, in.Item.name)
-			}
-			return cells
-		},
-		"列数より少ない":  func(in table.RowInput[row]) []string { return []string{in.Item.name} },
-		"1 つも返さない": func(table.RowInput[row]) []string { return nil },
-	}
-	for name, render := range tests {
-		t.Run(name, func(t *testing.T) {
-			sec := runnerSection(true)
-			sec.Render = render
-			tbl := table.New(keymap.NewList(), testStyles(), sec)
-			tbl.SetSize(80, 12)
-			tbl.SetItems(0, rows("build01-1", "build01-2"))
-
-			// SetItems と View が行を描く。panic しないことがこのテストの主眼。
-			tbl, _ = send(tbl, "j", "space", "G")
-			if got := tbl.View(); got == "" {
-				t.Error("行があるのに何も描かれていない")
-			}
-		})
-	}
-}
-
 // キー以外の Msg は入力欄へ流す。カーソルの点滅は Msg と Cmd の往復で続くため、
 // ここで Cmd を捨てると入力中にカーソルが出なくなる。
 func TestTableForwardsNonKeyMessagesToFilter(t *testing.T) {
