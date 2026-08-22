@@ -14,9 +14,8 @@ const testTab = 1
 
 // newOverlayWithDetail は詳細画面を登録した重なりを返す（タブが New でするのと同じ）。
 func newOverlayWithDetail(w, h int) page.Overlay {
-	o := page.NewOverlay(testTab, pagetest.Keys(), pagetest.Styles(), true)
+	o, _ := page.NewOverlay(testTab, pagetest.State(w, h))
 	o.Register(Kind, New(pagetest.State(w, h)))
-	o.SetState(pagetest.State(w, h))
 	return o
 }
 

@@ -7,7 +7,6 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/ui/atom"
 	"github.com/ousiassllc/gsr-helper/internal/ui/keymap"
 	"github.com/ousiassllc/gsr-helper/internal/ui/template"
-	"github.com/ousiassllc/gsr-helper/internal/ui/token"
 )
 
 // Overlay はモーダルの重なりを管理する。
@@ -36,26 +35,33 @@ type Overlay struct {
 
 // NewOverlay はモーダルの重なりを組み立てる。tab には page 自身のタブ番号を渡す。
 //
+// **共有状態は丸ごと受け取る。** Register は登録した時点で最新の共有状態を
+// リプレイする（Register の doc）ので、ここで持つ状態が欠けていると、構築時に
+// 登録したモーダルへ届くのは Exec = nil・Caps ゼロ値・Result 空という半端な状態に
+// なる。登録した時点で処理を始めるモーダルはその nil の Executor を掴む。
+// Keys / Styles / Dark だけを受け取っていた頃の欠陥である。
+//
 // ヘルプ（ModalHelp）だけを登録した状態で返す。ヘルプに出すキーの範囲は一覧 +
 // runner 操作（keymap.Set.RunnerListHelp）を既定とし、別の範囲を持つタブは
 // SetHelpScope で差し替える。それ以外のモーダルは画面が Register で足す。
-func NewOverlay(tab int, keys keymap.Set, s token.Styles, dark bool) Overlay {
-	// 最初のリサイズと検出が届く前でも配色とキー定義を持った状態で描けるようにする。
-	st := StateMsg{Keys: keys, Styles: s, Dark: dark}
+//
+// **第 2 戻り値はヘルプの登録が返した Cmd で、呼び出し側まで返すこと**（Register の
+// doc）。返す口を持たない署名にすると、その規則を Overlay 自身が構造的に守れない。
+func NewOverlay(tab int, st StateMsg) (Overlay, tea.Cmd) {
 	o := Overlay{tab: tab, s: &overlayState{
-		keys:   keys,
-		styles: s,
+		keys:   st.Keys,
+		styles: st.Styles,
 		stack:  nil,
 		modals: make(map[ModalKind]Modal),
 		last:   st,
 		size:   SizeMsg{W: 0, H: 0},
-		width:  0,
-		height: 0,
+		width:  st.BodyW,
+		height: st.BodyH,
 	}}
-	// ヘルプの登録が返す Cmd は捨てる。helpModal は表示専用でドメイン層を呼ばず、
-	// 登録時のどの Msg にも Cmd を返さない。画面が足すモーダルは戻り値を返すこと。
-	o.Register(ModalHelp, newHelpModal(st, keymap.Set.RunnerListHelp))
-	return o
+	// 領域も最初から持たせる。持たせないと、構築時に登録したモーダルへ配る SizeMsg
+	// だけが 0 のまま残り、共有状態との食い違いがここでも起きる。
+	o.s.size = o.innerSize()
+	return o, o.Register(ModalHelp, newHelpModal(st, keymap.Set.RunnerListHelp))
 }
 
 // Register はモーダル 1 種類を登録する。登録時に自分のタブ番号・最新の共有状態・

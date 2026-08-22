@@ -47,8 +47,12 @@ var _ tea.Model = Model{}
 // page.Overlay が種類に依らず担保するので、タブを足す Issue は自分のモーダルを
 // Register するだけで済む。
 func New(tab int, st page.StateMsg) Model {
-	overlay := page.NewOverlay(tab, st.Keys, st.Styles, st.Dark)
-	cmd := overlay.Register(runnerdetail.Kind, runnerdetail.New(st))
+	// ヘルプ（NewOverlay が登録する）と詳細画面、どちらの登録が返した Cmd も畳み込む。
+	// 片方でも捨てると「登録が返す Cmd は呼び出し側まで返す」規則を構築時に破る
+	// （page.Overlay.Register の doc）。
+	overlay, help := page.NewOverlay(tab, st)
+	detail := overlay.Register(runnerdetail.Kind, runnerdetail.New(st))
+	cmd := tea.Batch(help, detail)
 	return Model{
 		tab:     tab,
 		st:      st,
@@ -81,9 +85,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		return m.handleKey(msg)
 	case page.ResultMsg:
-		// モーダルが返した決定は page が受ける。**default（Overlay への転送）より
-		// 前に置くこと。** 転送すると決定は発行元のモーダル自身へ戻り、そこで
-		// 捨てられる（page.ResultMsg の doc）。
+		// モーダルが返した決定は page が受ける。転送すると決定は発行元のモーダル
+		// 自身へ戻り、そこで捨てられる（page.ResultMsg の doc）。
+		//
+		// **page.Overlay.Handles が ResultMsg に偽を返すことと合わせた二重の守り
+		// である。** 決定を解釈するのは Overlay ではなく page だという分担を、この
+		// case が page 側から明示する（Go の型スイッチの default は記述位置に
+		// 関わらず最後に評価されるため、並びは関係しない）。
 		//
 		// この版の runner 操作はすべて未対応（page.Action.Supported が偽）であり、
 		// 無効な項目では ChoiceList が決定を発行しないため、実行できる処理はまだ
@@ -121,10 +129,15 @@ func (m Model) setState(st page.StateMsg) (tea.Model, tea.Cmd) {
 	m.tbl.SetSize(st.BodyW, st.BodyH)
 	m.tbl.SetItems(sectionRunners, runnerRows(st.Result.Runners))
 	m.tbl.SetItems(sectionOrphans, orphanRows(st.Result.OrphanUnits))
+	// 登録の Cmd は return より前に取り出す。**同じ return 文に置いてはならない。**
+	// 返り値の m（非関数オペランド）の読み取りと m.flushInit() による m.initCmd の
+	// 破棄は、Go 仕様では評価順が未規定であり、「2 度目からは nil」という flushInit の
+	// 約束が言語仕様の側から保証されなくなる。
+	init := m.flushInit()
 	// モーダルが返す Cmd も親へ渡す（開いているモーダルが共有状態を受けて
 	// 何かを始めることがある。捨てるとその処理が動かない）。
 	cmd := m.overlay.SetState(st)
-	return m, tea.Batch(m.chrome(), m.flushInit(), cmd)
+	return m, tea.Batch(m.chrome(), init, cmd)
 }
 
 // flushInit は登録が返した Cmd を 1 度だけ返す。2 度目からは nil を返す。

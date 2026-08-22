@@ -108,11 +108,15 @@ func TestLifecycleMsgsAreNotEatenByModal(t *testing.T) {
 	}
 }
 
-// モーダルが返した決定は page が受け取り、Overlay へ転送しない（Issue #26）。
+// モーダルが返した決定は page が受け取り、モーダルにも一覧にも吸われない（Issue #26）。
 //
-// 転送すると決定は発行元のモーダル自身へ戻り、そこで捨てられる。page の Update が
-// default（Overlay への転送）より前に case page.ResultMsg を置くことと、
-// page.Overlay.Handles が ResultMsg に偽を返すことの両方でこれを守る。
+// 守りは二重である。page.Overlay.Handles が ResultMsg に偽を返すこと（決定が
+// 発行元のモーダルへ帰らない）と、page の Update が自分の case page.ResultMsg で
+// 受けること（決定を解釈するのは page である）。**並びは関係しない**——Go の型
+// スイッチの default は記述位置に関わらず最後に評価される。
+//
+// ここでは振る舞いで確かめられる前者と、決定がどこにも吸われずに page で終わる
+// ことを固定する。case の有無は TestUpdateHasResultMsgCase が見る。
 func TestResultMsgDoesNotReturnToModal(t *testing.T) {
 	st := pagetest.State(80, 16, pagetest.SampleRunner())
 	m, echo := withEcho(t, st)
@@ -122,6 +126,10 @@ func TestResultMsgDoesNotReturnToModal(t *testing.T) {
 	before := len(echo.Got)
 
 	res := page.ResultMsg{Kind: pagetest.EchoKind, Msg: "決定"}
+	if m.overlay.Handles(res) {
+		t.Error("Overlay が決定を引き受けている（転送すると発行元のモーダルへ戻って捨てられる）")
+	}
+
 	_, cmd := step(t, m, res)
 
 	if n := pagetest.Received[page.ResultMsg](echo); n != 0 {
@@ -141,28 +149,37 @@ func TestResultMsgDoesNotReturnToModal(t *testing.T) {
 	}
 }
 
-// 決定の case は default（Overlay への転送）より前に置く（page.ResultMsg の doc）。
+// Update は決定を自分の case で受ける（page.ResultMsg の doc）。
 //
-// **並びそのものを見るのは、今の実装では振る舞いで区別できないためである。**
-// page.Overlay.Handles も ResultMsg に偽を返すので、case を消しても決定はモーダルへ
-// 戻らない。二重の守りの片方だけが外れても症状は出ず、この case に分岐を足す後続
-// Issue（操作の実行）で初めて決定が発行元のモーダルへ帰るようになる。
-func TestResultMsgCaseComesBeforeDefault(t *testing.T) {
+// **case の有無をソースで見るのは、今の実装では振る舞いで区別できないためである。**
+// page.Overlay.Handles も ResultMsg に偽を返すので、case を消しても決定は
+// モーダルへは戻らず一覧へ流れるだけで、症状が出ない。二重の守りの片方が黙って
+// 外れたことは、この case に分岐を足す後続 Issue（操作の実行）で初めて表面化する。
+// 並びは見ない（型スイッチの default は記述位置に関わらず最後に評価される）。
+func TestUpdateHasResultMsgCase(t *testing.T) {
 	src, err := os.ReadFile("runners.go")
 	if err != nil {
 		t.Fatalf("実装を読めない: %v", err)
 	}
+	if !strings.Contains(string(src), "\tcase page.ResultMsg:") {
+		t.Error("Update に case page.ResultMsg が無い（決定を解釈するのが page でなくなる）")
+	}
+}
 
-	body := string(src)
-	res := strings.Index(body, "\tcase page.ResultMsg:")
-	def := strings.Index(body, "\tdefault:\n\t\treturn m.forward(msg)")
-	if res < 0 {
-		t.Fatal("Update に case page.ResultMsg が無い（決定が Overlay へ転送される）")
+// New は登録が返した Cmd を initCmd に保持する（Issue #26 の受入条件 5）。
+//
+// **保持そのものはソースで見る。** 本番で登録する 2 枚（page.NewOverlay のヘルプと
+// runnerdetail）はどちらも登録時のどの Msg にも Cmd を返さないため、New が戻り値を
+// 捨てても今日は症状が出ない。1 周目の critical はこの「構築時に Cmd を取り落とす」
+// 半分であり、登録した時点で処理を始めるモーダルを持ち込む後続 Issue が最初に踏む。
+// withEcho は自前のモーダルの Cmd を継ぎ足すので、流れる経路
+// （TestRegisterCmdReachesParentOnFirstState）だけでは New 側の取り落としを見抜けない。
+func TestNewKeepsRegisterCmd(t *testing.T) {
+	src, err := os.ReadFile("runners.go")
+	if err != nil {
+		t.Fatalf("実装を読めない: %v", err)
 	}
-	if def < 0 {
-		t.Fatal("Update の default（Overlay への転送）が見つからない（前提が崩れている）")
-	}
-	if res > def {
-		t.Error("case page.ResultMsg が default より後にある（決定が発行元のモーダルへ戻る）")
+	if !strings.Contains(string(src), "\t\tinitCmd: cmd,\n") {
+		t.Error("New が登録の Cmd を initCmd に保持していない（登録時に始まる処理が動かない）")
 	}
 }

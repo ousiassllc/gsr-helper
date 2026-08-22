@@ -17,8 +17,7 @@ import (
 func TestHelpKeepsOffsetAcrossStateUpdates(t *testing.T) {
 	// 高さを絞ってスクロールが要る状態にする。幅は広く取り、bubbles/help の列落ちで
 	// 行数が変わることの影響を避ける。
-	o := NewOverlay(testTab, testKeys(), testStyles(), true)
-	o.SetState(state(200, 12))
+	o, _ := NewOverlay(testTab, state(200, 12))
 	o.OpenHelp()
 
 	if !helpOf(t, o).help.Scrollable() {
@@ -46,8 +45,7 @@ func TestHelpKeepsOffsetAcrossStateUpdates(t *testing.T) {
 // ならない。順序を落とすと SetOffset は高さ 0 で丸められ、位置は 0 に潰れる
 // （pane.Help.SetOffset の丸め。Issue #30）。
 func TestHelpKeepsOffsetAcrossScopeChange(t *testing.T) {
-	o := NewOverlay(testTab, testKeys(), testStyles(), true)
-	o.SetState(state(200, 12))
+	o, _ := NewOverlay(testTab, state(200, 12))
 	o.OpenHelp()
 
 	o, _ = sendOverlay(o, "j", "j", "j")

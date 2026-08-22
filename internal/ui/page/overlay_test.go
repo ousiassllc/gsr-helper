@@ -19,10 +19,9 @@ const (
 
 // newOverlay はモーダルを 1 枚も開いていない状態で返す。
 func newOverlay() Overlay {
-	o := NewOverlay(testTab, testKeys(), testStyles(), true)
+	o, _ := NewOverlay(testTab, state(80, 20))
 	o.Register(kindFirst, newStub("1 枚目"))
 	o.Register(kindSecond, newStub("2 枚目"))
-	o.SetState(state(80, 20))
 	return o
 }
 

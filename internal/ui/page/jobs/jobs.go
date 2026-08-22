@@ -49,8 +49,10 @@ var _ tea.Model = Model{}
 // モーダルは画面が登録する（page.Overlay の doc）。Jobs タブが開くのは runner の
 // 詳細画面だけで、操作対象がジョブではなく runner であることと対応する（FR-47）。
 func New(tab int, st page.StateMsg) Model {
-	overlay := page.NewOverlay(tab, st.Keys, st.Styles, st.Dark)
-	cmd := overlay.Register(runnerdetail.Kind, runnerdetail.New(st))
+	// ヘルプと詳細画面、どちらの登録が返した Cmd も畳み込む（runners.go と同じ理由）。
+	overlay, help := page.NewOverlay(tab, st)
+	detail := overlay.Register(runnerdetail.Kind, runnerdetail.New(st))
+	cmd := tea.Batch(help, detail)
 	return Model{
 		tab:     tab,
 		st:      st,
@@ -74,7 +76,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleKey(msg)
 	case page.ResultMsg:
 		// モーダルが返した決定は page が受ける（runners.go と同じ理由）。
-		// **default（Overlay への転送）より前に置くこと。**
+		// page.Overlay.Handles が ResultMsg に偽を返すことと合わせた二重の守りで
+		// あり、並びは関係しない（型スイッチの default は常に最後に評価される）。
 		return m, m.chrome()
 	default:
 		return m.forward(msg)
@@ -101,9 +104,12 @@ func (m Model) setState(st page.StateMsg) (tea.Model, tea.Cmd) {
 	m.tbl.Restyle(st.Keys.List, st.Styles)
 	m.tbl.SetSize(st.BodyW, st.BodyH)
 	m.tbl.SetItems(sectionJobs, jobRows(st.Result.Runners))
+	// 登録の Cmd は return より前に取り出す（runners.go と同じ理由。同じ return 文に
+	// 置くと、返り値 m の読み取りと m.initCmd の破棄の評価順が未規定になる）。
+	init := m.flushInit()
 	// モーダルが返す Cmd も親へ渡す（runners.go と同じ理由）。
 	cmd := m.overlay.SetState(st)
-	return m, tea.Batch(m.chrome(), m.flushInit(), cmd)
+	return m, tea.Batch(m.chrome(), init, cmd)
 }
 
 // flushInit は登録が返した Cmd を 1 度だけ返す（runners.go と同じ理由）。

@@ -99,7 +99,10 @@ func TestLifecycleMsgsAreNotEatenByModal(t *testing.T) {
 	}
 }
 
-// モーダルが返した決定は page が受け取り、Overlay へ転送しない（Issue #26）。
+// モーダルが返した決定は page が受け取り、モーダルにも一覧にも吸われない（Issue #26）。
+//
+// 守りが二重（page.Overlay.Handles が偽を返すことと page 側の case）であることと、
+// 並びに意味が無い理由は runners/wiring_test.go と同じである。
 func TestResultMsgDoesNotReturnToModal(t *testing.T) {
 	st := pagetest.State(80, 16, pagetest.BusyRunner())
 	m, echo := withEcho(t, st)
@@ -109,6 +112,10 @@ func TestResultMsgDoesNotReturnToModal(t *testing.T) {
 	before := len(echo.Got)
 
 	res := page.ResultMsg{Kind: pagetest.EchoKind, Msg: "決定"}
+	if m.overlay.Handles(res) {
+		t.Error("Overlay が決定を引き受けている（転送すると発行元のモーダルへ戻って捨てられる）")
+	}
+
 	_, cmd := step(t, m, res)
 
 	if n := pagetest.Received[page.ResultMsg](echo); n != 0 {
@@ -127,26 +134,30 @@ func TestResultMsgDoesNotReturnToModal(t *testing.T) {
 	}
 }
 
-// 決定の case は default（Overlay への転送）より前に置く（page.ResultMsg の doc）。
+// Update は決定を自分の case で受ける（page.ResultMsg の doc）。
 //
-// 並びそのものを見る理由は runners/wiring_test.go と同じである（今は
-// page.Overlay.Handles も偽を返すため、振る舞いでは区別できない）。
-func TestResultMsgCaseComesBeforeDefault(t *testing.T) {
+// case の有無をソースで見る理由は runners/wiring_test.go と同じである（今は
+// page.Overlay.Handles も偽を返すため、振る舞いでは区別できない）。並びは見ない。
+func TestUpdateHasResultMsgCase(t *testing.T) {
 	src, err := os.ReadFile("jobs.go")
 	if err != nil {
 		t.Fatalf("実装を読めない: %v", err)
 	}
+	if !strings.Contains(string(src), "\tcase page.ResultMsg:") {
+		t.Error("Update に case page.ResultMsg が無い（決定を解釈するのが page でなくなる）")
+	}
+}
 
-	body := string(src)
-	res := strings.Index(body, "\tcase page.ResultMsg:")
-	def := strings.Index(body, "\tdefault:\n\t\treturn m.forward(msg)")
-	if res < 0 {
-		t.Fatal("Update に case page.ResultMsg が無い（決定が Overlay へ転送される）")
+// New は登録が返した Cmd を initCmd に保持する（Issue #26 の受入条件 5）。
+//
+// ソースで見る理由は runners/wiring_test.go と同じである（本番で登録するモーダルは
+// 登録時に Cmd を返さないため、取り落としても今日は症状が出ない）。
+func TestNewKeepsRegisterCmd(t *testing.T) {
+	src, err := os.ReadFile("jobs.go")
+	if err != nil {
+		t.Fatalf("実装を読めない: %v", err)
 	}
-	if def < 0 {
-		t.Fatal("Update の default（Overlay への転送）が見つからない（前提が崩れている）")
-	}
-	if res > def {
-		t.Error("case page.ResultMsg が default より後にある（決定が発行元のモーダルへ戻る）")
+	if !strings.Contains(string(src), "\t\tinitCmd: cmd,\n") {
+		t.Error("New が登録の Cmd を initCmd に保持していない（登録時に始まる処理が動かない）")
 	}
 }

@@ -626,7 +626,7 @@ type Modal struct {
     HandlesBack func(m tea.Model) bool  // esc を自分で解釈するか。nil なら常に 1 枚閉じる
 }
 
-func NewOverlay(tab int, keys keymap.Set, s token.Styles, dark bool) Overlay
+func NewOverlay(tab int, st StateMsg) (Overlay, tea.Cmd) // 第 2 戻り値はヘルプ登録の Cmd
 func (o Overlay) Register(kind ModalKind, m Modal) tea.Cmd
 func (o Overlay) Open(kind ModalKind, msg tea.Msg) tea.Cmd
 func (o Overlay) OpenHelp() tea.Cmd
@@ -638,7 +638,9 @@ func (o Overlay) SetState(st StateMsg) tea.Cmd
 func (o Overlay) SetHelpScope(scope HelpScope) tea.Cmd // ? に出すキーの範囲を差し替える
 ```
 
-**`Register` / `Open` / `OpenHelp` / `SetHelpScope` が返す `tea.Cmd` は呼び出し側まで返すこと。** 登録した時点・開いた時点で処理を始めるモーダル（ログの購読、差分の計算）は、この `Cmd` が捨てられるとその処理を動かせない。
+**`NewOverlay` / `Register` / `Open` / `OpenHelp` / `SetHelpScope` が返す `tea.Cmd` は呼び出し側まで返すこと。** 登録した時点・開いた時点で処理を始めるモーダル（ログの購読、差分の計算）は、この `Cmd` が捨てられるとその処理を動かせない。**この義務は `Overlay` 自身にも掛かる。** `NewOverlay` はヘルプ（`ModalHelp`）を登録するので、`Cmd` を返す口を持たない署名にすると自分だけが規則の外に置かれる（例外を Go のコメントで宣言することになり、文書が定めた無条件の義務と食い違う）。タブは `NewOverlay` の `Cmd` と自分の `Register` の `Cmd` を畳んで `initCmd` に持つ。
+
+**`NewOverlay` は共有状態を丸ごと受け取る。** `Register` は登録した時点で最新の共有状態をリプレイするため、`Overlay` が持つ初期状態が欠けていればその欠けがそのまま配られる。`Keys` / `Styles` / `Dark` だけを受け取っていた頃は、構築時に登録したモーダルへ届くのが `Exec = nil`・`Caps` ゼロ値・`Result` 空という半端な状態で、登録した時点で処理を始めるモーダルは `nil` の `Executor` を掴んだ。
 
 **登録の `Cmd` は `Init` では返せない。** bubbletea が `Init` を呼ぶのはルート Model（親 `App`）だけで、親はタブの `Init` を呼ばない。`New` で `Register` した `Cmd` をタブの `Init` に持たせると、そのままランタイムへ届かず処理は永久に始まらない。**タブは登録の `Cmd` を保持し、最初の `page.StateMsg` を受けた時点（`setState`）で流して `nil` に落とす。** 共有状態は親が有効な全タブへ必ず配るので、この経路なら確実に届く。`Init` は `nil` を返す（発行点を片方に寄せて二重発火を避ける）。`Open` / `SetHelpScope` の `Cmd` はキー入力の応答としてその場で返せるため、この扱いが要るのは登録の `Cmd` だけである。
 
@@ -678,7 +680,7 @@ return m, page.Do(m.tab, func() tea.Msg { return res })
 - `page.ResultMsg` で包むので、**page の `Update` が自分の `case` で受けられる**（`Overlay.Handles` は `ResultMsg` に偽を返すため、転送してモーダル自身へ帰ることがない）
 - モーダルを閉じた後に届いても page が受けるので、**決定が宛先を失って静かに捨てられない**
 
-page 側は `default`（`Overlay` への転送）より**前**に `case page.ResultMsg:` を置くこと。
+page 側は `Update` に `case page.ResultMsg:` を**自分で持つこと**。`Overlay.Handles` が `ResultMsg` に偽を返すことと合わせた**二重の守り**であり、決定を解釈するのは `Overlay` ではなく page だという分担を page 側から明示する。**`default` との並びは関係しない**——Go の型スイッチの `default` は記述位置に関わらず最後に評価される（先頭に書いても `case` が優先される）。
 
 #### 4. page の寿命は 3 つの `Msg` で知らせる
 
@@ -896,31 +898,45 @@ Disk / Logs / Doctor タブの部品を足すときは、まずその部品が�
 
 ### ディレクトリの行数
 
-行数チェック（`linterly`）の上限は 1 ディレクトリ 2000 行（テストを含む）で、集計は直下のファイルのみを対象とする。現在の使用量は次のとおりである。**上限に近いディレクトリへ部品を足すときは、先に分割の是非を検討すること。**
+行数チェック（`linterly`）の上限は 1 ディレクトリ 2000 行（テストを含む）で、集計は直下のファイルのみを対象とする。
 
-| ディレクトリ | 行数 |
-|------------|------|
-| `ui` | 2093 |
-| `ui/organism/table` | 2061 |
-| `ui/molecule` | 1764 |
-| `ui/page` | 1550 |
-| `ui/page/runnerdetail` | 1176 |
-| `ui/page/runners` | 1165 |
-| `ui/atom` | 964 |
-| `ui/page/jobs` | 876 |
-| `ui/keymap` | 868 |
-| `ui/page/action` | 755 |
-| `ui/organism/pane` | 691 |
-| `ui/template` | 657 |
-| `ui/token` | 655 |
-| `ui/organism` | 521 |
-| `ui/page/pagetest` | 424 |
+**2000 行は警告の始まりであって失敗の境界ではない。** `.linterly.yml` の `warning_threshold: 10` により、2000 行を超えると **WARN**、上限の 110% にあたる **2200 行**を超えて初めて **ERROR**（`make check` が落ちる）になる。つまり 2000〜2200 行は「超過しているが CI は通る」警告帯である。**警告帯に入ったディレクトリへ部品を足すときは、先に分割の是非を検討し、判断と理由をこの節に残すこと。**
 
-#### `ui` 直下を分割しない判断
+現在の使用量は次のとおりである（`linterly check -f json` の実測値）。
 
-`ui` 直下（親 Model）は上限に最も近い。**それでも分割はしない。** 実体は `app.go` / `tabs.go` / `chrome.go` / `discover.go` / `keys.go` の 5 ファイル・約 770 行で、残りはすべてテストである。親 Model は `tea.Model` を 1 つしか持たない（タブを束ねる唯一の点）ので、切り出せるのは「親の一部の判断」だけになり、`page` のようにパッケージ境界で依存を強制できる分け方にならない。
+| ディレクトリ | 行数 | 判定 |
+|------------|------|------|
+| `ui` | 2093 | **WARN（超過中）** |
+| `ui/organism/table` | 2061 | **WARN（超過中）** |
+| `ui/molecule` | 1764 | pass |
+| `ui/page` | 1604 | pass |
+| `ui/page/runners` | 1193 | pass |
+| `ui/page/runnerdetail` | 1175 | pass |
+| `ui/atom` | 964 | pass |
+| `ui/page/jobs` | 892 | pass |
+| `ui/keymap` | 868 | pass |
+| `ui/page/action` | 755 | pass |
+| `ui/organism/pane` | 691 | pass |
+| `ui/template` | 657 | pass |
+| `ui/token` | 655 | pass |
+| `ui/organism` | 521 | pass |
+| `ui/page/pagetest` | 424 | pass |
 
-代わりに**検証の道具を `page/pagetest` へ寄せる**。親の検証はタブを差し替えて行うため道具立てが page 側と同じであり（キー入力の組み立て・能力・`Cmd` の展開・長寿命の処理を持つ page）、`ui` 直下に置くと道具の重複で行数だけが増える。実際に `press` / `testCaps` / `cmdList` / `asCmds` / `runAll` / `streamPage` を `pagetest` へ移し、2186 行から 2093 行へ下げた。**次に `ui` 直下へ足すときも、まず道具を `pagetest` へ寄せられないかを見ること。**
+超過している 2 つはどちらも**現時点では分割しない**。判断の理由を以下に残す。
+
+#### `ui` 直下を分割しない判断（2093 行・WARN・エラー境界まで 107 行）
+
+`ui` 直下（親 Model）は**すでに上限を超えており、linterly が WARN を出している**。**それでも分割はしない。** 実体は `app.go` / `tabs.go` / `chrome.go` / `discover.go` / `keys.go` の 5 ファイル・約 770 行で、残りはすべてテストである。親 Model は `tea.Model` を 1 つしか持たない（タブを束ねる唯一の点）ので、切り出せるのは「親の一部の判断」だけになり、`page` のようにパッケージ境界で依存を強制できる分け方にならない。
+
+代わりに**検証の道具を `page/pagetest` へ寄せる**。親の検証はタブを差し替えて行うため道具立てが page 側と同じであり（キー入力の組み立て・能力・`Cmd` の展開・長寿命の処理を持つ page）、`ui` 直下に置くと道具の重複で行数だけが増える。実際に `press` / `testCaps` / `cmdList` / `asCmds` / `runAll` / `streamPage` を `pagetest` へ移し、2186 行から 2093 行へ下げた。**次に `ui` 直下へ足すときも、まず道具を `pagetest` へ寄せられないかを見ること。** 寄せる先が尽きた時点でこの判断は見直す。
+
+#### `ui/organism/table` を分割しない判断（2061 行・WARN・エラー境界まで 139 行）
+
+`ui/organism/table` も上限を超えて WARN が出ている。**それでも分割はしない。** 実体は `api.go` / `keys.go` / `rows.go` / `section.go` / `state.go` / `table.go` の 6 ファイル・約 1050 行で、残りの約 1010 行はテストである。中身は `Model[T]` という 1 つの型に対する区画・行・列・キー・状態の内訳であり、切り出せる単位はいずれも `Model[T]` の非公開な状態に触れる。サブパッケージへ出すには内部を export して `table` から切り出し先への参照を作ることになり、**「一覧の共通実装は 1 つ」（`Table` を増やさない）という規則を構造で守れなくなる**。分割の目的は行数上限の分散であって部品同士の依存を増やすことではない、という本書の方針とも衝突する。
+
+次に足すときは、まずテスト側を `helper_test.go` へ寄せて重複を削ること（`ui` 直下で採ったのと同じ手）。それでも 2200 行に届くなら、区画の判定（`section.go` / `state.go`）だけを一方向参照の別ディレクトリへ出す。
+
+**1.11 で `page` 直下を分割したのと扱いが違うのは、超過の有無ではなく「分けられるか」で判断しているためである。** `page` 直下には操作の識別と可否の判定（`page/action`）という、パッケージ境界で依存の向きを強制できるまとまりがあった。`ui` 直下と `ui/organism/table` にはそれが無い。
 
 ## 部品を追加するときの手順
 
@@ -949,3 +965,4 @@ Disk / Logs / Doctor タブの部品を足すときは、まずその部品が�
 | 1.11 | 2026-08-22 | 操作の識別と可否の判定を `page/action` へ分離し、`page.ActionID` を `action.ID` に改称。表示層との境界を不透明な識別子（`organism.Choice.ID` / `ChosenMsg.ID`）で渡す規則、`action.Set` をキー定義から 1 度だけ組む規則、同じ先頭キーの重複を `panic` で検出する規則を追加。ディレクトリの行数表を実測値に更新 | 決定が「`ActionID` → キー文字列 → 再マップ」で往復しており、キーリテラル依存を排したはずの箇所に決定点だけが残っていた。`keymap.RunnerKeys` の 2 フィールドが同じ先頭キーを持つと片方が map 上書きで黙って消え、理由が未対応にすり替わる。可否の判定は呼ばれるたびに 11 要素の map を作り直しており、フッタ 1 回の描画で 9 回確保していた。`page` 直下が行数上限を超えたため、本書の「上限に近いディレクトリへ部品を足すときは先に分割の是非を検討する」に従って分けた（Issue #34） |
 | 1.12 | 2026-08-22 | `ChoiceList` の項目差し替えを `SetItems(items, policy)` に一本化し、カーソルの扱いを引数で宣言させる規則（ゼロ値は安全側）を追加。`Choice.ID` による決定の識別を表に追記 | `SetItems`（先頭へ戻す）と `UpdateItems`（位置を保つ）が名前だけで区別されており、取り違えても気付けない。誤ると FR-46（一覧の enter → 詳細の enter で破壊的操作に到達しない）が黙って崩れる（Issue #50） |
 | 1.13 | 2026-08-22 | 登録が返す `Cmd` を「最初の `page.StateMsg` で流す」と定め、`Init` では返せない理由を追記。`Overlay.Handles` が page 本体宛と決まっている `Msg`（`ResultMsg` と寿命の 3 つ）に偽を返す規則を追加。モーダルが受け取る `Msg` の表の `page.StateMsg` の行を「開いているモーダルにだけ配る」に修正。`pane.Detail` の `GotoTop` / `Offset` と、対象を差し替える側が先頭へ戻す義務・同じ対象の更新では戻さない義務を本文に明記。ディレクトリの行数表を実測値に更新し、`ui` 直下を分割しない判断と道具を `page/pagetest` へ寄せる方針を追加 | 親 `App` はどのタブの `Init()` も呼ばない（bubbletea が `Init` を呼ぶのはルート Model だけ）ため、`Register` が返した `Cmd` は `Init` に持たせた時点でランタイムへ届かず、文書が定めた「呼び出し側まで返すこと」が成立していなかった。寿命の 3 つの `Msg` は既定（開いていれば渡す）に落ちており、モーダルを開いたままタブを切り替えると page が長寿命の処理を畳めなかった。`page.StateMsg` の行は 1.10 で改めた `SetState` の規則と実装の双方に正面から矛盾していた。`pane.Detail` の位置 API とその義務は改訂履歴の理由欄にしか無く、本文からは読み取れなかった。行数表は実測とずれており、`ui` 直下は残り 14 行でエラー境界に達する状態だったのに、本書が定める「上限に近いディレクトリへ部品を足すときは先に分割の是非を検討する」の検討記録が無かった（Issue #26 / #32 / #41 のレビュー指摘） |
+| 1.14 | 2026-08-22 | `NewOverlay` の署名を `(tab int, st StateMsg) (Overlay, tea.Cmd)` に変更し、共有状態を丸ごと受け取ることと、ヘルプ登録の `Cmd` を呼び出し側へ返すことを本文に明記。`Cmd` を返す義務の列挙に `NewOverlay` を追加。決定の `case` を「`default` より前に置く」から「page が自分で持つ（`Overlay.Handles` と合わせた二重の守り。並びは関係しない）」に訂正。ディレクトリの行数の節に警告帯（2000〜2200）とエラー境界 2200 を明記し、`ui` と `ui/organism/table` が超過中（WARN）である事実と、それぞれ分割しない判断・理由・次の一手を追加。行数表を実測値に更新 | `NewOverlay` が初期の共有状態を `StateMsg{Keys, Styles, Dark}` だけで組んでいたため、構築時に登録したモーダルへリプレイされるのは `Exec = nil`・`Caps` ゼロ値・`Result` 空という半端な状態で、本書の「登録した時点で `Result` / `Caps` / `Exec` を持てる」に正面から反していた。しかも `NewOverlay` 自身がヘルプ登録の `Cmd` を捨てており、返す口が署名に無いため無条件の義務を構造的に守れず、除外の根拠が Go のコメントにしか無かった。決定の `case` の並びを規約として書いていたが、Go の型スイッチの `default` は記述位置に関わらず最後に評価されるため誤りであり、その規約を検査するテストは壊れた実装に対して決して失敗しなかった。行数の節は `ui` と `ui/organism/table` が上限を超えて WARN が出ている事実を伏せたまま「上限に最も近い」と書いており、警告帯とエラー境界が本文になく 2093 行が許容される理由を読者が判定できなかった（Issue #26 / #32 の 2 周目レビュー指摘） |
