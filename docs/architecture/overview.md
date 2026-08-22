@@ -84,12 +84,16 @@ sequenceDiagram
     Main->>Caps: root か / systemctl / docker / journalctl / gh 認証
     Caps-->>Main: Caps
     Main->>App: Caps・設定・色の有効無効で初期化
-    Main->>Tea: tea.NewProgram(App) を代替スクリーンで起動
-    Tea->>App: Init() → 初回検出 Cmd と背景色の問い合わせ
+    Main->>Tea: tea.NewProgram(App) を起動
+    Tea->>App: Init() → 背景色の問い合わせと最初の Tick
     App->>App: 背景色の応答から明暗を決め、配色を解決
-    App->>App: 検出結果を保持し一覧を描画
-    Tea->>App: 3 秒ごとの Tick → 再検出 Cmd
+    App->>App: Tick を受けて検出 Cmd を発行し、結果を保持して一覧を描画
+    Tea->>App: 以降 3 秒ごとの Tick → 再検出 Cmd
 ```
+
+代替スクリーンは親 Model が宣言し、panic からの端末復元は bubbletea が行う。`main` は `tea.NewProgram(App).Run()` を呼ぶだけである（扱う箇所を 2 つ持つと、片方だけが効いた状態を追えなくなる）。
+
+初回の検出も Tick の経路で行う。**検出を始める場所を 1 つに保つ**ためであり、これによって「実行中の検出があるうちは重ねない」という規則（[画面仕様](../ui/screens.md#一覧の自動更新)）が初回にも効く。能力判定は同期的に行い、全体を 800 ms で打ち切る（[非機能要件](../requirements/non-functional.md#応答性性能)）。
 
 色を使うかどうか（`NO_COLOR` / `--no-color` / 非 TTY）は `main` が判定し、背景の明暗は起動後に端末へ問い合わせて親 Model が保持する。どちらも下位の階層は自分で環境を読まない（[TUI コンポーネント設計](../ui/atomic-design.md#背景の明暗と-no_color)）。
 
@@ -249,3 +253,4 @@ internal/
 | 1.0 | 2026-08-21 | 新規作成 | 初版 |
 | 1.1 | 2026-08-21 | ディレクトリ構成に appconfig を追加 | コンポーネント設計で本ツール自身の設定と能力判定を担うパッケージを分離したため |
 | 1.2 | 2026-08-21 | 代替スクリーンでの起動と背景色の問い合わせを起動シーケンスに追加。続けて届く結果を `Cmd` の再帰で受けることを明記。UI 層の階層に keymap を追加 | ログ追従・集計・進捗の受け取り方が未定義で、`Program.Send` を使う実装だと page のテスト方針が成立しなかったため |
+| 1.3 | 2026-08-22 | 起動シーケンスから「代替スクリーンで起動」を外し、代替スクリーンの宣言と panic 復元の担当を明記。初回検出も Tick の経路を通ることと能力判定の上限を追記 | 代替スクリーンは親 Model が宣言し panic 復元は bubbletea が行うため、`main` の責務としていた記述が実装と食い違っていた。`Init` が直接検出せず Tick を返す形にしたことで、検出の二重起動を防ぐ規則が初回にも効くようになった |
