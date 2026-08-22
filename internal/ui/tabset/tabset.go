@@ -21,6 +21,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/ui/keymap"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/disk"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/jobs"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/runners"
 	"github.com/ousiassllc/gsr-helper/internal/ui/token"
@@ -71,7 +72,7 @@ func specs() []spec {
 	return []spec{
 		{Title: "Runners", New: func(i int, st page.StateMsg) tea.Model { return runners.New(i, st) }},
 		{Title: "Jobs", New: func(i int, st page.StateMsg) tea.Model { return jobs.New(i, st) }},
-		{Title: "Disk", New: nil},
+		{Title: "Disk", New: func(i int, st page.StateMsg) tea.Model { return disk.New(i, st) }},
 		{Title: "Logs", New: nil},
 		{Title: "Doctor", New: nil},
 		{Title: "Config", New: nil},
