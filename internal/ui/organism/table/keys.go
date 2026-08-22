@@ -13,6 +13,10 @@ import (
 // f / b / space に割り当てられており、本ツールの u（バージョン更新）/ d（ドレイン停止）/
 // space（選択のトグル）が一覧のスクロールに食われるためである。半ページ送りは
 // screens.md のキーマップに無いので割り当てない。
+//
+// 先頭 / 末尾への移動も割り当てない。g / G は一覧全体（区画をまたぐ）の端へ移すもので
+// あり、updateList が gotoEdge で処理して btable へは渡さない。btable に同じキーを
+// 持たせても区画の中で止まる移動になるだけで、届くこともない。
 func tableKeyMap(l keymap.List) btable.KeyMap {
 	return btable.KeyMap{
 		LineUp:       l.Up,
@@ -21,8 +25,8 @@ func tableKeyMap(l keymap.List) btable.KeyMap {
 		PageDown:     l.PageDown,
 		HalfPageUp:   unbound(),
 		HalfPageDown: unbound(),
-		GotoTop:      l.Top,
-		GotoBottom:   l.Bottom,
+		GotoTop:      unbound(),
+		GotoBottom:   unbound(),
 	}
 }
 

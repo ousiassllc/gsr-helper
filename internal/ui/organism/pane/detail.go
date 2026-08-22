@@ -1,6 +1,8 @@
 package pane
 
 import (
+	"slices"
+
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 
@@ -28,8 +30,15 @@ func NewDetail() Detail {
 }
 
 // SetContent は表示する行を差し替える。
+//
+// 渡されたスライスは写しを取って渡す。bubbles/viewport の SetContentLines は受け取った
+// スライスをそのまま持ち、改行を含む行を分割する際に中身を書き戻す（要素への代入と、
+// 容量に余裕があればその場で詰める slices.Insert）。写しを取らないと呼び出し側の
+// スライスが書き換わり、page が手元の行を使い回した時点で表示が崩れる。行数は高々
+// 数十なので、確保の費用より状態が壊れる事故の重さを採る
+// （organism/table.Model.SetItems と同じ理由）。
 func (d *Detail) SetContent(lines []string) {
-	d.vp.SetContentLines(lines)
+	d.vp.SetContentLines(slices.Clone(lines))
 }
 
 // SetSize は詳細に割り当てられた領域を設定する。

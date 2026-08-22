@@ -45,7 +45,9 @@ func Columns(all []token.Column, width int, rules token.ColumnRules) []token.Col
 
 	always := rules.Keep
 	for _, id := range rules.Drop {
-		if columnsFit(keep, width) {
+		// 1 列だけになったらそこで止める（列が 0 個の一覧は描けない）。rules.Keep が
+		// 空でも契約が守られるように、末尾落としと同じ歯止めをここにも置く。
+		if len(keep) <= 1 || columnsFit(keep, width) {
 			return keep
 		}
 		if hasColumnID(always, id) {

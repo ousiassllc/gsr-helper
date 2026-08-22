@@ -120,13 +120,41 @@ func (t *Model[T]) setSectionWidth(i, w int) {
 	t.setCursor(i, cursor)
 }
 
-// normalizeFocus は行が無くなった区画からフォーカスを外す。
+// focusAnchor は行の入れ替えをまたいでカーソルを貼り直すための目印。
+//
+// 識別子を返す関数を持たない区画では ok が false になり、貼り直しは添字に退避する。
+type focusAnchor struct {
+	id string
+	ok bool
+}
+
+// anchor は今カーソルがある行の目印を取る。行を入れ替える前に呼ぶこと。
+func (t Model[T]) anchor() focusAnchor {
+	cur, ok := t.current()
+	if !ok || cur.def.ID == nil {
+		return focusAnchor{id: "", ok: false}
+	}
+	item, ok := cur.selected()
+	if !ok {
+		return focusAnchor{id: "", ok: false}
+	}
+	return focusAnchor{id: cur.def.ID(item), ok: true}
+}
+
+// normalizeFocus は行の入れ替えの後にカーソルを貼り直し、行が無くなった区画からは
+// フォーカスを外す。
 //
 // 3 秒ごとの再検出で行が入れ替わるため、フォーカスを毎回先頭へ戻さず、
 // 今の区画に行が残っている限りはそこに留める。
-func (t *Model[T]) normalizeFocus() {
+//
+// **カーソルは添字ではなく識別子で貼り直す。** カーソルより上の行が消えると並びが
+// 詰まり、添字を当て直したのでは別の行が選ばれる。Selected() の結果はフッタの操作
+// 可否・enter の詳細・サービス制御の対象になるため、ずれは「選んだつもりとは別の
+// runner を操作する」に化ける（runnerdetail.Model.SetState が Dir で引き直すのと
+// 同じ危険である）。
+func (t *Model[T]) normalizeFocus(a focusAnchor) {
 	if cur, ok := t.current(); ok && cur.visible() {
-		t.setFocus(t.focus, cur.tbl.Cursor())
+		t.setFocus(t.focus, cur.restoredCursor(a))
 		return
 	}
 	for i := range t.sections {

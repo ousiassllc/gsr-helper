@@ -64,6 +64,13 @@ func (s *section[T]) setWidth(w int) {
 	s.tbl.SetColumns(tableColumns(s.def.Selectable, cols))
 }
 
+// restyle は区画が bubbles/table へ渡している配色とキー定義を差し替える。
+// 見出しの装飾は btable が持つため差し替えが要る（行のセルは Model.refresh が組み立て直す）。
+func (s *section[T]) restyle(keys keymap.List, st token.Styles) {
+	s.tbl.KeyMap = tableKeyMap(keys)
+	s.tbl.SetStyles(tableStyles(st))
+}
+
 // visible は区画を描くかを返す。行が無い区画は見出しも区切り線も出さない。
 func (s section[T]) visible() bool {
 	return len(s.shown) > 0
@@ -84,6 +91,25 @@ func (s section[T]) selected() (item T, ok bool) {
 		return zero, false
 	}
 	return s.shown[i], true
+}
+
+// restoredCursor は行の入れ替えの後にカーソルを置く位置を返す。
+//
+// 目印の行が残っていればその位置、消えていれば先頭に戻す。添字を据え置くと、
+// たまたまその位置に来た別の行を選んだことになる。先頭に戻すのは、利用者が選び直す
+// ことが分かる位置であり、破壊的操作の誤爆を避けられるためである。
+//
+// 目印を取れなかった区画（識別子を返す関数が無い）は今の添字を保つ。
+func (s section[T]) restoredCursor(a focusAnchor) int {
+	if !a.ok || s.def.ID == nil {
+		return s.tbl.Cursor()
+	}
+	for i, item := range s.shown {
+		if s.def.ID(item) == a.id {
+			return i
+		}
+	}
+	return 0
 }
 
 // render は行のセル列を返す。Render が未設定の区画では空のセルになる。
