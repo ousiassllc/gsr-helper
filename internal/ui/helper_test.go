@@ -121,86 +121,59 @@ func sendKey(a App, k string) (App, tea.Cmd) {
 	return a, cmd
 }
 
-// cmdWait は Cmd 1 つの実行を待つ上限。
+// scanKey は打鍵の結果の束を辿り、最初の ChromeMsg と page が差し戻したキーを返す。
 //
-// 探している Msg（page.ChromeMsg / page.GlobalKeyMsg / 束）を返す Cmd はどれも値を
-// 組み立てて返すだけのクロージャであり、即座に返る。待たされるのは絞り込み中の一覧が
-// 返すカーソル点滅（tea.Tick で約 0.5 秒）だけである。点滅より十分短く、かつ -race や
-// CI の負荷で goroutine の起動が遅れても取りこぼさない値にしてある。
-const cmdWait = 100 * time.Millisecond
-
-// keyScan は打鍵に対する Cmd の束から取り出した値。
-type keyScan struct {
-	chrome    page.ChromeMsg
-	hasChrome bool
-	global    page.GlobalKeyMsg
-	hasGlobal bool
-}
-
-// scanKey は打鍵の結果の束を辿り、最初の ChromeMsg と page が差し戻した
-// page.GlobalKeyMsg を 1 回の走査で取り出す。
+// **束の中の Cmd はすべて実行する。** 「差し戻しは無い」という結論は、形でも時間でも
+// 安全には出せない。形では判らないのは、tea.Batch が 1 本の束を畳むため、閉じ込めた
+// ときの tea.Batch(chrome, 一覧の Cmd) と、一覧の Cmd が nil のときに差し戻した
+// tea.Batch(chrome, BubbleKey) が同じ形になるからである（実 page のモーダル表示中が
+// これ）。時間でも判らないのは、遅い Cmd を打ち切ると遅れて返った差し戻しが
+// 「閉じ込められた」と同じ結果になり、**取りこぼしが静かな成功に化ける**からである。
+// 閉じ込めが壊れても緑になるので、空振りテストを直すという Issue #31 の主題に反する。
 //
-// **束の形は仮定しない。** page が差し戻すときの束は tea.Batch(自分の結果, BubbleKey)
-// だが、tea.Batch は Cmd が 1 本になると束を畳むため、入れ子になるかどうかは page が
-// 一覧の Cmd を持つかで変わる。実 page は持つので入れ子になり、pagetest.Spy は持たない
-// ので tea.Batch(chrome, BubbleKey) と平らになる。「先頭が ChromeMsg なら差し戻しは
-// 無い」といった形への依存は、平らな束で差し戻しを黙って取りこぼす。
-//
-// 代わりに時間で見分ける。**すぐに値を返さない Cmd は探しているものではない。**
-// 各 Cmd を別 goroutine で実行して cmdWait で打ち切れば、点滅を待たずに済み、束の形にも
-// 依存しない。打ち切りの代償を払うのは「差し戻しが無く、かつ点滅の Cmd がある」場合
-// （＝絞り込みの入力中に閉じ込められた打鍵）だけである。
-func scanKey(cmd tea.Cmd) keyScan {
-	var got keyScan
-	scanInto(cmd, &got)
-	return got
-}
+// 代償は絞り込み入力中の打鍵ごとに一覧のカーソル点滅（約 0.5 秒）を待つことで、
+// TestFilterInputConfinesGlobalKeysBeforeChromeArrives が約 2 秒かかる。**意図して
+// 受け入れている**（回帰ガードが取りこぼしを成功と区別できないより遅いほうがまし。
+// 後追いで確かめる非同期の作りも検討したが、複雑さに見合わないと判断した）。
+// 形と遅延の網羅は TestScanKeyFindsBubbleInEveryShape が固定している。
+func scanKey(cmd tea.Cmd) (page.ChromeMsg, page.GlobalKeyMsg, bool) {
+	var (
+		chrome    page.ChromeMsg
+		hasChrome bool
+		global    page.GlobalKeyMsg
+		hasGlobal bool
+	)
 
-// scanInto は Cmd を実行し、束ならその中身を辿って got を埋める。
-func scanInto(cmd tea.Cmd, got *keyScan) {
-	if cmd == nil || got.hasGlobal {
-		return
-	}
-	msg, ok := runCmd(cmd)
-	if !ok {
-		return
-	}
-	if inner, ok := asCmds(msg); ok {
-		for _, c := range inner {
-			scanInto(c, got)
+	var walk func(tea.Cmd)
+	walk = func(c tea.Cmd) {
+		if c == nil {
+			return
 		}
-		return
-	}
-	switch m := msg.(type) {
-	case page.ChromeMsg:
-		if !got.hasChrome {
-			got.chrome, got.hasChrome = m, true
+		msg := c()
+		if inner, ok := asCmds(msg); ok {
+			for _, ic := range inner {
+				walk(ic)
+			}
+			return
 		}
-	case page.GlobalKeyMsg:
-		got.global, got.hasGlobal = m, true
+		switch m := msg.(type) {
+		case page.ChromeMsg:
+			if !hasChrome {
+				chrome, hasChrome = m, true
+			}
+		case page.GlobalKeyMsg:
+			global, hasGlobal = m, true
+		}
 	}
-}
+	walk(cmd)
 
-// runCmd は Cmd を別 goroutine で実行し、cmdWait を過ぎたら諦める。
-//
-// 諦めた goroutine は点滅の Tick が満了したときに終わる。チャネルに緩衝を持たせて
-// あるので、受け取り手がもう居なくても送信で詰まって残ることはない。
-func runCmd(cmd tea.Cmd) (tea.Msg, bool) {
-	done := make(chan tea.Msg, 1)
-	go func() { done <- cmd() }()
-
-	select {
-	case msg := <-done:
-		return msg, true
-	case <-time.After(cmdWait):
-		return nil, false
-	}
+	return chrome, global, hasGlobal
 }
 
 // findBubbled は page が差し戻したグローバルキーを返す。
 func findBubbled(cmd tea.Cmd) (page.GlobalKeyMsg, bool) {
-	got := scanKey(cmd)
-	return got.global, got.hasGlobal
+	_, global, ok := scanKey(cmd)
+	return global, ok
 }
 
 // statusLine は親が描く状態行を返す。

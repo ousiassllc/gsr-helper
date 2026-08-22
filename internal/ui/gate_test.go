@@ -13,34 +13,29 @@ import (
 )
 
 // press1 は打鍵を 1 つ送り、page が返した ChromeMsg と、差し戻しを親が解釈した結果の
-// Cmd を返す。**キーが page に閉じ込められたときの Cmd は nil である。** page 自身の
-// Cmd は返さない。絞り込み中はそこにカーソル点滅の Cmd（約 0.5 秒ブロックする）が
-// 混じっており、呼び出し側が isQuit などで実行すると 1 打鍵ごとにその時間だけ
-// 待たされる。
-// 閉じ込めが外れたかどうかは、親が差し戻しを解釈した結果の Cmd に終了などが現れる
-// かで判定する。
+// Cmd を返す。**閉じ込められたときの Cmd は nil である**（page 自身の Cmd は返さない。
+// 絞り込み中はそこに点滅の Cmd が混じり、呼び出し側が isQuit で実行すると待たされる）。
 //
 // **打鍵は page → 親の往復を経る**（helper_test の sendKey と同じ）。App.Update を
 // 1 回呼ぶだけの update では page.GlobalKeyMsg が親へ戻らず、閉じ込めを判定する経路
 // そのものが走らない。update で書いていた頃は runners.handleKey の閉じ込めを丸ごと
-// 消してもこのファイルの 2 つのテストが緑のままで、回帰ガードとして何も守って
-// いなかった（Issue #31）。
+// 消してもこのファイルの 2 つのテストが緑のままだった（Issue #31）。
 //
 // ChromeMsg は取り出すだけで**親へは渡さない**。このファイルの前提は「親が持つ
 // モーダル・入力の状態は 1 打鍵ぶん古い」であり、渡すと検証したい経路が消える。
-// 取り出すのは閉じ込めの前提（モーダルが開いた・絞り込みが始まった）を page 側の
-// 値で確かめるためである。
+// 取り出すのは閉じ込めの前提を page 側の値で確かめるためである。
 func press1(a App, k string) (App, page.ChromeMsg, tea.Cmd) {
 	next, cmd := update(a, press(k))
 
-	// ChromeMsg と差し戻しは 1 回の走査でまとめて取る（helper_test の scanKey）。
-	// 束の形は仮定せず、点滅の Cmd を待たないことも scanKey が担う。
-	got := scanKey(cmd)
-	if !got.hasGlobal {
-		return next, got.chrome, nil
+	// 閉じ込められた打鍵では nil を返す（親は打鍵を見ていないので Cmd も無い）。
+	// 差し戻しを取りこぼして nil になる経路は無い（scanKey の doc）。取りこぼしが
+	// nil に化けると 6 つの assertion がすべて満たされて静かに緑になる。
+	c, global, ok := scanKey(cmd)
+	if !ok {
+		return next, c, nil
 	}
-	next, cmd = update(next, got.global)
-	return next, got.chrome, cmd
+	next, cmd = update(next, global)
+	return next, c, cmd
 }
 
 // モーダルを開いた直後の打鍵でも、グローバルキーは背後へ抜けない。
