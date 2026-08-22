@@ -36,10 +36,40 @@ func TestRunnerDirFromExe(t *testing.T) {
 		{"bin 配下なら 1 つ上", "/opt/r/bin/Runner.Listener", noCwd, "/opt/r"},
 		{"bin 配下でなければ cwd", "/opt/r/Runner.Listener", withCwd, base},
 		{"cwd も読めなければ空", "/opt/r/Runner.Listener", noCwd, ""},
+		// 自動更新でバイナリが差し替わると exe に " (deleted)" が付く。
+		// 印が残ると bin 配下と判定できず、ディレクトリが cwd 頼みになる。
+		{"(deleted) 付きでも bin の 1 つ上", "/opt/r/bin/Runner.Listener (deleted)", noCwd, "/opt/r"},
 	}
 	for _, tt := range tests {
 		if got := runnerDirFromExe(tt.exe, tt.procDir); got != tt.want {
 			t.Errorf("%s: got %q, want %q", tt.name, got, tt.want)
+		}
+	}
+}
+
+// runner の自動更新でバイナリが差し替わると /proc/<pid>/exe は
+// "…/Runner.Listener (deleted)" を返す。印を落とさずに照合すると稼働中の runner が
+// 検出から丸ごと漏れるため、両方の形を種別に落とせること。
+func TestKindFromExe(t *testing.T) {
+	tests := []struct {
+		name, exe string
+		want      Kind
+		wantOK    bool
+	}{
+		{name: "Listener", exe: "/opt/r/bin/Runner.Listener", want: Listener, wantOK: true},
+		{name: "Worker", exe: "/opt/r/bin/Runner.Worker", want: Worker, wantOK: true},
+		{name: "差し替え済みの Listener", exe: "/opt/r/bin/Runner.Listener (deleted)", want: Listener, wantOK: true},
+		{name: "差し替え済みの Worker", exe: "/opt/r/bin/Runner.Worker (deleted)", want: Worker, wantOK: true},
+		{name: "runner ではない", exe: "/usr/bin/bash"},
+		// 印だけでは runner と判定しない。"(deleted)" は落としても名前が残る。
+		{name: "名前が違えば (deleted) 付きでも対象外", exe: "/opt/r/bin/Runner.Other (deleted)"},
+		{name: "空", exe: ""},
+	}
+	for _, tt := range tests {
+		got, ok := kindFromExe(tt.exe)
+		if ok != tt.wantOK || (ok && got != tt.want) {
+			t.Errorf("%s: kindFromExe(%q) = (%v, %v), want (%v, %v)",
+				tt.name, tt.exe, got, ok, tt.want, tt.wantOK)
 		}
 	}
 }

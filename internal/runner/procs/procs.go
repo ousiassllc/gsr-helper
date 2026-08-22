@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -37,13 +38,40 @@ func (k Kind) String() string {
 	}
 }
 
+// deletedSuffix は実行中に実行ファイルが差し替え・削除されたプロセスの
+// /proc/<pid>/exe が返す印。runner の自動更新でバイナリが置き換わると readlink は
+// "<dir>/bin/Runner.Listener (deleted)" を返すため、印を落とさずに照合すると
+// 稼働中の runner が検出から丸ごと漏れる。
+const deletedSuffix = " (deleted)"
+
+// execPath は照合に使う実行ファイルパスを返す。exe が差し替え済みでも
+// 元のパスとして扱えるよう、末尾の " (deleted)" を落とす。
+func execPath(exe string) string { return strings.TrimSuffix(exe, deletedSuffix) }
+
+// kindFromExe は実行ファイルのパスから runner プロセスの種別を判定する。
+// runner のプロセスでなければ ok が false になる。
+func kindFromExe(exe string) (Kind, bool) {
+	switch filepath.Base(execPath(exe)) {
+	case "Runner.Listener":
+		return Listener, true
+	case "Runner.Worker":
+		return Worker, true
+	default:
+		return 0, false
+	}
+}
+
 // Process は検出した runner プロセス。
 type Process struct {
 	PID     int
 	Kind    Kind
 	Dir     string // 導出した runner のルートディレクトリ
 	Started time.Time
-	Exe     string
+	// Exe は /proc/<pid>/exe（読めなければ cmdline[0]）の生の値。バイナリが
+	// 差し替えられた場合の " (deleted)" は落とさずに残す。自動更新の途中かを
+	// 判断する手掛かりになるためであり、種別の判定とディレクトリの導出には
+	// 印を落とした値（execPath）を使う。
+	Exe string
 	// UID はプロセスの実行ユーザー。取得に失敗した場合は -1。
 	// 0 は root という有効値なので、失敗と兼用しない。
 	UID int
@@ -100,13 +128,8 @@ func inspectProc(pid int) (Process, bool) {
 		return Process{}, false
 	}
 
-	var kind Kind
-	switch filepath.Base(exe) {
-	case "Runner.Listener":
-		kind = Listener
-	case "Runner.Worker":
-		kind = Worker
-	default:
+	kind, ok := kindFromExe(exe)
+	if !ok {
 		return Process{}, false
 	}
 
@@ -137,8 +160,11 @@ func readArgv0(path string) string {
 // runnerDirFromExe は実行ファイルのパスから runner のルートディレクトリを導く。
 // runner のバイナリは <runner_dir>/bin/Runner.Listener に置かれる。
 // bin 配下でない場合は cwd にフォールバックする。
+// exe には " (deleted)" が付いていることがある。印が付くのはパスの最終要素なので
+// bin 配下かどうかの判定には影響しないが、パスとして扱う前に落としておき、
+// 導出したディレクトリに印が混ざらないことをこの関数側で保証する。
 func runnerDirFromExe(exe, procDir string) string {
-	binDir := filepath.Dir(exe)
+	binDir := filepath.Dir(execPath(exe))
 	if filepath.Base(binDir) == "bin" {
 		return filepath.Dir(binDir)
 	}
