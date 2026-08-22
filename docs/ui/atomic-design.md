@@ -340,7 +340,7 @@ func Columns(all []token.Column, width int, rules token.ColumnRules) []token.Col
 | `CapsBar` | `host: build01  root  gh: 認証済み`（root が無ければ `read-only`、systemctl が無ければ `systemd なし` を挟む） | ヘッダ |
 | `SummaryCounts` | `OK 14  WARN 2  FAIL 1  SKIP 1` | Doctor / 状態行 |
 
-このうち実装済みは `Columns` / `RunnerRow` / `OrphanRow` / `JobRow` / `ActionRow` / `KeyBar` / `TabBar` / `CapsBar` である。残りはタブ 3〜7 とダイアログのものなので未実装である（後述の「実装状況」）。
+このうち実装済みは `Columns` / `RunnerRow` / `OrphanRow` / `JobRow` / `DiskTargetRow` / `FSSummaryLine` / `CommandBlock` / `ActionRow` / `KeyBar` / `TabBar` / `CapsBar` である。残りはタブ 4〜7 と残りのダイアログのものなので未実装である（後述の「実装状況」）。
 
 行を返す molecule（`RunnerRow` など）は **`cols` と同じ順・同じ数のセルを返す**。`bubbles/table` は行のセルを走査しながら同じ添字の列定義を引くため、数が合わないと桁がずれるか添字範囲外で panic する。知らない列 ID を渡された場合も空のセルを返して数を欠かさない。
 
@@ -357,8 +357,8 @@ func Columns(all []token.Column, width int, rules token.ColumnRules) []token.Col
 | `Detail` | `organism/pane` | スクロール位置 | `bubbles/viewport` | Doctor の詳細、runner の詳細（情報部分） | 実装済み |
 | `Help` | `organism/pane` | スクロール位置 | `bubbles/help`（`FullHelpView`） | `?` の全キー一覧 | 実装済み |
 | `LogPane` | `organism/pane` | ペインの選択・追従の ON/OFF・フィルタ | `bubbles/viewport` / `textinput` | Logs の 2 ペイン。追従・手動スクロールでの解除・`G` での再開 | 未実装（Logs タブ） |
-| `ProgressList` | `organism/pane` | 進捗の受信状態 | `bubbles/spinner` / `progress` | 一括処理の逐次表示と結果報告（[FR-15](../requirements/functional.md)） | 未実装（Setup / Disk タブ） |
-| `Confirm` | `organism/dialog` | なし（既定はキャンセル） | — | 破壊的操作の共通ダイアログ | 未実装 |
+| `ProgressList` | `organism/pane` | 進捗の受信状態 | `bubbles/spinner` / `progress` | 一括処理の逐次表示と結果報告（[FR-15](../requirements/functional.md)） | 未実装（Setup タブ）。Disk タブのクリーンアップは進捗を状態行の `クリーンアップ中 (2/5)` で示す |
+| `Confirm` | `organism/dialog` | なし（既定はキャンセル） | — | 破壊的操作の共通ダイアログ | 実装済み |
 | `DiffApproval` | `organism/dialog` | なし（既定はキャンセル） | — | 差分＋バックアップパスの提示と承認 | 未実装（Config タブ） |
 | `DrainWaiter` | `organism/dialog` | 対象ジョブ | `bubbles/stopwatch` / `spinner` | ドレイン待機。経過時間の計時、制約の注記と `esc` でのキャンセル | 未実装 |
 | `Form` | `organism/dialog` | `huh.Form` | `huh` | フォームのラッパー。テーマの適用と検証エラーの表示位置を統一する | 未実装（`huh` も未導入） |
@@ -366,7 +366,7 @@ func Columns(all []token.Column, width int, rules token.ColumnRules) []token.Col
 
 一覧の共通実装は `organism/table.Model[T]`（生成は `table.New`）である。パッケージ名が型名を兼ねるため、本書で `Table` と書くのはこの型を指す。`bubbles/table` はこのパッケージ内で `btable` として import する（名前の衝突を避けるため）。
 
-`organism/dialog` は**このパッケージ自体がまだ存在しない**。置く部品が確定しているので分割方針としては定義を残すが、実装は各ダイアログを持ち込む Issue が作る（後述の「実装状況」）。
+`organism/dialog` は `Confirm` だけが実装済みである。残る `DiffApproval` / `DrainWaiter` / `Form` は置く部品が確定しているので分割方針としては定義を残すが、実装は各ダイアログを持ち込む Issue が作る（後述の「実装状況」）。
 
 スクロール・計時・アニメーションを自前で実装しない。上の表で「—」の部品は、いずれも既存部品に対応するものがないか、対応させると要件を満たせないものである（`ChoiceList` は区切り線と無効項目の理由表示を持つため）。
 
@@ -490,8 +490,6 @@ func (d Detail) Offset() int // 先頭から隠している行数
 反映方法の選択（Config）と Setup のメニューも同じ `ChoiceList` である。**選択肢を並べて 1 つ選ぶ UI をこれ以外に作らない。**
 
 ### `Confirm` を 1 つに統一する
-
-> **実装状況: 未実装。** `organism/dialog` と `Confirm` はまだ存在しない。この節は、確認を伴う操作を持ち込む Issue が守る規約である。
 
 `screens.md` に現れる確認（停止 / 強制停止 / 削除 / バージョン更新 / クリーンアップ / 追加のプレビュー / 設定の書き込み）は、すべて **対象・影響・実行するコマンド・`y/N`** という同じ構造を持つ。
 
@@ -864,8 +862,8 @@ Disk / Logs / Doctor タブの部品を足すときは、まずその部品が�
 | Jobs タブ | `Frame` | `Table` | `Columns` / `JobRow` | 実装済み |
 | runner の詳細画面 | `Modal` | `Detail` + `ChoiceList` | `ActionRow` | 実装済み |
 | ヘルプ | `Modal` | `Help` | —（`bubbles/help` が描く） | 実装済み |
-| Disk タブ | `Frame` | `Table` | `FSSummaryLine` / `DiskTargetRow` | 未実装 |
-| クリーンアップの確認 | `Modal` | `Confirm` | `CommandBlock` | 未実装 |
+| Disk タブ | `Frame` | `Table` | `FSSummaryLine` / `DiskTargetRow` | 実装済み |
+| クリーンアップの確認 | `Modal` | `Confirm` | `CommandBlock` | 実装済み |
 | Logs タブ | `Frame` + `Split` | `LogPane` | `LogLine` | 未実装 |
 | Doctor タブ | `Frame` | `Table` | `SummaryCounts` / `DoctorRow` | 未実装 |
 | Doctor の詳細 | `Modal` | `Detail` | `CommandBlock`（対処コマンドの表示） | 未実装 |
@@ -919,9 +917,9 @@ Disk / Logs / Doctor タブの部品を足すときは、まずその部品が�
 
 | 区分 | 対象 |
 |------|------|
-| 実装済み | `token` / `keymap` / `atom` / `molecule`（フッタ・タブ行・ヘッダ・操作リスト・列選択）/ `molecule/listrow`（`RunnerRow` / `JobRow` / `OrphanRow`）/ `chrome` / `tabset` / `organism`（`ChoiceList`）/ `organism/table` / `organism/pane`（`Detail` / `Help`）/ `template`（`Frame` / `Modal`）/ `page` / `page/runners` / `page/jobs` / `page/runnerdetail` |
-| 未実装（タブ 3〜7 の Issue が持ち込む） | `page/disk` / `page/logs` / `page/doctor` / `page/config` / `page/setup`、`organism/pane` の `LogPane` / `ProgressList`、`template.Split`、atom の `DoctorStatus` / `Bytes` / `Files` / `Ratio`、`molecule/listrow` の `DiskTargetRow` / `DoctorRow` / `LogLine` / `SettingRow` / `DiffLine` / `ProgressRow`、molecule の `FSSummaryLine` / `CommandBlock` / `SummaryCounts` |
-| 未実装（パッケージ自体が無い） | `organism/dialog`（`Confirm` / `DiffApproval` / `DrainWaiter` / `Form`）、`organism.ErrorBanner` |
+| 実装済み | `token` / `keymap` / `atom` / `molecule`（フッタ・タブ行・ヘッダ・操作リスト・列選択・`FSSummaryLine` / `CommandBlock`）/ `molecule/listrow`（`RunnerRow` / `JobRow` / `OrphanRow` / `DiskTargetRow`）/ `chrome` / `tabset` / `organism`（`ChoiceList`）/ `organism/table` / `organism/pane`（`Detail` / `Help`）/ `organism/dialog`（`Confirm`）/ `template`（`Frame` / `Modal`）/ `page` / `page/runners` / `page/jobs` / `page/runnerdetail` / `page/disk` |
+| 未実装（タブ 4〜7 の Issue が持ち込む） | `page/logs` / `page/doctor` / `page/config` / `page/setup`、`organism/pane` の `LogPane` / `ProgressList`、`template.Split`、atom の `DoctorStatus`、`molecule/listrow` の `DoctorRow` / `LogLine` / `SettingRow` / `DiffLine` / `ProgressRow`、molecule の `SummaryCounts` |
+| 未実装（部品が無い） | `organism/dialog` の `DiffApproval` / `DrainWaiter` / `Form`、`organism.ErrorBanner` |
 | 未導入の依存 | `huh`（`Form` と `huh.Theme` に必要） |
 
 実装済みのタブでも、runner に対する**操作そのもの（開始・停止・削除・更新・ログ・設定編集）は未実装**である。キーとフッタと詳細画面の操作リストは出るが、可否の判定が `この版では未対応です` で塞ぐ（[画面仕様](screens.md#無効な操作の表示)）。押しても何も起きない経路を作らないためである。
@@ -939,23 +937,29 @@ Disk / Logs / Doctor タブの部品を足すときは、まずその部品が�
 | ディレクトリ | 行数 | 残り | 判定 |
 |------------|------|------|------|
 | `ui/organism/table` | 2157 | -157 | **WARN（超過中）** |
+| `ui/page/disk` | 1935 | 65 | pass |
 | `ui` | 1875 | 125 | pass |
 | `ui/page` | 1608 | 392 | pass |
-| `ui/molecule` | 1197 | 803 | pass |
+| `ui/molecule` | 1541 | 459 | pass |
+| `ui/keymap` | 1212 | 788 | pass |
 | `ui/page/runners` | 1187 | 813 | pass |
 | `ui/page/runnerdetail` | 1174 | 826 | pass |
-| `ui/atom` | 983 | 1017 | pass |
-| `ui/keymap` | 974 | 1026 | pass |
+| `ui/atom` | 1142 | 858 | pass |
+| `ui/molecule/listrow` | 888 | 1112 | pass |
 | `ui/page/jobs` | 888 | 1112 | pass |
+| `ui/token` | 812 | 1188 | pass |
 | `ui/page/pagetest` | 809 | 1191 | pass |
 | `ui/page/action` | 794 | 1206 | pass |
-| `ui/token` | 712 | 1288 | pass |
 | `ui/organism/pane` | 691 | 1309 | pass |
 | `ui/template` | 657 | 1343 | pass |
-| `ui/molecule/listrow` | 608 | 1392 | pass |
 | `ui/organism` | 521 | 1479 | pass |
-| `ui/tabset` | 344 | 1656 | pass |
+| `ui/organism/dialog` | 451 | 1549 | pass |
+| `ui/tabset` | 345 | 1655 | pass |
 | `ui/chrome` | 283 | 1717 | pass |
+
+#### `ui/page/disk` の残り 65 行（Issue #13）
+
+Disk タブは 1 ディレクトリに一覧・集計・クリーンアップ・確認モーダルの 4 つの関心事を持つため、タブ 1 枚としては最も大きい。**次にこのタブへ機能を足す Issue は、先に分割すること。** 分けるとすれば境界は明確で、クリーンアップ（`clean.go` / `confirm.go`、計 477 行）は集計・表示と独立しており `page/diskclean` として切り出せる。今分けないのは、切り出す先が `page/<tab>` の命名規約（1 ディレクトリ 1 タブ）から外れるうえ、現時点では上限内に収まっているためである。
 
 #### 一覧タブを 2 枚足せる余裕（Issue #35）
 
@@ -1018,6 +1022,7 @@ Issue #31 で `table_test.go` の空振りしていたテスト（`View() != ""`
 | 1.8 | 2026-08-22 | `Overlay` にタブ番号を持たせ、登録したモーダルへ `page.AttachMsg` で配る形を定義。モーダルから page への戻り道（`page.ResultMsg` を `page.Do` で包む）と、宛先を明示したモーダル宛の `Msg`（`page.ModalMsg`）を追加。`esc` の解釈順を「最上位のモーダルが `Modal.HandlesBack` で先に取り、取らなければ 1 枚閉じる」に変更。`Register` / `Open` / `OpenHelp` / `SetHelpScope` が返す `Cmd` を呼び出し側へ返す義務と、page が配送先を `Overlay.Handles` で決める規則を明記 | モーダルで決めた内容が page へ戻る道が無く、`ChoiceList` の決定は `forward` から最上位のモーダルへ配り直されて捨てられていた。モーダルが発行した `Cmd` にはタブ番号が載らないため、結果は「そのとき選択中のタブ」へ渡って静かに失われていた。背後のモーダル宛の結果は最上位に食われ、閉じた後に届いた結果は誰にも届かなかった。`esc` を `Overlay` が無条件に食うため、入力の取消を閉じる操作より先に解釈できなかった（Issue #26） |
 | 1.9 | 2026-08-22 | page の寿命を知らせる 3 つの `Msg`（`page.ActivateMsg` / `DeactivateMsg` / `ShutdownMsg`）と、終了時に後始末を `tea.Sequence` で `tea.Quit` より前に流す規則を、タブが守る約束に追加 | 親はタブを切り替えるとき移動先へ共有状態を配るだけで、離れるタブには何も送っていなかった。`journalctl -f` 相当の長寿命の呼び出しを持つ page は畳む機会が無く、タブを行き来するたびに購読が積み上がる。終了も `tea.Quit` を直に返しており、page の後始末が実行される前にランタイムが止まっていた（Issue #41） |
 | 1.10 | 2026-08-22 | 作り直して引き継ぐ方式の義務を「作り直す側が最後の大きさを覚え、配り直してから位置を戻す」と具体化し、`helpmodal.go` が満たしていないという記述を実装に合わせて修正 | `helpmodal.go` は `pane.NewHelp` の直後に `SetOffset` を呼んでおり、高さ 0 で丸められて位置が 0 に落ちていた。共有状態は 3 秒ごとに届くため、ヘルプを読んでいる間ずっと先頭へ戻され続けていた。別の runner の詳細を開いても情報部のスクロールが残る欠陥も同じ節が扱う範囲だった（Issue #30） |
+| 1.11 | 2026-08-23 | `organism/dialog` と `Confirm`、atom の `Bytes` / `Files` / `Ratio`、`molecule` の `FSSummaryLine` / `CommandBlock`、`molecule/listrow` の `DiskTargetRow`、`page/disk` を実装済みに更新。`ProgressList` の未実装対象から Disk を外し、クリーンアップの進捗を状態行で示すことを注記。ディレクトリの行数を実測値に更新し、`ui/page/disk` の残り 65 行に対する分割の指針（次に機能を足す Issue が `clean.go` / `confirm.go` を切り出す）を追加 | Issue #13 で Disk タブと確認ダイアログを実装したため。`organism/dialog` は「パッケージ自体が無い」と書かれていたが `Confirm` が入って存在するようになり、未実装の区分がそのままでは実態と食い違った。`ui/page/disk` は上限まで 65 行しかなく、印を残さないと次の Issue が上限に当たってから分割を考えることになる |
 | 1.11 | 2026-08-22 | `Overlay` の写しの意味を「変わりうる状態を 1 つの内部構造体にまとめ、写しは常にその参照を共有する」と定義し直し、中途半端な共有を禁じる記述を追加。`SetState` を開いているモーダルだけに配る形へ改め、`Register` / `Open` の時点で最新の `StateMsg` / `SizeMsg` をリプレイする契約と、`SizeMsg` は変化時のみという規則を明記。`ModalKind` の二重登録と未登録の `Open` を `panic` で表面化させる規則を追加。領域だけを設定する口（`SetSize`）を廃止 | 重なりのスタックだけが写しごとに分かれ `map` は共有されるという半端な状態で、文書はそれを「実体を共有する」と偽って記述していた。閉じているモーダルへ毎周期 `StateMsg` と `SizeMsg` を配るため、誰も見ていないヘルプを 3 秒ごとに全行組み直していた。同じ `ModalKind` を別々の Issue が選ぶと片方が到達不能になるが、上書きは黙って成功していた。`SetSize` は本番の呼び出し元が無く、`SetState` が毎周期上書きするため機能的に無効だった（Issue #32） |
 | 1.12 | 2026-08-22 | 操作の識別と可否の判定を `page/action` へ分離し、`page.ActionID` を `action.ID` に改称。表示層との境界を不透明な識別子（`organism.Choice.ID` / `ChosenMsg.ID`）で渡す規則、`action.Set` をキー定義から 1 度だけ組む規則、同じ先頭キーの重複を `panic` で検出する規則を追加。ディレクトリの行数表を実測値に更新 | 決定が「`ActionID` → キー文字列 → 再マップ」で往復しており、キーリテラル依存を排したはずの箇所に決定点だけが残っていた。`keymap.RunnerKeys` の 2 フィールドが同じ先頭キーを持つと片方が map 上書きで黙って消え、理由が未対応にすり替わる。可否の判定は呼ばれるたびに 11 要素の map を作り直しており、フッタ 1 回の描画で 9 回確保していた。`page` 直下が行数上限を超えたため、本書の「上限に近いディレクトリへ部品を足すときは先に分割の是非を検討する」に従って分けた（Issue #34） |
 | 1.13 | 2026-08-22 | `ChoiceList` の項目差し替えを `SetItems(items, policy)` に一本化し、カーソルの扱いを引数で宣言させる規則（ゼロ値は安全側）を追加。`Choice.ID` による決定の識別を表に追記 | `SetItems`（先頭へ戻す）と `UpdateItems`（位置を保つ）が名前だけで区別されており、取り違えても気付けない。誤ると FR-46（一覧の enter → 詳細の enter で破壊的操作に到達しない）が黙って崩れる（Issue #50） |
