@@ -4,7 +4,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 	"testing"
 )
 
@@ -98,8 +97,11 @@ func TestCollectDirs(t *testing.T) {
 		return out
 	}
 	unit := func(dir string) []SvcState { return []SvcState{{Unit: u1, WorkingDir: dir}} }
-	scan := Options{Roots: []string{scanRoot}}
-	scan1 := Options{Roots: []string{scanRoot}, Depth: 1}
+	// SkipDefaultRoots で既定ルート（実ホストの設置場所）を外し、結果を
+	// 完全一致で比較できるようにする。
+	scan := Options{Roots: []string{scanRoot}, SkipDefaultRoots: true}
+	scan1 := Options{Roots: []string{scanRoot}, Depth: 1, SkipDefaultRoots: true}
+	none := Options{SkipDefaultRoots: true}
 
 	tests := []struct {
 		name  string
@@ -110,23 +112,18 @@ func TestCollectDirs(t *testing.T) {
 	}{
 		{"走査ルートのみ（Depth 0 は既定の 2）", scan, nil, nil, []string{deep, shallow}},
 		{"深さ 1 では深い runner を拾わない", scan1, nil, nil, []string{shallow}},
-		{"プロセス由来の走査ルート外 runner を回収（FR-02）", Options{}, proc(fromProc), nil, []string{fromProc}},
-		{"ユニット由来の走査ルート外 runner を回収（FR-02）", Options{}, nil, unit(fromUnit), []string{fromUnit}},
+		{"プロセス由来の走査ルート外 runner を回収（FR-02）", none, proc(fromProc), nil, []string{fromProc}},
+		{"ユニット由来の走査ルート外 runner を回収（FR-02）", none, nil, unit(fromUnit), []string{fromUnit}},
 		{"3 経路で同一ディレクトリなら 1 件", scan1, proc(shallow), unit(shallow), []string{shallow}},
 		{"シンボリックリンク経由と実パスは同一", scan1, proc(link), nil, []string{shallow}},
-		{".runner を持たないディレクトリ・空の Dir は除外", Options{}, proc(plain, ""), unit(filepath.Join(base, "gone")), nil},
-		{"結果はソート済み", Options{}, proc(fromUnit, fromProc), nil, []string{fromProc, fromUnit}},
+		{".runner を持たないディレクトリ・空の Dir は除外", none, proc(plain, ""), unit(filepath.Join(base, "gone")), nil},
+		{"結果はソート済み", none, proc(fromUnit, fromProc), nil, []string{fromProc, fromUnit}},
+		// 既定ルートを外しても FR-02 の補完は止まらない一方、走査ルートは 0 件になる。
+		{"既定ルートを使わない指定でルートも空なら走査由来は 0 件", none, nil, nil, nil},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// collectDirs は既定の走査ルート（実ホストの設置場所）も見るため、
-			// base 配下だけに絞って比較する。順序は保つのでソートの検証にも使える。
-			var got []string
-			for _, d := range collectDirs(tt.opts, tt.procs, tt.units) {
-				if strings.HasPrefix(d, base+string(filepath.Separator)) {
-					got = append(got, d)
-				}
-			}
+			got := collectDirs(tt.opts, tt.procs, tt.units)
 			if !slices.Equal(got, tt.want) {
 				t.Errorf("got %q, want %q", got, tt.want)
 			}

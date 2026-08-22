@@ -200,7 +200,8 @@ runner との紐付けは `UnitName`（`.service` ファイル）を第一に、
 
 | フィールド | 型 | 意味 |
 |-----------|-----|------|
-| Roots | []string | 追加の走査ルート。既定のルート（[FR-01](../requirements/functional.md#既定の走査ルートfr-01)）に足す |
+| Roots | []string | 走査ルート。`SkipDefaultRoots` が偽なら既定のルート（[FR-01](../requirements/functional.md#既定の走査ルートfr-01)）に足す |
+| SkipDefaultRoots | bool | 既定の走査ルートを使わない指定。**既定は偽（使う）**。指定を忘れた呼び出しが runner を見落とす側に倒れないようにするため。真にしても FR-02 の補完は止まらない。合成規約は[コンポーネント設計](../components/overview.md#走査ルートの合成---root--scan_roots--skipdefaultroots) |
 | Depth | int | ルート配下を掘る深さ。**0 以下は既定値 2 に丸める**（設定の `scan_depth` を省略した場合と同じ挙動になる） |
 | Exec | Executor | systemd を参照するための実行経路。**`nil` は「systemctl が無い環境」を意味する**。ユニットを一切参照せず、警告も出さない（3 秒ごとのポーリングで同じ警告が積み上がらないようにするため）。この場合の起動方式は判定不能（`?`）になる |
 
@@ -408,3 +409,4 @@ defaults:
 | 1.3 | 2026-08-22 | `Scope` の置き場所を `internal/runner/scope` と明記し、拒否する入力を追記 | GitHub API のパス生成に使うため `internal/gh` から参照できる位置に分離した。スキームの無い URL や `orgs` 単独を黙って解釈する欠陥があった |
 | 1.4 | 2026-08-22 | `Managed` を 4 値に更新し、`RunAsUser` の UID フォールバックと FR-43 への影響を追記。表示用の派生値・`Discover` の `Options`・`Result.Warnings` の文言一覧を追加。Kind Unknown が `Parse` の戻りではないことを明記。自前設定の検証範囲と起動を止める読み込みエラー、監査ログの `error` フィールドの規則とローテーションの扱いを追加 | ユニット一覧が取れない状態を「ユニットが無い」と同一視すると起動方式を誤表示する。`RunAsUser` が UID になり得ることを知らずに `sudo -l -U` へ渡すと判定が失敗する。設定の検証・警告の文言・監査ログに残す内容がいずれも実装のみに存在し、仕様から読み取れなかった |
 | 1.5 | 2026-08-22 | `Process.Dir` の ` (deleted)` の扱いを明記し、削除済みディレクトリで稼働する runner の扱い（一覧に出さず警告 1 件）と `Started` に mtime を使う根拠（実機確認の記録）を追加 | どちらも実装に検証されていない仮定として残っており、稼働中の runner が一覧から黙って消える経路になっていた |
+| 1.6 | 2026-08-22 | `Discover` の `Options` に `SkipDefaultRoots` を追加 | 既定の走査ルートが実ホストのパスを直接 glob するため、`Discover` / `collectDirs` を通る検証が実ホストの状態に依存していた |

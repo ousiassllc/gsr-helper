@@ -17,7 +17,16 @@ import (
 
 // Options は探索の設定。
 type Options struct {
-	Roots []string // 追加の走査ルート。既定ルートに追加される
+	Roots []string // 走査ルート。SkipDefaultRoots が false なら既定ルートに追加される
+	// SkipDefaultRoots は既定の走査ルート（DefaultRoots）を使わない指定。
+	// 既定は false で、FR-01 の既定ルートに Roots を足したものを走査する。
+	// true にすると Roots だけを走査する。
+	//
+	// 既定を「使う」側に置くのは、指定を忘れた呼び出しが runner を見落とす側に
+	// 倒れないようにするためである。true にしても FR-02 の補完（稼働プロセスと
+	// systemd ユニット由来のディレクトリ回収）は止まらない。走査ルートは
+	// 「どこを掘るか」の指定であって、検出全体の範囲ではない。
+	SkipDefaultRoots bool
 	// Depth はルート配下を掘る深さ。0 以下は未指定として defaultDepth を使う。
 	// 「掘らない」を 0 で表せないため、設定値をそのまま渡さないこと。
 	// scan_depth: 0 のような設定を既定にするか拒否するかは appconfig 側の責務。
@@ -36,6 +45,12 @@ type Result struct {
 	// Warnings は探索中の部分的な失敗。1 件の失敗で全体を止めないため集約する。
 	Warnings []error
 }
+
+// scanProcs は稼働プロセスの収集元。テストが実ホストの /proc に依存せずに
+// Discover を通せるよう差し替え可能にしてある。procs 側の scan(root) と同じ理由で
+// 非公開にする（外から個別の経路を差し替えられるようにすると、3 経路の突き合わせを
+// 通らない結果が生まれる）。
+var scanProcs = procs.Scan
 
 // Discover はこのホスト上の runner を探索する。
 //
@@ -61,7 +76,7 @@ type Result struct {
 func Discover(ctx context.Context, opts Options) Result {
 	var res Result
 
-	running, err := procs.Scan()
+	running, err := scanProcs()
 	if err != nil {
 		res.Warnings = append(res.Warnings, err)
 	}
