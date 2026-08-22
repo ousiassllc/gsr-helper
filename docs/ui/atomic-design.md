@@ -118,6 +118,7 @@ graph TD
     Tabs --> Page
     Tabs --> Key
     Tabs --> Tok
+    Tabs -.->|型を受け取って渡すだけ| Domain
     Chrome --> Mol
     Chrome --> Atom
     Chrome --> Tok
@@ -147,12 +148,15 @@ graph TD
     Row --> Tok
     Row -.->|テストのみ| Mol
     Mol --> Atom
+    Mol --> Tok
     Atom --> Tok
     Tmpl --> Tok
     Key --> Bub
 ```
 
 本体以外の領域（ヘッダ・タブ行・状態行・フッタ）を組み立てる `ui/chrome` が import するのは `molecule` / `atom` / `token` **だけ**である。組み立ての持ち場がそこであり、上位から下位への飛び越し参照は許容する規則に収まる。逆に `chrome` は `tabset` も `page` もドメイン層も import しない。molecule 階層に属する以上ドメインの型を受け取れないので、`chrome.View` が持つのはヘッダのバッジ 3 つ（`Root` / `Systemd` / `HasToken`）と状態行の件数 2 つ（`OrphanUnits` / `Warnings`）という表示用の値である。`appconfig.Caps` / `runner.Result` / `[]tabset.Tab` からその写しを作るのは上位である親 Model の `chromeView` / `tabViews` で、`molecule.TabView` への写し替え（選択中かどうかを添字と `active` の比較で解決する）もそこにある。親 Model が `molecule` を import するのはこの 1 手のためである。
+
+`ui/tabset` はドメイン層（`appconfig.Caps` / `exec.Executor` / `runner.Result{}`）を import するが、`page` や親 Model と違って**ドメインを呼ばない**。`New` が受け取った値をそのまま各タブの初期 `page.StateMsg` へ詰めて渡すだけであり、`runner.Discover` のような呼び出しは持たない（`tea.Cmd` でドメインを駆動するのは `page` 階層と親 Model のみという規則は保たれる）。図で `Tabs` から `Domain` への辺を点線かつ別のラベルにしてあるのはこの違いのためである。
 
 `molecule/listrow` が `molecule` を参照するのはテストだけである（列の選択 `molecule.Columns` を期待値の組み立てに使う）。本番の経路では `organism/table` が `molecule.Columns` で列を決め、決まった列を行ビルダへ渡す。向きは常に `listrow` → `molecule` であり、逆は無い（後述の「`ui/molecule` を分割した判断」）。
 
@@ -951,7 +955,7 @@ Disk / Logs / Doctor タブの部品を足すときは、まずその部品が�
 
 #### 一覧タブを 2 枚足せる余裕（Issue #35）
 
-残る Disk / Logs / Doctor のうち一覧を持つタブは、行ビルダを `ui/molecule/listrow` へ、列定義を `ui/token` へ足す。既存の行ビルダはテスト込みで `runner_row` 271 行 / `job_row` 109 行 / `orphan_row` 110 行なので、**2 枚ぶんでも最大 550 行程度**である。`ui/molecule/listrow` の残り 1392 行はこれを 2 枚どころか 5 枚ぶん受けられる。
+残る Disk / Logs / Doctor のうち一覧を持つタブは、行ビルダを `ui/molecule/listrow` へ、列定義を `ui/token` へ足す。既存の行ビルダはテスト込みで `runner_row` 272 行 / `job_row` 110 行 / `orphan_row` 116 行なので、**2 枚ぶんでも最大 550 行程度**である。`ui/molecule/listrow` の残り 1392 行はこれを 2 枚どころか 5 枚ぶん受けられる。
 
 `ui` 直下は**タブが増えても 1 行も増えない**。タブを知るのは `ui/tabset` だけであり、親 Model は `[]tabset.Tab` を走査するだけだからである（「タブを 1 つ追加するときに触る箇所」）。残り 155 行は親 Model 自身のテストのための余裕である。
 
@@ -1012,3 +1016,4 @@ Disk / Logs / Doctor タブの部品を足すときは、まずその部品が�
 | 1.16 | 2026-08-22 | `NewOverlay` の署名を `(tab int, st StateMsg) (Overlay, tea.Cmd)` に変更し、共有状態を丸ごと受け取ることと、ヘルプ登録の `Cmd` を呼び出し側へ返すことを本文に明記。`Cmd` を返す義務の列挙に `NewOverlay` を追加。決定の `case` を「`default` より前に置く」から「page が自分で持つ（`Overlay.Handles` と合わせた二重の守り。並びは関係しない）」に訂正。ディレクトリの行数の節に警告帯（2000〜2200）とエラー境界 2200 を明記し、`ui` と `ui/organism/table` が超過中（WARN）である事実と、それぞれ分割しない判断・理由・次の一手を追加。行数表を実測値に更新 | `NewOverlay` が初期の共有状態を `StateMsg{Keys, Styles, Dark}` だけで組んでいたため、構築時に登録したモーダルへリプレイされるのは `Exec = nil`・`Caps` ゼロ値・`Result` 空という半端な状態で、本書の「登録した時点で `Result` / `Caps` / `Exec` を持てる」に正面から反していた。しかも `NewOverlay` 自身がヘルプ登録の `Cmd` を捨てており、返す口が署名に無いため無条件の義務を構造的に守れず、除外の根拠が Go のコメントにしか無かった。決定の `case` の並びを規約として書いていたが、Go の型スイッチの `default` は記述位置に関わらず最後に評価されるため誤りであり、その規約を検査するテストは壊れた実装に対して決して失敗しなかった。行数の節は `ui` と `ui/organism/table` が上限を超えて WARN が出ている事実を伏せたまま「上限に最も近い」と書いており、警告帯とエラー境界が本文になく 2093 行が許容される理由を読者が判定できなかった（Issue #26 / #32 の 2 周目レビュー指摘） |
 | 1.17 | 2026-08-22 | 「ディレクトリの行数」の表を base 取り込み後の実測値に更新（`ui/page/runners` 1195 行・`ui/page/jobs` 893 行）。表の直後にあった「`ui/organism/table` は上限を超えており…先に分割すること」の段落を削除し、同じ節の「`ui/organism/table` を分割しない判断」へ一本化 | base（`feat/#1`）の取り込みで一覧と Jobs タブの行数が動き、表が実測とずれた。削除した段落は 1.14 の時点の記述で、1.16 で「分割しない」判断と次の一手を書いたあとも残っており、同じ節が「先に分割すること」と「分割しない」を同時に指示する形になっていた |
 | 1.18 | 2026-08-23 | `ui/tabset`（タブのメタ情報と並び）・`ui/chrome`（ヘッダ・タブ行・状態行・フッタの組み立て）・`ui/molecule/listrow`（一覧の行ビルダ）を切り出し、「タブ追加で触る範囲」の表に `molecule/listrow` と `token/width.go` を追加。ディレクトリの行数の表を実測値で更新し（`ui` 1845 行 / `ui/keymap` 974 行 / `ui/chrome` 283 行 / `ui/tabset` 344 行 / `ui/molecule` 1197 行 / `ui/molecule/listrow` 608 行）、`ui` 直下と `ui/molecule` を分割した判断を記録。`keymap.Set.Contexts()`（同時に有効なキーの集合）への登録をタブ追加時の項目として明記。`molecule` を分割しないとしていた段落を、分割した事実（増え方の軸で分ける／例外は `listrow` → `molecule` の一方向）へ書き換え、依存の規則の表と依存グラフも同じ内容に揃える。依存グラフに `chrome` / `tabset` / `molecule/listrow` のノードを追加し、辺を実装の import と突き合わせて修正 | 表が挙げていた範囲（`page/<tab>` と `tabs.go` と keymap）は一覧を持つタブの実態を過小に見積もっており、行ビルダと列定義を足す先が読み取れなかった。その 2 つの置き場である `ui/molecule` は残り 236 行、`ui` 直下は上限超過（2194 行）で、Disk / Logs / Doctor のうち 2 枚目でどの Issue のスコープにも入らない分割が発生する状態だった。増え方の違うもの（画面全体で 1 つの部品と、タブ数に比例する行ビルダ）を同じ予算に載せているのが原因なので分けた。`ui` 直下は `page/<tab>` を import する唯一の場所（`tabset`）を切り出すことで、行数だけでなく「親 Model は個別のタブを知らない」という主張を import の向きで強制できるようになった。**同じ文書が「`molecule` は分割しない」と「`molecule` を分割した」を同時に指示する形になっていた**ため、分割しない側の段落を書き換えて一本化した。依存グラフは `App --> Mol` / `App --> Atom` のまま新設 3 パッケージのノードが無く、直後の本文（`ui/chrome` が molecule / atom / token の import 元である）と同じ節で食い違っていた（Issue #35 / #39 / #40） |
+| 1.19 | 2026-08-23 | 依存グラフに `Tabs -.-> Domain`（`tabset` はドメインの型を受け取って初期 `page.StateMsg` へ渡すだけで呼び出さない）と `Mol --> Tok` の 2 辺を追加し、その違いをグラフ直後の本文に明記。「一覧タブを 2 枚足せる余裕」の行ビルダの行数を実測値に訂正（`runner_row` 272 行 / `job_row` 110 行 / `orphan_row` 116 行） | 1.18 で「辺を実装の import と突き合わせて修正」と記録したにもかかわらず、`internal/ui/tabset` が実際に import している `appconfig` / `exec` / `runner` の辺が欠けており、グラフは「`tabset` はドメイン層に触れない」という誤った主張になっていた。`molecule` の全ファイルが `token` を import しているのに `Mol --> Tok` も欠けていた。行ビルダの行数は `listrow` 切り出し前の値のままで、実測（97+175 / 55+55 / 45+71）とずれていた（Issue #35 / #39 / #40 / #47 の 2 周目レビュー指摘） |
