@@ -186,6 +186,7 @@ graph TD
 | `IconInactive` | `○` | サービス停止中 |
 | `IconFailed` | `✗` | 異常終了・FAIL |
 | `IconNoUnit` | `-` | systemd ユニットなし |
+| `IconUnknown` | `?` | 状態を取得できなかった・判定不能 |
 | `IconJob` | `▶` | ジョブ実行中 |
 | `IconWarn` | `⚠` | 注意事項あり・WARN |
 | `IconOK` | `✓` | OK・完了 |
@@ -193,6 +194,7 @@ graph TD
 | `IconCursor` | `▸` | カーソル位置 |
 | `IconChecked` / `IconUnchecked` | `[x]` / `[ ]` | 複数選択の状態 |
 | `IconDivider` | `─` | 区画の区切り |
+| `IconEllipsis` | `…` | 幅に収まらない文字列の中略 |
 
 記号は `screens.md` の記号表と一対一で対応する。表示に使う記号をここ以外に書かない。
 
