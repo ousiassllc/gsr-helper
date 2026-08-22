@@ -75,6 +75,8 @@
 
 **v2 系のモジュールパスは `charm.land/<name>/v2` である**（`github.com/charmbracelet/<name>` ではない）。`huh` を追加するときも同じ体系のパスと版に揃えること。`github.com/charmbracelet/*` が間接依存として `go.mod` に現れるのは v2 系が内部で使っているためであり、直接 import してはならない（幅計算とカラープロファイルの判定が二重になる）。
 
+この禁止は `golangci-lint` の `depguard` で機械的に強制している（[環境構築 / golangci-lint](../environment/setup.md#golangci-lint)）。`github.com/charmbracelet` 以下を直接 import すると `make lint` が失敗する。
+
 **表示幅を数えるライブラリを追加しない。** 幅の計算は `lipgloss.Width` に一本化する（`go-runewidth` を併用すると、絵文字や結合文字を含む行で `bubbles/table` の列幅と 1 桁ずれる）。
 
 ## 保守性・テスト
@@ -150,3 +152,4 @@ GitHub Actions の self-hosted runner（`runs-on: [self-hosted, linux, x64]`）�
 | 1.4 | 2026-08-21 | 依存表で使う `bubbles` の部品を列挙し、Charm 4 つを v2 系で揃えることと表示幅ライブラリを追加しないことを明記。ユーザビリティに背景の明暗と入力中のキーの扱いを追加 | `bubbles` の用途が曖昧で、一覧を自前実装するか既存部品に載せるかが仕様から読み取れなかったため。幅計算の二重化とライブラリ版の混在は実装後に発覚すると直しにくい |
 | 1.5 | 2026-08-21 | CI の実行環境を self-hosted runner に変更 | 対象 OS と CI 環境を一致させ、`systemctl` / `journalctl` 前提の挙動を CI でも確認できるようにするため |
 | 1.6 | 2026-08-22 | 依存ライブラリのモジュールパスを `charm.land/<name>/v2` に修正し、各ライブラリの導入状況を追記。`huh` が未導入であることを明記。起動時の能力判定の上限（800 ms）と検出の期限（15 秒）を応答性の表に追加 | 実際の依存は `charm.land/*` であり、記載していた `charmbracelet/*` を直接 import すると幅計算とカラープロファイル判定が二重になる。`huh` は仕様が前提にしているが依存に入っておらず、読み手が導入済みと誤解する状態だった。能力判定の所要時間が起動目標に収まる根拠が数値として書かれていなかった |
+| 1.7 | 2026-08-22 | 「依存ライブラリ」節に、Charm v1 系（`github.com/charmbracelet/*`）の直接 import を `golangci-lint` の `depguard` で機械的に禁止していることを追記 | 「直接 import してはならない」という規定が文章にあるだけで強制されておらず、`github.com/charmbracelet/lipgloss v1.1.0` が golangci-lint の推移依存として `go.mod` に実在するため、誤って import してもビルドが通る状態だった（Issue #23） |

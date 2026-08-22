@@ -8,3 +8,6 @@ rules:
 count_mode: all
 default_excludes: true
 language: ja
+
+# 実行ごとに GitHub Releases へ外向き HTTP が出るのを止める。
+update_check: false

@@ -9,39 +9,82 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # group にワークフロー名を含め、将来追加するワークフローと相互キャンセルしない。
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # main への push はキャンセルしない（未検証の main コミットを作らない）。
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  lint:
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [self-hosted, linux, x64]
+  guard:
+    # self-hosted runner を使うジョブの前段ゲート。GitHub ホストランナーで動かし、
+    # 許可したトリガー以外では「失敗」して後続を止める（skip ではないため
+    # required status check として fork PR のマージを機械的に止められる）。
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
+      - name: トリガーと head リポジトリを検証する
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          BASE_REPO: ${{ github.repository }}
+        run: |
+          case "$EVENT_NAME" in
+            push)
+              exit 0
+              ;;
+            pull_request)
+              if [ "$HEAD_REPO" = "$BASE_REPO" ]; then
+                exit 0
+              fi
+              echo "fork ($HEAD_REPO) からの PR では self-hosted runner のジョブを実行しない" >&2
+              exit 1
+              ;;
+          esac
+          echo "許可していないトリガー ($EVENT_NAME) では self-hosted runner のジョブを実行しない" >&2
+          exit 1
+
+  lint:
+    needs: guard
+    runs-on: [self-hosted, linux, x64]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version-file: go.mod
+          cache: false
       - run: make fmt-check
       - run: make vet
       - run: make lint
       - run: make linterly
+      - run: go tool lefthook validate
 
   test:
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    needs: guard
     runs-on: [self-hosted, linux, x64]
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version-file: go.mod
+          cache: false
       - run: make test
 
   build:
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    needs: guard
     runs-on: [self-hosted, linux, x64]
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version-file: go.mod
+          cache: false
       - run: make build
