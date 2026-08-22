@@ -194,6 +194,10 @@ func TestDetectAppliesTimeout(t *testing.T) {
 		timeout time.Duration
 		want    time.Duration
 	}{
+		// 未指定時の既定は 500 ms（defaultProbeTimeout）。仕様書
+		// （docs/components/overview.md / non-functional.md）が定める値であり、
+		// コメントだけがこの値から離れていた経緯があるため値で固定する。
+		{name: "未指定なら既定の 500 ms", timeout: 0, want: 500 * time.Millisecond},
 		{name: "Options.Timeout が 1 コマンドの上限になる", timeout: 300 * time.Millisecond, want: 300 * time.Millisecond},
 		{name: "長すぎる指定は全体予算で打ち切る", timeout: time.Hour, want: detectBudget},
 	} {

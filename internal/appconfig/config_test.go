@@ -240,7 +240,7 @@ func TestSaveInvalidLeavesNoFile(t *testing.T) {
 	}
 }
 
-// path が空なら DefaultPath() を使うこと（Load / Save / Exists の既定経路）。
+// path が空なら DefaultPath() を使うこと（Load / Save の既定経路）。
 // configPath はホーム配下の絶対パスだけを尊重するため、t.TempDir() ではなく
 // ホーム配下の一時ディレクトリを XDG_CONFIG_HOME に向ける。
 func TestDefaultPathRoundTrip(t *testing.T) {
@@ -258,16 +258,14 @@ func TestDefaultPathRoundTrip(t *testing.T) {
 	t.Cleanup(func() { _ = os.RemoveAll(base) })
 	t.Setenv(confpath.EnvXDGConfigHome, base)
 
-	if got, eerr := Exists(""); got || eerr != nil {
-		t.Fatalf("Exists() = %v, %v, want false, nil", got, eerr)
+	// 保存前は既定値が返る（ファイルが無くても Load は成功する）。
+	if got, lerr := Load(""); lerr != nil || !reflect.DeepEqual(got, Default()) {
+		t.Fatalf("保存前の Load() = %+v, %v, want %+v, nil", got, lerr, Default())
 	}
 	want := Default()
 	want.ScanDepth = 5
 	if serr := Save(want, ""); serr != nil {
 		t.Fatalf("Save() でエラー: %v", serr)
-	}
-	if got, eerr := Exists(""); !got || eerr != nil {
-		t.Errorf("Exists() = %v, %v, want true, nil", got, eerr)
 	}
 	got, err := Load("")
 	if err != nil {

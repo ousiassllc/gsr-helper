@@ -169,16 +169,18 @@ func readArgv0(path string) string {
 // runnerDirFromExe は実行ファイルのパスから runner のルートディレクトリを導く。
 // runner のバイナリは <runner_dir>/bin/Runner.Listener に置かれる。
 // bin 配下でない場合は cwd にフォールバックする。
-// exe には " (deleted)" が付いていることがある。印が付くのはパスの最終要素なので
-// bin 配下かどうかの判定には影響しないが、パスとして扱う前に落としておき、
-// 導出したディレクトリに印が混ざらないことをこの関数側で保証する。
+// exe と cwd のどちらにも " (deleted)" が付くことがある。印が付くのはパスの最終要素
+// なので bin 配下かどうかの判定には影響しないが、パスとして扱う前に落としておき、
+// 導出したディレクトリに印が混ざらないことをこの関数側で保証する。cwd 側の印を
+// 残すと、稼働したままディレクトリを削除された runner が実在しないパスとして
+// 照合され、異常として報告することすらできなくなる。
 func runnerDirFromExe(exe, procDir string) string {
 	binDir := filepath.Dir(execPath(exe))
 	if filepath.Base(binDir) == "bin" {
 		return filepath.Dir(binDir)
 	}
 	if cwd, err := os.Readlink(filepath.Join(procDir, "cwd")); err == nil {
-		return cwd
+		return execPath(cwd)
 	}
 	return ""
 }
@@ -188,6 +190,17 @@ func runnerDirFromExe(exe, procDir string) string {
 // ユーザーになるため、btime + starttime/CLK_TCK の計算や status のパースをせずに
 // 1 回の os.Stat で両方を取れる。同じ Stat から取ることで、PID が再利用されて
 // 起動時刻と UID が別プロセスのものになることも避けられる。
+//
+// mtime を採る根拠は実機で確認済みである（Linux 6.8。手順と結果は
+// docs/architecture/data-model.md の Process 節を参照）。procfs は PID
+// ディレクトリの inode を task の生成時に現在時刻で刻み、その後の読み取りでは
+// 更新しない。btime + starttime/CLK_TCK との差は数秒あるが、これは btime が
+// uptime から逆算した値で NTP やサスペンドの補正を受けること、および
+// CLK_TCK 除算の切り捨てによるもので、mtime 側が壁時計の生成時刻に近い。
+// この差は経過時間の表示にも出る（1 分未満は秒、1 時間未満は分秒。
+// internal/ui/atom の Duration）。それでも mtime を採るのは、差の出どころが
+// mtime ではなく btime の逆算側であり、btime が大きく狂う場面でも生成時刻を
+// 保っているのは mtime の側だからである。
 // 取得できない場合はゼロ値の時刻と -1 を返す。
 func procStat(procDir string) (started time.Time, uid int) {
 	fi, err := os.Stat(procDir)

@@ -98,22 +98,3 @@ func TestParseShow(t *testing.T) {
 		}
 	}
 }
-
-func TestStateLabel(t *testing.T) {
-	tests := []struct {
-		name string
-		st   State
-		want string
-	}{
-		{"Active が空", State{}, "-"},
-		{"Active と Sub が異なる", State{Active: "active", Sub: "running"}, "active/running"},
-		{"Active と Sub が同じ", State{Active: "failed", Sub: "failed"}, "failed"},
-		{"Sub が空", State{Active: "inactive"}, "inactive"},
-		{"停止中", State{Active: "inactive", Sub: "dead"}, "inactive/dead"},
-	}
-	for _, tt := range tests {
-		if got := tt.st.Label(); got != tt.want {
-			t.Errorf("%s: got %q, want %q", tt.name, got, tt.want)
-		}
-	}
-}

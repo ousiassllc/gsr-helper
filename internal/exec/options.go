@@ -17,6 +17,18 @@ type Options struct {
 	Dir string
 	// Env は追加の環境変数（KEY=VALUE）。既存の環境に足す。
 	Env []string
+	// SkipAudit はこの実行を監査ログに記録しない指定。
+	//
+	// **既定は false（記録する）。** 記録漏れが既定にならないよう、記録しないこと
+	// を呼び出し側の明示的な意思表示に限る。
+	//
+	// 使ってよいのは**再検出（internal/runner/systemd の Scan）が発行する読み取り
+	// 専用コマンド**（systemctl list-units / show）だけである。3 秒ごとの自動更新か
+	// キー操作 r による手動再読み込みかは問わない。判定するのは発行契機ではなく
+	// 発行元で、いずれの契機でも同じ本数が繰り返し発行され他のレコードを押し流す。
+	// 破壊的操作（svc.* / runner.* / disk.clean）には決して使わない。理由は
+	// docs/architecture/security.md の「監査ログ」を参照。
+	SkipAudit bool
 }
 
 // optionsKey は Options を ctx に格納するキー。

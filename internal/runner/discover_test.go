@@ -5,7 +5,6 @@ import (
 	"errors"
 	"path/filepath"
 	"slices"
-	"strings"
 	"testing"
 
 	"github.com/ousiassllc/gsr-helper/internal/exec"
@@ -47,14 +46,16 @@ func TestDiscover(t *testing.T) {
 		return exec.Result{Stdout: []byte(show[args[1]])}, nil
 	})
 
-	res := Discover(context.Background(), Options{Roots: []string{base}, Exec: f})
+	// 既定の走査ルートと実 /proc を外し、この一時ディレクトリだけを入力にする。
+	// 実ホストに runner が居ても結果が変わらないようにするためである。
+	stubProcs(t, nil)
+	res := Discover(context.Background(), Options{
+		Roots: []string{base}, SkipDefaultRoots: true, Exec: f,
+	})
 
-	// 既定の走査ルート（実ホストの設置場所）も見るため base 配下だけに絞る。
-	var got []string
+	got := make([]string, 0, len(res.Runners))
 	for _, r := range res.Runners {
-		if strings.HasPrefix(r.Dir, base+string(filepath.Separator)) {
-			got = append(got, r.Scope.String()+"/"+r.Name()+"/"+r.RunAsUser)
-		}
+		got = append(got, r.Scope.String()+"/"+r.Name()+"/"+r.RunAsUser)
 	}
 	// スコープ→名前の順。RunAsUser はユニットの User=、未指定なら root、
 	// ユニットが無ければ空（Listener が居ないため）。
@@ -66,22 +67,33 @@ func TestDiscover(t *testing.T) {
 		t.Errorf("OrphanUnits = %q, want %q", names, wantNames)
 	}
 
-	// gitHubUrl 欠落と .runner 破損の 2 件。どちらもどの runner の警告か分かる
-	// ようディレクトリを含む（実ホスト由来の警告は base で絞って除く）。
-	var warns []string
-	for _, w := range res.Warnings {
-		if strings.Contains(w.Error(), base) {
-			warns = append(warns, w.Error())
-		}
+	// gitHubUrl 欠落と .runner 破損の 2 件だけ。どちらもどの runner の警告か
+	// 分かるようディレクトリを含む。件数・内容とも完全一致で固定する。
+	wantWarns := []string{
+		noScope + ": gitHubUrl が空です",
+		filepath.Join(broken, ".runner") + ": .runner の JSON 解析に失敗しました: unexpected end of JSON input",
 	}
-	for _, dir := range []string{noScope, broken} {
-		if !slices.ContainsFunc(warns, func(w string) bool { return strings.Contains(w, dir) }) {
-			t.Errorf("Warnings = %q, want %s を含む警告", warns, dir)
-		}
+	if !slices.Equal(warnStrings(res.Warnings), wantWarns) {
+		t.Errorf("Warnings\n got: %q\nwant: %q", warnStrings(res.Warnings), wantWarns)
 	}
-	if len(warns) != 2 {
-		t.Errorf("Warnings = %q, want 2 件", warns)
+}
+
+// stubProcs は /proc の走査結果を差し替える。実ホストで runner が動いていても
+// Discover の結果が変わらないようにするために使う。
+func stubProcs(t *testing.T, running []Process) {
+	t.Helper()
+	orig := scanProcs
+	scanProcs = func() ([]Process, error) { return running, nil }
+	t.Cleanup(func() { scanProcs = orig })
+}
+
+// warnStrings は警告を文字列にして返す。
+func warnStrings(warns []error) []string {
+	out := make([]string, 0, len(warns))
+	for _, w := range warns {
+		out = append(out, w.Error())
 	}
+	return out
 }
 
 // systemd のユニット一覧が取れたかどうかが起動方式の判定まで伝わること。
@@ -92,6 +104,7 @@ func TestDiscover(t *testing.T) {
 func TestDiscoverManagedWhenUnitsNotListed(t *testing.T) {
 	base := normalizeDir(t.TempDir())
 	dir := mkRunner(t, filepath.Join(base, "r1"))
+	stubProcs(t, nil)
 
 	// list-units 自体が失敗する Executor。ユニットの有無が分からない。
 	listFails := exec.NewFake()
@@ -125,13 +138,13 @@ func TestDiscoverManagedWhenUnitsNotListed(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			res := Discover(context.Background(), Options{Roots: []string{base}, Exec: tt.ex})
+			res := Discover(context.Background(), Options{
+				Roots: []string{base}, SkipDefaultRoots: true, Exec: tt.ex,
+			})
 
-			var got []ManagedBy
+			got := make([]ManagedBy, 0, len(res.Runners))
 			for _, r := range res.Runners {
-				if r.Dir == dir {
-					got = append(got, r.Managed)
-				}
+				got = append(got, r.Managed)
 			}
 			if len(got) != 1 || got[0] != tt.want {
 				t.Errorf("%s の Managed = %v, want [%v]", dir, got, tt.want)
@@ -153,4 +166,30 @@ func listOutput(units ...string) string {
 		out += u + " loaded active running GitHub Actions Runner\n"
 	}
 	return out
+}
+
+// 稼働したまま runner ディレクトリを削除すると、.runner が読めないので一覧には
+// 出せない。黙って消えないよう警告 1 件で報告することを固定する。
+func TestMissingProcDirWarnings(t *testing.T) {
+	base := normalizeDir(t.TempDir())
+	alive := mkRunner(t, filepath.Join(base, "alive"))
+	gone := filepath.Join(base, "gone")
+
+	got := missingProcDirWarnings([]Process{
+		{PID: 1, Kind: ProcListener, Dir: alive},
+		{PID: 2, Kind: ProcListener, Dir: gone},
+		{PID: 3, Kind: ProcWorker, Dir: gone}, // 同じディレクトリは 1 件にまとめる
+		{PID: 4, Kind: ProcListener, Dir: ""}, // 消えた根拠にならないので報告しない
+	})
+
+	want := []string{gone + ": runner ディレクトリが見つかりません。Runner.Listener" +
+		"（PID 2）が稼働したままディレクトリが削除された可能性があります"}
+	if len(got) != len(want) {
+		t.Fatalf("警告 %d 件 (%v), want %d 件", len(got), got, len(want))
+	}
+	for i := range want {
+		if got[i].Error() != want[i] {
+			t.Errorf("got %q, want %q", got[i].Error(), want[i])
+		}
+	}
 }

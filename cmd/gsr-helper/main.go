@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"slices"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -69,7 +68,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 	// 状態行に出さないのは、既定値でも全機能が動くため異常ではなく、ウィザードを
 	// 実装する Issue でその案内を消す変更が必要になるためである。
 	lg := openAudit(cfg.AuditLog, stderr)
-	defer func() { _ = lg.Close() }()
+	// クローズの失敗も報告する。バッファに残ったレコードが書けなかった場合が
+	// 黙って消えると、監査ログのエラーのうちこれだけが利用者に見えない。
+	defer func() { reportAuditClose(lg.Close(), stderr) }()
 
 	// 監査記録の失敗は「コマンドの失敗」と混ぜず、専用の通知先で受けて終了後に
 	// 報告する。通知先を渡さないと command が stderr へ直接書き、代替スクリーンの
@@ -85,7 +86,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	app := ui.New(cfg, caps, ex, ui.Options{
 		Color:   colorEnabled(o.noColor, os.Getenv, isTerminal(os.Stdout)),
 		Refresh: o.refresh,
-		Roots:   append(slices.Clone(cfg.ScanRoots), o.roots...),
+		Roots:   appconfig.MergeScanRoots(cfg.ScanRoots, o.roots),
 		Host:    hostname(),
 	})
 	return runProgram(app, stderr)

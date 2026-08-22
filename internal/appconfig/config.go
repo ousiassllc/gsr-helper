@@ -183,7 +183,7 @@ func emptyDocument(doc *yaml.Node) bool {
 	return true
 }
 
-// pathOrDefault は空のパスを既定の配置先で埋める。Load と Exists が通す。
+// pathOrDefault は空のパスを既定の配置先で埋める。Load が通す。
 func pathOrDefault(path string) (string, error) {
 	if path == "" {
 		return DefaultPath()
@@ -208,25 +208,6 @@ func readLimited(path string) ([]byte, error) {
 		return nil, fmt.Errorf("設定ファイルが大きすぎます（上限 %d バイト）", maxConfigSize)
 	}
 	return b, nil
-}
-
-// Exists は設定ファイルがあるかを返す。path が空なら DefaultPath() を使う。
-//
-// Load はファイルが無い場合も既定値を返すため、呼び出し側が初回起動を判別できない。
-// 「設定ファイルが無い場合は初回起動時に対話ウィザードを表示する」（FR-41）の
-// 判定に使う。呼び出し側が os.Stat(DefaultPath()) を書くとパス決定が二重化する。
-func Exists(path string) (bool, error) {
-	path, err := pathOrDefault(path)
-	if err != nil {
-		return false, err
-	}
-	if _, err := os.Stat(path); err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return false, nil
-		}
-		return false, fmt.Errorf("%s の確認に失敗しました: %w", path, err)
-	}
-	return true, nil
 }
 
 // Save は cfg を path に書き出す。path が空なら DefaultPath() を使う。

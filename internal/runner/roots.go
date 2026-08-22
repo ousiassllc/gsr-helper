@@ -58,7 +58,7 @@ func collectDirs(opts Options, running []procs.Process, units []systemd.State) [
 		dirs = append(dirs, dir)
 	}
 
-	for _, root := range append(DefaultRoots(), opts.Roots...) {
+	for _, root := range scanRoots(opts) {
 		for _, d := range findRunnerDirs(root, depth) {
 			add(d)
 		}
@@ -72,6 +72,15 @@ func collectDirs(opts Options, running []procs.Process, units []systemd.State) [
 
 	sort.Strings(dirs)
 	return dirs
+}
+
+// scanRoots は走査するルートを返す。既定ルートを使う場合は Options.Roots を
+// その後ろに足す（Options.SkipDefaultRoots）。
+func scanRoots(opts Options) []string {
+	if opts.SkipDefaultRoots {
+		return opts.Roots
+	}
+	return append(DefaultRoots(), opts.Roots...)
 }
 
 // findRunnerDirs は root 配下から runner ディレクトリを探す。

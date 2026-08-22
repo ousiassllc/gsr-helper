@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/ousiassllc/gsr-helper/internal/appconfig"
 )
 
 // opts は起動時のフラグの値。
@@ -39,8 +41,12 @@ func parseArgs(args []string) (opts, error) {
 	if err != nil {
 		return opts{}, err
 	}
+	rootPaths, err := roots.paths()
+	if err != nil {
+		return opts{}, err
+	}
 
-	o.roots = *roots
+	o.roots = rootPaths
 	o.refresh = refreshDuration
 	return o, nil
 }
@@ -58,7 +64,7 @@ func newFlagSet(o *opts) (*flag.FlagSet, *rootList, *seconds) {
 	refresh := &seconds{raw: ""}
 	fs.Var(roots, "root", "追加の走査ルート（複数指定可）")
 	fs.StringVar(&o.config, "config", "", "設定ファイルのパス")
-	fs.Var(refresh, "refresh", "自動更新間隔（秒。1 以上）")
+	fs.Var(refresh, "refresh", "自動更新間隔（秒。1〜3600）")
 	fs.BoolVar(&o.noColor, "no-color", false, "色を使わない（NO_COLOR も尊重する）")
 	fs.BoolVar(&o.version, "version", false, "バージョンを表示して終了する")
 	return fs, roots, refresh
@@ -86,13 +92,37 @@ func (r *rootList) String() string {
 	return strings.Join(*r, ",")
 }
 
-// Set は走査ルートを 1 つ追加する。
+// Set は値を記録するだけで検証しない。検証は paths が行う。
+// 検証を Parse の後へ回す理由は seconds.Set と同じ（英語の前置が混ざる）。
 func (r *rootList) Set(v string) error {
-	if strings.TrimSpace(v) == "" {
-		return fmt.Errorf("--root に空のパスは指定できません")
-	}
 	*r = append(*r, v)
 	return nil
+}
+
+// paths は指定された走査ルートを検証して返す。
+//
+// 検証は設定ファイルの scan_roots と同じ appconfig.CleanScanRoot を通す。
+// 絶対パスと .. の検査には安全上の根拠があり（[セキュリティ設計]の削除パスの検証）、
+// --root から迂回できてはならない。
+func (r *rootList) paths() ([]string, error) {
+	if r == nil {
+		return nil, nil
+	}
+	out := make([]string, 0, len(*r))
+	for _, v := range *r {
+		if strings.TrimSpace(v) == "" {
+			return nil, fmt.Errorf("--root に空のパスは指定できません")
+		}
+		p, err := appconfig.CleanScanRoot("--root", v)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	if len(out) == 0 {
+		return nil, nil
+	}
+	return out, nil
 }
 
 // seconds は --refresh に指定された文字列。
@@ -125,7 +155,8 @@ func (s *seconds) Set(v string) error {
 // duration は指定された値を検証して自動更新間隔を返す。未指定なら 0 を返す。
 //
 // 0 以下を認めないのは、間隔 0 が「検出を止める」でも「常時検出」でもなく、Tick が
-// 無限に発火して UI を占有する値になるためである。
+// 無限に発火して UI を占有する値になるためである。上限を設けるのは、設定ファイルの
+// refresh_interval と有効範囲を揃えるためである（appconfig.ValidateRefresh）。
 func (s *seconds) duration() (time.Duration, error) {
 	if s.raw == "" {
 		return 0, nil
@@ -135,8 +166,10 @@ func (s *seconds) duration() (time.Duration, error) {
 	if err != nil {
 		return 0, fmt.Errorf("--refresh には秒数を指定してください: %s", s.raw)
 	}
-	if n <= 0 {
-		return 0, fmt.Errorf("--refresh には 1 以上の秒数を指定してください: %d", n)
+	// 有効範囲は設定ファイルの refresh_interval と同じ 1 箇所を通す。入口ごとに
+	// 範囲が違うと、--refresh では通る値が設定ファイルでは起動を止めることになる。
+	if err := appconfig.ValidateRefresh("--refresh", n); err != nil {
+		return 0, err
 	}
 	return time.Duration(n) * time.Second, nil
 }
