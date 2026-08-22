@@ -112,11 +112,21 @@ func runnerView(r runner.Runner) molecule.RunnerView {
 		LatestVersion: "",
 		Work:          "",
 		Warn:          warned(r),
+		SvcUnknown:    svcUnknown(r),
 	}
 	if r.Svc != nil {
 		v.SvcActive, v.SvcSub = r.Svc.Active, r.Svc.Sub
 	}
 	return v
+}
+
+// svcUnknown はユニットはあるが状態を取得できなかったかを返す。
+//
+// systemctl show が失敗したユニットは値の無い SvcState として渡ってくる
+// （internal/runner のプレースホルダ）。ユニットが無い場合（Svc == nil）と同じ
+// 記号で描くと、仕様が書き分けている 2 つの状態を読み分けられない。
+func svcUnknown(r runner.Runner) bool {
+	return r.Svc != nil && r.Svc.Active == ""
 }
 
 // warned は行に注意記号を出すかを返す。

@@ -1,6 +1,7 @@
 package atom
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -94,5 +95,24 @@ func TestWarnMark(t *testing.T) {
 	}
 	if got, want := WarnMark(false, s), " "; got != want {
 		t.Errorf("WarnMark(false) = %q, want %q", got, want)
+	}
+}
+
+// 状態を取得できなかったユニットは「ユニットなし」と別の記号で表す。
+//
+// systemctl show が失敗したユニットは値の無い状態として渡ってくるが、それは
+// ユニットが存在しないことを意味しない（仕様は 2 つを書き分けている）。
+func TestStatusUnknownDiffersFromNoUnit(t *testing.T) {
+	unknown, role := StatusUnknown()
+	noUnit, _ := StatusText("", "")
+
+	if unknown == noUnit {
+		t.Errorf("状態不明とユニットなしが同じ表示（%q）", unknown)
+	}
+	if !strings.Contains(unknown, token.IconUnknown) {
+		t.Errorf("状態不明の表示 = %q, want %q を含む", unknown, token.IconUnknown)
+	}
+	if role == token.RoleMuted {
+		t.Error("状態不明が補足情報として薄く描かれている（見落とす）")
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/ui/organism"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
+	"github.com/ousiassllc/gsr-helper/internal/ui/token"
 )
 
 // newDetail は詳細画面を開いた状態で返す。
@@ -198,5 +199,19 @@ func TestRunnerDetailManagedUnavailable(t *testing.T) {
 	}
 	if strings.Contains(got, managedUnknownText) {
 		t.Error("判定不能を未稼働と同じ文で出している")
+	}
+}
+
+// 状態を取得できなかったユニットは、ユニットが無い場合と書き分ける。
+func TestRunnerDetailUnknownServiceState(t *testing.T) {
+	r := pagetest.SampleRunner()
+	r.Svc = &runner.SvcState{Unit: r.UnitName}
+
+	d := newModel(pagetest.Keys(), pagetest.Styles())
+	d.SetSize(80, 24)
+	d.Open(r, pagetest.Caps())
+
+	if got := d.View(); !strings.Contains(got, token.IconUnknown) {
+		t.Errorf("サービスの行 = %q, want %q を含む", got, token.IconUnknown)
 	}
 }

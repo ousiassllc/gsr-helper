@@ -81,6 +81,10 @@ func serviceText(r runner.Runner) (string, token.RoleToken) {
 	if r.Svc == nil {
 		return atom.StatusText("", "")
 	}
+	if r.Svc.Active == "" {
+		// systemctl show が失敗したユニット。ユニットが無いのとは書き分ける。
+		return atom.StatusUnknown()
+	}
 	text, role := atom.StatusText(r.Svc.Active, r.Svc.Sub)
 	if r.Svc.FileState != "" {
 		text += " / " + r.Svc.FileState

@@ -9,6 +9,7 @@ const (
 	IconInactive  = "○"   // サービス停止中
 	IconFailed    = "✗"   // 異常終了・FAIL
 	IconNoUnit    = "-"   // systemd ユニットなし
+	IconUnknown   = "?"   // 状態を取得できなかった（判定不能）
 	IconJob       = "▶"   // ジョブ実行中
 	IconWarn      = "⚠"   // 注意事項あり・WARN
 	IconOK        = "✓"   // OK・完了

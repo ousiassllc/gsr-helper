@@ -40,6 +40,19 @@ func StatusText(active, sub string) (text string, role token.RoleToken) {
 	}
 }
 
+// StatusUnknown は systemd ユニットの状態を取得できなかったことを返す。
+//
+// 「ユニットが無い」（IconNoUnit）と同じ記号にしない。systemctl show が失敗した
+// ユニットは値の無い SvcState として扱われる（internal/runner のプレースホルダ）が、
+// それは**ユニットが存在しないことを意味しない**。記号を分けないと、仕様が書き分けて
+// いる 2 つの状態が SVC 列で区別できず、「サービス登録されていない」と誤読される。
+//
+// 記号は runner.ManagedBy.String が判定不能に使う "?" と同じものにする（MANAGED 列と
+// SVC 列で同じ意味の記号が違うと読み替えが必要になる）。
+func StatusUnknown() (text string, role token.RoleToken) {
+	return token.IconUnknown + " unknown", token.StateWarn.Role()
+}
+
 // JobText はジョブの実行状態と経過時間を、素の文字列と表示上の役割の組で返す。
 // 装飾を返さない理由は StatusText と同じ。
 func JobText(busy bool, d time.Duration) (text string, role token.RoleToken) {

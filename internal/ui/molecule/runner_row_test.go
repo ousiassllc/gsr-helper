@@ -132,3 +132,43 @@ func TestRunnerRowEmptyName(t *testing.T) {
 		t.Errorf("名前が空で注意ありの NAME セル = %q, want %q で始まる", warned[0], want)
 	}
 }
+
+// 状態を取得できなかったユニットは「ユニットなし」と別の記号で描く。
+//
+// systemctl show が失敗したユニットは値の無い状態として渡ってくるが、それは
+// ユニットが存在しないことを意味しない（atom.StatusUnknown）。同じ "-" で描くと
+// 仕様が書き分けている 2 つの状態を SVC 列で読み分けられない。
+func TestRunnerRowUnknownServiceState(t *testing.T) {
+	cols := Columns(token.RunnerColumns(), token.WidthTarget)
+
+	noUnit := RunnerRow(RunnerView{
+		Name: "build01-1", Managed: "run.sh", Version: "2.309.0",
+	}, cols, plainStyles())
+	unknown := RunnerRow(RunnerView{
+		Name: "build01-1", Managed: "systemd", Version: "2.309.0", SvcUnknown: true,
+	}, cols, plainStyles())
+
+	svc := columnIndex(t, cols, token.ColSvc)
+	if noUnit[svc] == unknown[svc] {
+		t.Errorf("ユニットなしと状態不明が同じ表示になっている（%q）", unknown[svc])
+	}
+	if !strings.Contains(unknown[svc], token.IconUnknown) {
+		t.Errorf("状態不明の SVC セル = %q, want %q を含む", unknown[svc], token.IconUnknown)
+	}
+	if !strings.Contains(noUnit[svc], token.IconNoUnit) {
+		t.Errorf("ユニットなしの SVC セル = %q, want %q を含む", noUnit[svc], token.IconNoUnit)
+	}
+}
+
+// columnIndex は列の識別子から添字を返す。
+func columnIndex(t *testing.T, cols []token.Column, id string) int {
+	t.Helper()
+
+	for i, c := range cols {
+		if c.ID == id {
+			return i
+		}
+	}
+	t.Fatalf("列 %q が幅 %d に無い", id, token.WidthTarget)
+	return -1
+}

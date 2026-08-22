@@ -271,3 +271,27 @@ func TestUnavailableManagedRowIsWarned(t *testing.T) {
 	}
 	t.Fatal("対象の runner の行が見つからない")
 }
+
+// 状態を取得できなかったユニットは、ユニットが無い runner と SVC 列で書き分ける。
+//
+// systemctl show が失敗したユニットは値の無い状態として渡ってくる（internal/runner の
+// プレースホルダ）。同じ "-" で描くと「サービス登録されていない」と誤読される。
+func TestUnknownServiceStateIsDistinguished(t *testing.T) {
+	st := testState(80, 16)
+	r := sampleRunner("build01-9", false)
+	// systemctl show が失敗したユニットのプレースホルダ（値が無い SvcState）。
+	r.Svc = &runner.SvcState{Unit: r.UnitName}
+	st.Result = runner.Result{Runners: []runner.Runner{r}, OrphanUnits: nil, Warnings: nil}
+
+	m, _ := runners.New(0, st).Update(st)
+	for _, line := range strings.Split(m.View().Content, "\n") {
+		if !strings.Contains(line, "build01-9") {
+			continue
+		}
+		if !strings.Contains(line, token.IconUnknown) {
+			t.Errorf("状態が取れなかった行 = %q, want %q を含む", line, token.IconUnknown)
+		}
+		return
+	}
+	t.Fatal("対象の runner の行が見つからない")
+}

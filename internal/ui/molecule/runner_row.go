@@ -14,6 +14,7 @@ type RunnerView struct {
 	Managed       string
 	SvcActive     string        // systemctl の ActiveState
 	SvcSub        string        // systemctl の SubState
+	SvcUnknown    bool          // ユニットはあるが状態を取得できなかった
 	Busy          bool          // ジョブ実行中か
 	Elapsed       time.Duration // ジョブの経過時間
 	Version       string
@@ -44,6 +45,11 @@ func runnerCell(v RunnerView, c token.Column, s token.Styles) string {
 	case token.ColManaged:
 		return dashCell(v.Managed, c, s)
 	case token.ColSvc:
+		// 状態が取れなかったユニットは「ユニットなし」と書き分ける（atom.StatusUnknown）。
+		if v.SvcUnknown {
+			text, role := atom.StatusUnknown()
+			return styledCell(text, role, c, s)
+		}
 		text, role := atom.StatusText(v.SvcActive, v.SvcSub)
 		return styledCell(text, role, c, s)
 	case token.ColJob:
