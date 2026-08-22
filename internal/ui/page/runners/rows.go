@@ -40,6 +40,7 @@ func runnerSection() table.SectionInput[row] {
 	return table.SectionInput[row]{
 		Title:      "",
 		Columns:    token.RunnerColumns(),
+		Rules:      token.RunnerColumnRules(),
 		Render:     renderRunner,
 		ID:         func(r row) string { return r.runner.Dir },
 		Match:      matchRunner,
@@ -56,8 +57,12 @@ func runnerSection() table.SectionInput[row] {
 // 見落とすためである。
 func orphanSection() table.SectionInput[row] {
 	return table.SectionInput[row]{
-		Title:      "孤児ユニット",
-		Columns:    token.OrphanColumns(),
+		Title:   "孤児ユニット",
+		Columns: token.OrphanColumns(),
+		// runner の一覧と同じ落とし方を使う（同じタブの中で列の落ち方が
+		// 変わると桁の対応が読み取れない）。UNIT / NOTE は Drop に無いので
+		// 幅が足りない場合は末尾（NOTE）から落ちる。
+		Rules:      token.RunnerColumnRules(),
 		Render:     renderOrphan,
 		ID:         func(r row) string { return r.orphan.Unit },
 		Match:      nil,

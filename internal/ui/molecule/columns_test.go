@@ -2,6 +2,7 @@ package molecule
 
 import (
 	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/ousiassllc/gsr-helper/internal/ui/token"
@@ -23,11 +24,11 @@ func columnSets() map[string][]token.Column {
 // ColumnDropOrder に 1 つも含まれないため、末尾から落とす経路がここで効く。
 func TestColumnsFitFromMinToWideWidth(t *testing.T) {
 	for name, all := range columnSets() {
-		if got, want := columnIDs(Columns(all, token.WidthTarget)), columnIDs(all); !reflect.DeepEqual(got, want) {
+		if got, want := columnIDs(Columns(all, token.WidthTarget, token.RunnerColumnRules())), columnIDs(all); !reflect.DeepEqual(got, want) {
 			t.Errorf("%s: 幅 %d の列 = %v, want %v", name, token.WidthTarget, got, want)
 		}
 		for width := 120; width >= token.WidthMin; width-- {
-			if cols := Columns(all, width); !columnsFit(cols, width) {
+			if cols := Columns(all, width, token.RunnerColumnRules()); !columnsFit(cols, width) {
 				t.Errorf("%s: 幅 %d で選んだ列 %v が収まらない", name, width, columnIDs(cols))
 			}
 		}
@@ -48,7 +49,7 @@ func TestColumnsDropOrderByWidth(t *testing.T) {
 		{53, []string{"NAME", "SVC", "JOB"}},
 	}
 	for _, c := range cases {
-		if got := columnIDs(Columns(token.RunnerColumns(), c.width)); !reflect.DeepEqual(got, c.want) {
+		if got := columnIDs(Columns(token.RunnerColumns(), c.width, token.RunnerColumnRules())); !reflect.DeepEqual(got, c.want) {
 			t.Errorf("幅 %d の列 = %v, want %v", c.width, got, c.want)
 		}
 	}
@@ -59,12 +60,12 @@ func TestColumnsDropOrderByWidth(t *testing.T) {
 // 落とす順（screens.md の「端末幅による列の省略」）は受け入れ条件そのものなので、
 // 境界の 1 セルずれを個別の期待値ではなく走査で確かめる。
 func TestColumnsDropOneByOneAsWidthShrinks(t *testing.T) {
-	order := token.ColumnDropOrder()
-	prev := columnIDs(Columns(token.RunnerColumns(), 120))
+	order := token.RunnerColumnRules().Drop
+	prev := columnIDs(Columns(token.RunnerColumns(), 120, token.RunnerColumnRules()))
 	dropped := 0
 
 	for width := 119; width >= token.WidthMin; width-- {
-		got := columnIDs(Columns(token.RunnerColumns(), width))
+		got := columnIDs(Columns(token.RunnerColumns(), width, token.RunnerColumnRules()))
 		switch len(got) {
 		case len(prev):
 			if !reflect.DeepEqual(got, prev) {
@@ -92,23 +93,23 @@ func TestColumnsDropOneByOneAsWidthShrinks(t *testing.T) {
 // 比べる形になるが、非決定性は期待値を別に書けない。
 func TestColumnsKeepAlwaysColumns(t *testing.T) {
 	for _, width := range []int{200, 100, 80, 72, 66, 60, 59, 30, 1, 0, -10} {
-		got := columnIDs(Columns(token.RunnerColumns(), width))
-		for _, id := range token.ColumnsAlways() {
+		got := columnIDs(Columns(token.RunnerColumns(), width, token.RunnerColumnRules()))
+		for _, id := range token.RunnerColumnRules().Keep {
 			if !containsID(got, id) {
 				t.Errorf("幅 %d で常に表示する列 %s が落ちた（%v）", width, id, got)
 			}
 		}
 	}
-	if got, want := columnIDs(Columns(token.RunnerColumns(), 30)), token.ColumnsAlways(); !reflect.DeepEqual(got, want) {
+	if got, want := columnIDs(Columns(token.RunnerColumns(), 30, token.RunnerColumnRules())), token.RunnerColumnRules().Keep; !reflect.DeepEqual(got, want) {
 		t.Errorf("幅 30 の列 = %v, want %v", got, want)
 	}
 
-	first := Columns(token.RunnerColumns(), 72)
-	if !reflect.DeepEqual(first, Columns(token.RunnerColumns(), 72)) {
+	first := Columns(token.RunnerColumns(), 72, token.RunnerColumnRules())
+	if !reflect.DeepEqual(first, Columns(token.RunnerColumns(), 72, token.RunnerColumnRules())) {
 		t.Errorf("同じ幅で結果が異なる: %v", columnIDs(first))
 	}
 	first[0].Width = 999
-	if Columns(token.RunnerColumns(), 72)[0].Width == 999 {
+	if Columns(token.RunnerColumns(), 72, token.RunnerColumnRules())[0].Width == 999 {
 		t.Error("返り値への書き換えが次の呼び出しに影響している")
 	}
 }
@@ -138,7 +139,7 @@ func TestColumnsFitCountsGutterBetweenColumnsOnly(t *testing.T) {
 func TestColumnsNeverReturnsEmptyForNonEmptyInput(t *testing.T) {
 	for name, all := range columnSets() {
 		for width := 20; width >= -10; width-- {
-			if got := Columns(all, width); len(got) == 0 {
+			if got := Columns(all, width, token.RunnerColumnRules()); len(got) == 0 {
 				t.Errorf("%s: 幅 %d で列が 0 個になった", name, width)
 			}
 		}
@@ -146,8 +147,44 @@ func TestColumnsNeverReturnsEmptyForNonEmptyInput(t *testing.T) {
 
 	// 落とし切ったあとに残るのは先頭の列（最も識別に使う列）である。
 	for width := 10; width <= 18; width++ {
-		if got, want := columnIDs(Columns(token.JobColumns(), width)), []string{token.ColRunner}; !reflect.DeepEqual(got, want) {
+		if got, want := columnIDs(Columns(token.JobColumns(), width, token.RunnerColumnRules())), []string{token.ColRunner}; !reflect.DeepEqual(got, want) {
 			t.Errorf("JobColumns: 幅 %d の列 = %v, want %v", width, got, want)
 		}
+	}
+}
+
+// 落とす順は区画ごとに宣言できる。同じ列でも順が違えば残る列が変わる。
+//
+// 共有の 1 本に固定すると、列の並びが違うタブ（Disk / Logs / Doctor）を足すたびに
+// その並びを直すことになる（token.ColumnRules の doc）。
+func TestColumnsFollowsPerSectionRules(t *testing.T) {
+	all := []token.Column{
+		{ID: token.ColName, Title: "NAME", Width: 10},
+		{ID: token.ColScope, Title: "SCOPE", Width: 10},
+		{ID: token.ColVersion, Title: "VERSION", Width: 10},
+	}
+	// 行頭 6 + 列幅 20 + 列間 1 = 27。1 列だけ落ちる幅を選ぶ。
+	const width = 27
+
+	dropScope := Columns(all, width, token.ColumnRules{
+		Drop: []string{token.ColScope},
+		Keep: []string{token.ColName},
+	})
+	dropVersion := Columns(all, width, token.ColumnRules{
+		Drop: []string{token.ColVersion},
+		Keep: []string{token.ColName},
+	})
+
+	if got := columnIDs(dropScope); !slices.Equal(got, []string{token.ColName, token.ColVersion}) {
+		t.Errorf("SCOPE を先に落とす順の結果 = %v", got)
+	}
+	if got := columnIDs(dropVersion); !slices.Equal(got, []string{token.ColName, token.ColScope}) {
+		t.Errorf("VERSION を先に落とす順の結果 = %v", got)
+	}
+
+	// 順を宣言しない区画は末尾から落とす（ゼロ値の意味）。
+	if got := columnIDs(Columns(all, width, token.ColumnRules{})); !slices.Equal(
+		got, []string{token.ColName, token.ColScope}) {
+		t.Errorf("順を宣言しない区画の結果 = %v, want 末尾から落とす", got)
 	}
 }

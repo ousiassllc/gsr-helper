@@ -27,29 +27,29 @@ const (
 //
 // 落とす順は次の 2 段で、収まった時点で止まる。
 //
-//  1. token.ColumnDropOrder の順（_WORK → VERSION → MANAGED → SCOPE）。
-//     screens.md の「端末幅による列の省略」が Runners タブについて定めたものである。
+//  1. rules.Drop の順（Runners タブなら _WORK → VERSION → MANAGED → SCOPE）。
+//     順は区画が宣言する（token.ColumnRules）。共有の 1 本にすると、タブを足すたびに
+//     その並びを直すことになる。
 //  2. それでも収まらない場合は残った列の末尾から。右側の列ほど補足的な情報である。
-//     落とす順は Runners タブのためのものなので、それだけに頼ると孤児ユニットの
-//     NOTE や Jobs の WORKER PID のように「落とせる列が 1 つも無い」区画ができて、
-//     幅 60 でも桁が溢れる。
+//     宣言された順だけに頼ると、孤児ユニットの NOTE や Jobs の WORKER PID のように
+//     「落とせる列が 1 つも無い」区画ができて、幅 60 でも桁が溢れる。
 //
-// どちらの段でも token.ColumnsAlways の列は落とさない。**all が空でなければ結果も
+// どちらの段でも rules.Keep の列は落とさない。**all が空でなければ結果も
 // 空にならない**（最後の 1 列は幅が足りなくても残す）。列が 0 個になると見出しも
 // 行も描けず、Jobs タブのように常時表示の列を持たない区画が空表になるためである。
 // そのため結果は width を超え得る。超えるのは最小の列でも収まらない幅に限り、
 // 表示不能とするかの判断は template.Frame の責務である。
-func Columns(all []token.Column, width int) []token.Column {
+func Columns(all []token.Column, width int, rules token.ColumnRules) []token.Column {
 	keep := make([]token.Column, len(all))
 	copy(keep, all)
 
-	always := token.ColumnsAlways()
-	for _, id := range token.ColumnDropOrder() {
+	always := rules.Keep
+	for _, id := range rules.Drop {
 		if columnsFit(keep, width) {
 			return keep
 		}
 		if hasColumnID(always, id) {
-			// 常に表示する列は落とさない。token 側の 2 つの定義が食い違っても
+			// 常に表示する列は落とさない。Drop と Keep が食い違っても
 			// 常時表示の保証が崩れないようにするための防御である。
 			continue
 		}

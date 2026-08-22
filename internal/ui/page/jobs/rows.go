@@ -27,6 +27,7 @@ func newTable(keys keymap.Set, s token.Styles) table.Model[row] {
 	return table.New(keys.List, s, table.SectionInput[row]{
 		Title:   "",
 		Columns: token.JobColumns(),
+		Rules:   token.RunnerColumnRules(),
 		Render:  renderJob,
 		ID:      func(r row) string { return strconv.Itoa(r.worker.PID) },
 		Match:   matchJob,

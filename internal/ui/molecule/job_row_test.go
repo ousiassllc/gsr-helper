@@ -31,7 +31,7 @@ func TestJobRowCells(t *testing.T) {
 
 // 値が取得できていない列は「値なし」の記号にする。PID は右寄せにする。
 func TestJobRowContents(t *testing.T) {
-	cols := Columns(token.JobColumns(), 120)
+	cols := Columns(token.JobColumns(), 120, token.RunnerColumnRules())
 	cells := JobRow(sampleJob(), cols, plainStyles())
 	for i, want := range []string{"build01-1", "foo/bar", "4m12s", "284193", "_work/bar"} {
 		if !strings.Contains(cells[i], want) {

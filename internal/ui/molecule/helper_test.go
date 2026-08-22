@@ -65,7 +65,7 @@ func assertRows[T any](
 	t.Helper()
 
 	for _, width := range widths {
-		cols := Columns(all, width)
+		cols := Columns(all, width, token.RunnerColumnRules())
 		for name, v := range views {
 			assertRowCells(t, "幅 "+strconv.Itoa(width)+" "+name, cols, render(v, cols, plainStyles()))
 		}

@@ -76,6 +76,7 @@ type RowDisabled[T any] func(item T) (reason string, disabled bool)
 type SectionInput[T any] struct {
 	Title      string                      // 区切り線の見出し。空なら区切り線を出さない
 	Columns    []token.Column              // 幅が足りる場合に表示する全列。実際に出す列は SetSize が解く
+	Rules      token.ColumnRules           // 幅が足りないときの落とし方。ゼロ値なら末尾から落とす
 	Render     RenderRow[T]                // 1 行をセルの列に変換する関数
 	ID         RowID[T]                    // 行の識別子を返す関数
 	Match      func(item T, q string) bool // 絞り込みの一致判定

@@ -53,7 +53,7 @@ func newSection[T any](def SectionInput[T], keys keymap.List, s token.Styles, wi
 // 同じ列から作るためである。
 func (s *section[T]) setWidth(w int) {
 	// molecule.Columns は新しいスライスを返すので、そのまま書き換えてよい。
-	cols := molecule.Columns(s.def.Columns, w)
+	cols := molecule.Columns(s.def.Columns, w, s.def.Rules)
 	if n := len(cols); n > 0 {
 		// bubbles/table のセルは右に余白を持つ（tableStyles）ので、実際の行幅は最終列の後ろの
 		// 余白も含む。molecule の幅判定は列と列の間だけを数えるため、最終列から余白 1 つ分を

@@ -14,11 +14,11 @@ func TestWidthMinIsBelowTarget(t *testing.T) {
 
 // 常に表示する列が落とす順に含まれていると、幅不足で消えてしまう。
 func TestColumnsAlwaysAreNotDroppable(t *testing.T) {
-	drop := make(map[string]bool, len(ColumnDropOrder()))
-	for _, id := range ColumnDropOrder() {
+	drop := make(map[string]bool, len(RunnerColumnRules().Drop))
+	for _, id := range RunnerColumnRules().Drop {
 		drop[id] = true
 	}
-	for _, id := range ColumnsAlways() {
+	for _, id := range RunnerColumnRules().Keep {
 		if drop[id] {
 			t.Errorf("列 %s は常に表示する列だが落とす順に含まれている", id)
 		}
@@ -31,14 +31,14 @@ func TestRunnerColumnsCoverAlwaysAndDropOrder(t *testing.T) {
 	for _, c := range RunnerColumns() {
 		have[c.ID] = true
 	}
-	for _, id := range append(ColumnsAlways(), ColumnDropOrder()...) {
+	for _, id := range append(RunnerColumnRules().Keep, RunnerColumnRules().Drop...) {
 		if !have[id] {
 			t.Errorf("RunnerColumns に列 %s がない", id)
 		}
 	}
-	if len(RunnerColumns()) != len(ColumnsAlways())+len(ColumnDropOrder()) {
+	if len(RunnerColumns()) != len(RunnerColumnRules().Keep)+len(RunnerColumnRules().Drop) {
 		t.Errorf("RunnerColumns の列数 %d が常時表示 %d + 省略対象 %d と一致しない",
-			len(RunnerColumns()), len(ColumnsAlways()), len(ColumnDropOrder()))
+			len(RunnerColumns()), len(RunnerColumnRules().Keep), len(RunnerColumnRules().Drop))
 	}
 }
 
@@ -79,15 +79,15 @@ func TestColumnGettersReturnFreshValues(t *testing.T) {
 		t.Error("RunnerColumns の返り値への書き換えが次の呼び出しに影響している")
 	}
 
-	always := ColumnsAlways()
+	always := RunnerColumnRules().Keep
 	always[0] = "壊れた列"
-	if again := ColumnsAlways(); again[0] == "壊れた列" {
+	if again := RunnerColumnRules().Keep; again[0] == "壊れた列" {
 		t.Error("ColumnsAlways の返り値への書き換えが次の呼び出しに影響している")
 	}
 
-	order := ColumnDropOrder()
+	order := RunnerColumnRules().Drop
 	order[0] = "壊れた列"
-	if again := ColumnDropOrder(); again[0] == "壊れた列" {
+	if again := RunnerColumnRules().Drop; again[0] == "壊れた列" {
 		t.Error("ColumnDropOrder の返り値への書き換えが次の呼び出しに影響している")
 	}
 }

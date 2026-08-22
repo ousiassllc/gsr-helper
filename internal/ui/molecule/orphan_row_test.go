@@ -57,7 +57,7 @@ func TestOrphanRowContents(t *testing.T) {
 // 狭めてから表を組む。Columns の結果をそのまま使って中身を検証すると、実際の描画
 // では 1 セル足りずに中略されている値が「収まっている」ように見えてしまう。
 func sectionColumns(all []token.Column, width int) []token.Column {
-	cols := Columns(all, width)
+	cols := Columns(all, width, token.RunnerColumnRules())
 	if n := len(cols); n > 0 {
 		cols[n-1].Width = max(cols[n-1].Width-columnGutter, 0)
 	}
