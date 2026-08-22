@@ -6,7 +6,16 @@ linters:
     - errorlint
     - gocritic
     - gosec
+    - nolintlint
     - revive
+  settings:
+    nolintlint:
+      # 不要になった抑制を検出する（置き換え完了時の除去漏れを防ぐ）
+      allow-unused: false
+      # 抑制には理由コメントを必須にする
+      require-explanation: true
+      # //nolint 単独を禁止し //nolint:gosec のようにリンター名を要求する
+      require-specific: true
   exclusions:
     rules:
       # テストではエラーの取り扱いとパス操作を緩める
@@ -18,3 +27,8 @@ linters:
 formatters:
   enable:
     - gofmt
+
+issues:
+  # 抑制やエラーを棚卸しできるよう、同種の指摘を打ち切らない
+  max-issues-per-linter: 0
+  max-same-issues: 0

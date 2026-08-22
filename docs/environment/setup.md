@@ -361,7 +361,16 @@ linters:
     - errorlint
     - gocritic
     - gosec
+    - nolintlint
     - revive
+  settings:
+    nolintlint:
+      # 不要になった抑制を検出する（置き換え完了時の除去漏れを防ぐ）
+      allow-unused: false
+      # 抑制には理由コメントを必須にする
+      require-explanation: true
+      # //nolint 単独を禁止し //nolint:gosec のようにリンター名を要求する
+      require-specific: true
   exclusions:
     rules:
       # テストではエラーの取り扱いとパス操作を緩める
@@ -373,6 +382,11 @@ linters:
 formatters:
   enable:
     - gofmt
+
+issues:
+  # 抑制やエラーを棚卸しできるよう、同種の指摘を打ち切らない
+  max-issues-per-linter: 0
+  max-same-issues: 0
 ```
 
 `default: standard` で有効になる標準セット（`errcheck` / `govet` / `ineffassign` / `staticcheck` / `unused`）に、以下を追加する。
@@ -383,8 +397,21 @@ formatters:
 | `errorlint` | エラーの比較・ラップの誤り（`==` による比較、`%v` でのラップ）を検出する。部分的な失敗を集約して返す設計上、エラーの取り扱いミスが表面化しにくい |
 | `revive` | 命名と可読性の検査。「clear naming, small functions」の方針を機械的に支える |
 | `gocritic` | 冗長な記述・非効率な記述の検出。パーサとマージ処理が中心のコードベースで効きやすい |
+| `nolintlint` | `//nolint` 自体の検査。抑制方針（行単位・理由必須・リンター名必須）を機械的に強制し、不要になった抑制の除去漏れも検出する |
 
 `formatters` に `gofmt` を入れることで、`golangci-lint run` でも整形漏れを検出できる。`make fmt-check` と役割が重なるが、どちらか一方だけを実行しても検出できる状態にしておく。
+
+`nolintlint` は 3 つの設定をすべて有効にする。
+
+| 設定 | 値 | 検出されるもの |
+|------|----|--------------|
+| `allow-unused` | `false` | 対象の指摘が既に消えているのに残っている `//nolint`。暫定抑制の除去漏れを検出する |
+| `require-explanation` | `true` | 理由コメントのない `//nolint:gosec` |
+| `require-specific` | `true` | リンター名のない `//nolint` 単独指定 |
+
+抑制方針を「書いておく規約」から**機械的に強制されるもの**へ引き上げるための設定である。とくに `allow-unused: false` は、集約先の実装が終わって不要になった暫定抑制（後述の G204）に誰も気づかない事故を防ぐ。
+
+`issues.max-issues-per-linter` / `max-same-issues` はどちらも `0`（無制限）にする。既定は 50 / 3 で、**同種の指摘が 4 件以上あると出力が打ち切られる**ため、抑制やエラーの棚卸しで件数を数え上げられない。終了コードには影響しないが、`golangci-lint run` の出力だけで実態を確認できる状態にしておく。
 
 ### 抑制の方針
 
@@ -396,7 +423,7 @@ formatters:
   - `config.go` の 3 件はパスが「ディレクトリ + 固定名」で組み立てられているが、**そのディレクトリが外部入力でないことは呼び出し側の事前条件に依拠する**。`LoadConfig` は exported で `dir` を呼び出し側が自由に渡せるうえ、`Discover` の `Options.Roots`（「追加の走査ルート。既定ルートに追加される」）により**走査ルート自体を呼び出し側が指定できる**設計であり、`collectDirs` は `IsRunnerDir` で絞るだけなので dir が外部入力由来になる経路は閉じていない。したがって「呼び出し側が `Discover` が解決した runner ディレクトリを渡す」という事前条件のもとで安全である、というのが正確な根拠であり、これを doc コメントと nolint の理由に明記している。
   - `procs.go` の 1 件は `/proc/<PID>/cmdline` であり「探索済みディレクトリ + 固定名」ではない。`<PID>` は `strconv.Atoi` で数値であることを検証済みのものだけを使う、という別の根拠で安全である。
 - 抑制がさらに増えてきた場合は `.golangci.yml` の `exclusions` にルールとして書き、経緯をこのドキュメントに残す。
-- **抑制の棚卸しや件数の確認を行うときは `go tool golangci-lint run --max-same-issues=0 --max-issues-per-linter=0` を使う。** `.golangci.yml` は `issues.max-same-issues` / `max-issues-per-linter` を指定していないため既定（3 / 50）が効き、**同種の指摘が 4 件以上あると出力が打ち切られる**。実測では nolint を全て外した状態で gosec は 5 件（`config.go` の G304 × 3 / `procs.go` の G304 × 1 / `systemd.go` の G204 × 1）だが、既定では G304 が 3 件で打ち切られ 4 件しか表示されず、上記の「G304 抑制 4 件」を `golangci-lint run` の出力だけでは裏取りできない。終了コードは 1 のままなので CI が誤って緑になることはない。`.golangci.yml` に `issues` セクションを追加するかは Issue #15 の範囲である。
+- **抑制の棚卸しは `go tool golangci-lint run` の出力をそのまま使える。** `.golangci.yml` の `issues.max-issues-per-linter` / `max-same-issues` を `0`（無制限）にしているため、同種の指摘が打ち切られない。既定（50 / 3）のままだと、nolint を全て外した状態の gosec 5 件（`config.go` の G304 × 3 / `procs.go` の G304 × 1 / `systemd.go` の G204 × 1）のうち G304 が 3 件で打ち切られ、上記の「G304 抑制 4 件」を出力から裏取りできなかった。
 
 ### go vet
 
@@ -438,6 +465,9 @@ rules:
 count_mode: all
 default_excludes: true
 language: ja
+
+# 実行ごとに GitHub Releases へ外向き HTTP が出るのを止める。
+update_check: false
 ```
 
 - **上限はデフォルト値のまま使う。** 上限に当たった場合は数値を上げるのではなく、分割を検討する。分割できない正当な理由がある場合のみ、理由をこのドキュメントに記録してから変更する。
@@ -445,6 +475,7 @@ language: ja
 - **`warning_threshold: 10` はコメントアウトしてはいけない。** 値そのものは linterly v0.3.3 の既定値と同一で（`internal/config/config.go` の `DefaultWarningThreshold = 10`。`count_mode: all` / `default_excludes: true` も同様に既定値）、`max_lines_per_file` / `max_lines_per_directory` と同じ「デフォルト値を使う」という理由でコメントアウトできそうに見えるが、この 1 行は **`rules:` セクションを非空に保つ構造上の役割**を担っている。`rules:` 配下を全てコメントアウトすると必須チェック（`v.IsSet("rules")`）に引っかかり、実測で `Error: "rules" section is required` の **exit 2** になる。
 - `count_mode: all`（コメント・空行を含む全行を数える）は変更しない。
 - `language: ja` は出力メッセージの言語指定である。
+- **`update_check: false` は外向き HTTP を止めるための指定である。** 既定は `true` で、linterly v0.3.3 は `rootCmd.PersistentPreRun` から毎回 `startUpdateCheck()` を呼び、GitHub Releases へ問い合わせる。`make linterly` / `make check` / pre-commit / CI のすべてで発生するため、self-hosted runner の不要な egress と、新バージョン検出時に CI ログへ混入する想定外の出力の原因になる（実測: `strace -f -e trace=connect` で `linterly check` の外向き接続が 3 件 → 0 件になった）。`--no-update-check` / `LINTERLY_NO_UPDATE_CHECK` でも抑止できるが、設定ファイルに書けば実行経路をまたいで 1 箇所で済む。
 
 `.linterlyignore`:
 
@@ -579,3 +610,4 @@ pre-push:
 | 1.10 | 2026-08-22 | fork ガードを全ジョブの `if:` 条件から、GitHub ホストランナー上で動く `guard` ジョブ + `needs: guard` へ置き換え、判定を許可リスト形（`push` と同一リポジトリの `pull_request` だけを許可し、それ以外は失敗）にした。「fork からの PR で self-hosted ジョブを起動しない」節を private + `allow_forking: false` の実態と多層防御の現状表に更新し、required status check には `guard` を指定する運用・実 fork PR での実測が行えない理由を明記。ワークフロー定義のコードブロックを実体と同期し、`internal/buildconfig` に `guard` スクリプトの回帰テストと仕様書コードブロックの同期テストを追加。あわせて `docs/operations/runner-host-setup.md` に「runner group の対象リポジトリ」節を追加（同 1.1） | 従前の `if:` 条件は「`pull_request` でなければ無条件に実行する」ブロックリスト形で、`merge_group` / `workflow_dispatch` を `on:` に足すと左辺が真になって短絡し fork チェックが評価されないまま実行される。また `if:` で skip されたジョブは required status check に対して success として報告されるため、CI が一度も走っていない PR が緑になりマージ可能に見える。skip ではなく失敗するゲートジョブにすれば、この 2 点をワークフロー定義の側で閉じられる。fork PR 承認ポリシーの `all_external_contributors` 化は実測で private リポジトリには設定できず（`fork-pr-contributor-approval` API が 422 `Fork PR approval is not allowed for private repositories.`）、`allow_forking: false` のため実 fork PR での確認経路も存在しないため、public へ戻す場合の手順として記録した。runner group の対象リポジトリ限定は `admin:org` スコープが無く API から確認できない（403）ため、運用手順側へ記録した。Issue #17 |
 | 1.11 | 2026-08-22 | `lefthook.yml` の実行モデルを 3 点決着させた。(1) pre-commit の `lint` を `go tool golangci-lint run --new-from-rev=HEAD` にして HEAD からの差分だけを対象にし、残る制約（丸ごと未ステージのファイルは対象に含まれる）と全体チェックを CI が担うことを明記。(2) `lefthook: go tool lefthook` を追加して hook 実行時のバージョンを `go.mod` に固定。(3) make を経由するかどうかの基準を表にし、`linterly` / `test` を `make linterly` / `make test` へ寄せた。あわせて `priority: 1/2/3` を明示して実行順を命名から切り離し、「Git Hooks」節を小見出しに整理。「タスクランナー」節と「ディレクトリ構造」の記述を実態に同期 | (1) 作業ツリー全体を無条件に検査すると、コミット済みの既存指摘が 1 件あるだけで無関係でクリーンなコミットも落ち続ける（実測: 既存コミットに `errcheck` 違反を 1 件入れると別ファイルのクリーンなコミットが失敗し、`--new-from-rev=HEAD` では成功した。`.go` の削除のみのコミットも通るようになった）。(2) hook スクリプトの探索順は PATH 上の `lefthook` が `go tool lefthook` より先であり、グローバルインストールがある環境ではピン留めが効かない（実測: 指定前は hook のバナーが `lefthook v2.1.6`、指定後は `lefthook v1.13.6`）。この値は hook 生成時に埋め込まれるため変更後は `make hooks` の再実行が必要である。(3) `fmt` は `{staged_files}`、`lint` は `--new-from-rev=HEAD` というコミット内容へのスコープが必要で make ターゲットでは表現できないが、`linterly` は `check [path]` がパスを 1 つしか取らずディレクトリ単位の行数上限も全体を見ないと判定できないため絞れず、`test` は絞る必要がない。この 2 つを make 経由にすればコマンド列の二重管理が消え、テストの実行方法を Makefile の 1 箇所で管理できる。`priority` は lefthook v1.13.6 に存在し名前比較より優先されるため、`fmt` → `lint` の依存を命名に頼らず固定できる。サンドボックスの clone で pre-commit（正常・lint 違反でコミット中止・既存違反の無視・削除のみのコミット）と pre-push（失敗テストで push 拒否）の 5 ケースを実測した。Issue #18 |
 | 1.12 | 2026-08-22 | `make test` を `go test -race ./...` にし、競合検出を別ターゲットに分けない方針と実測値・pre-push で実行する判断を「テストは常に競合検出付きで実行する」節に記録。「必要なもの」と self-hosted runner の前提に C コンパイラを追加し、`internal/buildconfig` に競合を実際に検出できることの回帰テストを追加。あわせて `docs/operations/runner-host-setup.md` に「C コンパイラ」節を追加（同 1.2） | `internal/runner.ScanUnits` の `systemctl show` 並列化以降、複数 goroutine から呼ばれる箇所が増えたのに `make test` に `-race` が無く、CI では競合が検出されないまま緑になる状態だった。ターゲットを分けると CI と手元で競合検出の有無が分岐するため、`make test` 自体に付けて CI・`make check`・pre-push の 3 経路すべてに効かせた。実測でビルドキャッシュあり 1.5 秒 → 21 秒に増えるが、増分のほぼ全部は `internal/exec/command` がテストバイナリ自身を子プロセスとして起動する設計に由来する（競合検出付きバイナリの起動コストが 1 回約 1 秒）。push はコミットより頻度が低いため pre-push では許容し、pre-commit には入れない。`-race` は cgo を必要とするため（実測: `CGO_ENABLED=0 go test -race` が `-race requires cgo`）、開発マシンと runner ホストの前提に C コンパイラを追加した。Issue #21 |
+| 1.13 | 2026-08-22 | `.golangci.yml` に `nolintlint`（`allow-unused: false` / `require-explanation: true` / `require-specific: true`）と `issues.max-issues-per-linter: 0` / `max-same-issues: 0` を追加し、`.linterly.yml` に `update_check: false` を追加。「golangci-lint」節に nolintlint の設定表と `issues` の説明を、「Linterly」節に `update_check` の説明を追記し、「抑制の方針」の棚卸し手順を実態（フラグ不要）に更新。`internal/buildconfig` に nolintlint が雑な抑制を実際に落とすことの回帰テストと、両設定ファイルの回帰テストを追加 | 抑制方針「行単位で行い必ず理由を書く」は規約として書かれているだけで機械的な強制が無く、とくに `internal/runner/systemd.go` の G204 は「集約先の実装後に除去する」暫定抑制なのに、不要になっても golangci-lint は何も報告しない（既定では不要な `//nolint` を検出しない）。`allow-unused: false` で除去漏れが検出できる。実測で 3 つの設定すべてが機能することを確認した（リンター名なし → `should mention specific linter`、理由なし → `should provide explanation`、不要 → `is unused`）。既存の抑制 5 件はすべて specific かつ理由付きのため `make lint` は exit 0 のまま。`issues` の 2 項目は既定（50 / 3）だと同種の指摘が 4 件以上で打ち切られ、G304 抑制 4 件を出力から裏取りできなかったため無制限にした。`update_check` は既定 `true` で実行のたびに GitHub Releases へ外向き HTTP が出る（実測: `strace -f -e trace=connect` で `linterly check` の外向き接続が 3 件 → 0 件）。行数上限はデフォルト値のままである。Issue #15 |
