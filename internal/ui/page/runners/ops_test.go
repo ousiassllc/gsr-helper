@@ -116,6 +116,32 @@ func TestRunnerKeysIssueExpectedCommands(t *testing.T) {
 	}
 }
 
+// 発行するコマンドが 1 本も無い runner では、確認ダイアログを開かずに理由を出す。
+//
+// 未稼働でサービス未インストールの runner（runner.ManagedUnknown。ユニット名も PID も
+// 無い）は、可否の判定（svc.CanControl）では X を塞がれない。しかし強制停止が発行
+// できるコマンドは 0 本で、確認ダイアログは「実行するコマンド:」の見出しごと消えた
+// まま開く。**コマンドが 1 行も出ないダイアログで y を押させ、そのうえで失敗させる**
+// のは承認の意味を失わせる（実行側も svc.ErrNoKillTarget で失敗する）。押す前に
+// 「実行できる対象がありません」と伝える。
+func TestKillWithoutAnyTargetSkipsConfirm(t *testing.T) {
+	st, f := opsState(unmanagedRunner("build01-1"))
+	m := newOpsModel(t, st)
+
+	m = opsSend(t, m, "X")
+
+	c := opsChrome(t, m)
+	if c.Modal {
+		t.Error("実行できる対象が無いのに確認ダイアログが開いている")
+	}
+	if got := issued(f); len(got) != 0 {
+		t.Errorf("コマンドが発行された: %v", got)
+	}
+	if !strings.Contains(c.Status, "実行できる対象がありません") {
+		t.Errorf("状態行 = %q, want 実行できる対象がありません を含む", c.Status)
+	}
+}
+
 // 確認をキャンセルするキー（n / esc / enter）では 1 本も発行しない。
 //
 // **enter を含めるのが要点である。** 一覧の enter で詳細を開き詳細の enter で操作を

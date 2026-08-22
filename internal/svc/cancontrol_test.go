@@ -78,9 +78,11 @@ func TestCanControlReasons(t *testing.T) {
 			caps: noSystemd, runner: systemdRunner(),
 			blocked: allOps(), want: ReasonSystemd,
 		},
+		// ドレイン停止も塞ぐ。待機の後に systemctl stop を発行する（Drainer.Drain）
+		// ため、ユニットの無い runner では待ち切っても必ず失敗する。
 		"run.sh 直起動": {
 			caps: fullCaps(), runner: standaloneRunner(),
-			blocked: []Op{OpStart, OpStop, OpRestart}, want: ReasonStandalone,
+			blocked: []Op{OpStart, OpStop, OpDrain, OpRestart}, want: ReasonStandalone,
 		},
 		"起動方式が判定不能": {
 			caps: fullCaps(), runner: unavailableRunner(),
@@ -147,18 +149,32 @@ func TestCanControlPrecedence(t *testing.T) {
 	}
 }
 
-// 強制停止とドレイン停止は、systemd の管理状態に依らず使える。
+// 強制停止は systemd の管理状態に依らず使える。
 //
-// worker のプロセスに直接作用する操作であり、ユニットの有無とは独立に効く
-// （screens.md の 3 行目・4 行目はどちらも X と d を挙げていない）。ここを塞ぐと、
-// run.sh 直起動や判定不能の runner を止める手段が UI から無くなる。
-func TestCanControlAllowsKillAndDrainWithoutSystemdUnit(t *testing.T) {
+// worker のプロセスに直接作用する操作であり、ユニットの有無とは独立に効く。ここを
+// 塞ぐと、run.sh 直起動や判定不能の runner を止める手段が UI から無くなる。
+func TestCanControlAllowsKillWithoutSystemdUnit(t *testing.T) {
 	for _, r := range []runner.Runner{standaloneRunner(), unavailableRunner()} {
-		for _, op := range []Op{OpKill, OpDrain} {
-			if ok, reason := CanControl(op, r, fullCaps()); !ok {
-				t.Errorf("%s（%s）が塞がれている: %q", opNames()[op], r.Managed, reason)
-			}
+		if ok, reason := CanControl(OpKill, r, fullCaps()); !ok {
+			t.Errorf("kill（%s）が塞がれている: %q", r.Managed, reason)
 		}
+	}
+}
+
+// ドレイン停止は run.sh 直起動では塞ぎ、判定不能では通す。
+//
+// 待機の後に systemctl stop を発行する（Drainer.Drain）ため、**ユニットが無いと
+// 判明している** run.sh 直起動では、無制限に待った末に必ず失敗する。同じ最終動作の
+// 停止（x）が即座に塞がれるのに d だけが長時間待たせてから失敗するのは筋が通らない。
+//
+// 判定不能はユニット一覧を取得できなかっただけで、ユニット名は `<dir>/.service` から
+// 読める。停止が成立しうる以上、待機を始めてよい。
+func TestCanControlDrainFollowsUnitAvailability(t *testing.T) {
+	if ok, reason := CanControl(OpDrain, standaloneRunner(), fullCaps()); ok || reason != ReasonStandalone {
+		t.Errorf("drain（run.sh）= %v/%q, want false/%q", ok, reason, ReasonStandalone)
+	}
+	if ok, reason := CanControl(OpDrain, unavailableRunner(), fullCaps()); !ok {
+		t.Errorf("drain（判定不能）が塞がれている: %q", reason)
 	}
 }
 

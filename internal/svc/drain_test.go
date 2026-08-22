@@ -197,6 +197,32 @@ func TestDrainAbortsOnScanError(t *testing.T) {
 	}
 }
 
+// ユニット名が無ければ、待機に入らずに理由を返す。
+//
+// **走査が 1 度も呼ばれないことがこの検証の肝である。** 待ち切った先で発行するのは
+// systemctl stop であり、ユニット名が分からなければ必ず失敗する。以前は run.sh 直起動の
+// runner でも待機に入れたため、無制限（FR-07）に待った末に最初から分かっていた理由で
+// 失敗を告げていた。
+func TestDrainRefusesWithoutUnitBeforeWaiting(t *testing.T) {
+	f := exec.NewFake()
+	scans := 0
+	scan := func() ([]procs.Process, error) {
+		scans++
+		return nil, nil
+	}
+
+	err := drainer(f, scan).Drain(context.Background(), standaloneRunner(), nil)
+	if !errors.Is(err, ErrNoUnit) {
+		t.Errorf("err = %v, want ErrNoUnit", err)
+	}
+	if scans != 0 {
+		t.Errorf("走査回数 = %d, want 0（待ち切っても必ず失敗すると分かっているのに待ち始めている）", scans)
+	}
+	if got := f.Calls(); len(got) != 0 {
+		t.Errorf("コマンドが発行されている: %q", cmdlines(got))
+	}
+}
+
 // 既定の Drain は Drainer と同じ経路を通る（Executor と runner の受け渡しを取り違えない）。
 //
 // 走査は procs.Scan になるため、ホストの状態に依らないよう「即座に停止へ進む」経路

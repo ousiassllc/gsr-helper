@@ -58,7 +58,17 @@ type Drainer struct {
 // **新しいジョブを受け付けないことは保証しない。** GitHub に受付停止の API が無いため、
 // 待機中に Runner.Listener が次のジョブを拾いうる（docs/requirements/functional.md の
 // 「ドレイン停止の制約」）。この制約は待機画面にも明示する。
+//
+// **ユニット名が無ければ待機に入らず ErrNoUnit を返す。** 待ち切った先で発行するのは
+// systemctl stop であり、ユニット名が分からなければその 1 本は必ず失敗する
+// （unitCommand）。無制限に待つ処理が「待ち切っても必ず失敗する」と分かっている状態で
+// 待ち始めてはならない。利用者はジョブの完了まで待たされた末に、最初から分かっていた
+// 理由で失敗を告げられることになる。
 func (d Drainer) Drain(ctx context.Context, r runner.Runner, progress func(Progress)) error {
+	if r.UnitName == "" {
+		return fmt.Errorf("%s: %w", r.Name(), ErrNoUnit)
+	}
+
 	scan := d.Scan
 	if scan == nil {
 		scan = procs.Scan

@@ -51,6 +51,12 @@ const (
 	// ReasonManagedUnknown は systemd の管理状態そのものが判定できない場合の理由。
 	// 「管理外」と言い切れないことと、その原因（ユニット一覧が取れなかった）を示す。
 	ReasonManagedUnknown = "systemd の管理状態が判定できないため操作できません（ユニット一覧を取得できませんでした）"
+	// ReasonNoCommand は発行するコマンドを 1 本も組めない場合の理由。
+	//
+	// CanControl の 4 段は「起動方式と能力」だけを見るため、それを通っても対象が
+	// 空（PID もユニット名も無い）の runner が残りうる。未稼働かつサービス未
+	// インストールの runner がこれに当たる（CommandLine が空の並びを返す）。
+	ReasonNoCommand = "操作の対象となるプロセスもユニットもありません"
 )
 
 // CanControl は操作の可否と不可の理由を返す。可能なら理由は空文字である。
@@ -67,9 +73,17 @@ const (
 //     状態を読み替えるだけなので、この段では塞がない（表の 1 行目に d と E が無い）。
 //   - systemd の不在（2 段目）は 6 つすべてを塞ぐ。systemctl が無ければ起動方式に
 //     かかわらずサービス制御ができないため、run.sh 直起動（3 段目）より先に見る。
+//   - run.sh 直起動（3 段目）で塞ぐのは、systemctl でユニットに作用する 4 つである。
+//     **ドレイン停止を含む。** 待機そのものは /proc の走査だけだが、Worker が消えた
+//     後に systemctl stop を発行する（Drainer.Drain）ため、ユニットの無い runner では
+//     待ち切っても必ず失敗する。同じ最終動作の停止（x）が塞がれているのに、d だけが
+//     無制限に待たせてから失敗するのは筋が通らない。enable の切替を塞がないのは、
+//     ユニットファイルが無ければ systemctl 側が即座に失敗し、待たせないためである。
+//     強制停止は worker のプロセスに直接作用するので使える。
 //   - 管理状態が判定できない（4 段目）ときに塞ぐのは、実行経路が「systemd 管理か
-//     どうか」に依存する 4 つである。強制停止とドレイン停止は worker のプロセスに
-//     作用するので使える。
+//     どうか」に依存する 4 つである。強制停止とドレイン停止は使える。ユニット一覧を
+//     取得できなかっただけで、ユニット名は `<dir>/.service` から読めるため、停止は
+//     成立しうるからである（3 段目と違い「ユニットが無い」と判明したわけではない）。
 //
 // スコープ不足（表の 6 行目）はここに無い。保有スコープの判定には GitHub API が必要で、
 // appconfig.Caps はその情報を持たないためである。GitHub API を持ち込む Issue が足す。
@@ -79,7 +93,7 @@ func CanControl(op Op, r runner.Runner, caps appconfig.Caps) (bool, string) {
 		return false, ReasonRoot
 	case !caps.Systemd && isOp(op, OpStart, OpStop, OpKill, OpDrain, OpRestart, OpEnable):
 		return false, ReasonSystemd
-	case r.Managed == runner.ManagedStandalone && isOp(op, OpStart, OpStop, OpRestart):
+	case r.Managed == runner.ManagedStandalone && isOp(op, OpStart, OpStop, OpDrain, OpRestart):
 		return false, ReasonStandalone
 	case r.Managed == runner.ManagedUnavailable && isOp(op, OpStart, OpStop, OpRestart, OpEnable):
 		return false, ReasonManagedUnknown

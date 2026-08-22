@@ -59,6 +59,19 @@ func sampleRunner(name string, busy bool) runner.Runner {
 	return r
 }
 
+// unmanagedRunner は未稼働でサービス登録もされていない runner
+// （runner.ManagedUnknown）を返す。ユニット名・Listener・Worker のどれも持たないため、
+// サービス制御が発行できるコマンドは 1 本も無い。
+func unmanagedRunner(name string) runner.Runner {
+	r := sampleRunner(name, false)
+	r.UnitName = ""
+	r.Managed = runner.ManagedUnknown
+	r.Svc = nil
+	r.Listener = nil
+	r.Workers = nil
+	return r
+}
+
 // testState は共有状態のスナップショットを返す。
 //
 // **私物の組み立てを持たない。** 自前で組んでいた頃は Exec を nil のままにしており、

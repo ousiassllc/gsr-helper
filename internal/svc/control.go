@@ -33,6 +33,15 @@ const (
 // 利用者には終了コードしか返らない。呼ぶ前に弾いて理由を返す。
 var ErrNoUnit = errors.New("systemd ユニット名が分からないため操作できません")
 
+// ErrNoKillTarget は強制停止する対象（プロセスもユニットも）が 1 つも無いことを表す。
+//
+// **1 本もコマンドを発行せずに成功を返さないため**に要る。Kill は「PID があれば kill、
+// ユニット名があれば systemctl stop」の 2 段で、どちらの条件も満たさないと発行が
+// 0 本になる。0 本の結果をまとめると errors.Join は nil を返すので、何もしていない
+// のに「成功」として報告され、利用者は止まっていない runner を止まったものとして扱う。
+// 未稼働かつサービス未インストール（runner.ManagedUnknown）の runner がこれに当たる。
+var ErrNoKillTarget = errors.New("強制停止の対象がありません（プロセスもユニットも見つかりません）")
+
 // errExit はコマンドが非ゼロで終了したことを表す。
 //
 // 実プロセス実装（internal/exec/command）は非ゼロ終了を *command.ExitError として
@@ -92,11 +101,21 @@ func DaemonReload(ctx context.Context, ex exec.Executor) error {
 //
 // **1 が失敗しても 2 は試み、両方の結果をまとめて返す。** プロセスを落とし損ねたことと
 // ユニットを止め損ねたことは別の失敗であり、片方で打ち切ると残った方が黙って生き残る。
+//
+// **どちらの段も対象を持たない場合は ErrNoKillTarget を返す。** 1 本もコマンドを
+// 発行せずに成功を返さないためである。発行が 0 本のまま errors.Join(nil...) を返すと
+// 何もしていない実行が「成功」として報告され、止まっていない runner を止まったものと
+// して扱わせてしまう。
 func Kill(ctx context.Context, ex exec.Executor, r runner.Runner) error {
 	o := exec.Options{Action: actionKill, Runner: r.Name()}
 
+	pids := killTargets(r)
+	if len(pids) == 0 && r.UnitName == "" {
+		return fmt.Errorf("%s: %w", r.Name(), ErrNoKillTarget)
+	}
+
 	var errs []error
-	if pids := killTargets(r); len(pids) > 0 {
+	if len(pids) > 0 {
 		errs = append(errs, run(ctx, ex, o, "kill", append([]string{"-KILL"}, pids...)...))
 	}
 	if r.UnitName != "" {

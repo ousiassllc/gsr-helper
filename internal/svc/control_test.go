@@ -201,6 +201,25 @@ func TestKillWorksWithoutUnitOrProcesses(t *testing.T) {
 	}
 }
 
+// PID もユニット名も無ければ、1 本も発行せずに理由を返す。
+//
+// **「何も実行しなかった」を成功として返さない。** 以前は errors.Join(nil...) が nil を
+// 返すため、未稼働かつサービス未インストールの runner（runner.ManagedUnknown）を
+// 強制停止すると、コマンドを 1 本も出さないまま「成功」と報告していた。利用者は
+// 止まっていない runner を止まったものとして扱うことになる。
+func TestKillFailsWithoutAnyTarget(t *testing.T) {
+	r := standaloneRunner() // UnitName が空。Listener も Workers も持たない
+
+	f := exec.NewFake()
+	err := Kill(context.Background(), f, r)
+	if !errors.Is(err, ErrNoKillTarget) {
+		t.Errorf("err = %v, want ErrNoKillTarget", err)
+	}
+	if got := f.Calls(); len(got) != 0 {
+		t.Errorf("対象が無いのにコマンドが発行されている: %q", cmdlines(got))
+	}
+}
+
 // PID を取り損ねたプロセスには kill を送らない。
 //
 // kill(1) は 0 を「呼び出し元のプロセスグループ全員」と解釈するため、ゼロ値の PID を

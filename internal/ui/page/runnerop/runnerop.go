@@ -21,6 +21,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/ousiassllc/gsr-helper/internal/runner"
+	"github.com/ousiassllc/gsr-helper/internal/svc"
 	"github.com/ousiassllc/gsr-helper/internal/ui/organism/dialog"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/action"
@@ -206,20 +207,41 @@ func needsConfirm(op action.ID) bool {
 }
 
 // filter は対象のうち実行できるものだけを返す。最初に見つかった不可の理由も返す。
+//
+// **可否（action.Allow）を通っても、発行するコマンドが 1 本も無い対象は外す。**
+// action.Allow が見るのは起動方式と能力だけで、対象そのものの有無は見ない。未稼働で
+// サービス未インストールの runner（runner.ManagedUnknown。PID もユニット名も無い）は
+// 強制停止の可否を通るが、発行できるコマンドは 0 本である。外さずに通すと、確認
+// ダイアログが実行コマンドを 1 行も出さないまま開き、**y を押させてから失敗させる**
+// ことになる（実行側も svc.ErrNoKillTarget で失敗する）。押す前に「実行できる対象が
+// ありません」と伝えるほうが、承認の意味を保てる。
 func (m Model) filter(def action.Def, targets []runner.Runner) ([]runner.Runner, string) {
 	out := make([]runner.Runner, 0, len(targets))
 	reason := ""
 	for _, r := range targets {
 		ok, why := action.Allow(def, r, m.st.Caps)
-		if ok {
+		if ok && !hasNoCommand(def.ID, r) {
 			out = append(out, r)
 			continue
+		}
+		if ok {
+			why = svc.ReasonNoCommand
 		}
 		if reason == "" {
 			reason = why
 		}
 	}
 	return out, reason
+}
+
+// hasNoCommand は操作が対象へ 1 本もコマンドを発行できないかを返す。
+//
+// **svc.Op に対応しない操作には適用しない。** 追加・削除・更新・設定編集・ログは
+// svc.CommandLine を持たず常に空を返すので、対応の有無を見ずに判定すると、
+// サービス制御以外の操作がすべてここで落ちる。
+func hasNoCommand(op action.ID, r runner.Runner) bool {
+	sop, ok := action.SvcOp(op)
+	return ok && len(svc.CommandLine(sop, r)) == 0
 }
 
 // def は操作の定義（説明文・影響・破壊性）を返す。
