@@ -1,17 +1,24 @@
+# hook スクリプトからは PATH 上の lefthook が優先されるため、go.mod でピン留めした
+# バージョンを明示的に指定する。
+lefthook: go tool lefthook
+
 pre-commit:
   parallel: false
   commands:
     fmt:
+      priority: 1
       glob: "*.go"
       run: gofmt -w {staged_files}
       stage_fixed: true
     lint:
+      priority: 2
       glob: "*.go"
-      run: go tool golangci-lint run
+      run: go tool golangci-lint run --new-from-rev=HEAD
     linterly:
-      run: go tool linterly check
+      priority: 3
+      run: make linterly
 
 pre-push:
   commands:
     test:
-      run: go test ./...
+      run: make test

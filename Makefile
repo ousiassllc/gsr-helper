@@ -4,6 +4,15 @@ GO   ?= go
 BIN  := gsr-helper
 CMD  := ./cmd/gsr-helper
 
+# go fmt が内部で使う gofmt（GOROOT/bin/gofmt）を fmt-check でも使い、整形と検査で
+# ツールチェーンがずれないようにする。
+GOFMT ?= $(shell $(GO) env GOROOT)/bin/gofmt
+
+# gofmt はパッケージ単位ではなくファイルシステムを再帰するため、対象はディレクトリでは
+# なくファイル単位で解決する。go fmt ./... と同じ集合（テストとビルドタグで除外された
+# ファイルを含み、testdata/ と入れ子 worktree は含まない）になる。
+GOFILES_TMPL := {{range .GoFiles}}{{printf "%s/%s\n" $$.Dir .}}{{end}}{{range .CgoFiles}}{{printf "%s/%s\n" $$.Dir .}}{{end}}{{range .TestGoFiles}}{{printf "%s/%s\n" $$.Dir .}}{{end}}{{range .XTestGoFiles}}{{printf "%s/%s\n" $$.Dir .}}{{end}}{{range .IgnoredGoFiles}}{{printf "%s/%s\n" $$.Dir .}}{{end}}
+
 .PHONY: help tools fmt fmt-check vet lint linterly test build hooks check
 
 help: ## ターゲット一覧を表示する
@@ -17,7 +26,11 @@ fmt: ## gofmt で整形する
 	$(GO) fmt ./...
 
 fmt-check: ## 未整形のファイルがないか確認する
-	@out=$$(gofmt -l $$($(GO) list -f '{{.Dir}}' ./...)); \
+	@files=$$($(GO) list -f '$(GOFILES_TMPL)' ./...) || exit 1; \
+	if [ -z "$$files" ]; then \
+		echo "対象の Go ファイルがありません" >&2; exit 1; \
+	fi; \
+	out=$$($(GOFMT) -l $$files) || exit 1; \
 	if [ -n "$$out" ]; then \
 		echo "gofmt が必要なファイル:"; echo "$$out"; exit 1; \
 	fi
@@ -31,8 +44,8 @@ lint: ## golangci-lint を実行する
 linterly: ## 行数チェックを実行する
 	$(GO) tool linterly check
 
-test: ## テストを実行する
-	$(GO) test ./...
+test: ## テストを実行する（競合検出あり）
+	$(GO) test -race ./...
 
 build: ## 全パッケージをコンパイル検証し、エントリポイントがあればバイナリを生成する
 	$(GO) build ./...
