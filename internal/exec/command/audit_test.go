@@ -1,4 +1,4 @@
-package exec
+package command
 
 import (
 	"bytes"
@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/ousiassllc/gsr-helper/internal/audit"
+	"github.com/ousiassllc/gsr-helper/internal/exec"
+	"github.com/ousiassllc/gsr-helper/internal/exec/mask"
 )
 
 // auditLine は書き出された監査レコードを読み戻すための型。
@@ -64,7 +66,7 @@ func TestCommandRunWritesAuditRecord(t *testing.T) {
 	c := New(func() []string { return []string{secret} }, WithAudit(testLogger(&buf)))
 
 	name, args := helperCommand("--token", secret, "--name", "build01-4")
-	ctx := WithOptions(context.Background(), Options{
+	ctx := exec.WithOptions(context.Background(), exec.Options{
 		Action: "runner.add",
 		Runner: "build01-4",
 		Dir:    dir,
@@ -86,7 +88,7 @@ func TestCommandRunWritesAuditRecord(t *testing.T) {
 		t.Errorf("成功時のレコードが想定と異なる: %+v", rec)
 	}
 
-	want := append([]string{name}, "-test.run=^TestHelperProcess$", "--", "--token", maskPlaceholder, "--name", "build01-4")
+	want := append([]string{name}, "-test.run=^TestHelperProcess$", "--", "--token", mask.Placeholder, "--name", "build01-4")
 	if !slices.Equal(rec.Command, want) {
 		t.Errorf("command = %q, want %q", rec.Command, want)
 	}
@@ -96,7 +98,7 @@ func TestCommandRunAuditRecordOnStartFailure(t *testing.T) {
 	var buf bytes.Buffer
 	c := New(NoSecrets, WithAudit(testLogger(&buf)))
 
-	ctx := WithOptions(context.Background(), Options{Action: "svc.stop", Runner: "build01-2"})
+	ctx := exec.WithOptions(context.Background(), exec.Options{Action: "svc.stop", Runner: "build01-2"})
 	if _, err := c.Run(ctx, "gsr-helper-no-such-command"); err == nil {
 		t.Fatal("起動できないコマンドでエラーを返していない")
 	}
@@ -120,7 +122,7 @@ func TestCommandRunMasksSecretInAuditError(t *testing.T) {
 	c := New(func() []string { return []string{secret} }, WithAudit(testLogger(&buf)))
 
 	name, args := helperCommand()
-	ctx := WithOptions(context.Background(), Options{
+	ctx := exec.WithOptions(context.Background(), exec.Options{
 		Action: "runner.add",
 		Env:    helperEnv(helperExitEnv+"=1", helperStderrEnv+"=token is "+secret),
 	})
@@ -138,7 +140,7 @@ func TestCommandRunMasksSecretInAuditError(t *testing.T) {
 	if strings.Contains(rec.Error, secret) {
 		t.Errorf("監査ログの error にトークンが残っている: %s", rec.Error)
 	}
-	if !strings.Contains(rec.Error, maskPlaceholder) {
+	if !strings.Contains(rec.Error, mask.Placeholder) {
 		t.Errorf("監査ログの error がマスクされていない: %s", rec.Error)
 	}
 }
@@ -152,7 +154,7 @@ func TestCommandRunAuditFailureNotified(t *testing.T) {
 	)
 
 	name, args := helperCommand()
-	ctx := WithOptions(context.Background(), Options{Env: helperEnv(helperStdoutEnv + "=ok")})
+	ctx := exec.WithOptions(context.Background(), exec.Options{Env: helperEnv(helperStdoutEnv + "=ok")})
 
 	res, err := c.Run(ctx, name, args...)
 	// 記録の失敗は通知先へ流し、Run の返り値はコマンド自体の成否だけを表す。
@@ -174,7 +176,7 @@ func TestCommandRunAuditFailureJoinedWithoutHandler(t *testing.T) {
 	c := New(NoSecrets, WithAudit(audit.New(failWriter{})))
 
 	name, args := helperCommand()
-	ctx := WithOptions(context.Background(), Options{Env: helperEnv(helperStdoutEnv + "=ok")})
+	ctx := exec.WithOptions(context.Background(), exec.Options{Env: helperEnv(helperStdoutEnv + "=ok")})
 
 	res, err := c.Run(ctx, name, args...)
 	// 通知先が未設定のときは黙って消さず Run のエラーに合成する。
@@ -189,7 +191,7 @@ func TestCommandRunAuditFailureJoinedWithoutHandler(t *testing.T) {
 func TestCommandRunWithoutAuditOption(t *testing.T) {
 	// 既定は audit.Discard() のため、監査ログを設定しなくても実行できる。
 	name, args := helperCommand()
-	ctx := WithOptions(context.Background(), Options{Env: helperEnv(helperStdoutEnv + "=ok")})
+	ctx := exec.WithOptions(context.Background(), exec.Options{Env: helperEnv(helperStdoutEnv + "=ok")})
 
 	if _, err := New(NoSecrets).Run(ctx, name, args...); err != nil {
 		t.Fatalf("Run がエラーを返した: %v", err)
@@ -206,7 +208,7 @@ func TestCommandRunDoesNotRecordStdout(t *testing.T) {
 	c := New(NoSecrets, WithAudit(testLogger(&buf)))
 
 	name, args := helperCommand()
-	ctx := WithOptions(context.Background(), Options{
+	ctx := exec.WithOptions(context.Background(), exec.Options{
 		Action: "gh.token",
 		Env:    helperEnv(helperStdoutEnv + "=" + secret),
 	})
@@ -266,7 +268,7 @@ func TestCommandRunCallsSecretsProviderOnce(t *testing.T) {
 	c := New(provider, WithAudit(testLogger(&buf)))
 
 	name, args := helperCommand("--token", secret)
-	ctx := WithOptions(context.Background(), Options{
+	ctx := exec.WithOptions(context.Background(), exec.Options{
 		Action: "runner.add",
 		Env:    helperEnv(helperExitEnv+"=1", helperStderrEnv+"=token is "+secret),
 	})

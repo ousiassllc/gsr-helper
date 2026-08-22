@@ -4,7 +4,9 @@
 // 「依存の規則」）の受け皿であり、タイムアウト・監査ログ・トークンマスクの
 // 適用漏れを構造的に防ぐ。呼び出し側がこれらを忘れられる余地を作らない。
 //
-// 実装は 2 つ。Command が実プロセスを起動し、Fake がテストで発行コマンドを記録する。
+// 本パッケージが持つのは契約（Executor / Result / Options）とテスト用の Fake だけで、
+// 実プロセスを起動する実装は internal/exec/command、監査ログとエラー文のマスクは
+// internal/exec/mask にある。ドメイン層が契約だけを import できるようにするためである。
 package exec
 
 import (
@@ -22,10 +24,8 @@ type Executor interface {
 }
 
 // 実装がこの interface を満たしていることをコンパイル時に確かめる。
-var (
-	_ Executor = (*Command)(nil)
-	_ Executor = (*Fake)(nil)
-)
+// 実プロセス実装（internal/exec/command）は同じ確認を自パッケージで行う。
+var _ Executor = (*Fake)(nil)
 
 // Result は 1 回の実行結果。
 //

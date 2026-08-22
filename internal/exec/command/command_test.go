@@ -1,4 +1,4 @@
-package exec
+package command
 
 import (
 	"context"
@@ -8,11 +8,14 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ousiassllc/gsr-helper/internal/exec"
+	"github.com/ousiassllc/gsr-helper/internal/exec/mask"
 )
 
 func TestCommandRunSuccess(t *testing.T) {
 	name, args := helperCommand()
-	ctx := WithOptions(context.Background(), Options{
+	ctx := exec.WithOptions(context.Background(), exec.Options{
 		Action: "test.ok",
 		Env:    helperEnv(helperStdoutEnv+"=out-ok", helperStderrEnv+"=err-ok"),
 	})
@@ -36,7 +39,7 @@ func TestCommandRunNonZeroExit(t *testing.T) {
 	const secret = "supersecrettoken"
 
 	name, args := helperCommand("--token", secret)
-	ctx := WithOptions(context.Background(), Options{
+	ctx := exec.WithOptions(context.Background(), exec.Options{
 		Action: "test.fail",
 		Env:    helperEnv(helperExitEnv+"=3", helperStderrEnv+"=だめでした"),
 	})
@@ -59,7 +62,7 @@ func TestCommandRunNonZeroExit(t *testing.T) {
 	if strings.Contains(strings.Join(exitErr.Args, " "), secret) {
 		t.Errorf("ExitError.Args にトークンが残っている: %v", exitErr.Args)
 	}
-	if exitErr.Args[len(exitErr.Args)-1] != maskPlaceholder {
+	if exitErr.Args[len(exitErr.Args)-1] != mask.Placeholder {
 		t.Errorf("--token の値がマスクされていない: %v", exitErr.Args)
 	}
 	if strings.Contains(exitErr.Error(), secret) {
@@ -104,7 +107,7 @@ func TestCommandRunUsesDir(t *testing.T) {
 	}
 
 	name, args := helperCommand()
-	ctx := WithOptions(context.Background(), Options{
+	ctx := exec.WithOptions(context.Background(), exec.Options{
 		Dir: dir,
 		Env: helperEnv(helperModeEnv + "=cwd"),
 	})
@@ -140,7 +143,7 @@ func TestCommandRunRelativeNameResolvesAgainstDir(t *testing.T) {
 	}
 
 	_, args := helperCommand()
-	ctx := WithOptions(context.Background(), Options{
+	ctx := exec.WithOptions(context.Background(), exec.Options{
 		Dir: dir,
 		Env: helperEnv(helperStdoutEnv + "=rel-ok"),
 	})
@@ -177,7 +180,7 @@ func TestCommandRunEnv(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			name, args := helperCommand()
-			ctx := WithOptions(context.Background(), Options{Env: tt.env})
+			ctx := exec.WithOptions(context.Background(), exec.Options{Env: tt.env})
 
 			res, err := New(NoSecrets).Run(ctx, name, args...)
 			if err != nil {
@@ -194,7 +197,7 @@ func TestCommandRunInvalidEnv(t *testing.T) {
 	for _, env := range []string{"BROKEN", "=VALUE"} {
 		t.Run(env, func(t *testing.T) {
 			name, args := helperCommand()
-			ctx := WithOptions(context.Background(), Options{Env: []string{env}})
+			ctx := exec.WithOptions(context.Background(), exec.Options{Env: []string{env}})
 
 			res, err := New(NoSecrets).Run(ctx, name, args...)
 			if err == nil {
@@ -209,7 +212,7 @@ func TestCommandRunInvalidEnv(t *testing.T) {
 
 func TestCommandRunStdinIsClosed(t *testing.T) {
 	name, args := helperCommand()
-	ctx := WithOptions(context.Background(), Options{Env: helperEnv(helperModeEnv + "=stdin")})
+	ctx := exec.WithOptions(context.Background(), exec.Options{Env: helperEnv(helperModeEnv + "=stdin")})
 
 	// 標準入力を与えないため、対話的なコマンドはハングせず即 EOF を受け取る。
 	res, err := New(NoSecrets).Run(ctx, name, args...)
@@ -236,7 +239,7 @@ func TestExitErrorMessage(t *testing.T) {
 
 func TestExitErrorUnwrapsOSExitError(t *testing.T) {
 	name, args := helperCommand()
-	ctx := WithOptions(context.Background(), Options{Env: helperEnv(helperExitEnv + "=3")})
+	ctx := exec.WithOptions(context.Background(), exec.Options{Env: helperEnv(helperExitEnv + "=3")})
 
 	_, err := New(NoSecrets).Run(ctx, name, args...)
 	// 呼び出し側が os/exec のエラーまで辿れるようにする。
@@ -246,15 +249,5 @@ func TestExitErrorUnwrapsOSExitError(t *testing.T) {
 	}
 	if osExitErr.ExitCode() != 3 {
 		t.Errorf("ExitCode() = %d, want 3", osExitErr.ExitCode())
-	}
-}
-
-func TestLookPath(t *testing.T) {
-	self := os.Args[0]
-	if _, err := LookPath(self); err != nil {
-		t.Errorf("LookPath(%q) がエラーを返した: %v", self, err)
-	}
-	if _, err := LookPath("gsr-helper-no-such-command"); err == nil {
-		t.Error("存在しないコマンドでエラーを返していない")
 	}
 }

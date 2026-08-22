@@ -1,11 +1,11 @@
-package exec
+package mask
 
 import (
 	"slices"
 	"testing"
 )
 
-func TestMaskArgsByKey(t *testing.T) {
+func TestArgsByKey(t *testing.T) {
 	tests := []struct {
 		name string
 		args []string
@@ -94,15 +94,15 @@ func TestMaskArgsByKey(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := MaskArgs(tt.args)
+			got := Args(tt.args)
 			if !slices.Equal(got, tt.want) {
-				t.Errorf("MaskArgs() = %q, want %q", got, tt.want)
+				t.Errorf("Args() = %q, want %q", got, tt.want)
 			}
 		})
 	}
 }
 
-func TestMaskArgsByValue(t *testing.T) {
+func TestArgsByValue(t *testing.T) {
 	tests := []struct {
 		name    string
 		args    []string
@@ -143,20 +143,20 @@ func TestMaskArgsByValue(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := MaskArgs(tt.args, tt.secrets...)
+			got := Args(tt.args, tt.secrets...)
 			if !slices.Equal(got, tt.want) {
-				t.Errorf("MaskArgs() = %q, want %q", got, tt.want)
+				t.Errorf("Args() = %q, want %q", got, tt.want)
 			}
 		})
 	}
 }
 
-func TestMaskArgsIsIdempotent(t *testing.T) {
+func TestArgsIsIdempotent(t *testing.T) {
 	args := []string{"--token", "supersecrettoken", "--pat=supersecrettoken", "--url", "https://u:supersecrettoken@github.com"}
 	secrets := []string{"supersecrettoken"}
 
-	once := MaskArgs(args, secrets...)
-	twice := MaskArgs(once, secrets...)
+	once := Args(args, secrets...)
+	twice := Args(once, secrets...)
 	if !slices.Equal(once, twice) {
 		t.Errorf("二重適用で結果が変わった\n once: %q\ntwice: %q", once, twice)
 	}
@@ -167,28 +167,13 @@ func TestMaskArgsIsIdempotent(t *testing.T) {
 	}
 }
 
-func TestMaskArgsDoesNotModifyInput(t *testing.T) {
+func TestArgsDoesNotModifyInput(t *testing.T) {
 	args := []string{"--token", "supersecrettoken"}
 	want := slices.Clone(args)
 
-	MaskArgs(args, "supersecrettoken")
+	Args(args, "supersecrettoken")
 	if !slices.Equal(args, want) {
 		t.Errorf("入力スライスが変更された: %q, want %q", args, want)
-	}
-}
-
-func TestCommandMaskArgsUsesSecretsProvider(t *testing.T) {
-	c := New(func() []string { return []string{"supersecrettoken"} })
-
-	got := c.MaskArgs([]string{"--url", "https://u:supersecrettoken@github.com", "--token", "AAAAAAAA"})
-	want := []string{"--url", "https://u:***@github.com", "--token", "***"}
-	if !slices.Equal(got, want) {
-		t.Errorf("MaskArgs() = %q, want %q", got, want)
-	}
-
-	// provider 未設定でもキー名ベースのマスクは働く。
-	if got := New(NoSecrets).MaskArgs([]string{"--token", "AAAAAAAA"}); !slices.Equal(got, []string{"--token", "***"}) {
-		t.Errorf("MaskArgs() = %q", got)
 	}
 }
 

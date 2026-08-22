@@ -1,4 +1,4 @@
-package exec
+package command
 
 import (
 	"bytes"
@@ -6,6 +6,9 @@ import (
 	"slices"
 	"testing"
 	"time"
+
+	"github.com/ousiassllc/gsr-helper/internal/exec"
+	"github.com/ousiassllc/gsr-helper/internal/exec/mask"
 )
 
 func TestWithTimeout(t *testing.T) {
@@ -28,7 +31,7 @@ func TestWithAuditIgnoresNil(t *testing.T) {
 	}
 
 	name, args := helperCommand()
-	ctx := WithOptions(context.Background(), Options{Env: helperEnv(helperStdoutEnv + "=ok")})
+	ctx := exec.WithOptions(context.Background(), exec.Options{Env: helperEnv(helperStdoutEnv + "=ok")})
 	if _, err := c.Run(ctx, name, args...); err != nil {
 		t.Fatalf("Run がエラーを返した: %v", err)
 	}
@@ -39,7 +42,7 @@ func TestWithAuditOverridesDiscard(t *testing.T) {
 	c := New(NoSecrets, WithAudit(nil), WithAudit(testLogger(&buf)))
 
 	name, args := helperCommand()
-	ctx := WithOptions(context.Background(), Options{Env: helperEnv()})
+	ctx := exec.WithOptions(context.Background(), exec.Options{Env: helperEnv()})
 	if _, err := c.Run(ctx, name, args...); err != nil {
 		t.Fatalf("Run がエラーを返した: %v", err)
 	}
@@ -58,8 +61,17 @@ func TestNewNilSecretsBehavesAsNoSecrets(t *testing.T) {
 	}
 
 	// 値一致マスクは効かないが、キー名ベースのマスクは New だけで必ず効く。
-	want := []string{"--token", maskPlaceholder}
-	if got := New(nil).MaskArgs([]string{"--token", "supersecrettoken"}); !slices.Equal(got, want) {
-		t.Errorf("MaskArgs() = %q, want %q", got, want)
+	name, args := helperCommand("--token", "supersecrettoken")
+	var buf bytes.Buffer
+	ctx := exec.WithOptions(context.Background(), exec.Options{Env: helperEnv()})
+	if _, err := New(nil, WithAudit(testLogger(&buf))).Run(ctx, name, args...); err != nil {
+		t.Fatalf("Run がエラーを返した: %v", err)
+	}
+	rec := decodeAudit(t, &buf)
+	if !slices.Contains(rec.Command, mask.Placeholder) {
+		t.Errorf("監査ログの command がマスクされていない: %q", rec.Command)
+	}
+	if slices.Contains(rec.Command, "supersecrettoken") {
+		t.Errorf("監査ログにトークンが残っている: %q", rec.Command)
 	}
 }

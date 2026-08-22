@@ -18,7 +18,7 @@ import (
 
 	"github.com/ousiassllc/gsr-helper/internal/appconfig"
 	"github.com/ousiassllc/gsr-helper/internal/audit"
-	"github.com/ousiassllc/gsr-helper/internal/exec"
+	"github.com/ousiassllc/gsr-helper/internal/exec/command"
 	"github.com/ousiassllc/gsr-helper/internal/ui"
 )
 
@@ -73,7 +73,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 
 	// 秘密情報の提供元は NoSecrets。この版はトークンをメモリに保持しない
 	// （GitHub API を使う機能の Issue で、トークンを保持する提供元に差し替える）。
-	ex := exec.New(exec.NoSecrets, exec.WithAudit(lg))
+	ex := command.New(command.NoSecrets, command.WithAudit(lg))
 	caps := appconfig.Detect(context.Background(), ex, appconfig.Options{HasToken: nil, Timeout: 0})
 
 	app := ui.New(cfg, caps, ex, ui.Options{

@@ -1,4 +1,4 @@
-package exec
+package command
 
 import (
 	"bytes"
@@ -8,41 +8,12 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/ousiassllc/gsr-helper/internal/exec"
 )
 
 // concurrency は並行テストで走らせる goroutine 数。
 const concurrency = 8
-
-func TestFakeIsSafeForConcurrentUse(t *testing.T) {
-	// Fake は mutex を持つため、Run と Calls を同時に叩いても壊れない。
-	// -race 下で実行することを前提にした検証。
-	f := NewFake()
-	f.SetFunc(func(string, []string) (Result, error) { return Result{Stdout: []byte("ok")}, nil })
-
-	var wg sync.WaitGroup
-	for i := range concurrency {
-		wg.Add(2)
-		go func() {
-			defer wg.Done()
-			if _, err := f.Run(context.Background(), "systemctl", "stop", strconv.Itoa(i)); err != nil {
-				t.Errorf("Run がエラーを返した: %v", err)
-			}
-		}()
-		go func() {
-			defer wg.Done()
-			for _, c := range f.Calls() {
-				if c.Name != "systemctl" {
-					t.Errorf("Name = %q, want systemctl", c.Name)
-				}
-			}
-		}()
-	}
-	wg.Wait()
-
-	if got := len(f.Calls()); got != concurrency {
-		t.Errorf("記録件数 = %d, want %d", got, concurrency)
-	}
-}
 
 func TestCommandRunConcurrentlySharesAuditLogger(t *testing.T) {
 	// 1 つの Logger を複数の goroutine から共有しても、1 レコードが 1 行として
@@ -56,7 +27,7 @@ func TestCommandRunConcurrentlySharesAuditLogger(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			name, args := helperCommand()
-			ctx := WithOptions(context.Background(), Options{
+			ctx := exec.WithOptions(context.Background(), exec.Options{
 				Action: "svc.stop",
 				Runner: "build01-" + strconv.Itoa(i),
 				Env:    helperEnv(helperStdoutEnv + "=ok"),

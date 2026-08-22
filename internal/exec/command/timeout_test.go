@@ -1,4 +1,4 @@
-package exec
+package command
 
 import (
 	"context"
@@ -6,11 +6,13 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/ousiassllc/gsr-helper/internal/exec"
 )
 
 func TestCommandRunTimesOut(t *testing.T) {
 	name, args := helperCommand()
-	ctx := WithOptions(context.Background(), Options{
+	ctx := exec.WithOptions(context.Background(), exec.Options{
 		Action: "test.timeout",
 		Env:    helperEnv(helperSleepEnv + "=10000"),
 	})
@@ -57,7 +59,7 @@ func TestCommandRunTakesMinOfCallerDeadlineAndTimeout(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			name, args := helperCommand()
-			ctx := WithOptions(context.Background(), Options{Env: helperEnv(helperSleepEnv + "=10000")})
+			ctx := exec.WithOptions(context.Background(), exec.Options{Env: helperEnv(helperSleepEnv + "=10000")})
 			ctx, cancel := context.WithTimeout(ctx, tt.callerTimeout)
 			defer cancel()
 
@@ -83,7 +85,7 @@ func TestCommandRunTakesMinOfCallerDeadlineAndTimeout(t *testing.T) {
 
 func TestCommandRunCompletesWithinCallerDeadline(t *testing.T) {
 	name, args := helperCommand()
-	ctx := WithOptions(context.Background(), Options{Env: helperEnv(helperSleepEnv+"=100", helperStdoutEnv+"=done")})
+	ctx := exec.WithOptions(context.Background(), exec.Options{Env: helperEnv(helperSleepEnv+"=100", helperStdoutEnv+"=done")})
 
 	// deadline と既定のどちらにも収まる実行はそのまま完走する。
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -100,7 +102,7 @@ func TestCommandRunCompletesWithinCallerDeadline(t *testing.T) {
 
 func TestCommandRunCanceledWhileRunning(t *testing.T) {
 	name, args := helperCommand()
-	ctx := WithOptions(context.Background(), Options{Env: helperEnv(helperSleepEnv + "=10000")})
+	ctx := exec.WithOptions(context.Background(), exec.Options{Env: helperEnv(helperSleepEnv + "=10000")})
 	ctx, cancel := context.WithCancel(ctx)
 
 	go func() {
@@ -132,7 +134,7 @@ func TestCommandRunCanceledBeforeStart(t *testing.T) {
 	cancel()
 
 	name, args := helperCommand()
-	res, err := New(NoSecrets).Run(WithOptions(ctx, Options{Env: helperEnv()}), name, args...)
+	res, err := New(NoSecrets).Run(exec.WithOptions(ctx, exec.Options{Env: helperEnv()}), name, args...)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("context.Canceled を包んだエラーになっていない: %v", err)
 	}

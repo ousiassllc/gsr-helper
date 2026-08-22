@@ -1,4 +1,10 @@
-package exec
+// Package command は Executor の実プロセス実装。
+//
+// internal/exec から分離しているのは、プロセス起動・タイムアウト・監査記録という
+// 実行の副作用を、契約（exec.Executor / exec.Result / exec.Options）とテスト用の
+// Fake から切り離すためである。ドメイン層は契約だけを import すればよく、
+// 実装を差し替える経路は cmd/gsr-helper だけになる。
+package command
 
 import (
 	"bytes"
@@ -12,6 +18,8 @@ import (
 	"time"
 
 	"github.com/ousiassllc/gsr-helper/internal/audit"
+	"github.com/ousiassllc/gsr-helper/internal/exec"
+	"github.com/ousiassllc/gsr-helper/internal/exec/mask"
 )
 
 const (
@@ -94,6 +102,18 @@ func New(secrets func() []string, opts ...Option) *Command {
 	return c
 }
 
+// 実装が interface を満たしていることをコンパイル時に確かめる。
+var _ exec.Executor = (*Command)(nil)
+
+// secrets は登録された提供元から secret を取り出す。
+// New に nil が渡された場合は NoSecrets と同等に扱う。
+func (c *Command) secrets() []string {
+	if c.secretsFn == nil {
+		return nil
+	}
+	return c.secretsFn()
+}
+
 // Run はコマンドを実行し、結果と監査ログを残す。
 //
 // 返り値のエラーは「コマンド自体の成否」だけを表す。非ゼロ終了では *ExitError を
@@ -102,25 +122,25 @@ func New(secrets func() []string, opts ...Option) *Command {
 // 例外は監査記録の失敗で、WithAuditErrorFunc が未設定のときに限り errors.Join で
 // 合成する。通知先の組み立て忘れで記録漏れが黙って消えることを避けるため、
 // 既定では呼び出し側に見える形にしている。
-func (c *Command) Run(ctx context.Context, name string, args ...string) (Result, error) {
-	o := OptionsFrom(ctx)
+func (c *Command) Run(ctx context.Context, name string, args ...string) (exec.Result, error) {
+	o := exec.OptionsFrom(ctx)
 	// 値一致マスクに使う値は 1 回の Run につき 1 度だけ取る。provider は並行安全で
 	// あることを求められるためロック取得が入り得るし、Run の途中で返り値が変わると
 	// ExitError.Args と監査ログの command でマスク結果が食い違う。
 	secrets := c.secrets()
 	start := time.Now()
-	res, err := c.exec(ctx, o, name, args, secrets)
+	res, err := c.execute(ctx, o, name, args, secrets)
 
 	rec := audit.Record{
 		Action:     o.Action,
 		Runner:     o.Runner,
 		Dir:        o.Dir,
-		Command:    append([]string{name}, MaskArgs(args, secrets...)...),
+		Command:    append([]string{name}, mask.Args(args, secrets...)...),
 		ExitCode:   res.ExitCode,
 		DurationMS: time.Since(start).Milliseconds(),
 	}
 	if err != nil {
-		rec.Error = maskString(err.Error(), secrets)
+		rec.Error = mask.String(err.Error(), secrets)
 	}
 
 	if werr := c.auditLog.Write(rec); werr != nil {
@@ -133,16 +153,16 @@ func (c *Command) Run(ctx context.Context, name string, args ...string) (Result,
 	return res, err
 }
 
-// exec は検証とプロセス起動を行う。監査レコードの組み立ては Run が受け持つため、
+// execute は検証とプロセス起動を行う。監査レコードの組み立ては Run が受け持つため、
 // 失敗の経路がどれであっても記録が残る。
 //
 // secrets は Run が 1 度だけ取得した値を受け取る（Run 内でマスク結果を揃えるため）。
-func (c *Command) exec(ctx context.Context, o Options, name string, args, secrets []string) (Result, error) {
+func (c *Command) execute(ctx context.Context, o exec.Options, name string, args, secrets []string) (exec.Result, error) {
 	if err := validateName(name, o.Dir); err != nil {
-		return Result{ExitCode: -1}, err
+		return exec.Result{ExitCode: -1}, err
 	}
 	if err := validateEnv(o.Env); err != nil {
-		return Result{ExitCode: -1}, err
+		return exec.Result{ExitCode: -1}, err
 	}
 
 	// 既定のタイムアウトは「1 コマンドあたりの上限」という保険なので、呼び出し側の
@@ -170,7 +190,7 @@ func (c *Command) exec(ctx context.Context, o Options, name string, args, secret
 	cmd.WaitDelay = waitDelay
 
 	runErr := cmd.Run()
-	res := Result{Stdout: stdout.Bytes(), Stderr: stderr.Bytes()}
+	res := exec.Result{Stdout: stdout.Bytes(), Stderr: stderr.Bytes()}
 	if runErr == nil {
 		return res, nil
 	}
@@ -192,9 +212,9 @@ func (c *Command) exec(ctx context.Context, o Options, name string, args, secret
 	case exitErr != nil:
 		return res, &ExitError{
 			Name:   name,
-			Args:   MaskArgs(args, secrets...),
+			Args:   mask.Args(args, secrets...),
 			Code:   res.ExitCode,
-			Stderr: maskString(stderr.String(), secrets),
+			Stderr: mask.String(stderr.String(), secrets),
 			Err:    runErr,
 		}
 	default:
