@@ -36,7 +36,7 @@ Go のバージョンは `go.mod` にのみ書く。CI では `actions/setup-go`
 .linterly.yml              行数上限の設定
 .linterlyignore            行数チェックの除外
 lefthook.yml               Git Hooks 定義
-Makefile                   タスク定義（CI / 手元で共用。Git Hooks は経由しない）
+Makefile                   タスク定義（CI / 手元で共用。Git Hooks は一部のみ経由）
 ```
 
 ## 開発環境セットアップ
@@ -84,7 +84,7 @@ go get -tool github.com/evilmartians/lefthook
 
 lint / test / build のコマンド列を Makefile に集約し、**CI と手元は同じ Makefile ターゲットを呼ぶ**。コマンドの二重管理を防ぐことが目的である。
 
-**Git Hooks は make を経由しない。** pre-commit の `fmt` は `{staged_files}` へのスコープが必要で、モジュール全体を対象にする `make fmt`（= `go fmt ./...`）では表現できないためである。そのため `lefthook.yml` は `gofmt -w {staged_files}` / `go tool golangci-lint run` / `go tool linterly check` / `go test ./...` を直接呼ぶ。スコープの制約が無い `lint` / `linterly` / `test` を make ターゲット経由に寄せるかは未決着であり、**Issue #18 で決着させる**。
+**Git Hooks は一部だけ make を経由する。** 対象をコミット内容に絞る必要がある `fmt`（`{staged_files}`）と `lint`（`--new-from-rev=HEAD`）はコマンドを直接呼び、対象を絞れない `linterly` と絞る必要のない `test` は `make linterly` / `make test` を呼ぶ。判断基準は[make を経由するかどうかの基準](#make-を経由するかどうかの基準)にまとめている。
 
 | ターゲット | 内容 |
 |-----------|------|
@@ -465,36 +465,75 @@ Lefthook を使う。`make hooks`（= `go tool lefthook install`）で登録す�
 
 | フック | 実行内容 | 狙い |
 |--------|---------|------|
-| pre-commit | gofmt（自動修正）・golangci-lint・linterly | 数秒で終わる静的チェックのみ。コミットを軽く保つ |
-| pre-push | `go test ./...` | 壊れたコードをリモートに上げない |
+| pre-commit | gofmt（自動修正）・golangci-lint（HEAD からの差分のみ）・linterly | 数秒で終わる静的チェックのみ。コミットを軽く保つ |
+| pre-push | `make test` | 壊れたコードをリモートに上げない |
 
 `lefthook.yml`:
 
 ```yaml
+# hook スクリプトからは PATH 上の lefthook が優先されるため、go.mod でピン留めした
+# バージョンを明示的に指定する。
+lefthook: go tool lefthook
+
 pre-commit:
   parallel: false
   commands:
     fmt:
+      priority: 1
       glob: "*.go"
       run: gofmt -w {staged_files}
       stage_fixed: true
     lint:
+      priority: 2
       glob: "*.go"
-      run: go tool golangci-lint run
+      run: go tool golangci-lint run --new-from-rev=HEAD
     linterly:
-      run: go tool linterly check
+      priority: 3
+      run: make linterly
 
 pre-push:
   commands:
     test:
-      run: go test ./...
+      run: make test
 ```
 
-- **フックは Makefile ターゲットを経由せず、コマンドを直接呼ぶ。** `fmt` は `{staged_files}` へのスコープが必要で、モジュール全体を対象にする `make fmt`（= `go fmt ./...`）では表現できないためである。スコープの制約が無い `lint` / `linterly` / `test` を make ターゲット経由に寄せるかは Issue #18 で決着させる。
-- `fmt` は `stage_fixed: true` により整形結果を自動で staging に戻す。整形漏れでコミットが失敗する状況を作らない。
-- **実行順は `parallel: false` だけでは決まらない。** `parallel: false` は同時実行を止めるだけで（lefthook の既定値でもあるため `lefthook dump` の出力からは消える）、順序は command 単位の **`priority` フィールド**（lefthook v1.13.6 の `internal/config/command.go`）が名前比較より優先して評価され、`priority` が同じものの間で `commands` のキー名の比較になる。名前比較は数値プレフィックスを数値順に扱うため厳密な辞書順でもない。つまり `priority` を指定すれば**命名に依存せず実行順を固定できる**。現行の `lefthook.yml` は `priority` 未指定なので、`fmt` の整形結果を `lint` が見られるかはキー名に依存する。したがって **`priority` 未指定である現状の前提として** `parallel: false` に加えて `fmt` < `lint` < `linterly` となる命名を維持する。実測では `fmt` を `zfmt` にリネームすると実行順が `lint` → `linterly` → `zfmt` に変わり、整形前のコードを読んだ `lint` が gofmt 違反で先に落ちた。`priority` の明示指定へ寄せるかは Issue #18 の範囲である。
-- **既知の制約: `lint` / `linterly` はステージ内容ではなく作業ツリー全体を見る。** `fmt` は `{staged_files}` にスコープされるが、`lint`（`go tool golangci-lint run`）と `linterly` は対象を絞っていない。lefthook が未ステージ変更を隠すのは**同一ファイル内に staged と unstaged が混在するケースだけ**で、完全に未ステージのファイルは隠されない（実測）。そのため、ステージした内容がすべてきれいでも無関係な作業中ファイルの整形崩れでコミットが落ち、しかも `fmt` はそのファイルを直さない（`{staged_files}` に入らないため）。`.go` の**削除のみ**のコミットでも同じ症状になる（`fmt` は対象ファイルが無くスキップされるが、`lint` は `glob` がマッチして実行される）。対処（`--new-from-rev=HEAD` でのスコープ限定など）は Issue #18 で決着させる。
+### make を経由するかどうかの基準
+
+**対象をコミット内容に絞る必要があるコマンドは直接呼び、モジュール全体が対象のコマンドは make ターゲットを経由する。**
+
+| command | 呼び方 | 理由 |
+|---------|-------|------|
+| `fmt` | 直接（`gofmt -w {staged_files}`） | `{staged_files}` へのスコープが必要。`make fmt`（= `go fmt ./...`）はモジュール全体を整形するため、`stage_fixed` が staged 以外のファイルまで stage してしまう |
+| `lint` | 直接（`--new-from-rev=HEAD` 付き） | HEAD からの差分に絞る必要がある。`make lint` は CI 用の全体チェックであり、フラグを足すと CI と手元でチェック範囲が変わる |
+| `linterly` | `make linterly` | 対象を絞れない。`linterly check [path]` はパスを 1 つしか取らず、ディレクトリ単位の行数上限は作業ツリー全体を見ないと判定できない |
+| `test` | `make test` | 対象を絞る必要がない。テストの実行方法（`-race` 等）を Makefile の 1 箇所で管理できる |
+
+この基準により、**スコープの制約が無いコマンドはコマンド列の二重管理が起きない**。`make check` に新しいターゲットを足したときにフックへ反映するかは、この表の基準で判断する。
+
+### pre-commit の lint は HEAD からの差分だけを見る
+
+`go tool golangci-lint run --new-from-rev=HEAD` として、**HEAD 時点で既に存在する指摘を無視する**。作業ツリー全体を無条件に検査すると、コミット済みの既存指摘が 1 件あるだけで**以後すべてのコミットが落ち続ける**（実測: 既存コミットに `errcheck` 違反を 1 件入れると、無関係でクリーンな別ファイルのコミットも失敗した。`--new-from-rev=HEAD` では成功する）。`.go` の**削除のみ**のコミットも同様に通る（実測: `fmt` は対象ファイルが無くスキップされ、`lint` は新規指摘なしで成功する）。
+
+**残る制約: 完全に未ステージのファイルの変更も「HEAD からの差分」に含まれる。** lefthook が未ステージ変更を隠すのは同一ファイル内に staged と unstaged が混在するケースだけで、丸ごと未ステージのファイルは隠されない。そのファイルの変更は HEAD との差分なので `--new-from-rev=HEAD` でも指摘され、しかも `fmt` は `{staged_files}` に入らないそのファイルを直さない。作業中のファイルを切り離したい場合は `git stash --keep-index` を使う。
+
+**全体チェックは CI が担う。** `make lint`（`--new-from-rev` なし）は CI の `lint` ジョブで実行されるため、差分に絞ることで検査が抜け落ちる範囲は CI で塞がれる。
+
+### 実行順は priority で固定する
+
+`parallel: false` は同時実行を止めるだけで（lefthook の既定値でもあるため `lefthook dump` の出力からは消える）、順序は決めない。順序は command 単位の **`priority` フィールド**（lefthook v1.13.6 の `internal/config/command.go`）が名前比較より優先して評価され、`priority` が同じものの間で `commands` のキー名の比較になる。名前比較は数値プレフィックスを数値順に扱うため厳密な辞書順でもない。
+
+そのため `fmt` = 1 / `lint` = 2 / `linterly` = 3 と **`priority` を明示する**。`fmt` の整形結果を `lint` が読むという依存関係を、command のキー名に依存せず固定できる（実測: `priority` 未指定のときに `fmt` を `zfmt` にリネームすると実行順が `lint` → `linterly` → `zfmt` に変わり、整形前のコードを読んだ `lint` が gofmt 違反で先に落ちた）。
+
+### lefthook のバージョンは go.mod に固定する
+
+**`lefthook: go tool lefthook` を明示する。** lefthook が生成する hook スクリプトの探索順は `$LEFTHOOK_BIN` → 設定の `lefthook` → **PATH の `lefthook`** → node_modules → `go tool lefthook` である。この指定が無いと、開発マシンに `lefthook` がグローバルインストールされている場合に `go.mod` でピン留めしたバージョンではなくそちらが実行される（実測: PATH に v2.1.6 がある環境で hook のバナーが `lefthook v2.1.6` になった。指定後は `lefthook v1.13.6`）。[開発ツールのバージョン管理](#開発ツールのバージョン管理)の方針を hook 実行時にも効かせるための指定である。`min_version` は最小バージョンしか強制できないため代わりにはならない。
+
+**`lefthook:` を変更したら `make hooks` を再実行する。** この値は hook スクリプトの生成時に埋め込まれるため、設定を変えただけでは既存の hook スクリプトに反映されない。
+
+### 運用上の注意
+
 - **`make hooks` は入れ子の git worktree 内では実行しない。** git worktree では `.git` が `gitdir:` 参照のファイルになり、`git rev-parse --git-path hooks` はリポジトリ共有の `<リポジトリルート>/.git/hooks` を返す（実測）。そのため worktree 内での `make hooks` はメインの作業ツリーと将来のすべての worktree に同時に効く。**メインの作業ツリーで一度登録すれば全 worktree に効く**ため、登録はそこで行う。あわせて、`lefthook.yml` を持たないブランチで `make hooks` を実行すると**テンプレートの `lefthook.yml` が生成される**ため、登録はこのファイルがあるブランチで行う。
+- `fmt` は `stage_fixed: true` により整形結果を自動で staging に戻す。整形漏れでコミットが失敗する状況を作らない。
 - `lefthook install` は既存の同名フックを `*.old` に退避し、`lefthook uninstall` で復元する（可逆）。また、設定に無い `prepare-commit-msg` も生成される（lefthook 側の仕様）。
 - **`--no-verify` でのスキップは行わない。** フックが失敗した場合はスキップせず原因を直す。CI で同じチェックが動くため、スキップしても後で落ちるだけである。
 - フック実行を一時的に無効化する必要がある場合は `LEFTHOOK=0` を使い、理由を PR に書く。
@@ -521,3 +560,4 @@ pre-push:
 | 1.8 | 2026-08-22 | `make build` を `go build ./...`（全パッケージのコンパイル検証）＋ `cmd/gsr-helper` が存在する場合のみ単一バイナリを生成する形に変更し、ターゲット一覧表・Makefile 定義・CI/CD 節の記述を実装に同期した | PR #19 の CI で `build` ジョブが `stat ./cmd/gsr-helper: directory not found` により exit 2 で失敗した。エントリポイントの実装は Issue #3 のスコープであり Issue #2 では追加できないため、パッケージが未作成の段階でも通り、かつ Issue #3 で `cmd/gsr-helper` が追加された後はそのままバイナリ生成まで行う形に `build` ターゲットを直した |
 | 1.9 | 2026-08-22 | `make fmt-check` の対象解決をディレクトリ単位からファイル単位（`go list` の `.GoFiles` / `.CgoFiles` / `.TestGoFiles` / `.XTestGoFiles` / `.IgnoredGoFiles`）へ変更し、`gofmt` を `$(GO) env GOROOT` 由来の `$(GOFMT)` に固定。`go list` の失敗と対象 0 件を `exit 1` にした。ターゲット一覧表・Makefile 定義・「Format」節を実装に同期し、`internal/buildconfig` に Makefile の回帰テストを追加 | 1.3 の修正（`gofmt -l $$($(GO) list -f '{{.Dir}}' ./...)`）は、リポジトリルートに `.go` ファイルが 1 本置かれてルート自体がパッケージになると `gofmt` が `.claude/worktrees/` 配下まで再帰して無効化される。`gofmt -l` は `testdata/` も検査するが `go fmt ./...` は対象外にするため、未整形のフィクスチャを置くと `make fmt` で直せないのに `fmt-check` が落ちるデッドロックになる。`fmt` が GOROOT の `gofmt`、`fmt-check` が PATH の `gofmt` を使う非対称も、`GO` を差し替えた環境で整形と検査のツールチェーンをずらす。さらにコマンド置換の終了ステータスを捨てていたため `go.mod` 破損時に検査が静かに通り、対象 0 件では `gofmt` が引数なしで起動して標準入力を読み無言でハングすることを実測した（`timeout 5 gofmt -l` が exit 124）。Issue #14 |
 | 1.10 | 2026-08-22 | fork ガードを全ジョブの `if:` 条件から、GitHub ホストランナー上で動く `guard` ジョブ + `needs: guard` へ置き換え、判定を許可リスト形（`push` と同一リポジトリの `pull_request` だけを許可し、それ以外は失敗）にした。「fork からの PR で self-hosted ジョブを起動しない」節を private + `allow_forking: false` の実態と多層防御の現状表に更新し、required status check には `guard` を指定する運用・実 fork PR での実測が行えない理由を明記。ワークフロー定義のコードブロックを実体と同期し、`internal/buildconfig` に `guard` スクリプトの回帰テストと仕様書コードブロックの同期テストを追加。あわせて `docs/operations/runner-host-setup.md` に「runner group の対象リポジトリ」節を追加（同 1.1） | 従前の `if:` 条件は「`pull_request` でなければ無条件に実行する」ブロックリスト形で、`merge_group` / `workflow_dispatch` を `on:` に足すと左辺が真になって短絡し fork チェックが評価されないまま実行される。また `if:` で skip されたジョブは required status check に対して success として報告されるため、CI が一度も走っていない PR が緑になりマージ可能に見える。skip ではなく失敗するゲートジョブにすれば、この 2 点をワークフロー定義の側で閉じられる。fork PR 承認ポリシーの `all_external_contributors` 化は実測で private リポジトリには設定できず（`fork-pr-contributor-approval` API が 422 `Fork PR approval is not allowed for private repositories.`）、`allow_forking: false` のため実 fork PR での確認経路も存在しないため、public へ戻す場合の手順として記録した。runner group の対象リポジトリ限定は `admin:org` スコープが無く API から確認できない（403）ため、運用手順側へ記録した。Issue #17 |
+| 1.11 | 2026-08-22 | `lefthook.yml` の実行モデルを 3 点決着させた。(1) pre-commit の `lint` を `go tool golangci-lint run --new-from-rev=HEAD` にして HEAD からの差分だけを対象にし、残る制約（丸ごと未ステージのファイルは対象に含まれる）と全体チェックを CI が担うことを明記。(2) `lefthook: go tool lefthook` を追加して hook 実行時のバージョンを `go.mod` に固定。(3) make を経由するかどうかの基準を表にし、`linterly` / `test` を `make linterly` / `make test` へ寄せた。あわせて `priority: 1/2/3` を明示して実行順を命名から切り離し、「Git Hooks」節を小見出しに整理。「タスクランナー」節と「ディレクトリ構造」の記述を実態に同期 | (1) 作業ツリー全体を無条件に検査すると、コミット済みの既存指摘が 1 件あるだけで無関係でクリーンなコミットも落ち続ける（実測: 既存コミットに `errcheck` 違反を 1 件入れると別ファイルのクリーンなコミットが失敗し、`--new-from-rev=HEAD` では成功した。`.go` の削除のみのコミットも通るようになった）。(2) hook スクリプトの探索順は PATH 上の `lefthook` が `go tool lefthook` より先であり、グローバルインストールがある環境ではピン留めが効かない（実測: 指定前は hook のバナーが `lefthook v2.1.6`、指定後は `lefthook v1.13.6`）。この値は hook 生成時に埋め込まれるため変更後は `make hooks` の再実行が必要である。(3) `fmt` は `{staged_files}`、`lint` は `--new-from-rev=HEAD` というコミット内容へのスコープが必要で make ターゲットでは表現できないが、`linterly` は `check [path]` がパスを 1 つしか取らずディレクトリ単位の行数上限も全体を見ないと判定できないため絞れず、`test` は絞る必要がない。この 2 つを make 経由にすればコマンド列の二重管理が消え、テストの実行方法を Makefile の 1 箇所で管理できる。`priority` は lefthook v1.13.6 に存在し名前比較より優先されるため、`fmt` → `lint` の依存を命名に頼らず固定できる。サンドボックスの clone で pre-commit（正常・lint 違反でコミット中止・既存違反の無視・削除のみのコミット）と pre-push（失敗テストで push 拒否）の 5 ケースを実測した。Issue #18 |
