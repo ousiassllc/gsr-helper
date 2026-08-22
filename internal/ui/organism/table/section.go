@@ -64,6 +64,15 @@ func (s *section[T]) setWidth(w int) {
 	s.tbl.SetColumns(tableColumns(s.def.Selectable, cols))
 }
 
+// restyle は区画が bubbles/table へ渡している配色とキー定義を差し替える。
+//
+// 見出しと選択行の装飾は btable が持つため、Model のフィールドを差し替えるだけでは
+// 追随しない。行のセルは Model.refresh が組み立て直す。
+func (s *section[T]) restyle(keys keymap.List, st token.Styles) {
+	s.tbl.KeyMap = tableKeyMap(keys)
+	s.tbl.SetStyles(tableStyles(st))
+}
+
 // visible は区画を描くかを返す。行が無い区画は見出しも区切り線も出さない。
 func (s section[T]) visible() bool {
 	return len(s.shown) > 0

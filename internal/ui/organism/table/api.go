@@ -1,8 +1,31 @@
 package table
 
-import "slices"
+import (
+	"slices"
+
+	"github.com/ousiassllc/gsr-helper/internal/ui/keymap"
+	"github.com/ousiassllc/gsr-helper/internal/ui/token"
+)
 
 // page が呼ぶ入口（状態の差し替えと問い合わせ）をここに集める。
+
+// Restyle は配色とキー定義を差し替える。行・カーソル位置・選択・絞り込みは保つ。
+//
+// 端末の背景色は tea.BackgroundColorMsg で起動後に届き、切り替わることもあるため、
+// 一度取り込んだ配色を持ち続けると濃色向けの薄い色が白背景に残って読めなくなる
+// （token/state.go の palette が明暗 2 型を持つ理由）。作り直さずに差し替えるのは、
+// 共有状態が 3 秒ごとに配られるためである（organism.ChoiceList.Restyle と同じ理由）。
+//
+// 行は組み立て直す。セル・カーソル記号・チェックボックスは組み立て時に配色を
+// 焼き込むため（row / render を参照）、フィールドの差し替えだけでは古い色が残る。
+func (t *Model[T]) Restyle(keys keymap.List, s token.Styles) {
+	t.keys = keys
+	t.styles = s
+	for i := range t.sections {
+		t.sections[i].restyle(keys, s)
+	}
+	t.refreshAll()
+}
 
 // SetItems は区画の行を差し替える。
 //

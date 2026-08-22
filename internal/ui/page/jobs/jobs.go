@@ -83,6 +83,8 @@ func (m Model) View() tea.View {
 // setState は共有状態のスナップショットを反映する。ドメイン層は呼ばない。
 func (m Model) setState(st page.StateMsg) (tea.Model, tea.Cmd) {
 	m.st = st
+	// 配色を配り直すのは runners.go と同じ理由（table.Model.Restyle の doc）。
+	m.tbl.Restyle(st.Keys.List, st.Styles)
 	m.tbl.SetSize(st.BodyW, st.BodyH)
 	m.tbl.SetItems(sectionJobs, jobRows(st.Result.Runners))
 	// モーダルが返す Cmd も親へ渡す（runners.go と同じ理由）。
