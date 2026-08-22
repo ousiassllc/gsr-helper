@@ -59,13 +59,25 @@ erDiagram
 | `Version` | string | `<Dir>/bin/runnerversion` | 読めない場合は空 |
 | `WorkDir` | string | `Config.WorkFolder` を絶対パス化 | 既定は `<Dir>/_work` |
 | `UnitName` | string | `<Dir>/.service` | `svc.sh install` が書き出す。未サービス化なら空 |
-| `RunAsUser` | string | `systemctl show -p User` / `Listener` の UID | runner を実行するユーザー。ジョブ実行の前提チェック（[FR-43](../requirements/functional.md)）の判定対象。`User=` が空の場合は root |
-| `Managed` | ManagedBy | 判定結果 | `systemd` / `run.sh` / 未稼働 |
+| `RunAsUser` | string | `systemctl show -p User` / `Listener` の UID | runner を実行するユーザー。ジョブ実行の前提チェック（[FR-43](../requirements/functional.md)）の判定対象。`User=` が空の場合は root。**ユーザー名が解決できない場合は UID の 10 進表記**（下記） |
+| `Managed` | ManagedBy | 判定結果 | 4 値。`systemd` / `run.sh` / 未稼働 / 判定不能（[FR-03 の起動方式の 4 状態](../requirements/functional.md#起動方式の-4-状態fr-03)） |
 | `Svc` | *SvcState | systemd | 対応ユニットがない場合 nil |
 | `Listener` | *Process | `/proc` | 稼働していなければ nil |
 | `Workers` | []Process | `/proc` | 1 件以上あればジョブ実行中 |
 
 派生値: `Name()`（`Config.AgentName`、空ならディレクトリ名）、`Running()`（Listener の有無）、`Busy()`（Worker の有無）、`JobElapsed()`（最も古い Worker の経過時間）。
+
+#### `RunAsUser` の決定と UID フォールバック
+
+決定は次の順で行う。**`SvcState.User` を採るのはユニットの実体がある場合に限る**（`Load` が空でも `not-found` でもない）。`systemctl show` に失敗したプレースホルダや `svc.sh uninstall` 後の残骸ユニットの `User=` は空であり、そのまま採ると全 runner が root と表示される。
+
+1. ユニットの実体がある場合はその `User=`。空なら `root`（systemd の `User=` 未指定は root 起動）
+2. それ以外で `Listener` が居る場合は `Listener.UID` からユーザー名を引く
+3. どちらも無ければ空文字
+
+**2 の名前解決に失敗した場合は UID の 10 進表記を返す。** 静的リンクで NSS が使えないビルドや、`/etc/passwd` に居ない LDAP ユーザーではこうなる。空文字より UID の方が情報量があるため意図的にこの縮退を採っている。したがって `RunAsUser` は `"runner"` にも `"1001"` にもなり得る。
+
+**FR-43 の実装はこれを前提にすること。** `sudo -l -U <user>` はユーザー名しか受け付けず、UID を渡す場合は `#1001` の形式が必要である。数値をそのまま渡すと「そのユーザーは存在しない」という失敗になり、`NOPASSWD` が設定されていないケースと区別できない。
 
 ### RunnerConfig
 
@@ -92,9 +104,11 @@ runner の登録先。`GitHubURL` のパスから判定する。型は `internal
 | Repo | `/<owner>/<repo>` | `https://github.com/foo/bar` | `foo/bar` |
 | Org | `/orgs/<org>` または `/<org>` | `https://github.com/orgs/foo` | `org:foo` |
 | Enterprise | `/enterprises/<slug>` | `https://github.com/enterprises/foo` | `ent:foo` |
-| Unknown | 上記以外 | — | `-` |
+| Unknown | — | — | `-` |
 
 ホストを含まない URL（`github.com/foo/bar` のようにスキームが無いもの）と、`orgs` / `enterprises` の単独指定（`https://github.com/orgs`）は誤りとして拒否する。これらを黙って Repo / Org と解釈すると、存在しないスコープに対する API 呼び出しを組み立ててしまう。
+
+**`scope.Parse` は Unknown を返さない。** 判定できない入力は必ず error になる。Kind Unknown が画面に現れるのは、`Parse` が失敗した runner を `Discover` がゼロ値の `Scope` のまま一覧に残し、失敗を `Result.Warnings` へ積むためである（1 台の `.runner` が壊れていても他の runner の表示を続けるという方針）。つまり `-` は「判定した結果が Unknown」ではなく「判定できず警告を出した」ことを表す。
 
 Scope は GitHub API のパス生成にも使う（[外部インターフェース](../api/external-interfaces.md)）。この用途のために `internal/gh` が `internal/runner` 全体へ依存せずに済むよう、下位パッケージに切り出してある。
 
@@ -126,7 +140,23 @@ systemd ユニットの状態。
 | User | `User` | ユニットの `User=`。空の場合は root で起動する |
 | MainPID | `MainPID` | — |
 
-runner との紐付けは `UnitName`（`.service` ファイル）を第一に、`WorkingDir` を第二の手段として照合する。
+runner との紐付けは `UnitName`（`.service` ファイル）を第一に、`WorkingDir` を第二の手段として照合する。`Load` が `not-found` のユニットはどちらのキーでも紐付けない（[FR-05 の除外](../requirements/functional.md#孤児ユニットに含めないものfr-05)）。
+
+`Load` が空のユニットは `systemctl show` に失敗したプレースホルダであり、`Unit` 以外のフィールドは埋まっていない。**「ユニットが無い」（`Runner.Svc == nil`）とは別の状態**であり、画面上も別の記号で描く（[画面仕様の記号表](../ui/screens.md#runners-タブ)）。
+
+### 表示用の派生値
+
+モデル側が持つ表示用のメソッドは次の 3 つである。いずれも**一覧向けの短い表記**であり、これ以外に短い表記を作らない。
+
+| 派生値 | 返す値 |
+|-------|-------|
+| `ManagedBy.String()` | `systemd` / `run.sh` / `-`（未稼働）/ `?`（判定不能） |
+| `SvcState.Label()` | `-`（`ActiveState` が空）/ `active`（`SubState` が同じか空）/ `active/running`（両方あり異なる） |
+| `ProcKind.String()` | `Runner.Listener` / `Runner.Worker` / `unknown` |
+
+**MANAGED 列は `ManagedBy.String()` をそのまま出す。** 一方 SVC 列は記号を伴うため UI 側（`atom.StatusText` / `atom.StatusUnknown`）が組み立てる。記号を伴う表記をドメイン層に置くと、色と記号の対の定義（`token`）が 2 箇所に分かれる。`SvcState.Label()` は記号を持たない素の表記であり、ログや doctor の説明文のように記号を要さない用途のためにある。
+
+詳細画面で「何が分かっていないのか」を文で示す言い換え（`-` → `未稼働（サービス登録なし・プロセスなし）` など）も表示側の関心事であり、`internal/ui/page/runnerdetail` が持つ（[画面仕様](../ui/screens.md#詳細画面enter)）。
 
 ### Result
 
@@ -137,6 +167,32 @@ runner との紐付けは `UnitName`（`.service` ファイル）を第一に、
 | Runners | []Runner | 検出した runner。スコープ→名前でソート |
 | OrphanUnits | []SvcState | 対応する runner ディレクトリが見つからないユニット（異常） |
 | Warnings | []error | 部分的な失敗。1 件の失敗で全体を止めないため集約する |
+
+`Runners` に含める runner は「`.runner` を読めたディレクトリ」である。スコープの判定に失敗した runner は**一覧から落とさず**、ゼロ値の `Scope`（表示は `-`）と警告 1 件で残す。
+
+#### `Options`
+
+`Discover` の入力。
+
+| フィールド | 型 | 意味 |
+|-----------|-----|------|
+| Roots | []string | 追加の走査ルート。既定のルート（[FR-01](../requirements/functional.md#既定の走査ルートfr-01)）に足す |
+| Depth | int | ルート配下を掘る深さ。**0 以下は既定値 2 に丸める**（設定の `scan_depth` を省略した場合と同じ挙動になる） |
+| Exec | Executor | systemd を参照するための実行経路。**`nil` は「systemctl が無い環境」を意味する**。ユニットを一切参照せず、警告も出さない（3 秒ごとのポーリングで同じ警告が積み上がらないようにするため）。この場合の起動方式は判定不能（`?`）になる |
+
+#### `Result` の警告
+
+`Warnings` に載る文言のうち、検出の解釈に関わるものを定める。件数は状態行の `警告 N 件` に出る。
+
+| 状況 | 文言 |
+|------|------|
+| `systemctl list-units` 自体の失敗 | `systemctl list-units の実行に失敗しました: <原因>`（`systemd.ErrListUnits` を包む。呼び出し側は `errors.Is` で「ユニット 0 件」と区別する） |
+| 1 ユニットの `systemctl show` の失敗 | `systemctl show <unit> の実行に失敗しました: <原因>` |
+| `LoadState=not-found` のユニット | `<unit>: systemd にユニットの実体がありません（LoadState=not-found）。svc.sh uninstall 後に参照だけが残っている可能性があります` |
+| 既に別のユニットが紐付いた runner ディレクトリを指す 2 本目のユニット | `<unit>: runner ディレクトリ <dir> には既にユニット <unit> が紐付いているため無視します。重複した、または古いユニットファイルが残っている可能性があります` |
+| `.runner` の読み取り失敗 / スコープ判定の失敗 | `<dir>: <原因>`（どの runner の警告か分かるようディレクトリを添える） |
+
+後ろの 2 つは**黙って落とさないために出す**。前者は `svc.sh uninstall` の残骸、後者は重複した・古いユニットファイルであり、いずれも UI から見えないままにすると原因の分からない不整合として残る。
 
 ### Caps
 
@@ -246,7 +302,35 @@ defaults:
   ephemeral: false
 ```
 
-すべての項目に既定値を持たせ、設定ファイルが存在しない場合も動作する（初回起動時にウィザードを出す）。
+すべての項目に既定値を持たせ、設定ファイルが存在しない場合も動作する（初回起動時にウィザードを出す）。ファイルが無い場合とコメントだけの場合は既定値になる。
+
+#### 検証と既定値
+
+**値の検証は起動時に行い、範囲外は起動を止める。** 黙って既定値へ丸めると、`refresh_interval: 0` のような打ち間違いが「なぜか設定が効かない」として現れ、原因が設定ファイルにあると気付けない。一方 **未指定（0 / 空）は既定値**である。
+
+| キー | 許す範囲 | 未指定時 |
+|------|---------|---------|
+| `scan_depth` | 1〜10 | 2 |
+| `refresh_interval` | 1〜3600（秒） | 3 |
+| `disk_thresholds.warn` | 1〜99 | 80 |
+| `disk_thresholds.critical` | 1〜100 | 90 |
+| `disk_thresholds`（関係） | `warn` < `critical` | — |
+| `audit_log` / `defaults.install_base` | 絶対パスで `..` を含まない（`Clean` の**前**に判定する） | 上記の既定値 |
+| `scan_roots` | 絶対パス化・重複除去。空要素は捨て、結果が空なら未設定として扱う | 既定のルートのみ |
+| `defaults.name_prefix` | 前後の空白を除いた上で、先頭が `-` のもの・空白を含むものを拒否 | 空（ホスト名を使う） |
+| `defaults.labels` | 各要素を trim・重複除去し、先頭が `-` のものを拒否 | 空 |
+
+`..` を `Clean` の前に判定するのは、`/var/log/../../etc/passwd` のような指定が `Clean` 後には正当な絶対パスに見えてしまうためである。`-` 始まりを拒むのは、`config.sh` の引数として渡ったときにオプションと解釈されるためである。
+
+#### 起動を止める読み込みエラー
+
+次のいずれかに当たると設定を読めず、起動しない（終了コード 1）。**手で編集したファイルの誤りを黙って無視しない**方針である。無視すると、書いたつもりの設定が効いていない状態に気付けない。
+
+| 状況 | 理由 |
+|------|------|
+| 未知のキーがある | キー名の打ち間違い（`refresh_intervall` など）を検出するため。YAML のデコードを `KnownFields(true)` で行う |
+| `---` で区切られた 2 つ目のドキュメントがある | 2 つ目が黙って無視されるため |
+| ファイルが 1 MiB を超える | 設定ファイルとして想定される大きさを超えており、取り違えの可能性が高い |
 
 ### 監査ログ（JSON Lines）
 
@@ -268,9 +352,24 @@ defaults:
 | `command` | 実行したコマンドと引数。**トークンは `***` にマスクする** |
 | `exit_code` | 終了コード |
 | `duration_ms` | 所要時間 |
-| `error` | 失敗時のエラーメッセージ（任意） |
+| `error` | 失敗時のエラーメッセージ（任意）。**外部コマンドの出力を含めない**（下記） |
 
-追記は 1 レコードずつ行い、書き込みが途中で切れても以降のレコードが読めるようにする。ローテーションは `logrotate` に委ねる。
+追記は 1 レコードずつ行い、書き込みが途中で切れても以降のレコードが読めるようにする。`ts` はレコードを書き出す排他区間の内側で採るため、タイムスタンプの順序と行の順序が一致する。
+
+#### `error` フィールドに入れるもの
+
+| 失敗の種類 | `error` に入る文言 |
+|-----------|------------------|
+| 終了コードが 0 でない | `<マスク済みコマンド行> が終了コード N で失敗しました`。**コマンドの標準エラー出力は一切入らない** |
+| それ以外（起動できない・タイムアウトなど） | マスク済みのエラーメッセージ |
+
+**終了コード失敗のレコードにコマンド出力を入れない**のは、出力に権限情報や資格情報が混ざり得るためである（`sudo -l -U <user>` は実行の事実と終了コードのみを記録するという [セキュリティ設計](security.md#パスワード不要-sudo-の要求への対応) の要求を、特定のコマンドだけでなく全体の規則として満たす）。標準エラー出力は画面向けのエラー文言にだけ含め、監査ログには載せない。
+
+`error` は 4096 バイトで打ち切り、末尾に `…（以下略）` を付ける（UTF-8 の文字境界で切る）。1 行が際限なく伸びて JSON Lines として読めなくなることを防ぐためである。
+
+#### ローテーション
+
+ローテーションは `logrotate` に委ねる。**`copytruncate` は不要である。** 追記のたびに設定パスの dev+ino を保持中の fd と比べ、入れ替わっていれば同じ検証を通して開き直すため、`logrotate` の既定の `create` 方式でもレコードが unlink 済みの inode に消えることはない。
 
 ## 改訂履歴
 
@@ -280,3 +379,4 @@ defaults:
 | 1.1 | 2026-08-21 | `Runner.RunAsUser` を追加。`CheckResult` に `Startup` とカテゴリ「ジョブ実行の前提」を追加 | ジョブ実行の前提チェック（FR-43）と起動時の自動判定（FR-44）を追加したため |
 | 1.2 | 2026-08-22 | `Process.UID` と `SvcState.User` を追加 | `RunAsUser` の決定に必要な取得元が未定義だったため。systemd の `User=` を第一とし、ユニットが無い場合は Listener プロセスの所有者から引く |
 | 1.3 | 2026-08-22 | `Scope` の置き場所を `internal/runner/scope` と明記し、拒否する入力を追記 | GitHub API のパス生成に使うため `internal/gh` から参照できる位置に分離した。スキームの無い URL や `orgs` 単独を黙って解釈する欠陥があった |
+| 1.4 | 2026-08-22 | `Managed` を 4 値に更新し、`RunAsUser` の UID フォールバックと FR-43 への影響を追記。表示用の派生値・`Discover` の `Options`・`Result.Warnings` の文言一覧を追加。Kind Unknown が `Parse` の戻りではないことを明記。自前設定の検証範囲と起動を止める読み込みエラー、監査ログの `error` フィールドの規則とローテーションの扱いを追加 | ユニット一覧が取れない状態を「ユニットが無い」と同一視すると起動方式を誤表示する。`RunAsUser` が UID になり得ることを知らずに `sudo -l -U` へ渡すと判定が失敗する。設定の検証・警告の文言・監査ログに残す内容がいずれも実装のみに存在し、仕様から読み取れなかった |
