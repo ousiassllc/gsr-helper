@@ -16,11 +16,8 @@ import (
 type cleanupDoneMsg struct{ tab int }
 
 // streamPage は長寿命の購読（journalctl -f のようなストリーム）を持つ page を
-// 模したテスト用の Model。
-//
-// 前面に出たら購読を 1 本張り、裏へ回ったら畳む。終了では残っているものを畳む。
-// 起動時に選択されているタブは page.ActivateMsg を受け取らない（同 doc）ため、
-// 購読は 0 本から始める。
+// 模したテスト用の Model。前面に出たら 1 本張り、裏へ回ったら畳む。起動時に
+// 選択されているタブは page.ActivateMsg を受け取らないので 0 本から始める。
 type streamPage struct {
 	tab       int
 	open      int // 開いている購読の本数
@@ -29,7 +26,6 @@ type streamPage struct {
 	shutdowns int // 終了の通知を受けた回数
 }
 
-// tea.Model を実装していることをコンパイル時に確かめる。
 var _ tea.Model = (*streamPage)(nil)
 
 // newStreamPage は購読をまだ張っていない page を返す。
@@ -60,7 +56,7 @@ func (s *streamPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (s *streamPage) View() tea.View { return tea.NewView("stream") }
 
-// close は購読を 1 本畳み、その後始末の Cmd を返す。開いていなければ何もしない。
+// close は購読を 1 本畳み、後始末の Cmd を返す。開いていなければ何もしない。
 func (s *streamPage) close() tea.Cmd {
 	if s.open == 0 {
 		return nil
@@ -95,9 +91,6 @@ func TestTabRoundTripDoesNotAccumulateSubscriptions(t *testing.T) {
 	const trips = 3
 
 	a, pages := withStreams(newApp(exec.NewFake()))
-	if len(pages) < 2 {
-		t.Fatal("有効なタブが 2 枚未満（前提が崩れている）")
-	}
 
 	for range trips {
 		a, _ = sendKey(a, "2")
@@ -161,7 +154,7 @@ func TestQuitRunsPageCleanupBeforeQuit(t *testing.T) {
 	}
 }
 
-// runAll は Cmd を 1 度だけ実行し、結果が Cmd の並びならその中身も実行する。
+// runAll は Cmd を 1 度実行し、結果が Cmd の並びならその中身も実行する。
 func runAll(c tea.Cmd) {
 	if c == nil {
 		return

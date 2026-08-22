@@ -55,7 +55,12 @@ func (a App) handleGlobalKey(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		// 手動の再読み込みは Tick を待たずに検出の Cmd を発行する。実行中の検出が
 		// あるときは重ねない（自動更新と同じ理由。discover.go の onTick）。その検出の
 		// 結果は遅くとも discoverBudget 以内に届く。
+		//
+		// 重ねないときは理由を状態行に出す。黙って何もしないと「効かないキー」に
+		// 見えるが（screens.md の設計原則 2）、待たされる時間は最大 15 秒ある。
+		// 無効なタブの番号キー（selectTab）と同じ形の案内にそろえる。
 		if a.inflight > 0 {
+			a.notice = refreshNotice(g.Refresh)
 			return a, nil
 		}
 		cmd := a.discover()
@@ -69,6 +74,13 @@ func (a App) handleGlobalKey(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	default:
 		return a, nil
 	}
+}
+
+// refreshNotice は検出中に再読み込みを押したときの案内を返す。
+//
+// キーと説明は keymap から取り、案内とヘルプで文言が食い違わないようにする。
+func refreshNotice(b key.Binding) string {
+	return "[" + page.BindingKey(b) + "]" + b.Help().Desc + " 検出中です"
 }
 
 // selectTab は番号キーで指定されたタブへ移る。
