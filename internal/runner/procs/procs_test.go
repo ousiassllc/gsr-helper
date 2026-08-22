@@ -1,4 +1,4 @@
-package runner
+package procs
 
 import (
 	"os"
@@ -60,11 +60,11 @@ func TestProcStat(t *testing.T) {
 	}
 }
 
-// inspectProc / ScanProcesses は実 /proc を読む。検出成功の経路に入れるには
+// inspectProc / Scan は実 /proc を読む。検出成功の経路に入れるには
 // Runner.Listener という名前のプロセスを起動する必要があり、外部コマンド実行を持ち込まない
 // 方針のためここでは行わない。判定ロジックの分岐は上の 3 関数のテストで押さえ、
 // ここでは「runner でないものを弾く」ことと走査自体が成功することを見る。
-func TestScanProcessesOnRealProc(t *testing.T) {
+func TestScanOnRealProc(t *testing.T) {
 	if p, ok := inspectProc(os.Getpid()); ok {
 		t.Errorf("テストプロセス自身を runner と判定した: %+v", p)
 	}
@@ -72,7 +72,23 @@ func TestScanProcessesOnRealProc(t *testing.T) {
 		t.Errorf("存在しない PID を runner と判定した: %+v", p)
 	}
 	// runner が動いていないホストでは 0 件になる。走査自体が成功することを見る。
-	if _, err := ScanProcesses(); err != nil {
-		t.Fatalf("ScanProcesses() のエラー = %v", err)
+	if _, err := Scan(); err != nil {
+		t.Fatalf("Scan() のエラー = %v", err)
 	}
+}
+
+// mkDir は dir を作り、files の各ファイル名にその内容を書く。
+// runner パッケージのテストにある同名ヘルパの最小版。テスト用ヘルパのために
+// 本体の識別子を公開したくないため、このパッケージで必要な分だけを持つ。
+func mkDir(t *testing.T, dir string, files map[string]string) string {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("ディレクトリの作成に失敗しました: %v", err)
+	}
+	for name, body := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
+			t.Fatalf("ファイルの書き込みに失敗しました: %v", err)
+		}
+	}
+	return dir
 }

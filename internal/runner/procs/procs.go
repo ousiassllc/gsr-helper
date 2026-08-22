@@ -1,4 +1,10 @@
-package runner
+// Package procs は /proc を走査して稼働中の Runner.Listener / Runner.Worker を集める。
+//
+// runner から分離しているのは行数上限のためだけではない。/proc の走査は systemd 参照
+// （internal/runner/systemd）やディスク走査と無関係な単一の情報源であり、
+// 「稼働プロセスから何が分かるか」という 1 つの責務で閉じている。
+// runner はこの結果とディスク・systemd の結果を突き合わせる側に専念する。
+package procs
 
 import (
 	"bytes"
@@ -10,21 +16,21 @@ import (
 	"time"
 )
 
-// ProcKind は runner プロセスの種別。
-type ProcKind int
+// Kind は runner プロセスの種別。
+type Kind int
 
-// ProcKind の取り得る値。
+// Kind の取り得る値。
 const (
-	ProcListener ProcKind = iota // Runner.Listener: ジョブを待ち受ける常駐プロセス
-	ProcWorker                   // Runner.Worker: ジョブ 1 件ごとに起動される
+	Listener Kind = iota // Runner.Listener: ジョブを待ち受ける常駐プロセス
+	Worker               // Runner.Worker: ジョブ 1 件ごとに起動される
 )
 
 // String は表示用の名前（プロセスの実行ファイル名）を返す。
-func (k ProcKind) String() string {
+func (k Kind) String() string {
 	switch k {
-	case ProcListener:
+	case Listener:
 		return "Runner.Listener"
-	case ProcWorker:
+	case Worker:
 		return "Runner.Worker"
 	default:
 		return "unknown"
@@ -34,7 +40,7 @@ func (k ProcKind) String() string {
 // Process は検出した runner プロセス。
 type Process struct {
 	PID     int
-	Kind    ProcKind
+	Kind    Kind
 	Dir     string // 導出した runner のルートディレクトリ
 	Started time.Time
 	Exe     string
@@ -54,11 +60,11 @@ func (p Process) Elapsed() time.Duration {
 	return time.Since(p.Started)
 }
 
-// ScanProcesses は /proc を走査して Runner.Listener / Runner.Worker を集める。
+// Scan は /proc を走査して Runner.Listener / Runner.Worker を集める。
 //
 // 実行ファイルのパスは /proc/<pid>/exe から取るが、他ユーザーのプロセスでは
 // 権限不足で読めないため cmdline[0] にフォールバックする。
-func ScanProcesses() ([]Process, error) {
+func Scan() ([]Process, error) {
 	entries, err := os.ReadDir("/proc")
 	if err != nil {
 		return nil, fmt.Errorf("/proc の読み込みに失敗しました: %w", err)
@@ -94,12 +100,12 @@ func inspectProc(pid int) (Process, bool) {
 		return Process{}, false
 	}
 
-	var kind ProcKind
+	var kind Kind
 	switch filepath.Base(exe) {
 	case "Runner.Listener":
-		kind = ProcListener
+		kind = Listener
 	case "Runner.Worker":
-		kind = ProcWorker
+		kind = Worker
 	default:
 		return Process{}, false
 	}

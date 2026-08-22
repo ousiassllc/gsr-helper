@@ -6,7 +6,9 @@ import (
 	"sort"
 
 	"github.com/ousiassllc/gsr-helper/internal/exec"
+	"github.com/ousiassllc/gsr-helper/internal/runner/procs"
 	"github.com/ousiassllc/gsr-helper/internal/runner/scope"
+	"github.com/ousiassllc/gsr-helper/internal/runner/systemd"
 )
 
 // Options は探索の設定。
@@ -26,7 +28,7 @@ type Result struct {
 	Runners []Runner
 	// OrphanUnits は actions.runner.* ユニットのうち、対応する runner
 	// ディレクトリが見つからなかったもの。ディレクトリだけ消した場合に残る。
-	OrphanUnits []SvcState
+	OrphanUnits []systemd.State
 	// Warnings は探索中の部分的な失敗。1 件の失敗で全体を止めないため集約する。
 	Warnings []error
 }
@@ -43,15 +45,15 @@ type Result struct {
 func Discover(ctx context.Context, opts Options) Result {
 	var res Result
 
-	procs, err := ScanProcesses()
+	running, err := procs.Scan()
 	if err != nil {
 		res.Warnings = append(res.Warnings, err)
 	}
-	for i := range procs {
-		procs[i].Dir = normalizeDir(procs[i].Dir)
+	for i := range running {
+		running[i].Dir = normalizeDir(running[i].Dir)
 	}
 
-	units, warns := ScanUnits(ctx, opts.Exec)
+	units, warns := systemd.Scan(ctx, opts.Exec)
 	res.Warnings = append(res.Warnings, warns...)
 	for i := range units {
 		units[i].WorkingDir = normalizeDir(units[i].WorkingDir)
@@ -60,7 +62,7 @@ func Discover(ctx context.Context, opts Options) Result {
 	// 紐付け結果と孤児ユニットの順序を決定的にする。
 	sort.Slice(units, func(i, j int) bool { return units[i].Unit < units[j].Unit })
 
-	dirs := collectDirs(opts, procs, units)
+	dirs := collectDirs(opts, running, units)
 
 	runners := make([]Runner, 0, len(dirs))
 	for _, dir := range dirs {
@@ -85,7 +87,7 @@ func Discover(ctx context.Context, opts Options) Result {
 		})
 	}
 
-	res.OrphanUnits = attach(runners, procs, units)
+	res.OrphanUnits = attach(runners, running, units)
 
 	// 実行ユーザーは紐付け後に決める。attach を 3 引数の純粋関数に保つため、
 	// ユーザー名の解決（NSS 参照）はここに置く。
@@ -101,8 +103,9 @@ func Discover(ctx context.Context, opts Options) Result {
 
 // attach は runner にプロセスと systemd ユニットを紐付け、対応する runner が
 // 見つからなかったユニットを返す。
-// Runner.Dir と Process.Dir / SvcState.WorkingDir は正規化済みであることを前提とする。
-func attach(runners []Runner, procs []Process, units []SvcState) []SvcState {
+// Runner.Dir と procs.Process.Dir / systemd.State.WorkingDir は正規化済みであることを
+// 前提とする。
+func attach(runners []Runner, running []procs.Process, units []systemd.State) []systemd.State {
 	byDir := make(map[string]*Runner, len(runners))
 	byUnit := make(map[string]*Runner, len(runners))
 	for i := range runners {
@@ -112,7 +115,7 @@ func attach(runners []Runner, procs []Process, units []SvcState) []SvcState {
 		}
 	}
 
-	for _, p := range procs {
+	for _, p := range running {
 		if p.Dir == "" {
 			continue // 照合キーが無い。byDir[""] を引かないよう先に弾く
 		}
@@ -121,9 +124,9 @@ func attach(runners []Runner, procs []Process, units []SvcState) []SvcState {
 			continue
 		}
 		switch p.Kind {
-		case ProcListener:
+		case procs.Listener:
 			attachListener(r, p)
-		case ProcWorker:
+		case procs.Worker:
 			r.Workers = append(r.Workers, p)
 		}
 	}
@@ -142,7 +145,7 @@ func attach(runners []Runner, procs []Process, units []SvcState) []SvcState {
 
 // attachListener は Listener を紐付ける。再起動の途中などで複数見えた場合は
 // 起動時刻が新しい方を採用し、古いプロセスの情報を残さない。
-func attachListener(r *Runner, p Process) {
+func attachListener(r *Runner, p procs.Process) {
 	if r.Listener != nil && !p.Started.After(r.Listener.Started) {
 		return
 	}
@@ -154,7 +157,7 @@ func attachListener(r *Runner, p Process) {
 // UnitName（.service ファイル）を第一、WorkingDirectory を第二の照合キーと
 // するため 2 パスに分ける。1 パスで回すと、あるユニットの WorkingDirectory 一致が
 // 別のユニットの UnitName 一致を上書きしうる。
-func attachUnits(byUnit, byDir map[string]*Runner, units []SvcState) []SvcState {
+func attachUnits(byUnit, byDir map[string]*Runner, units []systemd.State) []systemd.State {
 	matched := make([]bool, len(units))
 	for i, u := range units {
 		if r, ok := byUnit[u.Unit]; ok {
@@ -164,16 +167,16 @@ func attachUnits(byUnit, byDir map[string]*Runner, units []SvcState) []SvcState 
 		}
 	}
 
-	var orphans []SvcState
+	var orphans []systemd.State
 	for i, u := range units {
 		if matched[i] {
 			continue
 		}
 		if u.Load == "" {
-			// Load が空なのは systemctl show に失敗したユニット（ScanUnits が
+			// Load が空なのは systemctl show に失敗したユニット（systemd.Scan が
 			// Unit だけ埋めて残すプレースホルダ）。WorkingDirectory が分からない
 			// だけで、対応ディレクトリが消えたわけではないので FR-05 の孤児に
-			// しない。失敗自体は ScanUnits が警告として返しているので、
+			// しない。失敗自体は systemd.Scan が警告として返しているので、
 			// ここで二重に報告もしない。
 			continue
 		}

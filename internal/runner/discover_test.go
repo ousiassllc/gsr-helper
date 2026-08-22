@@ -82,3 +82,14 @@ func TestDiscover(t *testing.T) {
 		t.Errorf("Warnings = %q, want 2 件", warns)
 	}
 }
+
+// listOutput は systemctl list-units の出力を組み立てる。
+// systemd パッケージのテストにある同名ヘルパの写し。Discover に渡す Fake の
+// 出力を作るためだけに使うので、テスト用ヘルパを公開して共有はしない。
+func listOutput(units ...string) string {
+	var out string
+	for _, u := range units {
+		out += u + " loaded active running GitHub Actions Runner\n"
+	}
+	return out
+}

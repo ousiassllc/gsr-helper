@@ -4,6 +4,9 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+
+	"github.com/ousiassllc/gsr-helper/internal/runner/procs"
+	"github.com/ousiassllc/gsr-helper/internal/runner/systemd"
 )
 
 // defaultDepth は走査ルート配下を掘る既定の深さ。
@@ -38,7 +41,7 @@ func DefaultRoots() []string {
 }
 
 // collectDirs は走査・プロセス・ユニットの各経路から runner ディレクトリを集める。
-func collectDirs(opts Options, procs []Process, units []SvcState) []string {
+func collectDirs(opts Options, running []procs.Process, units []systemd.State) []string {
 	depth := opts.Depth
 	if depth <= 0 {
 		depth = defaultDepth
@@ -60,7 +63,7 @@ func collectDirs(opts Options, procs []Process, units []SvcState) []string {
 			add(d)
 		}
 	}
-	for _, p := range procs {
+	for _, p := range running {
 		add(p.Dir)
 	}
 	for _, u := range units {

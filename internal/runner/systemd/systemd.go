@@ -1,4 +1,10 @@
-package runner
+// Package systemd は actions.runner.* ユニットの列挙と状態取得だけを担う。
+//
+// systemctl 参照はこのパッケージに閉じている。runner はディスク走査・/proc・systemd の
+// 3 経路の結果を突き合わせる側であり、外部コマンドの発行と出力の解釈を混ぜると
+// 突き合わせのロジックが systemctl の出力形式に引きずられる。分離しておけば
+// systemctl の出力を扱うテストを Executor の Fake だけで完結させられる。
+package systemd
 
 import (
 	"context"
@@ -19,8 +25,8 @@ const unitPattern = "actions.runner.*"
 // 3 秒ごとに参照するため直列では遅く、一方でプロセス生成は無制限に増やさない。
 const showConcurrency = 8
 
-// SvcState は systemd ユニットの状態。
-type SvcState struct {
+// State は systemd ユニットの状態。
+type State struct {
 	Unit       string
 	Load       string // loaded / not-found
 	Active     string // active / inactive / failed
@@ -32,7 +38,7 @@ type SvcState struct {
 }
 
 // Label はテーブル表示用の状態ラベルを返す。
-func (s SvcState) Label() string {
+func (s State) Label() string {
 	if s.Active == "" {
 		return "-"
 	}
@@ -42,7 +48,7 @@ func (s SvcState) Label() string {
 	return s.Active
 }
 
-// ScanUnits は actions.runner.* の systemd ユニットとその状態を集める。
+// Scan は actions.runner.* の systemd ユニットとその状態を集める。
 //
 // ex が nil のときは systemd を参照せず何も返さない（systemctl が無い環境での縮退）。
 // 警告も出さない。3 秒ごとのポーリングで同じ警告が積み上がるためであり、systemd の
@@ -54,9 +60,9 @@ func (s SvcState) Label() string {
 // 呼び出し側は deadline 付きの ctx を渡すこと。1 コマンドのタイムアウトは exec が
 // 課すが、show は showConcurrency 件ずつのバッチで発行するため、全体の所要時間は
 // 1 コマンドのタイムアウト × ceil(ユニット数/showConcurrency) まで伸びうる。
-// ScanUnits 自身は全体の上限を持たないので、3 秒ごとのポーリングが溜まらないよう
+// Scan 自身は全体の上限を持たないので、3 秒ごとのポーリングが溜まらないよう
 // 上限は ctx で与える。ctx がキャンセルされた時点で残りの show は発行しない。
-func ScanUnits(ctx context.Context, ex exec.Executor) ([]SvcState, []error) {
+func Scan(ctx context.Context, ex exec.Executor) ([]State, []error) {
 	if ex == nil {
 		return nil, nil
 	}
@@ -71,7 +77,7 @@ func ScanUnits(ctx context.Context, ex exec.Executor) ([]SvcState, []error) {
 	units := parseListUnits(string(res.Stdout))
 	// 書き込み先をインデックス指定にすることで、結果の順序が list-units の
 	// 出力順で決まり、共有スライスへの排他も要らなくなる。
-	states := make([]SvcState, len(units))
+	states := make([]State, len(units))
 	warns := make([]error, len(units))
 
 	sem := make(chan struct{}, showConcurrency)
@@ -95,7 +101,7 @@ func ScanUnits(ctx context.Context, ex exec.Executor) ([]SvcState, []error) {
 			if err != nil {
 				// 取得できなかったユニットも一覧から落とさない。孤児ユニットの
 				// 判定に必要なため、ユニット名だけのプレースホルダを残す。
-				states[i] = SvcState{Unit: u}
+				states[i] = State{Unit: u}
 				warns[i] = err
 				return
 			}
@@ -150,18 +156,18 @@ func parseListUnits(out string) []string {
 }
 
 // showUnit は 1 ユニットの状態を systemctl show から取得する。
-func showUnit(ctx context.Context, ex exec.Executor, unit string) (SvcState, error) {
+func showUnit(ctx context.Context, ex exec.Executor, unit string) (State, error) {
 	res, err := ex.Run(ctx, "systemctl", "show", unit, "--no-pager",
 		"-p", "Id", "-p", "LoadState", "-p", "ActiveState", "-p", "SubState",
 		"-p", "UnitFileState", "-p", "WorkingDirectory", "-p", "MainPID", "-p", "User")
 	if ferr := runFailure(res, err); ferr != nil {
-		return SvcState{}, fmt.Errorf("systemctl show %s の実行に失敗しました: %w", unit, ferr)
+		return State{}, fmt.Errorf("systemctl show %s の実行に失敗しました: %w", unit, ferr)
 	}
 	return parseShow(unit, string(res.Stdout)), nil
 }
 
 // parseShow は systemctl show の KEY=VALUE 出力をパースする。出力順は不定。
-func parseShow(unit, out string) SvcState {
+func parseShow(unit, out string) State {
 	kv := map[string]string{}
 	for _, line := range strings.Split(out, "\n") {
 		k, v, ok := strings.Cut(strings.TrimSpace(line), "=")
@@ -170,7 +176,7 @@ func parseShow(unit, out string) SvcState {
 		}
 	}
 
-	st := SvcState{
+	st := State{
 		Unit:      unit,
 		Load:      kv["LoadState"],
 		Active:    kv["ActiveState"],

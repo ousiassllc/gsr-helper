@@ -1,4 +1,4 @@
-package runner
+package systemd
 
 import (
 	"context"
@@ -13,7 +13,7 @@ import (
 )
 
 // docs/api/external-interfaces.md に記載された発行コマンド。記載と 1 文字も変えずに
-// 持ち、ScanUnits が仕様どおりのコマンドを出すことを突き合わせる
+// 持ち、Scan が仕様どおりのコマンドを出すことを突き合わせる
 // （ユニットパターンの引用符は仕様書のシェル表記なので取り除いてある）。
 //
 // これは仕様書の内容を写した定数であり、md を読んではいない。実装側が仕様から
@@ -62,10 +62,10 @@ func showCalls(calls []exec.Call) []string {
 
 var twoUnits = []string{"actions.runner.myorg.a.service", "actions.runner.myorg.b.service"}
 
-func TestScanUnitsIssuesDocumentedCommands(t *testing.T) {
+func TestScanIssuesDocumentedCommands(t *testing.T) {
 	f := fakeSystemctl(twoUnits, twoUnits...)
 
-	if _, warns := ScanUnits(context.Background(), f); len(warns) != 0 {
+	if _, warns := Scan(context.Background(), f); len(warns) != 0 {
 		t.Fatalf("warns = %v", warns)
 	}
 	calls := f.Calls()
@@ -82,27 +82,27 @@ func TestScanUnitsIssuesDocumentedCommands(t *testing.T) {
 }
 
 // systemctl を呼べない・呼んでも進まない縮退経路。
-func TestScanUnitsDegraded(t *testing.T) {
+func TestScanDegraded(t *testing.T) {
 	// systemctl が無い環境。3 秒ポーリングで同じ警告が積まれるため警告も出さない。
-	if states, warns := ScanUnits(context.Background(), nil); states != nil || warns != nil {
+	if states, warns := Scan(context.Background(), nil); states != nil || warns != nil {
 		t.Errorf("Executor 無し = (%v, %v), want (nil, nil)", states, warns)
 	}
 	// ユニットが 1 件も無ければ show を発行しない。
 	f := fakeSystemctl(nil)
-	if states, warns := ScanUnits(context.Background(), f); len(states) != 0 || warns != nil || len(f.Calls()) != 1 {
+	if states, warns := Scan(context.Background(), f); len(states) != 0 || warns != nil || len(f.Calls()) != 1 {
 		t.Errorf("ユニット 0 件 = (%v, %v)、呼び出し %d 回, want (空, nil)、1 回", states, warns, len(f.Calls()))
 	}
 	// キャンセル済みなら list-units の失敗として警告 1 件になる（panic しない）。
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if states, warns := ScanUnits(ctx, fakeSystemctl(twoUnits[:1])); states != nil || len(warns) != 1 {
+	if states, warns := Scan(ctx, fakeSystemctl(twoUnits[:1])); states != nil || len(warns) != 1 {
 		t.Errorf("キャンセル済み = (%v, %v), want (nil, 警告 1 件)", states, warns)
 	}
 }
 
 // list-units の成功後にキャンセルされた場合、残りの show を発行しないこと。
 // 発行してしまうとユニット数と同じ件数の「キャンセルされました」警告が積まれる。
-func TestScanUnitsCanceledAfterListUnits(t *testing.T) {
+func TestScanCanceledAfterListUnits(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	f := exec.NewFake()
@@ -114,7 +114,7 @@ func TestScanUnitsCanceledAfterListUnits(t *testing.T) {
 		return exec.Result{Stdout: []byte("Id=" + args[1] + "\n")}, nil
 	})
 
-	states, warns := ScanUnits(ctx, f)
+	states, warns := Scan(ctx, f)
 	shows := len(f.Calls()) - 1
 	if shows >= len(twoUnits) || len(states) >= len(twoUnits) || len(warns) >= len(twoUnits) {
 		t.Errorf("show %d 件 / states %d 件 / warns %d 件, want いずれも %d 件未満",
@@ -122,7 +122,7 @@ func TestScanUnitsCanceledAfterListUnits(t *testing.T) {
 	}
 }
 
-func TestScanUnitsListUnitsFailure(t *testing.T) {
+func TestScanListUnitsFailure(t *testing.T) {
 	tests := []struct {
 		name string
 		res  exec.Result
@@ -137,7 +137,7 @@ func TestScanUnitsListUnitsFailure(t *testing.T) {
 			f := exec.NewFake()
 			f.Push(tt.res, tt.err)
 
-			states, warns := ScanUnits(context.Background(), f)
+			states, warns := Scan(context.Background(), f)
 			if states != nil || len(warns) != 1 || len(f.Calls()) != 1 {
 				t.Errorf("got (%v, %v)、呼び出し %d 回, want (nil, 警告 1 件)、1 回（show を発行しない）",
 					states, warns, len(f.Calls()))
@@ -146,7 +146,7 @@ func TestScanUnitsListUnitsFailure(t *testing.T) {
 	}
 }
 
-func TestScanUnitsShowFailure(t *testing.T) {
+func TestScanShowFailure(t *testing.T) {
 	tests := []struct {
 		name      string
 		okUnits   []string
@@ -157,16 +157,16 @@ func TestScanUnitsShowFailure(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			states, warns := ScanUnits(context.Background(), fakeSystemctl(twoUnits, tt.okUnits...))
+			states, warns := Scan(context.Background(), fakeSystemctl(twoUnits, tt.okUnits...))
 			if len(warns) != tt.wantWarns || len(states) != len(twoUnits) {
 				t.Fatalf("warns = %v（want %d 件）, states = %v（want %d 件）",
 					warns, tt.wantWarns, states, len(twoUnits))
 			}
 			for i, u := range twoUnits {
 				// 失敗したユニットはユニット名だけのプレースホルダとして残す（孤児判定に必要）。
-				want := SvcState{Unit: u}
+				want := State{Unit: u}
 				if slices.Contains(tt.okUnits, u) {
-					want = SvcState{Unit: u, Load: "loaded", Active: "active"}
+					want = State{Unit: u, Load: "loaded", Active: "active"}
 				}
 				if states[i] != want {
 					t.Errorf("states[%d] = %+v, want %+v", i, states[i], want)
@@ -176,14 +176,14 @@ func TestScanUnitsShowFailure(t *testing.T) {
 	}
 }
 
-func TestScanUnitsMoreThanConcurrencyLimit(t *testing.T) {
+func TestScanMoreThanConcurrencyLimit(t *testing.T) {
 	units := make([]string, 0, 20)
 	for i := range 20 {
 		units = append(units, "actions.runner.myorg.host-"+strconv.Itoa(i)+".service")
 	}
 	f := fakeSystemctl(units, units...)
 
-	states, warns := ScanUnits(context.Background(), f)
+	states, warns := Scan(context.Background(), f)
 	if len(warns) != 0 || len(states) != len(units) || len(f.Calls()) != 1+len(units) {
 		t.Fatalf("warns = %v, states = %d 件, 呼び出し %d 回, want (nil, %d 件, %d 回)",
 			warns, len(states), len(f.Calls()), len(units), 1+len(units))
