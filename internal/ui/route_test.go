@@ -7,6 +7,7 @@ import (
 
 	"github.com/ousiassllc/gsr-helper/internal/exec"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
 )
 
 // domainResult は page が発行したドメイン呼び出しの結果に相当するテスト用の Msg。
@@ -56,9 +57,9 @@ func TestTabMsgForDeadTabIsDropped(t *testing.T) {
 }
 
 // received は spy が受け取った domainResult を並び順に返す。
-func received(s *spy) []domainResult {
-	out := make([]domainResult, 0, len(s.msgs))
-	for _, m := range s.msgs {
+func received(s *pagetest.Spy) []domainResult {
+	out := make([]domainResult, 0, len(s.Msgs()))
+	for _, m := range s.Msgs() {
 		if r, ok := m.(domainResult); ok {
 			out = append(out, r)
 		}
@@ -83,10 +84,10 @@ func TestStateCarriesExecutorToEveryTab(t *testing.T) {
 	a, _ = update(a, tea.WindowSizeMsg{Width: 100, Height: 30})
 
 	for i, s := range spies {
-		if len(s.states) == 0 {
+		if len(s.States()) == 0 {
 			t.Fatalf("タブ %d に共有状態が配られていない", i)
 		}
-		if got := s.states[len(s.states)-1].Exec; got != fake {
+		if got := s.States()[len(s.States())-1].Exec; got != fake {
 			t.Errorf("タブ %d が受け取った Executor = %v, want 起動時のもの", i, got)
 		}
 	}

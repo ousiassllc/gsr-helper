@@ -8,6 +8,7 @@ import (
 
 	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/runners"
 	"github.com/ousiassllc/gsr-helper/internal/ui/token"
 )
@@ -254,14 +255,13 @@ func TestListHintsUseSameKeyNotationAsDetail(t *testing.T) {
 // 表示されていた行であり、注意記号もそれで付いていた。管理状態が分からない方が
 // 直起動と分かっているより要注意なので、記号を落としてはならない。
 func TestUnavailableManagedRowIsWarned(t *testing.T) {
+	r := pagetest.UnavailableRunner()
 	st := testState(80, 16)
-	r := sampleRunner("build01-9", false)
-	r.UnitName, r.Svc, r.Managed = "", nil, runner.ManagedUnavailable
 	st.Result = runner.Result{Runners: []runner.Runner{r}, OrphanUnits: nil, Warnings: nil}
 
 	m, _ := runners.New(0, st).Update(st)
 	for _, line := range strings.Split(m.View().Content, "\n") {
-		if !strings.Contains(line, "build01-9") {
+		if !strings.Contains(line, r.Config.AgentName) {
 			continue
 		}
 		if !strings.Contains(line, token.IconWarn) {
