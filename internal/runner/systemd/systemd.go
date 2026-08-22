@@ -8,6 +8,7 @@ package systemd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strconv"
@@ -24,6 +25,15 @@ const unitPattern = "actions.runner.*"
 // showConcurrency は systemctl show の同時実行数の上限。想定台数（20 台程度）を
 // 3 秒ごとに参照するため直列では遅く、一方でプロセス生成は無制限に増やさない。
 const showConcurrency = 8
+
+// ErrListUnits は systemctl list-units 自体が失敗し、ユニットの一覧が得られな
+// かったことを表す。
+//
+// Scan の警告は 1 ユニットの状態が取れなかった場合にも返るため、警告の有無だけでは
+// 一覧そのものが取れたかを判断できない。一覧が取れていないことは「ユニットが
+// 1 件も無い」と区別しなければならず（区別しないと systemd 管理の runner が
+// run.sh 直起動に見える）、呼び出し側が errors.Is で判別できるようにする。
+var ErrListUnits = errors.New("systemctl list-units の実行に失敗しました")
 
 // State は systemd ユニットの状態。
 type State struct {
@@ -55,7 +65,10 @@ func (s State) Label() string {
 // 可否は起動時に 1 回判定した Caps としてヘッダに出る。
 //
 // 警告は失敗したユニット単位に返す。1 ユニットの取得失敗で全体を止めず、
-// 取れた分だけで一覧と孤児ユニットの判定を続ける。
+// 取れた分だけで一覧と孤児ユニットの判定を続ける。ただし list-units 自体が失敗した
+// 場合は一覧が無いため ErrListUnits を包んだ警告 1 件だけを返す。呼び出し側は
+// これを errors.Is で見分け、「ユニットが 0 件」と「一覧が取れていない」を
+// 混同しないこと。
 //
 // 呼び出し側は deadline 付きの ctx を渡すこと。1 コマンドのタイムアウトは exec が
 // 課すが、show は showConcurrency 件ずつのバッチで発行するため、全体の所要時間は
@@ -71,7 +84,7 @@ func Scan(ctx context.Context, ex exec.Executor) ([]State, []error) {
 		"list-units", "--type=service", "--all", "--plain", "--no-legend", "--no-pager",
 		unitPattern)
 	if ferr := runFailure(res, err); ferr != nil {
-		return nil, []error{fmt.Errorf("systemctl list-units の実行に失敗しました: %w", ferr)}
+		return nil, []error{fmt.Errorf("%w: %w", ErrListUnits, ferr)}
 	}
 
 	units := parseListUnits(string(res.Stdout))

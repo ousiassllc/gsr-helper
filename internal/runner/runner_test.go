@@ -119,7 +119,7 @@ func TestKindStrings(t *testing.T) {
 		want string
 	}{
 		{ManagedSystemd, "systemd"}, {ManagedStandalone, "run.sh"},
-		{ManagedUnknown, "-"}, {ManagedBy(99), "-"},
+		{ManagedUnknown, "-"}, {ManagedBy(99), "-"}, {ManagedUnavailable, "?"},
 		{ProcListener, "Runner.Listener"}, {ProcWorker, "Runner.Worker"}, {ProcKind(99), "unknown"},
 	}
 	for _, tt := range tests {

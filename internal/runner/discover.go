@@ -2,7 +2,9 @@ package runner
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"slices"
 	"sort"
 
 	"github.com/ousiassllc/gsr-helper/internal/exec"
@@ -61,6 +63,13 @@ func Discover(ctx context.Context, opts Options) Result {
 	// WorkingDirectory 経由の照合は先着優先なので、ユニット名で並べて
 	// 紐付け結果と孤児ユニットの順序を決定的にする。
 	sort.Slice(units, func(i, j int) bool { return units[i].Unit < units[j].Unit })
+	// unitsListed は systemd のユニット一覧が取れたか。Executor が無い（systemctl が
+	// 無い環境での縮退）か list-units 自体が失敗した場合は、ユニットが紐付かない
+	// ことを「登録されていない」と読み替えられない。1 ユニットの show 失敗は一覧は
+	// 取れているので含めない（ErrListUnits で区別する）。
+	unitsListed := opts.Exec != nil && !slices.ContainsFunc(warns, func(e error) bool {
+		return errors.Is(e, systemd.ErrListUnits)
+	})
 
 	dirs := collectDirs(opts, running, units)
 
@@ -87,7 +96,9 @@ func Discover(ctx context.Context, opts Options) Result {
 		})
 	}
 
-	res.OrphanUnits = attach(runners, running, units)
+	orphans, attachWarns := attach(runners, running, units, unitsListed)
+	res.OrphanUnits = orphans
+	res.Warnings = append(res.Warnings, attachWarns...)
 
 	// 実行ユーザーは紐付け後に決める。attach を 3 引数の純粋関数に保つため、
 	// ユーザー名の解決（NSS 参照）はここに置く。
@@ -102,10 +113,14 @@ func Discover(ctx context.Context, opts Options) Result {
 }
 
 // attach は runner にプロセスと systemd ユニットを紐付け、対応する runner が
-// 見つからなかったユニットを返す。
+// 見つからなかったユニット（FR-05 の孤児）と、紐付けなかったユニットについての
+// 警告を返す。
 // Runner.Dir と procs.Process.Dir / systemd.State.WorkingDir は正規化済みであることを
 // 前提とする。
-func attach(runners []Runner, running []procs.Process, units []systemd.State) []systemd.State {
+// unitsListed は systemd のユニット一覧が取れたかどうかで、起動方式の判定に渡す。
+func attach(runners []Runner, running []procs.Process, units []systemd.State,
+	unitsListed bool,
+) ([]systemd.State, []error) {
 	byDir := make(map[string]*Runner, len(runners))
 	byUnit := make(map[string]*Runner, len(runners))
 	for i := range runners {
@@ -131,16 +146,16 @@ func attach(runners []Runner, running []procs.Process, units []systemd.State) []
 		}
 	}
 
-	orphans := attachUnits(byUnit, byDir, units)
+	orphans, warns := attachUnits(byUnit, byDir, units)
 
 	for i := range runners {
 		// Worker の順序は /proc の読み取り順（辞書順なので "10" < "9"）に依存する。
 		// 表示とジョブ経過時間を再現可能にするため PID 昇順に整える。
 		workers := runners[i].Workers
 		sort.Slice(workers, func(a, b int) bool { return workers[a].PID < workers[b].PID })
-		runners[i].Managed = managedBy(runners[i])
+		runners[i].Managed = managedBy(runners[i], unitsListed)
 	}
-	return orphans
+	return orphans, warns
 }
 
 // attachListener は Listener を紐付ける。再起動の途中などで複数見えた場合は
@@ -153,23 +168,45 @@ func attachListener(r *Runner, p procs.Process) {
 	r.Listener = &proc
 }
 
-// attachUnits はユニットを runner に紐付け、孤児ユニットを返す。
+// loadNotFound は systemd にユニットの実体が無いことを表す LoadState の値。
+// svc.sh uninstall 後に参照だけが残っている場合、list-units --all はこの状態の
+// ユニットを返す。
+const loadNotFound = "not-found"
+
+// attachUnits はユニットを runner に紐付け、孤児ユニットと警告を返す。
 // UnitName（.service ファイル）を第一、WorkingDirectory を第二の照合キーと
 // するため 2 パスに分ける。1 パスで回すと、あるユニットの WorkingDirectory 一致が
 // 別のユニットの UnitName 一致を上書きしうる。
-func attachUnits(byUnit, byDir map[string]*Runner, units []systemd.State) []systemd.State {
-	matched := make([]bool, len(units))
+func attachUnits(byUnit, byDir map[string]*Runner, units []systemd.State) ([]systemd.State, []error) {
+	var warns []error
+	// handled は扱いの決まったユニット。紐付けたものと、実体が無いため紐付けないと
+	// 決めたものの両方を立てて、第二パスの対象から外す。
+	handled := make([]bool, len(units))
 	for i, u := range units {
+		if u.Load == loadNotFound {
+			// 実体の無いユニットはどちらの照合キーでも紐付けない。紐付けると
+			// svc.sh uninstall 済みの runner が systemd 管理として表示され、
+			// 存在しないユニットに対してサービス制御を提示してしまう
+			// （RunAsUser の解決も同じ理由で not-found を除いている）。
+			// 対応する runner ディレクトリが無いわけではないので FR-05 の孤児
+			// にもせず、残骸が黙って消えないよう警告として出す。
+			handled[i] = true
+			warns = append(warns, fmt.Errorf(
+				"%s: systemd にユニットの実体がありません（LoadState=%s）。"+
+					"svc.sh uninstall 後に参照だけが残っている可能性があります",
+				u.Unit, loadNotFound))
+			continue
+		}
 		if r, ok := byUnit[u.Unit]; ok {
 			st := u
 			r.Svc = &st
-			matched[i] = true
+			handled[i] = true
 		}
 	}
 
 	var orphans []systemd.State
 	for i, u := range units {
-		if matched[i] {
+		if handled[i] {
 			continue
 		}
 		if u.Load == "" {
@@ -187,13 +224,20 @@ func attachUnits(byUnit, byDir map[string]*Runner, units []systemd.State) []syst
 		}
 		if r.Svc != nil {
 			// 同じ runner を指すユニットが複数あるだけ。ディレクトリは
-			// 見つかっているので FR-05 の孤児（対応ディレクトリなし）ではない。
+			// 見つかっているので FR-05 の孤児（対応ディレクトリなし）ではないが、
+			// 黙って落とすと重複した・古いユニットファイルが UI から見えなく
+			// なるため警告として出す。
+			warns = append(warns, fmt.Errorf(
+				"%s: runner ディレクトリ %s には既にユニット %s が紐付いているため"+
+					"無視します。重複した、または古いユニットファイルが残っている"+
+					"可能性があります",
+				u.Unit, u.WorkingDir, r.Svc.Unit))
 			continue
 		}
 		st := u
 		r.Svc = &st
 	}
-	return orphans
+	return orphans, warns
 }
 
 // sortRunners はスコープ→名前の順に並べる。

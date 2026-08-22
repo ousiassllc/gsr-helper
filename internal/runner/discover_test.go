@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -80,6 +81,66 @@ func TestDiscover(t *testing.T) {
 	}
 	if len(warns) != 2 {
 		t.Errorf("Warnings = %q, want 2 件", warns)
+	}
+}
+
+// systemd のユニット一覧が取れたかどうかが起動方式の判定まで伝わること。
+// 取れていないのに「ユニットが無い」と読み替えると、systemd 管理の runner が
+// run.sh 直起動や未稼働として表示される（FR-03 の「ユニットが無く」を確認できて
+// いない）。稼働プロセスは実 /proc 由来で作れないため、ここでは一覧の可否が
+// managedBy まで届くことを見る。
+func TestDiscoverManagedWhenUnitsNotListed(t *testing.T) {
+	base := normalizeDir(t.TempDir())
+	dir := mkRunner(t, filepath.Join(base, "r1"))
+
+	// list-units 自体が失敗する Executor。ユニットの有無が分からない。
+	listFails := exec.NewFake()
+	listFails.SetFunc(func(_ string, _ []string) (exec.Result, error) {
+		return exec.Result{ExitCode: 1}, errors.New("systemctl が見つかりません")
+	})
+	// 一覧は取れて 0 件。ユニットが無いと確認できている。
+	noUnits := exec.NewFake()
+	noUnits.SetFunc(func(_ string, _ []string) (exec.Result, error) {
+		return exec.Result{}, nil
+	})
+	// 一覧は取れるが 1 ユニットの show が失敗する。一覧自体は取れている。
+	showFails := exec.NewFake()
+	showFails.SetFunc(func(_ string, args []string) (exec.Result, error) {
+		if args[0] == "list-units" {
+			return exec.Result{Stdout: []byte(listOutput(orphanA))}, nil
+		}
+		return exec.Result{ExitCode: 1}, errors.New("ユニットが見つかりません")
+	})
+
+	tests := []struct {
+		name string
+		ex   exec.Executor
+		want ManagedBy
+	}{
+		{"Executor が無い（systemctl が無い環境の縮退）", nil, ManagedUnavailable},
+		{"list-units が失敗", listFails, ManagedUnavailable},
+		{"list-units が成功しユニット 0 件", noUnits, ManagedUnknown},
+		// show の失敗は 1 ユニットの状態が不明なだけ。従来どおりの判定を保つ。
+		{"list-units は成功し show が失敗", showFails, ManagedUnknown},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			res := Discover(context.Background(), Options{Roots: []string{base}, Exec: tt.ex})
+
+			var got []ManagedBy
+			for _, r := range res.Runners {
+				if r.Dir == dir {
+					got = append(got, r.Managed)
+				}
+			}
+			if len(got) != 1 || got[0] != tt.want {
+				t.Errorf("%s の Managed = %v, want [%v]", dir, got, tt.want)
+			}
+			// show 失敗のユニットは孤児にしない（従来どおり）。
+			if len(res.OrphanUnits) != 0 {
+				t.Errorf("孤児 = %q, want 0 件", unitNames(res.OrphanUnits))
+			}
+		})
 	}
 }
 

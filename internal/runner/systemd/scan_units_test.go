@@ -146,6 +146,24 @@ func TestScanListUnitsFailure(t *testing.T) {
 	}
 }
 
+// 一覧が取れなかったこと（ErrListUnits）と 1 ユニットの状態が取れなかったことを
+// 呼び出し側が見分けられること。混同すると systemd 管理の runner が
+// 「ユニットが無い」= run.sh 直起動として扱われる。
+func TestScanErrListUnits(t *testing.T) {
+	f := exec.NewFake()
+	f.Push(exec.Result{ExitCode: 1}, errors.New("systemctl が見つかりません"))
+	_, warns := Scan(context.Background(), f)
+	if len(warns) != 1 || !errors.Is(warns[0], ErrListUnits) {
+		t.Fatalf("list-units 失敗の警告 = %v, want ErrListUnits を包む 1 件", warns)
+	}
+
+	// show の失敗は 1 ユニットの状態が不明なだけで、一覧は取れている。
+	_, warns = Scan(context.Background(), fakeSystemctl(twoUnits[:1]))
+	if len(warns) != 1 || errors.Is(warns[0], ErrListUnits) {
+		t.Fatalf("show 失敗の警告 = %v, want ErrListUnits を包まない 1 件", warns)
+	}
+}
+
 func TestScanShowFailure(t *testing.T) {
 	tests := []struct {
 		name      string
