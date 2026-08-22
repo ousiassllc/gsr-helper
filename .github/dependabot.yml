@@ -1,0 +1,9 @@
+version: 2
+
+updates:
+  # ワークフローのアクションはフルコミット SHA でピン留めしているため、
+  # 新しい版への追従は Dependabot に任せる（人手ではタグの移動を追えない）。
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
