@@ -37,7 +37,7 @@ type Model struct {
 	// actions はキー定義から 1 度だけ組んだ操作の表。描画のたびに組み直さない
 	// （action.Set の doc）。
 	actions action.Set
-	// initCmd はモーダルを登録したときに返った Cmd。Init で親へ渡す。
+	// initCmd はモーダルを登録したときに返った Cmd。最初の共有状態で流し、nil に落とす。
 	initCmd tea.Cmd
 }
 
@@ -61,8 +61,9 @@ func New(tab int, st page.StateMsg) Model {
 	}
 }
 
-// Init は登録したモーダルが返した Cmd を返す（runners.go と同じ理由）。
-func (m Model) Init() tea.Cmd { return m.initCmd }
+// Init は何も発行しない。親はタブの Init を呼ばないため、登録が返した Cmd は
+// 最初の page.StateMsg で流す（runners.go の Init と同じ理由）。
+func (m Model) Init() tea.Cmd { return nil }
 
 // Update は共有状態の反映とキー入力の解釈を行う。
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -102,7 +103,14 @@ func (m Model) setState(st page.StateMsg) (tea.Model, tea.Cmd) {
 	m.tbl.SetItems(sectionJobs, jobRows(st.Result.Runners))
 	// モーダルが返す Cmd も親へ渡す（runners.go と同じ理由）。
 	cmd := m.overlay.SetState(st)
-	return m, tea.Batch(m.chrome(), cmd)
+	return m, tea.Batch(m.chrome(), m.flushInit(), cmd)
+}
+
+// flushInit は登録が返した Cmd を 1 度だけ返す（runners.go と同じ理由）。
+func (m *Model) flushInit() tea.Cmd {
+	cmd := m.initCmd
+	m.initCmd = nil
+	return cmd
 }
 
 // forward はキー以外の Msg を配る。宛先の判定は page.Overlay.Handles に任せる

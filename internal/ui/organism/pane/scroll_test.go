@@ -58,10 +58,19 @@ func TestHelpOffsetRoundsByHeight(t *testing.T) {
 		t.Fatal("末尾へ丸めた位置が 0 である")
 	}
 
-	// 幅を狭めると行数が増えるが、位置は収まる範囲に保たれる。
-	h.SetSize(40, 3)
-	if got := h.Offset(); got < 0 {
-		t.Errorf("高さを縮めた後の位置 = %d, want 0 以上", got)
+	// 高さを変えると上限も変わる。末尾に居た位置は新しい上限へ丸められる。
+	// 丸めないと View が範囲外を切り出し、「何も出ない空のヘルプ」になる。
+	h.SetSize(40, 8)
+	got := h.Offset()
+
+	// 上限そのものは外から読めないため、超過を指定した丸め結果で測る。
+	h.SetOffset(9999)
+	limit := h.Offset()
+	if limit >= top {
+		t.Fatalf("高さを広げても上限が下がっていない（%d → %d。前提が崩れている）", top, limit)
+	}
+	if got != limit {
+		t.Errorf("高さを変えた後の位置 = %d, want 新しい上限 %d", got, limit)
 	}
 }
 

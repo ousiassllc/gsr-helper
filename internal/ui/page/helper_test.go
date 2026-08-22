@@ -6,6 +6,9 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/ousiassllc/gsr-helper/internal/appconfig"
+	"github.com/ousiassllc/gsr-helper/internal/exec"
+	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/ui/atom"
 	"github.com/ousiassllc/gsr-helper/internal/ui/keymap"
 	"github.com/ousiassllc/gsr-helper/internal/ui/token"
@@ -41,13 +44,26 @@ func testKeys() keymap.Set { return keymap.New() }
 // testTab は検証で使うタブ番号。0 以外にして、配られる番号が既定値でないことを見る。
 const testTab = 2
 
+// testRunnerDir は共有状態に載せる runner の同一性。中身が配られたことを見るための値。
+const testRunnerDir = "/opt/runners/build01-1"
+
 // state は本体の領域だけを指定した共有状態を返す。
 //
 // 領域を配る唯一の経路は SetState である（Overlay は SetSize を持たない。
 // 持たせても次の共有状態で黙って巻き戻る）。
+//
+// **配色とキー定義以外（Result / Caps / Exec）も埋める。** 空にすると、共有状態の
+// 一部だけを配る実装（Issue #32 以前の StateMsg{Keys, Styles}）でも検証が通る。
 func state(w, h int) StateMsg {
 	return StateMsg{
-		Keys: testKeys(), Styles: testStyles(), Dark: true, BodyW: w, BodyH: h,
+		Result: runner.Result{Runners: []runner.Runner{{Dir: testRunnerDir}}},
+		Caps:   appconfig.Caps{Systemd: true, SudoUser: "ousiass"},
+		Exec:   exec.NewFake(),
+		Keys:   testKeys(),
+		Styles: testStyles(),
+		Dark:   true,
+		BodyW:  w,
+		BodyH:  h,
 	}
 }
 
@@ -60,10 +76,13 @@ type stubModal struct {
 	keys   []string
 	msgs   []tea.Msg // キー・共有状態・大きさ・タブ番号以外に届いた Msg
 	states int
-	sizes  int // 受け取った SizeMsg の回数（変化時のみ配られることを見る）
-	size   SizeMsg
-	tab    int  // AttachMsg で受け取ったタブ番号
-	back   bool // esc を自分で解釈するか（Modal.HandlesBack が返す値）
+	// state は最後に受け取った共有状態。**中身を保つ**のは、件数だけを数えると
+	// 一部のフィールドしか配らない実装でも検証が通るためである（Issue #32）。
+	state StateMsg
+	sizes int // 受け取った SizeMsg の回数（変化時のみ配られることを見る）
+	size  SizeMsg
+	tab   int  // AttachMsg で受け取ったタブ番号
+	back  bool // esc を自分で解釈するか（Modal.HandlesBack が返す値）
 }
 
 // stubEcho は stubModal が受け取った Msg をそのまま返す Cmd の結果。
@@ -77,7 +96,7 @@ var _ tea.Model = (*stubModal)(nil)
 // newStub は本文を持つモーダルを組み立てる。
 func newStub(body string) Modal {
 	m := &stubModal{
-		body: body, keys: nil, msgs: nil, states: 0, sizes: 0,
+		body: body, keys: nil, msgs: nil, states: 0, state: StateMsg{}, sizes: 0,
 		size: SizeMsg{W: 0, H: 0}, tab: -1, back: false,
 	}
 	return Modal{
@@ -101,6 +120,7 @@ func (m *stubModal) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.keys = append(m.keys, msg.String())
 	case StateMsg:
 		m.states++
+		m.state = msg
 	case SizeMsg:
 		m.size = msg
 		m.sizes++

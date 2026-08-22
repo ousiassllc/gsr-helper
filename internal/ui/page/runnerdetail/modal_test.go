@@ -98,3 +98,50 @@ func TestChosenWithUnknownIDIsIgnored(t *testing.T) {
 		t.Error("解けない識別子の決定が page へ差し戻されている")
 	}
 }
+
+// 詳細画面が内側で発行した Cmd の結果は、この詳細画面へ戻るように包まれる。
+//
+// 包まないと結果は「そのとき選択中のタブの最上位のモーダル」へ配られる。操作リストの
+// 決定（organism.ChosenMsg）は上の case が受ける前提であり、確認モーダルを重ねた後や
+// タブを切り替えた後に届くと宛先を失って捨てられる（Issue #26 が塞いだ経路）。
+//
+// この版の操作はすべて未対応で決定に到達しないため、実行できる項目を直に置いて
+// default 分岐（キーを詳細画面へ渡す経路）を通す。
+func TestDetailCmdIsAddressedBackToDetail(t *testing.T) {
+	m := modal{tab: testTab, detail: newModel(pagetest.Keys(), pagetest.Styles())}
+	m.detail.list.SetItems([]organism.Choice{{
+		ID: action.Start.String(), Key: "s", Desc: "開始", Enabled: true,
+	}}, organism.ResetCursor)
+
+	// どの項目にも当たらないキーでは何も発行しない（nil を包まない）。
+	if _, cmd := m.Update(pagetest.Press("z")); cmd != nil {
+		t.Errorf("何も選ばれていないのに Cmd が発行されている（%T）", cmd())
+	}
+
+	_, cmd := m.Update(pagetest.Press("s"))
+	if cmd == nil {
+		t.Fatal("操作リストが返した Cmd が捨てられている")
+	}
+
+	tabbed, ok := cmd().(page.TabMsg)
+	if !ok {
+		t.Fatalf("包み = %T, want page.TabMsg（タブ番号が載っていない）", cmd())
+	}
+	if tabbed.Tab != testTab {
+		t.Errorf("差し戻し先のタブ = %d, want %d", tabbed.Tab, testTab)
+	}
+	to, ok := tabbed.Msg.(page.ModalMsg)
+	if !ok {
+		t.Fatalf("包まれた Msg = %T, want page.ModalMsg（宛先が無い）", tabbed.Msg)
+	}
+	if to.Kind != Kind {
+		t.Errorf("宛先の種類 = %q, want %q", to.Kind, Kind)
+	}
+	got, isChosen := to.Msg.(organism.ChosenMsg)
+	if !isChosen {
+		t.Fatalf("届く Msg = %T, want organism.ChosenMsg", to.Msg)
+	}
+	if got.ID != action.Start.String() {
+		t.Errorf("届く決定の ID = %q, want %q", got.ID, action.Start.String())
+	}
+}

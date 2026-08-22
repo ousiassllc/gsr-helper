@@ -184,6 +184,10 @@ func TestOverlaySetStateReachesOpenModalsOnly(t *testing.T) {
 }
 
 // 起動後に遅延登録したモーダルは、登録した時点で最新の共有状態と領域を受け取る。
+//
+// **中身まで見る。** 件数だけを数えると、配るのが StateMsg{Keys, Styles} だけに
+// 退行しても検証が通り、遅延登録したモーダルが Result / Caps / Exec を持てない
+// という Issue #32 の症状を見逃す。
 func TestOverlayReplaysStateOnRegister(t *testing.T) {
 	const kindLate ModalKind = "late"
 
@@ -193,13 +197,57 @@ func TestOverlayReplaysStateOnRegister(t *testing.T) {
 
 	late := stubOf(t, o, kindLate)
 	if late.states == 0 {
-		t.Error("遅延登録したモーダルへ共有状態が配られていない")
+		t.Fatal("遅延登録したモーダルへ共有状態が配られていない")
+	}
+	got := late.state
+	if n := len(got.Result.Runners); n != 1 || got.Result.Runners[0].Dir != testRunnerDir {
+		t.Errorf("配られた検出結果 = %+v, want %q 1 台", got.Result, testRunnerDir)
+	}
+	if !got.Caps.Systemd || got.Caps.SudoUser == "" {
+		t.Errorf("配られた能力 = %+v, want 直前の SetState と同じ値", got.Caps)
+	}
+	if got.Exec == nil {
+		t.Error("配られた共有状態に Executor が無い（ドメイン層を呼ぶ道が渡っていない）")
+	}
+	if got.BodyW != 120 || got.BodyH != 40 {
+		t.Errorf("配られた本体領域 = %dx%d, want 120x40", got.BodyW, got.BodyH)
 	}
 	if late.size.W == 0 || late.size.H == 0 {
 		t.Errorf("遅延登録したモーダルの領域 = %+v, want 枠の分を引いた値", late.size)
 	}
 	if late.tab != testTab {
 		t.Errorf("遅延登録したモーダルのタブ番号 = %d, want %d", late.tab, testTab)
+	}
+}
+
+// 寿命の通知は page 本体のものであり、モーダルが開いていても Overlay へ渡さない。
+//
+// 渡すと、モーダルを開いたままタブを切り替えた／終了したときに page が長寿命の
+// 処理を畳む機会を失い、通知はモーダル（最終的に viewport）に飲まれて消える
+// （Issue #41 の契約）。
+func TestOverlayDoesNotHandleLifecycleMsgs(t *testing.T) {
+	o := newOverlay()
+	o.Open(kindFirst, nil)
+	if !o.Active() {
+		t.Fatal("モーダルが開いていない（前提が崩れている）")
+	}
+
+	lifecycle := map[string]tea.Msg{
+		"裏へ回る":  DeactivateMsg{},
+		"前面へ戻る": ActivateMsg{},
+		"終了する":  ShutdownMsg{},
+	}
+	for name, msg := range lifecycle {
+		t.Run(name, func(t *testing.T) {
+			if o.Handles(msg) {
+				t.Errorf("%T が Overlay へ配られている（page 本体に届かない）", msg)
+			}
+		})
+	}
+
+	// 既定（開いていれば渡す）は生きている。上の 3 つだけを外していることを見る。
+	if !o.Handles(struct{}{}) {
+		t.Error("開いているのに既定の Msg が Overlay へ配られない")
 	}
 }
 

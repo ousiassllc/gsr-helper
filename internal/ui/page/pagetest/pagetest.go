@@ -1,10 +1,15 @@
-// Package pagetest は page とタブの実装を検証するための共通の道具を提供する。
+// Package pagetest は page とタブ、そのタブを束ねる親 Model の実装を検証するための
+// 共通の道具を提供する。
 //
 // テストファイル（_test.go）ではなく通常のパッケージに置くのは、タブ 1 枚ごとに
 // パッケージが分かれる（page/<tab>）ため、_test.go に置いた道具を他のパッケージから
 // import できないためである。置かないとタブを足す Issue ごとに共有状態の組み立てと
 // spy を作り直すことになり、検証の前提がタブごとに食い違う。exec.Fake も同じ理由で
 // 通常のパッケージに置いてある。
+//
+// **親 Model（internal/ui）の検証もここから取る。** 親の検証はタブを差し替えて行う
+// ため道具立てが page 側と同じであり、`ui` 直下に置くと行数上限（1 ディレクトリ
+// 2000 行）を押し上げるだけになる（atomic-design.md のディレクトリの行数）。
 //
 // 本番の経路からは import しない。page の内部テスト（package page）からも import
 // できない（このパッケージが page を import するため循環になる）ので、そちらは
@@ -35,6 +40,9 @@ func Press(k string) tea.KeyPressMsg {
 	}
 	if code, ok := special[k]; ok {
 		return tea.KeyPressMsg{Code: code}
+	}
+	if k == "shift+tab" {
+		return tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift}
 	}
 	if rest, ok := strings.CutPrefix(k, "ctrl+"); ok {
 		return tea.KeyPressMsg{Code: rune(rest[0]), Mod: tea.ModCtrl}

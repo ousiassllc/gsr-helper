@@ -78,13 +78,18 @@ func TestActionSetIsBuiltOnce(t *testing.T) {
 	set := NewSet(keys)
 	r, caps := sampleRunner(), fullCaps()
 
-	// 組み済みの表を使う場合と、判定のたびに組み直す場合の確保回数を比べる。
-	// 絶対値で書くと、判定そのものの確保（可変長引数など）の増減で壊れる。
-	reused := testing.AllocsPerRun(100, func() { set.Allowed("x", r, caps) })
-	rebuilt := testing.AllocsPerRun(100, func() { NewSet(keys).Allowed("x", r, caps) })
+	// 組み済みの表を引くだけの判定は 1 度も確保しない。
+	//
+	// 相対比較（組み済み < 組み直し）では退行を検出できない。組み直しの確保回数は
+	// 定義上「組み済みの確保回数 + NewSet の確保回数」であり、Allowed が内部で表を
+	// 組み直すようになっても不等号は成り立ったままだからである。
+	if got := testing.AllocsPerRun(100, func() { set.Allowed("x", r, caps) }); got != 0 {
+		t.Errorf("組み済みの表での確保 = %.0f 回, want 0 回（表が判定のたびに組み直されている）", got)
+	}
 
-	if reused >= rebuilt {
-		t.Errorf("組み済みの表での確保 = %.0f 回, 組み直しでの確保 = %.0f 回"+
-			"（表が描画ごとに組み直されている）", reused, rebuilt)
+	// 表を組む側は確保する。0 回の主張が「そもそも何も確保しない処理」を見ている
+	// だけではないことを確かめる。
+	if got := testing.AllocsPerRun(100, func() { NewSet(keys) }); got == 0 {
+		t.Error("表の組み立てで 1 度も確保していない（前提が崩れている）")
 	}
 }

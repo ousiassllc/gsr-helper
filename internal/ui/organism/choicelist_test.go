@@ -16,14 +16,17 @@ import (
 // detailChoices は詳細画面の操作リストに相当する項目を返す。
 //
 // 区切り線の下に破壊的な操作を置く並びは screens.md の詳細画面に合わせる。
+//
+// **ID はキーと別の綴りにする。** 同じにすると、決定がキー文字列で往復していても
+// 検証が通ってしまう（Issue #34 が塞いだ経路）。
 func detailChoices() []organism.Choice {
 	return []organism.Choice{
-		{Key: "l", Desc: "ログを開く", Enabled: true},
-		{Key: "s", Desc: "開始", Enabled: false, Reason: "稼働中のため不要"},
-		{Key: "d", Desc: "ドレイン停止", Enabled: true},
-		{Key: "X", Desc: "強制停止", Enabled: true, DividerBefore: true,
+		{ID: "logs", Key: "l", Desc: "ログを開く", Enabled: true},
+		{ID: "start", Key: "s", Desc: "開始", Enabled: false, Reason: "稼働中のため不要"},
+		{ID: "drain", Key: "d", Desc: "ドレイン停止", Enabled: true},
+		{ID: "kill", Key: "X", Desc: "強制停止", Enabled: true, DividerBefore: true,
 			Impact: "⚠ 実行中のジョブは中断されます"},
-		{Key: "D", Desc: "削除", Enabled: false, Reason: "ジョブ実行中です"},
+		{ID: "delete", Key: "D", Desc: "削除", Enabled: false, Reason: "ジョブ実行中です"},
 	}
 }
 
@@ -44,18 +47,53 @@ func sendChoice(c organism.ChoiceList, keys ...string) (organism.ChoiceList, tea
 	return c, cmd
 }
 
-// chosenKey は Cmd が返す ChosenMsg のキーを取り出す。
-func chosenKey(t *testing.T, cmd tea.Cmd) (string, bool) {
+// chosen は Cmd が返す ChosenMsg を取り出す。発行されていなければ偽を返す。
+func chosen(t *testing.T, cmd tea.Cmd) (organism.ChosenMsg, bool) {
 	t.Helper()
 
 	if cmd == nil {
-		return "", false
+		return organism.ChosenMsg{}, false
 	}
 	msg, ok := cmd().(organism.ChosenMsg)
 	if !ok {
 		t.Fatalf("ChosenMsg 以外の Msg が返った（%T）", cmd())
 	}
-	return msg.Key, true
+	return msg, true
+}
+
+// 決定には呼び出し側が付けた ID が載る。キー文字列には戻さない。
+//
+// ここが落ちると、受け取った側はキーから操作を引き直すことになり、keymap でキーを
+// 差し替えたときに決定が黙って別の操作へ移る（Issue #34）。カーソルで選ぶ経路と
+// キーを直接打つ経路の両方で見る。
+func TestChoiceListChosenCarriesID(t *testing.T) {
+	items := detailChoices()
+	tests := map[string]struct {
+		keys []string
+		want organism.Choice
+	}{
+		"enter で選ぶ": {[]string{"enter"}, items[0]},
+		"キーを直接打つ":   {[]string{"d"}, items[2]},
+		"区切り線の下":    {[]string{"j", "j", "j", "enter"}, items[3]},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			_, cmd := sendChoice(newChoices(detailChoices()), tt.keys...)
+			got, ok := chosen(t, cmd)
+			if !ok {
+				t.Fatal("ChosenMsg が発行されていない")
+			}
+			if got.ID != tt.want.ID {
+				t.Errorf("決定の ID = %q, want %q", got.ID, tt.want.ID)
+			}
+			if got.ID == got.Key {
+				t.Errorf("決定の ID = %q がキーと同じである（キーで往復している）", got.ID)
+			}
+			if got.Key != tt.want.Key {
+				t.Errorf("決定のキー = %q, want %q", got.Key, tt.want.Key)
+			}
+		})
+	}
 }
 
 // SetItems はカーソルを先頭（安全側）へ戻す。詳細を開き直すたびにリセットする
@@ -111,12 +149,12 @@ func TestChoiceListChosen(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			_, cmd := sendChoice(newChoices(detailChoices()), tt.keys...)
-			key, ok := chosenKey(t, cmd)
+			msg, ok := chosen(t, cmd)
 			if ok != (tt.wantKey != "") {
 				t.Fatalf("ChosenMsg の発行 = %v, want %v", ok, tt.wantKey != "")
 			}
-			if key != tt.wantKey {
-				t.Errorf("選ばれたキー = %q, want %q", key, tt.wantKey)
+			if msg.Key != tt.wantKey {
+				t.Errorf("選ばれたキー = %q, want %q", msg.Key, tt.wantKey)
 			}
 		})
 	}

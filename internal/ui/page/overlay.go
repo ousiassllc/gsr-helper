@@ -145,6 +145,9 @@ func (o Overlay) Active() bool { return len(o.s.stack) > 0 }
 // page の「キー以外を配る」判定をこの 1 つに集める。開閉だけで判断すると、宛先を
 // 明示した ModalMsg が閉じている間に捨てられ、page 宛の決定（ResultMsg）は
 // モーダル自身へ戻って消える。
+//
+// **page 宛と決まっている Msg は明示的に列挙する。** 既定（開いていれば渡す）に
+// 任せると、モーダルを 1 枚でも開いている間だけ page 本体が受け取れなくなる。
 func (o Overlay) Handles(msg tea.Msg) bool {
 	switch msg.(type) {
 	case ModalMsg:
@@ -152,6 +155,11 @@ func (o Overlay) Handles(msg tea.Msg) bool {
 		return true
 	case ResultMsg:
 		// 決定は page が解釈する。戻すと発行元のモーダルへ帰って捨てられる。
+		return false
+	case ActivateMsg, DeactivateMsg, ShutdownMsg:
+		// 寿命の通知は page 本体のものである。渡すと、モーダルを開いたまま
+		// タブを切り替えた／終了したときに page が長寿命の処理を畳む機会を失い、
+		// 通知は中身（最終的に viewport）に飲まれて消える（Issue #41 の契約）。
 		return false
 	default:
 		return o.Active()

@@ -34,7 +34,7 @@ type Model struct {
 	// actions はキー定義から 1 度だけ組んだ操作の表。描画のたびに組み直さない
 	// （action.Set の doc）。
 	actions action.Set
-	// initCmd はモーダルを登録したときに返った Cmd。Init で親へ渡す。
+	// initCmd はモーダルを登録したときに返った Cmd。最初の共有状態で流し、nil に落とす。
 	initCmd tea.Cmd
 }
 
@@ -59,11 +59,19 @@ func New(tab int, st page.StateMsg) Model {
 	}
 }
 
-// Init は登録したモーダルが返した Cmd を返す。
+// Init は何も発行しない。
 //
-// 検出は親が駆動するため自分では発行しない。捨てずに返すのは、登録した時点で
-// 処理を始めるモーダルを取りこぼさないためである（page.Overlay.Register の doc）。
-func (m Model) Init() tea.Cmd { return m.initCmd }
+// **親はタブの Init を呼ばない。** bubbletea が Init を呼ぶのはルート Model
+// （ui.App）だけであり、App.Init は自分の Cmd しか返さない。ここで initCmd を
+// 返してもランタイムには届かず、登録した時点で処理を始めるモーダルは動かない。
+// そこで登録が返した Cmd は最初の page.StateMsg で流す（setState）。共有状態は親が
+// 必ず全有効タブへ配るため、この経路なら確実に届く。
+//
+// 発行点を片方に寄せるのは二重発火を避けるためである。両方で返すと、親が Init を
+// 呼ぶようになった時点で登録の Cmd が 2 度実行される。
+//
+// 検出は親が駆動するため自分では発行しない。
+func (m Model) Init() tea.Cmd { return nil }
 
 // Update は共有状態の反映とキー入力の解釈を行う。
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -116,7 +124,18 @@ func (m Model) setState(st page.StateMsg) (tea.Model, tea.Cmd) {
 	// モーダルが返す Cmd も親へ渡す（開いているモーダルが共有状態を受けて
 	// 何かを始めることがある。捨てるとその処理が動かない）。
 	cmd := m.overlay.SetState(st)
-	return m, tea.Batch(m.chrome(), cmd)
+	return m, tea.Batch(m.chrome(), m.flushInit(), cmd)
+}
+
+// flushInit は登録が返した Cmd を 1 度だけ返す。2 度目からは nil を返す。
+//
+// 親がタブの Init を呼ばない以上、ここが登録の Cmd をランタイムへ渡す唯一の経路で
+// ある（Init の doc）。nil に落とすのは、共有状態が 3 秒ごとに届くため、落とさないと
+// 登録時の処理が周期ごとに再実行されるためである。
+func (m *Model) flushInit() tea.Cmd {
+	cmd := m.initCmd
+	m.initCmd = nil
+	return cmd
 }
 
 // forward はキー以外の Msg を配る。

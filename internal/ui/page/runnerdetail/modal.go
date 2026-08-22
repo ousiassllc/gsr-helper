@@ -107,8 +107,30 @@ func (m modal) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	default:
 		var cmd tea.Cmd
 		m.detail, cmd = m.detail.Update(msg)
-		return m, cmd
+		return m, m.wrap(cmd)
 	}
+}
+
+// wrap は詳細画面が発行した Cmd の結果を、この詳細画面へ戻るように包む。
+//
+// 包まないと結果は「そのとき選択中のタブの最上位のモーダル」へ配られる
+// （page.AttachMsg / page.ModalMsg の doc）。操作リストが返す organism.ChosenMsg は
+// 上の case が受ける前提であり、確認モーダルを重ねた後やタブを切り替えた後に届くと
+// 宛先を失って黙って捨てられる。現状は全操作が page.Action.Supported = false で
+// 到達しないが、操作を実装する Issue が最初に踏む経路である（Issue #26）。
+//
+// **包む相手は詳細画面が自分で発行した Cmd に限る。** bubbletea / bubbles が解釈する
+// Msg（終了・順次実行）を包むとランタイムへ届かなくなる（page.Do の doc）。詳細画面が
+// 内側に持つのは organism.ChoiceList（ChosenMsg のみ）と pane.Detail（bubbles の
+// viewport。Cmd を返さない）で、いずれもランタイム宛の Msg を発行しない。ここへ
+// ランタイム宛の Msg を返す部品を足すときは、その種類だけを包まずに通すこと。
+func (m modal) wrap(cmd tea.Cmd) tea.Cmd {
+	if cmd == nil {
+		return nil
+	}
+	return page.Do(m.tab, func() tea.Msg {
+		return page.ModalMsg{Kind: Kind, Msg: cmd()}
+	})
 }
 
 // View は情報部と操作リストを返す。

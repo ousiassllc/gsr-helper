@@ -1,82 +1,29 @@
 package ui
 
 import (
+	"reflect"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/ousiassllc/gsr-helper/internal/exec"
-	"github.com/ousiassllc/gsr-helper/internal/ui/page"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
 )
 
 // page の寿命の通知（Issue #41）を検証する。裏へ回ったこと・前面に戻ったこと・
 // 終了することが page へ届き、後始末の Cmd が終了より前に流れることを見る。
+//
+// 長寿命の購読を持つ page は pagetest.StreamPage を使う（前面で 1 本張り、裏へ
+// 回ったら畳む）。
 
-// cleanupDoneMsg は後始末の Cmd が実行されたことを表す。
-type cleanupDoneMsg struct{ tab int }
-
-// streamPage は長寿命の購読（journalctl -f のようなストリーム）を持つ page を
-// 模したテスト用の Model。前面に出たら 1 本張り、裏へ回ったら畳む。起動時に
-// 選択されているタブは page.ActivateMsg を受け取らないので 0 本から始める。
-type streamPage struct {
-	tab       int
-	open      int // 開いている購読の本数
-	peak      int // 同時に開いた最大本数（積み上がりの検出に使う）
-	stops     int // 後始末の Cmd が実行された回数
-	shutdowns int // 終了の通知を受けた回数
-}
-
-var _ tea.Model = (*streamPage)(nil)
-
-// newStreamPage は購読をまだ張っていない page を返す。
-func newStreamPage(tab int) *streamPage {
-	return &streamPage{tab: tab, open: 0, peak: 0, stops: 0, shutdowns: 0}
-}
-
-func (s *streamPage) Init() tea.Cmd { return nil }
-
-// Update は寿命の通知で購読を張り直し、キーは親へ差し戻す。
-func (s *streamPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case page.ActivateMsg:
-		s.open++
-		s.peak = max(s.peak, s.open)
-		return s, nil
-	case page.DeactivateMsg:
-		return s, s.close()
-	case page.ShutdownMsg:
-		s.shutdowns++
-		return s, s.close()
-	case tea.KeyPressMsg:
-		return s, page.BubbleKey(msg)
-	default:
-		return s, nil
-	}
-}
-
-func (s *streamPage) View() tea.View { return tea.NewView("stream") }
-
-// close は購読を 1 本畳み、後始末の Cmd を返す。開いていなければ何もしない。
-func (s *streamPage) close() tea.Cmd {
-	if s.open == 0 {
-		return nil
-	}
-	s.open--
-	tab := s.tab
-	return func() tea.Msg {
-		s.stops++
-		return cleanupDoneMsg{tab: tab}
-	}
-}
-
-// withStreams は有効なタブを streamPage に差し替える。
-func withStreams(a App) (App, []*streamPage) {
-	pages := make([]*streamPage, 0, len(a.tabs))
+// withStreams は有効なタブを pagetest.StreamPage に差し替える。
+func withStreams(a App) (App, []*pagetest.StreamPage) {
+	pages := make([]*pagetest.StreamPage, 0, len(a.tabs))
 	for i := range a.tabs {
 		if !a.tabs[i].Enabled {
 			continue
 		}
-		p := newStreamPage(i)
+		p := pagetest.NewStreamPage(i)
 		a.tabs[i].Model = p
 		pages = append(pages, p)
 	}
@@ -97,7 +44,7 @@ func TestTabRoundTripDoesNotAccumulateSubscriptions(t *testing.T) {
 		if a.active != 1 {
 			t.Fatalf("タブ 1 へ移っていない（active = %d）", a.active)
 		}
-		if got := pages[1].open; got != 1 {
+		if got := pages[1].Open; got != 1 {
 			t.Fatalf("前面へ出たタブの購読 = %d 本, want 1", got)
 		}
 		a, _ = sendKey(a, "1")
@@ -106,10 +53,10 @@ func TestTabRoundTripDoesNotAccumulateSubscriptions(t *testing.T) {
 		}
 	}
 
-	if got := pages[1].open; got != 0 {
+	if got := pages[1].Open; got != 0 {
 		t.Errorf("裏のタブの購読 = %d 本, want 0", got)
 	}
-	if got := pages[1].peak; got != 1 {
+	if got := pages[1].Peak; got != 1 {
 		t.Errorf("同時購読の最大 = %d 本, want 1（往復で積み上がっている）", got)
 	}
 }
@@ -120,13 +67,28 @@ func TestQuitRunsPageCleanupBeforeQuit(t *testing.T) {
 
 	// タブ 1 を前面に出して購読を張らせた状態で終了する。
 	a, _ = sendKey(a, "2")
-	if pages[1].open != 1 {
+	if pages[1].Open != 1 {
 		t.Fatal("前面のタブが購読を張っていない（前提が崩れている）")
 	}
 
 	_, cmd := update(a, press("ctrl+c"))
-	steps := cmdList(cmd)
-	if len(steps) < 2 {
+	if cmd == nil {
+		t.Fatal("終了で Cmd が発行されない")
+	}
+
+	// **束ね方そのものを見る。** tea.Batch では後始末と終了が並走し、後始末が
+	// 実行される前にランタイムが止まりうる（page.ShutdownMsg の doc）。中身は
+	// どちらも []tea.Cmd なので、展開して数えるだけでは区別できない。
+	msg := cmd()
+	if _, batch := msg.(tea.BatchMsg); batch {
+		t.Fatal("終了の Cmd が tea.Batch である（後始末が終了と並走する）")
+	}
+	if got := reflect.TypeOf(msg).String(); got != "tea.sequenceMsg" {
+		t.Fatalf("終了の Cmd の Msg = %s, want tea.sequenceMsg（tea.Sequence で束ねる）", got)
+	}
+
+	steps, ok := asCmds(msg)
+	if !ok || len(steps) < 2 {
 		t.Fatalf("終了の Cmd = %d 本, want 後始末と終了の 2 本以上", len(steps))
 	}
 
@@ -138,32 +100,18 @@ func TestQuitRunsPageCleanupBeforeQuit(t *testing.T) {
 
 	// 終了より前の Cmd を流すと、全タブの後始末が実行される。
 	for _, c := range steps[:len(steps)-1] {
-		runAll(c)
+		pagetest.RunAll(c)
 	}
 	// 裏のタブにも通知は届く（畳み損ねた処理をここで確実に閉じられる）。
 	for i, p := range pages {
-		if p.shutdowns != 1 {
-			t.Errorf("タブ %d が受けた終了の通知 = %d 回, want 1", i, p.shutdowns)
+		if p.Shutdowns != 1 {
+			t.Errorf("タブ %d が受けた終了の通知 = %d 回, want 1", i, p.Shutdowns)
 		}
-		if p.open != 0 {
-			t.Errorf("タブ %d の購読 = %d 本, want 0（終了で畳まれていない）", i, p.open)
+		if p.Open != 0 {
+			t.Errorf("タブ %d の購読 = %d 本, want 0（終了で畳まれていない）", i, p.Open)
 		}
 	}
-	if pages[1].stops != 1 {
-		t.Errorf("前面のタブの後始末 = %d 回, want 1", pages[1].stops)
-	}
-}
-
-// runAll は Cmd を 1 度実行し、結果が Cmd の並びならその中身も実行する。
-func runAll(c tea.Cmd) {
-	if c == nil {
-		return
-	}
-	inner, ok := asCmds(c())
-	if !ok {
-		return
-	}
-	for _, ic := range inner {
-		runAll(ic)
+	if pages[1].Stops != 1 {
+		t.Errorf("前面のタブの後始末 = %d 回, want 1", pages[1].Stops)
 	}
 }
