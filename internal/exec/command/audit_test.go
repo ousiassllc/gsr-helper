@@ -246,3 +246,59 @@ func TestCommandRunCallsSecretsProviderOnce(t *testing.T) {
 		t.Errorf("マスク漏れがある: %s", rec.Error)
 	}
 }
+
+// SkipAudit を指定した実行は監査ログに 1 行も出さない。読み取り専用の定期実行
+// （3 秒ごとの再検出）が破壊的操作のレコードを押し流さないための指定である。
+// 起動に失敗した場合も出さない（失敗も 3 秒ごとに積み上がるため）。
+func TestCommandRunSkipAudit(t *testing.T) {
+	name, args := helperCommand()
+
+	tests := []struct {
+		name string
+		run  func(*Command) error
+	}{
+		{"成功する実行", func(c *Command) error {
+			ctx := exec.WithOptions(context.Background(), exec.Options{
+				Action: "runner.discover", Env: helperEnv(), SkipAudit: true,
+			})
+			_, err := c.Run(ctx, name, args...)
+			return err
+		}},
+		{"起動できない実行", func(c *Command) error {
+			ctx := exec.WithOptions(context.Background(), exec.Options{
+				Action: "runner.discover", SkipAudit: true,
+			})
+			_, err := c.Run(ctx, "gsr-helper-no-such-command")
+			if err == nil {
+				return errors.New("起動できないコマンドでエラーを返していない")
+			}
+			return nil
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			c := New(NoSecrets, WithAudit(testLogger(&buf)))
+			if err := tt.run(c); err != nil {
+				t.Fatal(err)
+			}
+			if buf.Len() != 0 {
+				t.Errorf("監査ログに書かれた: %q", buf.String())
+			}
+		})
+	}
+
+	// 既定は記録する側。SkipAudit を指定しない同じ実行は 1 行残る
+	// （記録漏れが既定にならないことを固定する）。
+	var buf bytes.Buffer
+	c := New(NoSecrets, WithAudit(testLogger(&buf)))
+	ctx := exec.WithOptions(context.Background(), exec.Options{
+		Action: "runner.discover", Env: helperEnv(),
+	})
+	if _, err := c.Run(ctx, name, args...); err != nil {
+		t.Fatalf("Run がエラーを返した: %v", err)
+	}
+	if rec := decodeAudit(t, &buf); rec.Action != "runner.discover" {
+		t.Errorf("action = %q, want runner.discover", rec.Action)
+	}
+}

@@ -128,6 +128,9 @@ func (c *Command) secrets() []string {
 // 返り値のエラーは「コマンド自体の成否」だけを表す。非ゼロ終了では *ExitError を
 // 返し（os/exec と同じ流儀）、Result は成否にかかわらず常に埋める。
 //
+// 読み取り専用の定期実行は記録しない（exec.Options.SkipAudit）。既定は記録する側で、
+// 記録しないことは呼び出し側の明示的な指定でしか起きない。
+//
 // 監査記録の失敗は返り値には決して混ぜない。記録できなかっただけで、成功した操作を
 // 失敗として報告してしまうためである。失敗は *AuditError として
 // WithAuditErrorFunc の通知先へ渡し、未設定なら os.Stderr へ 1 行だけ出す
@@ -140,6 +143,13 @@ func (c *Command) Run(ctx context.Context, name string, args ...string) (exec.Re
 	secrets := c.secrets()
 	start := time.Now()
 	res, err := c.execute(ctx, o, name, args, secrets)
+
+	// 記録対象外の実行はレコードを組み立てない（exec.Options.SkipAudit）。
+	// 読み取り専用の定期実行がログを埋め、破壊的操作のレコードを押し流すのを
+	// 防ぐためである。
+	if o.SkipAudit {
+		return res, err
+	}
 
 	rec := audit.Record{
 		Action:     o.Action,

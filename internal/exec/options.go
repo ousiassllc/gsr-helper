@@ -17,6 +17,16 @@ type Options struct {
 	Dir string
 	// Env は追加の環境変数（KEY=VALUE）。既存の環境に足す。
 	Env []string
+	// SkipAudit はこの実行を監査ログに記録しない指定。
+	//
+	// **既定は false（記録する）。** 記録漏れが既定にならないよう、記録しないこと
+	// を呼び出し側の明示的な意思表示に限る。
+	//
+	// 使ってよいのは**利用者の操作を伴わない読み取り専用の定期実行**だけである
+	// （Runners タブの再検出が 3 秒ごとに発行する systemctl list-units / show）。
+	// 破壊的操作（svc.* / runner.* / disk.clean）には決して使わない。理由は
+	// docs/architecture/security.md の「監査ログ」を参照。
+	SkipAudit bool
 }
 
 // optionsKey は Options を ctx に格納するキー。

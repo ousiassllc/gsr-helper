@@ -22,6 +22,10 @@ import (
 // 実際の名前は actions.runner.<scope>.<runner名>.service になる。
 const unitPattern = "actions.runner.*"
 
+// actionDiscover は再検出の実行につける操作の識別子。SkipAudit で記録しないため
+// 監査ログには現れないが、記録する側へ倒したときに正しい値が入るよう明示しておく。
+const actionDiscover = "runner.discover"
+
 // showConcurrency は systemctl show の同時実行数の上限。想定台数（20 台程度）を
 // 3 秒ごとに参照するため直列では遅く、一方でプロセス生成は無制限に増やさない。
 const showConcurrency = 8
@@ -79,6 +83,12 @@ func Scan(ctx context.Context, ex exec.Executor) ([]State, []error) {
 	if ex == nil {
 		return nil, nil
 	}
+
+	// 発行するのは list-units / show だけで、いずれもホストの状態を読むだけの
+	// コマンドである。3 秒ごとの再検出でユニット数ぶん発行されるため、記録すると
+	// 監査ログが読み取りで埋まり、破壊的操作のレコードが押し流される
+	// （docs/architecture/security.md の「監査ログ」）。
+	ctx = exec.WithOptions(ctx, exec.Options{Action: actionDiscover, SkipAudit: true})
 
 	res, err := ex.Run(ctx, "systemctl",
 		"list-units", "--type=service", "--all", "--plain", "--no-legend", "--no-pager",

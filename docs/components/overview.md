@@ -331,6 +331,7 @@ type Executor interface {
 | `Runner` | 監査ログの `runner`。ホスト全体の操作では空 |
 | `Dir` | 作業ディレクトリ。監査ログの `dir` にもこの値を記録する（runner ディレクトリでの `config.sh` 実行に必要） |
 | `Env` | 追加の環境変数（`KEY=VALUE`） |
+| `SkipAudit` | この実行を監査ログに記録しない指定。**既定は偽（記録する）**。使ってよいのは読み取り専用の定期実行だけ（[セキュリティ設計の監査ログ](../architecture/security.md#記録対象外とする読み取り専用の定期実行)） |
 
 `exec.WithOptions(ctx, o)` で載せ、実行側が `exec.OptionsFrom(ctx)` で取り出す。**監査レコードの `action` と `runner` を埋める経路はこれだけである。** 未設定でもエラーにはせず、`action` が空のレコードとして残る（記録漏れにはしない）。
 

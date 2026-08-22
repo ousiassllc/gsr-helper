@@ -215,3 +215,28 @@ func TestScanMoreThanConcurrencyLimit(t *testing.T) {
 		}
 	}
 }
+
+// Scan が発行する list-units / show は読み取り専用の定期実行なので、監査ログの
+// 記録対象外として発行される。1 本でも記録される経路が残ると、3 秒ごとの再検出で
+// 破壊的操作のレコードが押し流される（docs/architecture/security.md の「監査ログ」）。
+func TestScanSkipsAudit(t *testing.T) {
+	f := fakeSystemctl([]string{"actions.runner.o.a.service", "actions.runner.o.b.service"},
+		"actions.runner.o.a.service", "actions.runner.o.b.service")
+
+	if _, warns := Scan(context.Background(), f); len(warns) != 0 {
+		t.Fatalf("警告が出た: %v", warns)
+	}
+
+	calls := f.Calls()
+	if len(calls) != 3 { // list-units 1 本 + show 2 本
+		t.Fatalf("呼び出し数 = %d, want 3", len(calls))
+	}
+	for _, c := range calls {
+		if !c.Options.SkipAudit {
+			t.Errorf("%s: SkipAudit = false, want true", c)
+		}
+		if c.Options.Action != actionDiscover {
+			t.Errorf("%s: Action = %q, want %q", c, c.Options.Action, actionDiscover)
+		}
+	}
+}
