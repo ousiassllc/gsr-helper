@@ -26,6 +26,10 @@ type Logger struct {
 type Option func(*Logger)
 
 // WithClock は ts に使う時刻の取得元を差し替える。テストで時刻を固定するために置いている。
+//
+// 渡した関数は Logger のロックを保持したまま呼ばれる。行の順序と ts の順序を
+// 一致させるため時刻取得と書き込みを同じクリティカルセクションに置いており、
+// 関数の中から Logger を呼び戻すとデッドロックする。
 func WithClock(now func() time.Time) Option {
 	return func(l *Logger) {
 		if now != nil {
@@ -81,6 +85,12 @@ func (l *Logger) Write(rec Record) error {
 		return nil
 	}
 
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	// 時刻の取得を書き込みと同じロック下に置く。ロックの外で取ると、同時に
+	// Write した goroutine 同士で ts の順序と行の順序が入れ替わり、監査ログを
+	// 時系列として読めなくなる。
 	rec.TS = Timestamp(l.now())
 	rec.UID = l.uid
 	rec.SudoUser = l.sudoUser
@@ -91,8 +101,6 @@ func (l *Logger) Write(rec Record) error {
 	}
 	b = append(b, '\n')
 
-	l.mu.Lock()
-	defer l.mu.Unlock()
 	if _, err := l.w.Write(b); err != nil {
 		return fmt.Errorf("監査ログの書き込みに失敗しました: %w", err)
 	}

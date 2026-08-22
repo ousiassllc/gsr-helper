@@ -35,7 +35,7 @@ func TestOpenCreatesDirAndFileWithTightMode(t *testing.T) {
 	}
 }
 
-func TestOpenTightensExistingFileMode(t *testing.T) {
+func TestOpenKeepsExistingFileMode(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "audit.jsonl")
 	if err := os.WriteFile(path, []byte("{}\n"), 0o644); err != nil {
@@ -48,8 +48,10 @@ func TestOpenTightensExistingFileMode(t *testing.T) {
 	}
 	defer func() { _ = lg.Close() }()
 
-	if got := mode(t, path); got != 0o600 {
-		t.Errorf("既存ファイルのモード = %#o, want 0o600", got)
+	// 自分が作っていないファイルは Chmod しない（緩いまま使う方が、root による
+	// 任意ファイルの再パーミッションを許すより安全）。
+	if got := mode(t, path); got != 0o644 {
+		t.Errorf("既存ファイルのモード = %#o, want 0o644（変更しない）", got)
 	}
 }
 

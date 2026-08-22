@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -146,6 +147,52 @@ func TestLoggerWriteConcurrent(t *testing.T) {
 		if err := json.Unmarshal([]byte(line), &rec); err != nil {
 			t.Fatalf("%d 行目が JSON として読めない: %v (%s)", i+1, err, line)
 		}
+	}
+}
+
+func TestLoggerWriteTimestampOrderMatchesLineOrder(t *testing.T) {
+	// 時刻の取得がロックの外にあると、同時に Write した goroutine 同士で ts の
+	// 順序と行の順序が入れ替わり、監査ログを時系列として読めなくなる。
+	const n = 200
+
+	var calls atomic.Int64
+	base := time.Date(2026, 8, 21, 12, 0, 0, 0, jst())
+	clock := func() time.Time {
+		return base.Add(time.Duration(calls.Add(1)) * time.Second)
+	}
+
+	var buf bytes.Buffer
+	lg := New(&buf, WithClock(clock))
+
+	var wg sync.WaitGroup
+	for range n {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := lg.Write(Record{Action: "svc.stop"}); err != nil {
+				t.Errorf("Write がエラーを返した: %v", err)
+			}
+		}()
+	}
+	wg.Wait()
+
+	lines := strings.Split(strings.TrimSuffix(buf.String(), "\n"), "\n")
+	if len(lines) != n {
+		t.Fatalf("行数 = %d, want %d", len(lines), n)
+	}
+	var prev time.Time
+	for i, line := range lines {
+		var rec struct {
+			TS Timestamp `json:"ts"`
+		}
+		if err := json.Unmarshal([]byte(line), &rec); err != nil {
+			t.Fatalf("%d 行目が JSON として読めない: %v (%s)", i+1, err, line)
+		}
+		ts := time.Time(rec.TS)
+		if i > 0 && !ts.After(prev) {
+			t.Fatalf("%d 行目の ts = %s が前の行 %s より後になっていない", i+1, ts, prev)
+		}
+		prev = ts
 	}
 }
 
