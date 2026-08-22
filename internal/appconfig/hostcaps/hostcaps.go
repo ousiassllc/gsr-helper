@@ -164,8 +164,9 @@ func dockerAlive(ctx context.Context, ex exec.Executor, p probes, timeout time.D
 
 // runProbe は能力判定の 1 コマンドを実行し、終了コード 0 かつ標準出力が非空かを返す。
 //
-// ctx に defaultProbeTimeout（既定 1 秒）の期限を掛け直すのは、exec の既定 30 秒では
-// 起動時間の目標に間に合わないためである。監査ログの action もここで設定する。
+// ctx に timeout（既定は defaultProbeTimeout の 500 ms）の期限を掛け直すのは、
+// exec の既定 30 秒では起動時間の目標に間に合わないためである。
+// 監査ログの action もここで設定する。
 func runProbe(
 	ctx context.Context,
 	ex exec.Executor,
