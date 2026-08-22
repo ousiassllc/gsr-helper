@@ -6,7 +6,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/ui/keymap"
 	"github.com/ousiassllc/gsr-helper/internal/ui/molecule"
-	"github.com/ousiassllc/gsr-helper/internal/ui/organism"
+	"github.com/ousiassllc/gsr-helper/internal/ui/organism/table"
 	"github.com/ousiassllc/gsr-helper/internal/ui/token"
 )
 
@@ -31,13 +31,13 @@ type row struct {
 }
 
 // newTable は Runners タブの一覧を組み立てる。
-func newTable(keys keymap.Set, s token.Styles) organism.Table[row] {
-	return organism.NewTable(keys.List, s, runnerSection(), orphanSection())
+func newTable(keys keymap.Set, s token.Styles) table.Model[row] {
+	return table.New(keys.List, s, runnerSection(), orphanSection())
 }
 
 // runnerSection は runner 一覧の区画を返す。
-func runnerSection() organism.SectionInput[row] {
-	return organism.SectionInput[row]{
+func runnerSection() table.SectionInput[row] {
+	return table.SectionInput[row]{
 		Title:      "",
 		Columns:    token.RunnerColumns(),
 		Render:     renderRunner,
@@ -54,8 +54,8 @@ func runnerSection() organism.SectionInput[row] {
 // （ユニットの削除はサービス制御の Issue の担当）。絞り込みの対象にもしない。
 // 孤児ユニットは異常の報告であり、runner 名で絞り込んだ結果から消えると
 // 見落とすためである。
-func orphanSection() organism.SectionInput[row] {
-	return organism.SectionInput[row]{
+func orphanSection() table.SectionInput[row] {
+	return table.SectionInput[row]{
 		Title:      "孤児ユニット",
 		Columns:    token.OrphanColumns(),
 		Render:     renderOrphan,
@@ -67,18 +67,21 @@ func orphanSection() organism.SectionInput[row] {
 }
 
 // renderRunner は runner の行をセル列に変換する。
-func renderRunner(r row, cols []token.Column, s token.Styles) []string {
-	return molecule.RunnerRow(runnerView(r.runner), cols, s)
+//
+// この区画は選択不可の行を持たない（Disabled が nil）ため RowInput.Reason は常に空で、
+// 理由のセルも持たない。
+func renderRunner(in table.RowInput[row]) []string {
+	return molecule.RunnerRow(runnerView(in.Item.runner), in.Cols, in.Styles)
 }
 
 // renderOrphan は孤児ユニットの行をセル列に変換する。
-func renderOrphan(r row, cols []token.Column, s token.Styles) []string {
+func renderOrphan(in table.RowInput[row]) []string {
 	return molecule.OrphanRow(molecule.OrphanView{
-		Unit:   r.orphan.Unit,
-		Active: r.orphan.Active,
-		Sub:    r.orphan.Sub,
+		Unit:   in.Item.orphan.Unit,
+		Active: in.Item.orphan.Active,
+		Sub:    in.Item.orphan.Sub,
 		Note:   orphanNote,
-	}, cols, s)
+	}, in.Cols, in.Styles)
 }
 
 // matchRunner は絞り込みの一致判定。名前とスコープを対象にする。

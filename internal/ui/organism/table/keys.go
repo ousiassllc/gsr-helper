@@ -1,20 +1,20 @@
-package organism
+package table
 
 import (
 	"charm.land/bubbles/v2/key"
-	"charm.land/bubbles/v2/table"
+	btable "charm.land/bubbles/v2/table"
 
 	"github.com/ousiassllc/gsr-helper/internal/ui/keymap"
 )
 
 // tableKeyMap は bubbles/table に渡すキー定義を keymap の定義から組み立てる。
 //
-// table.DefaultKeyMap をそのまま使えないのは、既定では半ページ送りが u / d、ページ送りが
+// btable.DefaultKeyMap をそのまま使えないのは、既定では半ページ送りが u / d、ページ送りが
 // f / b / space に割り当てられており、本ツールの u（バージョン更新）/ d（ドレイン停止）/
 // space（選択のトグル）が一覧のスクロールに食われるためである。半ページ送りは
 // screens.md のキーマップに無いので割り当てない。
-func tableKeyMap(l keymap.List) table.KeyMap {
-	return table.KeyMap{
+func tableKeyMap(l keymap.List) btable.KeyMap {
+	return btable.KeyMap{
 		LineUp:       l.Up,
 		LineDown:     l.Down,
 		PageUp:       l.PageUp,

@@ -1,18 +1,20 @@
-// Package organism はカーソル・選択・スクロール・入力などのローカル状態を持つ
-// 部品を提供する。
+// Package table は区画（セクション）に分かれた一覧の共通実装を提供する。
 //
-// このパッケージにはカーソルと選択を持つ対話的な一覧・選択（Table / ChoiceList）を置く。
-// スクロールする表示専用の領域（Detail / Help）は organism/pane に分けてある。承認・待機・
-// 入力のダイアログ（Confirm / DiffApproval / DrainWaiter / Form）は organism/dialog に置く。
-// これらは互いに import せず、必要なものを選んで組み合わせるのは page の役割である。
+// どのタブの一覧も「カーソル・複数選択・絞り込み・区画をまたぐ移動」という同じ
+// ローカル状態を持つため、organism 本体から独立した 1 パッケージに切り出してある。
+// organism（ChoiceList）・organism/pane（Detail / Help）とは互いに import せず、
+// 必要なものを選んで組み合わせるのは page の役割である。
+//
+// bubbles/table は btable として import する。パッケージ名がこのパッケージ自身と
+// 衝突するためであり、ラップしている相手が bubbles であることを読み手に示す意図もある。
 //
 // この階層の型は tea.Model を実装せず、bubbles 流の「具体型を返す Update と
-// View() string」に揃える。ジェネリックな Table[T] の Update の戻りを tea.Model に潰すと
+// View() string」に揃える。ジェネリックな Model[T] の Update の戻りを tea.Model に潰すと
 // 呼び出し側で毎回型アサーションが必要になって panic の経路が増え、View() を tea.View に
 // すると organism を縦に並べるたびに文字列へ戻す処理が入るためである（「interface は
 // Executor / doctor.Check / tea.Model の 3 つに限る」規約は page と親 Model が満たす）。
 // スクロール・計時・テキスト入力は自前で実装せず bubbles に委ねる。
-package organism
+package table
 
 import (
 	"strings"
@@ -29,17 +31,42 @@ import (
 // filterPrompt は絞り込みの行の見出し。入力中と確定後で同じ文字列を使う。
 const filterPrompt = "絞り込み: "
 
+// RowInput は 1 行を描くのに必要な値をまとめたもの。
+//
+// 引数を構造体にするのは、行の描画に渡す値が増えても Render の署名が変わらないように
+// するためである。Render はタブごとに差し替えて使い回すので、署名を変えると既存の
+// 全タブと organism のテストに波及する（選択不可の理由を後から足せなかったのがこの形に
+// した理由である）。
+//
+// チェックボックスとカーソル記号のセルは渡さない。行頭のガター列を描くのは Model 自身で
+// あり、Render は Cols と同じ順・同じ数のセルだけを返す。
+type RowInput[T any] struct {
+	Item   T
+	Cols   []token.Column // この幅で実際に表示する列。セルはこの数だけ返すこと
+	Styles token.Styles
+	// Reason は行を選択できない理由。Disabled が真のときだけ入る。
+	//
+	// 行末のセルに載せるかは Render が決める。理由を置く列を持っているのは
+	// Render 側（token.Column の集合を決めるのはタブ）だからである。
+	Reason string
+	// Disabled は行を選択できないか。SectionInput.Disabled の判定結果であり、
+	// Render はチェックボックスを描かないが、行全体を薄く描くなどの判断に使える。
+	Disabled bool
+}
+
 // RenderRow は 1 行をセルの列に変換する。molecule の *Row 関数（RunnerRow / JobRow /
-// OrphanRow）と引数を揃えてあり、T をそれぞれの View 型にすればそのまま渡せる。選択状態を
-// 渡さないのは、チェックボックスの列を描くのは Table 自身だからである。
-type RenderRow[T any] func(item T, cols []token.Column, s token.Styles) []string
+// OrphanRow）を RowInput から呼ぶ薄い関数を page 側に置いて渡す。
+type RenderRow[T any] func(in RowInput[T]) []string
 
 // RowID は行の識別子を返す。選択集合のキーに使う。
 type RowID[T any] func(item T) string
 
 // RowDisabled は行を選択できないかと、その理由を返す。区画ごとの可否（Selectable）では
 // 表せない行ごとの可否を表す。Disk タブはジョブ実行中の _work だけを選択不可にするため、
-// 1 つの区画に選択可・不可が混在する。理由を行末のセルに載せるのは Render の役割である。
+// 1 つの区画に選択可・不可が混在する。
+//
+// 返した理由は RowInput.Reason として Render へ渡る。判定と表示を分けているのは、理由を
+// どの列に置くかがタブごとに違う（列の集合を決めるのはタブ）ためである。
 type RowDisabled[T any] func(item T) (reason string, disabled bool)
 
 // SectionInput は 1 区画の定義。
@@ -56,8 +83,8 @@ type SectionInput[T any] struct {
 	Selectable bool                        // 区画ごとの選択可否
 }
 
-// Table は一覧の共通実装。bubbles/table のラッパーであり、区画（セクション）ごとに
-// table.Model を 1 つ持つ。
+// Model は一覧の共通実装。bubbles/table のラッパーであり、区画（セクション）ごとに
+// btable.Model を 1 つ持つ。
 //
 // カーソル移動・スクロール・列幅の調整は bubbles/table に委ね、区画の並べ方・
 // 区画をまたぐカーソル移動・複数選択・絞り込みを受け持つ。
@@ -65,7 +92,7 @@ type SectionInput[T any] struct {
 // **コピーは状態を共有する（値としての独立性はない）。** 区画のスライスと選択集合の map は
 // 写しても同じ実体を指すため、写した側でカーソルを動かすと元の値も動く。bubbles 流の署名に
 // 揃えた結果であり、page は直前の Update が返した 1 つの値だけを持つこと。
-type Table[T any] struct {
+type Model[T any] struct {
 	sections  []section[T]
 	focus     int             // キー入力を受け取る区画
 	checked   map[string]bool // 選択集合。キーは行の識別子
@@ -77,12 +104,12 @@ type Table[T any] struct {
 	height    int
 }
 
-// NewTable は区画の定義から一覧を組み立てる。
-func NewTable[T any](keys keymap.List, s token.Styles, secs ...SectionInput[T]) Table[T] {
+// New は区画の定義から一覧を組み立てる。
+func New[T any](keys keymap.List, s token.Styles, secs ...SectionInput[T]) Model[T] {
 	in := textinput.New()
 	in.Prompt = filterPrompt
 
-	t := Table[T]{
+	t := Model[T]{
 		sections:  make([]section[T], 0, len(secs)),
 		focus:     0,
 		checked:   make(map[string]bool),
@@ -101,7 +128,7 @@ func NewTable[T any](keys keymap.List, s token.Styles, secs ...SectionInput[T]) 
 }
 
 // Update はキー入力を処理する。
-func (t Table[T]) Update(msg tea.Msg) (Table[T], tea.Cmd) {
+func (t Model[T]) Update(msg tea.Msg) (Model[T], tea.Cmd) {
 	press, ok := msg.(tea.KeyPressMsg)
 	if !ok {
 		// カーソルの点滅などの Msg は入力欄へ流す。Cmd を捨てると点滅が止まる。
@@ -120,7 +147,7 @@ func (t Table[T]) Update(msg tea.Msg) (Table[T], tea.Cmd) {
 // 確定と取消だけを解釈し、残りはすべて入力欄へ渡す。runner 名は build01-1 のように
 // 数字を含み、1〜7 を機能キーとして残すと名前で絞り込めないためである（screens.md の
 // 入力中）。ctrl+c は親 Model が処理し、ここへは届かない。
-func (t Table[T]) updateFiltering(press tea.KeyPressMsg) (Table[T], tea.Cmd) {
+func (t Model[T]) updateFiltering(press tea.KeyPressMsg) (Model[T], tea.Cmd) {
 	if key.Matches(press, t.keys.Accept) {
 		t.stopFiltering(false)
 		return t, nil
@@ -137,7 +164,7 @@ func (t Table[T]) updateFiltering(press tea.KeyPressMsg) (Table[T], tea.Cmd) {
 }
 
 // updateList は通常モードのキーを処理する。
-func (t Table[T]) updateList(press tea.KeyPressMsg) (Table[T], tea.Cmd) {
+func (t Model[T]) updateList(press tea.KeyPressMsg) (Model[T], tea.Cmd) {
 	switch {
 	case key.Matches(press, t.keys.Filter):
 		t.filtering = true
@@ -171,7 +198,7 @@ func (t Table[T]) updateList(press tea.KeyPressMsg) (Table[T], tea.Cmd) {
 
 // delegate はキーをフォーカス中の区画にのみ流す。bubbles/table は焦点の無い Model で
 // Update を即座に返すため、フォーカス制御は Focus / Blur だけで成立する。
-func (t Table[T]) delegate(msg tea.Msg) (Table[T], tea.Cmd) {
+func (t Model[T]) delegate(msg tea.Msg) (Model[T], tea.Cmd) {
 	if t.focus < 0 || t.focus >= len(t.sections) {
 		return t, nil
 	}
@@ -188,7 +215,7 @@ func (t Table[T]) delegate(msg tea.Msg) (Table[T], tea.Cmd) {
 // 行が 1 つも無い場合は空文字を返す。「実行中のジョブがありません」のような文言は
 // 画面ごとに変わるため page が出す。高さを超える分を末尾から落とすのは、区画の
 // 最低行数の合計が高さを超える場合（layout を参照）も領域から出ないようにするため。
-func (t Table[T]) View() string {
+func (t Model[T]) View() string {
 	parts := make([]string, 0, len(t.sections)*2+1)
 	if t.filterVisible() {
 		parts = append(parts, t.filterView())

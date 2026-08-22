@@ -1,4 +1,4 @@
-package organism_test
+package table_test
 
 import (
 	"slices"
@@ -6,12 +6,13 @@ import (
 	"testing"
 
 	"github.com/ousiassllc/gsr-helper/internal/ui/keymap"
-	"github.com/ousiassllc/gsr-helper/internal/ui/organism"
+	"github.com/ousiassllc/gsr-helper/internal/ui/organism/table"
+	"github.com/ousiassllc/gsr-helper/internal/ui/token"
 )
 
 // newSectioned は Runners タブと同じ「一覧 + 孤児ユニット」の 2 区画を組み立てる。
-func newSectioned(runners, orphans []row) organism.Table[row] {
-	t := organism.NewTable(keymap.NewList(), testStyles(), runnerSection(true), orphanSection())
+func newSectioned(runners, orphans []row) table.Model[row] {
+	t := table.New(keymap.NewList(), testStyles(), runnerSection(true), orphanSection())
 	t.SetSize(80, 16)
 	t.SetItems(0, runners)
 	t.SetItems(1, orphans)
@@ -134,5 +135,40 @@ func TestTableFiltersEachSection(t *testing.T) {
 	}
 	if got := names(tbl.Shown(1)); !slices.Equal(got, []string{"old01.service"}) {
 		t.Errorf("一致判定を持たない区画の表示 = %v, want [old01.service]", got)
+	}
+}
+
+// 選択できない行は、その理由が Render へ渡って行に出る。
+//
+// 理由を渡さないと「反応しない space」になり、なぜ選べないのかを画面から読み取れない
+// （screens.md の設計原則 2 / FR-31 の Disk タブ）。Render が理由を最終セルに置くのは
+// helper_test の renderRow を参照。
+func TestTablePassesDisabledReasonToRender(t *testing.T) {
+	const reason = "ジョブ実行中です"
+	sec := runnerSection(true)
+	// 理由がそのまま入る幅の列を最終列に置く。列幅で中略されると理由が読めない。
+	sec.Columns = []token.Column{
+		{ID: token.ColName, Title: "NAME", Width: 12},
+		{ID: token.ColNote, Title: "NOTE", Width: 24},
+	}
+	sec.Disabled = func(r row) (string, bool) { return reason, r.name == "build01-2" }
+	tbl := table.New(keymap.NewList(), testStyles(), sec)
+	tbl.SetSize(80, 12)
+	tbl.SetItems(0, rows("build01-1", "build01-2"))
+
+	var disabled, enabled string
+	for _, line := range strings.Split(tbl.View(), "\n") {
+		switch {
+		case strings.Contains(line, "build01-2"):
+			disabled = line
+		case strings.Contains(line, "build01-1"):
+			enabled = line
+		}
+	}
+	if !strings.Contains(disabled, reason) {
+		t.Errorf("選択できない行 = %q, want %q を含む", disabled, reason)
+	}
+	if strings.Contains(enabled, reason) {
+		t.Errorf("選択できる行に理由が出ている（%q）", enabled)
 	}
 }

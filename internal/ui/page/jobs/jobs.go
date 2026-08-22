@@ -13,7 +13,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/ousiassllc/gsr-helper/internal/ui/atom"
-	"github.com/ousiassllc/gsr-helper/internal/ui/organism"
+	"github.com/ousiassllc/gsr-helper/internal/ui/organism/table"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 )
 
@@ -30,7 +30,7 @@ const (
 type Model struct {
 	tab     int
 	st      page.StateMsg
-	tbl     organism.Table[row]
+	tbl     table.Model[row]
 	overlay page.Overlay
 }
 

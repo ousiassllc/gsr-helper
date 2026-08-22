@@ -1,7 +1,7 @@
-package organism
+package table
 
 import (
-	"charm.land/bubbles/v2/table"
+	btable "charm.land/bubbles/v2/table"
 	"charm.land/lipgloss/v2"
 
 	"github.com/ousiassllc/gsr-helper/internal/ui/atom"
@@ -12,7 +12,7 @@ import (
 // toggleChecked はカーソル位置の行の選択を切り替える。
 //
 // 選択できない区画と行ではキーを無視する（行ごとの可否は SectionInput.Disabled）。
-func (t *Table[T]) toggleChecked() {
+func (t *Model[T]) toggleChecked() {
 	cur, ok := t.current()
 	if !ok || !cur.selectable() {
 		return
@@ -35,7 +35,7 @@ func (t *Table[T]) toggleChecked() {
 //
 // 絞り込み後の行に限るのは、画面に出ていない行まで選択すると、続く確認ダイアログで
 // 初めて対象を知ることになるためである。
-func (t *Table[T]) checkAll() {
+func (t *Model[T]) checkAll() {
 	for i := range t.sections {
 		s := &t.sections[i]
 		if !s.selectable() {
@@ -55,7 +55,7 @@ func (t *Table[T]) checkAll() {
 //
 // 選択集合のキーは行の識別子だけなので、行が消えても選択は残る。残すと同じ識別子の
 // 行が再び現れたときに選択が復活し、map も単調に増え続ける。
-func (t *Table[T]) pruneChecked() {
+func (t *Model[T]) pruneChecked() {
 	if len(t.checked) == 0 {
 		return
 	}
@@ -81,7 +81,7 @@ func (t *Table[T]) pruneChecked() {
 }
 
 // stopFiltering は入力モードを終える。cancel が真なら絞り込みを取り消す。
-func (t *Table[T]) stopFiltering(cancel bool) {
+func (t *Model[T]) stopFiltering(cancel bool) {
 	t.filtering = false
 	t.filter.Blur()
 	if cancel {
@@ -92,7 +92,7 @@ func (t *Table[T]) stopFiltering(cancel bool) {
 }
 
 // filterVisible は絞り込みの行を出すかを返す。
-func (t Table[T]) filterVisible() bool {
+func (t Model[T]) filterVisible() bool {
 	return t.filtering || t.filter.Value() != ""
 }
 
@@ -103,7 +103,7 @@ func (t Table[T]) filterVisible() bool {
 // organism が自分の領域に収めるのが筋である。atom.Truncate ではなく lipgloss を使うのは、
 // 入力欄の出力がカーソルの装飾（ANSI 列）を含み、装飾済みの文字列は atom.Truncate の
 // 切り詰めで壊れるためである（中略記号を足さないのも入力中の 1 桁を惜しむため）。
-func (t Table[T]) filterView() string {
+func (t Model[T]) filterView() string {
 	var out string
 	if t.filtering {
 		out = t.filter.View()
@@ -115,7 +115,7 @@ func (t Table[T]) filterView() string {
 }
 
 // applyFilter は絞り込み文字列を全区画に反映する。
-func (t *Table[T]) applyFilter() {
+func (t *Model[T]) applyFilter() {
 	for i := range t.sections {
 		t.filterSection(i)
 	}
@@ -127,7 +127,7 @@ func (t *Table[T]) applyFilter() {
 //
 // 一致判定を持たない区画は絞り込まない。孤児ユニットのように絞り込みの対象に
 // しない区画を、判定関数を渡さないことで表せる。
-func (t *Table[T]) filterSection(i int) {
+func (t *Model[T]) filterSection(i int) {
 	s := &t.sections[i]
 	q := t.filter.Value()
 	if q == "" || s.def.Match == nil {
@@ -149,7 +149,7 @@ func (t *Table[T]) filterSection(i int) {
 // refreshAll は全区画の行を組み立て直す。
 //
 // 選択集合が変わるとチェックボックスの表示は全区画で変わる（checkState を参照）。
-func (t *Table[T]) refreshAll() {
+func (t *Model[T]) refreshAll() {
 	for i := range t.sections {
 		t.refresh(i)
 	}
@@ -163,10 +163,10 @@ func (t *Table[T]) refreshAll() {
 // 行が 0 件になると bubbles/table のカーソルは -1 になり、行が戻っても -1 のままで、その
 // table は 1 行も描かない。フォーカスの無い区画（孤児ユニットなど）は normalizeFocus が
 // 触らないため、ここで先頭へ戻すしかない。
-func (t *Table[T]) refresh(i int) {
+func (t *Model[T]) refresh(i int) {
 	s := &t.sections[i]
 	cursor := min(max(s.tbl.Cursor(), 0), len(s.shown)-1)
-	rows := make([]table.Row, 0, len(s.shown))
+	rows := make([]btable.Row, 0, len(s.shown))
 	for j, item := range s.shown {
 		rows = append(rows, t.row(s, item, t.focus == i && j == cursor))
 	}
@@ -177,7 +177,7 @@ func (t *Table[T]) refresh(i int) {
 }
 
 // row は 1 行を bubbles/table の行へ変換する。
-func (t Table[T]) row(s *section[T], item T, onCursor bool) table.Row {
+func (t Model[T]) row(s *section[T], item T, onCursor bool) btable.Row {
 	cells := make([]string, 0, len(s.cols)+2)
 	cells = append(cells, atom.Cursor(onCursor, t.styles))
 	if s.def.Selectable {
@@ -190,7 +190,7 @@ func (t Table[T]) row(s *section[T], item T, onCursor bool) table.Row {
 //
 // 1 件も選択されていない間と選択できない行では表示しない（screens.md の記号表は
 // 「選択モード時のみ表示」と定める）。非表示でも記号と同じ幅の空白なので桁は動かない。
-func (t Table[T]) checkState(s *section[T], item T) atom.CheckState {
+func (t Model[T]) checkState(s *section[T], item T) atom.CheckState {
 	if !s.selectable() || len(t.checked) == 0 || s.disabled(item) {
 		return atom.CheckHidden
 	}

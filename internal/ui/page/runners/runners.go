@@ -12,7 +12,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/ousiassllc/gsr-helper/internal/ui/atom"
-	"github.com/ousiassllc/gsr-helper/internal/ui/organism"
+	"github.com/ousiassllc/gsr-helper/internal/ui/organism/table"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 )
 
@@ -27,7 +27,7 @@ const (
 type Model struct {
 	tab     int
 	st      page.StateMsg
-	tbl     organism.Table[row]
+	tbl     table.Model[row]
 	overlay page.Overlay
 }
 
@@ -89,7 +89,7 @@ func (m Model) setState(st page.StateMsg) (tea.Model, tea.Cmd) {
 // forward はキー以外の Msg を配る。
 //
 // モーダルが開いている間は最上位のモーダルにのみ渡す。開いていなければ一覧へ渡す
-// （絞り込みのカーソル点滅など、organism が発行を続ける Cmd を止めないため）。
+// （絞り込みのカーソル点滅など、organism/table が発行を続ける Cmd を止めないため）。
 func (m Model) forward(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	if m.overlay.Active() {

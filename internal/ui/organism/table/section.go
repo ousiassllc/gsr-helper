@@ -1,7 +1,7 @@
-package organism
+package table
 
 import (
-	"charm.land/bubbles/v2/table"
+	btable "charm.land/bubbles/v2/table"
 	"charm.land/lipgloss/v2"
 
 	"github.com/ousiassllc/gsr-helper/internal/ui/keymap"
@@ -21,25 +21,25 @@ const (
 	headerHeight = 1
 )
 
-// section は 1 区画の状態。区画ごとに table.Model を 1 つ持つ。
+// section は 1 区画の状態。区画ごとに btable.Model を 1 つ持つ。
 type section[T any] struct {
 	def   SectionInput[T]
 	items []T            // 絞り込み前の全行
 	shown []T            // 絞り込み後の行
 	cols  []token.Column // 今の幅で表示する列（setWidth が解く）
-	tbl   table.Model
+	tbl   btable.Model
 }
 
-// newSection は区画の定義から table.Model を組み立てる。
+// newSection は区画の定義から btable.Model を組み立てる。
 func newSection[T any](def SectionInput[T], keys keymap.List, s token.Styles, width int) section[T] {
 	sec := section[T]{
 		def:   def,
 		items: nil,
 		shown: nil,
 		cols:  nil,
-		tbl: table.New(
-			table.WithKeyMap(tableKeyMap(keys)),
-			table.WithStyles(tableStyles(s)),
+		tbl: btable.New(
+			btable.WithKeyMap(tableKeyMap(keys)),
+			btable.WithStyles(tableStyles(s)),
 		),
 	}
 	sec.setWidth(width)
@@ -87,19 +87,40 @@ func (s section[T]) selected() (item T, ok bool) {
 }
 
 // render は行のセル列を返す。Render が未設定の区画では空のセルになる。
+//
+// 選択できない理由も一緒に渡す。理由を落とすと「なぜ選べないのか」を行に出せず、
+// 利用者からは反応しない space に見える（screens.md の設計原則 2）。
 func (s section[T]) render(item T, styles token.Styles) []string {
 	if s.def.Render == nil {
 		return nil
 	}
-	return s.def.Render(item, s.cols, styles)
+	reason, disabled := s.disabledReason(item)
+	if !disabled {
+		// 選択できる行に理由を渡さない。判定関数は「選べない理由」を常に返す実装に
+		// なりがちで（可否だけを行ごとに変える）、そのまま渡すと全行に理由が出る。
+		reason = ""
+	}
+	return s.def.Render(RowInput[T]{
+		Item:     item,
+		Cols:     s.cols,
+		Styles:   styles,
+		Reason:   reason,
+		Disabled: disabled,
+	})
 }
 
-// disabled は行を選択できないかを返す。判定関数が無い区画は全行を選択できる。
-func (s section[T]) disabled(item T) bool {
+// disabledReason は行を選択できないかと、その理由を返す。
+// 判定関数が無い区画は全行を選択できる。
+func (s section[T]) disabledReason(item T) (reason string, disabled bool) {
 	if s.def.Disabled == nil {
-		return false
+		return "", false
 	}
-	_, d := s.def.Disabled(item)
+	return s.def.Disabled(item)
+}
+
+// disabled は行を選択できないかを返す。選択集合の操作は理由を使わない。
+func (s section[T]) disabled(item T) bool {
+	_, d := s.disabledReason(item)
 	return d
 }
 
@@ -120,14 +141,14 @@ func (s section[T]) chromeHeight() int {
 //
 // 先頭にカーソル用、選択可能な区画にはチェックボックス用のガター列を足す。ガター列を
 // 列定義側にも足すのは、セル数と列数を一致させるためである（fitCells を参照）。
-func tableColumns(selectable bool, cols []token.Column) []table.Column {
-	out := make([]table.Column, 0, len(cols)+2)
-	out = append(out, table.Column{Title: "", Width: cursorGutterWidth})
+func tableColumns(selectable bool, cols []token.Column) []btable.Column {
+	out := make([]btable.Column, 0, len(cols)+2)
+	out = append(out, btable.Column{Title: "", Width: cursorGutterWidth})
 	if selectable {
-		out = append(out, table.Column{Title: "", Width: checkGutterWidth})
+		out = append(out, btable.Column{Title: "", Width: checkGutterWidth})
 	}
 	for _, c := range cols {
-		out = append(out, table.Column{Title: c.Title, Width: c.Width})
+		out = append(out, btable.Column{Title: c.Title, Width: c.Width})
 	}
 	return out
 }
@@ -137,8 +158,8 @@ func tableColumns(selectable bool, cols []token.Column) []table.Column {
 // 選択行に色を付けないのは、セルが molecule の段階で装飾済みであり、行全体へ前景色を
 // 重ねると ANSI 列が入れ子になって崩れるためである。カーソル位置はガター列の記号
 // （token.IconCursor）で示すので、色に頼らずに判別できる。
-func tableStyles(s token.Styles) table.Styles {
-	return table.Styles{
+func tableStyles(s token.Styles) btable.Styles {
+	return btable.Styles{
 		Header:   s.Header.PaddingRight(columnGutter),
 		Cell:     lipgloss.NewStyle().PaddingRight(columnGutter),
 		Selected: lipgloss.NewStyle(),

@@ -1,3 +1,18 @@
+// Package organism はカーソル・選択・スクロール・入力などのローカル状態を持つ
+// 部品を提供する。
+//
+// このパッケージ本体には選択の一覧（ChoiceList）を置く。区画に分かれた一覧
+// （Table）は organism/table、スクロールする表示専用の領域（Detail / Help）は
+// organism/pane に分けてある。承認・待機・入力のダイアログ（Confirm / DiffApproval /
+// DrainWaiter / Form）は organism/dialog に置く。これらは互いに import せず、必要な
+// ものを選んで組み合わせるのは page の役割である。
+//
+// この階層の型は tea.Model を実装せず、bubbles 流の「具体型を返す Update と
+// View() string」に揃える。Update の戻りを tea.Model に潰すと呼び出し側で毎回型
+// アサーションが必要になって panic の経路が増え、View() を tea.View にすると
+// organism を縦に並べるたびに文字列へ戻す処理が入るためである（「interface は
+// Executor / doctor.Check / tea.Model の 3 つに限る」規約は page と親 Model が満たす）。
+// スクロール・計時・テキスト入力は自前で実装せず bubbles に委ねる。
 package organism
 
 import (

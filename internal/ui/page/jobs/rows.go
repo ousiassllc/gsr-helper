@@ -7,7 +7,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/ui/keymap"
 	"github.com/ousiassllc/gsr-helper/internal/ui/molecule"
-	"github.com/ousiassllc/gsr-helper/internal/ui/organism"
+	"github.com/ousiassllc/gsr-helper/internal/ui/organism/table"
 	"github.com/ousiassllc/gsr-helper/internal/ui/token"
 )
 
@@ -23,8 +23,8 @@ type row struct {
 }
 
 // newTable は Jobs タブの一覧を組み立てる。
-func newTable(keys keymap.Set, s token.Styles) organism.Table[row] {
-	return organism.NewTable(keys.List, s, organism.SectionInput[row]{
+func newTable(keys keymap.Set, s token.Styles) table.Model[row] {
+	return table.New(keys.List, s, table.SectionInput[row]{
 		Title:   "",
 		Columns: token.JobColumns(),
 		Render:  renderJob,
@@ -38,8 +38,8 @@ func newTable(keys keymap.Set, s token.Styles) organism.Table[row] {
 }
 
 // renderJob はジョブの行をセル列に変換する。
-func renderJob(r row, cols []token.Column, s token.Styles) []string {
-	return molecule.JobRow(jobView(r), cols, s)
+func renderJob(in table.RowInput[row]) []string {
+	return molecule.JobRow(jobView(in.Item), in.Cols, in.Styles)
 }
 
 // matchJob は絞り込みの一致判定。runner 名を対象にする。

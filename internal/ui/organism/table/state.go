@@ -1,7 +1,7 @@
-package organism
+package table
 
 // current はフォーカス中の区画を返す。
-func (t Table[T]) current() (*section[T], bool) {
+func (t Model[T]) current() (*section[T], bool) {
 	if t.focus < 0 || t.focus >= len(t.sections) {
 		return nil, false
 	}
@@ -9,7 +9,7 @@ func (t Table[T]) current() (*section[T], bool) {
 }
 
 // visibleSections は行を持つ区画の添字を並び順に返す。
-func (t Table[T]) visibleSections() []int {
+func (t Model[T]) visibleSections() []int {
 	out := make([]int, 0, len(t.sections))
 	for i := range t.sections {
 		if t.sections[i].visible() {
@@ -20,7 +20,7 @@ func (t Table[T]) visibleSections() []int {
 }
 
 // nextVisible は from から step の向きで最初に見つかる、行を持つ区画を返す。
-func (t Table[T]) nextVisible(from, step int) (int, bool) {
+func (t Model[T]) nextVisible(from, step int) (int, bool) {
 	for i := from + step; i >= 0 && i < len(t.sections); i += step {
 		if t.sections[i].visible() {
 			return i, true
@@ -33,7 +33,7 @@ func (t Table[T]) nextVisible(from, step int) (int, bool) {
 //
 // 区画をまたぐ移動を Table が持つのは、bubbles/table が自分の行の範囲でしかカーソルを
 // 動かさないためである。移動先では安全側の端（下へ移るときは先頭）にカーソルを置く。
-func (t *Table[T]) crossSection(step int) bool {
+func (t *Model[T]) crossSection(step int) bool {
 	cur, ok := t.current()
 	if !ok {
 		return false
@@ -64,7 +64,7 @@ func (t *Table[T]) crossSection(step int) bool {
 //
 // 区画の中に留めないのは、j / k が区画をまたぐのに G がまたがないと、利用者から見て
 // 「末尾」の意味が 2 つになるためである。
-func (t *Table[T]) gotoEdge(step int) {
+func (t *Model[T]) gotoEdge(step int) {
 	visible := t.visibleSections()
 	if len(visible) == 0 {
 		return
@@ -79,7 +79,7 @@ func (t *Table[T]) gotoEdge(step int) {
 }
 
 // setFocus はキー入力を受け取る区画とカーソル位置を設定する。
-func (t *Table[T]) setFocus(i, cursor int) {
+func (t *Model[T]) setFocus(i, cursor int) {
 	if i < 0 || i >= len(t.sections) {
 		return
 	}
@@ -101,7 +101,7 @@ func (t *Table[T]) setFocus(i, cursor int) {
 }
 
 // setCursor は区画のカーソル位置を設定し、カーソル記号を行へ追随させる。
-func (t *Table[T]) setCursor(i, cursor int) {
+func (t *Model[T]) setCursor(i, cursor int) {
 	t.sections[i].tbl.SetCursor(max(cursor, 0))
 	t.refresh(i)
 }
@@ -111,7 +111,7 @@ func (t *Table[T]) setCursor(i, cursor int) {
 // 列を差し替える前に行を空にするのは、bubbles/table が列の差し替えで手元の行を描き直す
 // ため、セル数が新しい列数を超えると添字範囲外で panic するからである。空にするとカーソルが
 // -1 に落ちるので控えた位置へ戻す。
-func (t *Table[T]) setSectionWidth(i, w int) {
+func (t *Model[T]) setSectionWidth(i, w int) {
 	s := &t.sections[i]
 	cursor := s.tbl.Cursor()
 	s.tbl.SetRows(nil)
@@ -124,7 +124,7 @@ func (t *Table[T]) setSectionWidth(i, w int) {
 //
 // 3 秒ごとの再検出で行が入れ替わるため、フォーカスを毎回先頭へ戻さず、
 // 今の区画に行が残っている限りはそこに留める。
-func (t *Table[T]) normalizeFocus() {
+func (t *Model[T]) normalizeFocus() {
 	if cur, ok := t.current(); ok && cur.visible() {
 		t.setFocus(t.focus, cur.tbl.Cursor())
 		return
@@ -143,7 +143,7 @@ func (t *Table[T]) normalizeFocus() {
 // 先の区画を優先し、後続の区画には最低 1 行を残す。区画は「一覧 + 孤児ユニット」のように
 // 主と補助の組で使うため、主の区画へ行を多く配る方が読みやすい。最低行数の合計が高さを
 // 超える場合は配り切れないが、下限を優先する（高さに収める切り詰めは View が行う）。
-func (t *Table[T]) layout() {
+func (t *Model[T]) layout() {
 	visible := t.visibleSections()
 	avail := t.height
 	if t.filterVisible() {

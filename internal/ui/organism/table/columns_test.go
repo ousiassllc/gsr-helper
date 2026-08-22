@@ -1,4 +1,4 @@
-package organism_test
+package table_test
 
 import (
 	"slices"
@@ -8,7 +8,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/ousiassllc/gsr-helper/internal/ui/keymap"
-	"github.com/ousiassllc/gsr-helper/internal/ui/organism"
+	"github.com/ousiassllc/gsr-helper/internal/ui/organism/table"
 	"github.com/ousiassllc/gsr-helper/internal/ui/token"
 )
 
@@ -22,14 +22,14 @@ func columnSets() map[string][]token.Column {
 }
 
 // newColumned は列の全集合を持つ 1 区画の一覧を組み立てる。
-func newColumned(cols []token.Column, selectable bool, r organism.RenderRow[row]) organism.Table[row] {
+func newColumned(cols []token.Column, selectable bool, r table.RenderRow[row]) table.Model[row] {
 	sec := runnerSection(selectable)
 	sec.Columns = cols
 	if r != nil {
 		sec.Render = r
 	}
 
-	t := organism.NewTable(keymap.NewList(), testStyles(), sec)
+	t := table.New(keymap.NewList(), testStyles(), sec)
 	t.SetSize(80, 12)
 	t.SetItems(0, rows("build01-1", "build01-2", "build02-1"))
 	return t
@@ -89,9 +89,9 @@ func TestTableViewNeverExceedsWidth(t *testing.T) {
 func TestTableResolvesColumnsOnSetSize(t *testing.T) {
 	var seen []string
 	tbl := newColumned(token.RunnerColumns(), true,
-		func(r row, cols []token.Column, s token.Styles) []string {
-			seen = columnIDs(cols)
-			return renderRow(r, cols, s)
+		func(in table.RowInput[row]) []string {
+			seen = columnIDs(in.Cols)
+			return renderRow(in)
 		})
 
 	tbl.SetSize(120, 12)
@@ -127,9 +127,9 @@ func TestTableResolvesColumnsOnSetSize(t *testing.T) {
 func TestTableSetSizeSkipsUnchangedSize(t *testing.T) {
 	renders := 0
 	tbl := newColumned(token.RunnerColumns(), true,
-		func(r row, cols []token.Column, s token.Styles) []string {
+		func(in table.RowInput[row]) []string {
 			renders++
-			return renderRow(r, cols, s)
+			return renderRow(in)
 		})
 
 	base := renders

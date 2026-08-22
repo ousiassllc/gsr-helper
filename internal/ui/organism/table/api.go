@@ -1,4 +1,4 @@
-package organism
+package table
 
 import "slices"
 
@@ -12,7 +12,7 @@ import "slices"
 // 渡されたスライスは写しを取って持つ。呼び出し側のスライスをそのまま指すと、page が
 // 手元のスライスを使い回して書き換えたときに一覧の状態が崩れる。行数は高々数十なので、
 // 確保の費用より状態が壊れる事故の重さを採る（Shown も同じ理由で写しを返す）。
-func (t *Table[T]) SetItems(section int, items []T) {
+func (t *Model[T]) SetItems(section int, items []T) {
 	if section < 0 || section >= len(t.sections) {
 		return
 	}
@@ -31,7 +31,7 @@ func (t *Table[T]) SetItems(section int, items []T) {
 // 大きさが変わっていなければ何もしない。共有状態は自動更新のたびに全 page へ配られる
 // が、そのほとんどでサイズは変わらず、毎回解き直すと 1 周期で全タブ・全区画ぶんの
 // 全行再構築が積み上がるためである。
-func (t *Table[T]) SetSize(w, h int) {
+func (t *Model[T]) SetSize(w, h int) {
 	if t.width == w && t.height == h {
 		return
 	}
@@ -43,7 +43,7 @@ func (t *Table[T]) SetSize(w, h int) {
 }
 
 // Selected はカーソル位置の行を返す。
-func (t Table[T]) Selected() (item T, ok bool) {
+func (t Model[T]) Selected() (item T, ok bool) {
 	cur, ok := t.current()
 	if !ok {
 		var zero T
@@ -56,7 +56,7 @@ func (t Table[T]) Selected() (item T, ok bool) {
 //
 // 絞り込みで見えていない行も含める。絞り込みを取り消したときに選択が消えていると、
 // 選んだ対象を数え直すことになるためである。
-func (t Table[T]) Checked() []T {
+func (t Model[T]) Checked() []T {
 	out := make([]T, 0, len(t.checked))
 	for i := range t.sections {
 		s := &t.sections[i]
@@ -78,7 +78,7 @@ func (t Table[T]) Checked() []T {
 // 内部のスライスをそのまま返さず写しを返す。返り値を呼び出し側が書き換えると Table の
 // 表示が崩れるためである。View のたびに確保することになるが、行数は高々数十であり、
 // 状態が壊れる事故の重さと比べれば許容できる。
-func (t Table[T]) Shown(section int) []T {
+func (t Model[T]) Shown(section int) []T {
 	if section < 0 || section >= len(t.sections) {
 		return nil
 	}
@@ -87,23 +87,23 @@ func (t Table[T]) Shown(section int) []T {
 
 // FocusedSection はカーソルがある区画の添字を返す。Runners タブは孤児ユニットの行と
 // runner の行で有効なキーもフッタの文言も変わる。
-func (t Table[T]) FocusedSection() int { return t.focus }
+func (t Model[T]) FocusedSection() int { return t.focus }
 
 // Filtering は入力モードかを返す。page は状態行に「入力中」を出すために使う。
-func (t Table[T]) Filtering() bool { return t.filtering }
+func (t Model[T]) Filtering() bool { return t.filtering }
 
 // FilterValue は絞り込み文字列を返す。
-func (t Table[T]) FilterValue() string { return t.filter.Value() }
+func (t Model[T]) FilterValue() string { return t.filter.Value() }
 
 // ClearSelection は選択を解除する（esc の「選択のクリア」）。
-func (t *Table[T]) ClearSelection() {
+func (t *Model[T]) ClearSelection() {
 	t.checked = make(map[string]bool)
 	t.refreshAll()
 }
 
 // ClearFilter は確定済みの絞り込みを解除する（esc の「1 つ前の状態へ戻る」）。
 // 入力中の esc は Update が取消として処理するため、確定後の経路が別に必要になる。
-func (t *Table[T]) ClearFilter() {
+func (t *Model[T]) ClearFilter() {
 	t.filter.Reset()
 	t.applyFilter()
 }

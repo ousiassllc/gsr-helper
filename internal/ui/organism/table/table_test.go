@@ -1,4 +1,4 @@
-package organism_test
+package table_test
 
 import (
 	"slices"
@@ -9,7 +9,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/ousiassllc/gsr-helper/internal/ui/keymap"
-	"github.com/ousiassllc/gsr-helper/internal/ui/organism"
+	"github.com/ousiassllc/gsr-helper/internal/ui/organism/table"
 	"github.com/ousiassllc/gsr-helper/internal/ui/token"
 )
 
@@ -93,7 +93,7 @@ func TestTableSelection(t *testing.T) {
 func TestTableIgnoresSelectionOnDisabledRows(t *testing.T) {
 	sec := runnerSection(true)
 	sec.Disabled = func(r row) (string, bool) { return "ジョブ実行中です", r.name == "build01-2" }
-	tbl := organism.NewTable(keymap.NewList(), testStyles(), sec)
+	tbl := table.New(keymap.NewList(), testStyles(), sec)
 	tbl.SetSize(80, 12)
 	tbl.SetItems(0, rows("build01-1", "build01-2", "build01-3"))
 
@@ -220,22 +220,22 @@ func TestTableDoesNotShareItemSlices(t *testing.T) {
 
 // 行のセル数が列数と違っても panic せず、列数ぶんに揃う（理由は fitCells を参照）。
 func TestTableToleratesRenderRowCellCountMismatch(t *testing.T) {
-	tests := map[string]organism.RenderRow[row]{
-		"列数より多い": func(r row, cols []token.Column, _ token.Styles) []string {
-			cells := make([]string, 0, len(cols)+3)
-			for range len(cols) + 3 {
-				cells = append(cells, r.name)
+	tests := map[string]table.RenderRow[row]{
+		"列数より多い": func(in table.RowInput[row]) []string {
+			cells := make([]string, 0, len(in.Cols)+3)
+			for range len(in.Cols) + 3 {
+				cells = append(cells, in.Item.name)
 			}
 			return cells
 		},
-		"列数より少ない":  func(r row, _ []token.Column, _ token.Styles) []string { return []string{r.name} },
-		"1 つも返さない": func(row, []token.Column, token.Styles) []string { return nil },
+		"列数より少ない":  func(in table.RowInput[row]) []string { return []string{in.Item.name} },
+		"1 つも返さない": func(table.RowInput[row]) []string { return nil },
 	}
 	for name, render := range tests {
 		t.Run(name, func(t *testing.T) {
 			sec := runnerSection(true)
 			sec.Render = render
-			tbl := organism.NewTable(keymap.NewList(), testStyles(), sec)
+			tbl := table.New(keymap.NewList(), testStyles(), sec)
 			tbl.SetSize(80, 12)
 			tbl.SetItems(0, rows("build01-1", "build01-2"))
 
@@ -268,7 +268,7 @@ func TestTableWithIncompleteSectionInput(t *testing.T) {
 	sec.Render = nil
 	sec.ID = nil
 
-	tbl := organism.NewTable(keymap.NewList(), testStyles(), sec)
+	tbl := table.New(keymap.NewList(), testStyles(), sec)
 	tbl.SetSize(80, 12)
 	tbl.SetItems(0, rows("build01-1"))
 	tbl.SetItems(-1, rows("無い区画"))
