@@ -115,26 +115,35 @@ func update(a App, msg tea.Msg) (App, tea.Cmd) {
 // 結果のもの（差し戻しが無ければ打鍵そのものの結果）である。
 func sendKey(a App, k string) (App, tea.Cmd) {
 	a, cmd := update(a, press(k))
-	if msg, ok := findBubbled(cmd); ok {
-		return update(a, msg)
+	if _, global, ok := scanKey(cmd); ok {
+		return update(a, global)
 	}
 	return a, cmd
 }
 
 // scanKey は打鍵の結果の束を辿り、最初の ChromeMsg と page が差し戻したキーを返す。
 //
-// **束の中の Cmd はすべて実行する。** 「差し戻しは無い」という結論は、形でも時間でも
-// 安全には出せない。形では判らないのは、tea.Batch が 1 本の束を畳むため、閉じ込めた
-// ときの tea.Batch(chrome, 一覧の Cmd) と、一覧の Cmd が nil のときに差し戻した
-// tea.Batch(chrome, BubbleKey) が同じ形になるからである（実 page のモーダル表示中が
-// これ）。時間でも判らないのは、遅い Cmd を打ち切ると遅れて返った差し戻しが
-// 「閉じ込められた」と同じ結果になり、**取りこぼしが静かな成功に化ける**からである。
-// 閉じ込めが壊れても緑になるので、空振りテストを直すという Issue #31 の主題に反する。
+// **束の中の Cmd はすべて実行する**（pagetest.Msgs）。「差し戻しは無い」という結論は
+// 形でも時間でも安全には出せない。
 //
-// 代償は絞り込み入力中の打鍵ごとに一覧のカーソル点滅（約 0.5 秒）を待つことで、
+// 形では判らない。tea.Batch は Cmd が 1 本になると束を畳むため、絞り込み入力中の
+// 閉じ込め tea.Batch(chrome, カーソル点滅) と、一覧が Cmd を返さない通常の打鍵の
+// 差し戻し tea.Batch(chrome, BubbleKey) が同じ形（先頭が ChromeMsg の 2 要素）になる。
+// 「先頭が ChromeMsg なら差し戻しは無い」は成り立たない（モーダル表示中は一覧の Cmd が
+// nil で束ごと畳まれ、ChromeMsg 単体になる）。
+//
+// 時間でも判らない。遅い Cmd を打ち切ると、予算を超えて遅れた差し戻しが「閉じ込め
+// られた」と同じ結果になる。press1 はそのとき nil を返し、gate_test の 6 つの
+// assertion は nil で満たされるので、**取りこぼしが静かな成功に化ける**（実際に化ける
+// には BubbleKey の単純なクロージャが予算を超える必要があり観測はされていないが、
+// 失敗の向きが「黙って緑」である以上 Issue #31 の主題に反する）。
+//
+// **走査する Cmd はすべて有限時間で返ることが前提。** 長寿命の購読を Cmd で返す page
+// （Logs タブなど）を親のテストに載せるときは、この走査を通さないこと。
+//
+// 代償は絞り込み入力中の打鍵ごとに点滅（約 0.5 秒）を待つことで、
 // TestFilterInputConfinesGlobalKeysBeforeChromeArrives が約 2 秒かかる。**意図して
-// 受け入れている**（回帰ガードが取りこぼしを成功と区別できないより遅いほうがまし。
-// 後追いで確かめる非同期の作りも検討したが、複雑さに見合わないと判断した）。
+// 受け入れている**（回帰ガードが取りこぼしを成功と区別できないより遅いほうがまし）。
 // 形と遅延の網羅は TestScanKeyFindsBubbleInEveryShape が固定している。
 func scanKey(cmd tea.Cmd) (page.ChromeMsg, page.GlobalKeyMsg, bool) {
 	var (
@@ -143,19 +152,7 @@ func scanKey(cmd tea.Cmd) (page.ChromeMsg, page.GlobalKeyMsg, bool) {
 		global    page.GlobalKeyMsg
 		hasGlobal bool
 	)
-
-	var walk func(tea.Cmd)
-	walk = func(c tea.Cmd) {
-		if c == nil {
-			return
-		}
-		msg := c()
-		if inner, ok := asCmds(msg); ok {
-			for _, ic := range inner {
-				walk(ic)
-			}
-			return
-		}
+	for _, msg := range pagetest.Msgs(cmd) {
 		switch m := msg.(type) {
 		case page.ChromeMsg:
 			if !hasChrome {
@@ -165,15 +162,7 @@ func scanKey(cmd tea.Cmd) (page.ChromeMsg, page.GlobalKeyMsg, bool) {
 			global, hasGlobal = m, true
 		}
 	}
-	walk(cmd)
-
 	return chrome, global, hasGlobal
-}
-
-// findBubbled は page が差し戻したグローバルキーを返す。
-func findBubbled(cmd tea.Cmd) (page.GlobalKeyMsg, bool) {
-	_, global, ok := scanKey(cmd)
-	return global, ok
 }
 
 // statusLine は親が描く状態行を返す。
