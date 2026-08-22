@@ -33,17 +33,14 @@ import (
 func press1(a App, k string) (App, page.ChromeMsg, tea.Cmd) {
 	next, cmd := update(a, press(k))
 
-	c, _ := firstChrome(cmd)
-
-	// 差し戻しは束の最上位に置かれる（page は tea.Batch(自分の結果, BubbleKey) を返す）。
-	// 束を走査するときに page 自身の Cmd を実行しないことは findBubbled が担う
-	// （helper_test の doc）。
-	global, ok := findBubbled(cmd)
-	if !ok {
-		return next, c, nil
+	// ChromeMsg と差し戻しは 1 回の走査でまとめて取る（helper_test の scanKey）。
+	// 束の形は仮定せず、点滅の Cmd を待たないことも scanKey が担う。
+	got := scanKey(cmd)
+	if !got.hasGlobal {
+		return next, got.chrome, nil
 	}
-	next, cmd = update(next, global)
-	return next, c, cmd
+	next, cmd = update(next, got.global)
+	return next, got.chrome, cmd
 }
 
 // モーダルを開いた直後の打鍵でも、グローバルキーは背後へ抜けない。
