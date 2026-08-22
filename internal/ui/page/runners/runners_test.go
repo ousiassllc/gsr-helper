@@ -336,3 +336,42 @@ func TestBackgroundColorChangeRestylesList(t *testing.T) {
 		t.Errorf("再スタイルで行が失われた:\n%q", lightBody)
 	}
 }
+
+// 自動更新でカーソルより上の runner が消えても、enter が開く詳細は同じ runner のまま。
+//
+// 3 秒ごとの再検出は runner が 1 台消えるだけで並びを詰める。カーソルを生の添字で
+// 当て直すと選択が 1 つ下へずれ、利用者が選んだつもりの runner とは別の runner の
+// 詳細が開く。サービス制御を実装した時点で「選んだつもりとは別の runner を停止する」
+// に化けるため、一覧の側で識別子ごとに貼り直す。
+func TestAutoRefreshKeepsSelectedRunner(t *testing.T) {
+	st := testState(80, 16)
+	st.Result.Runners = []runner.Runner{
+		sampleRunner("build01-1", false),
+		sampleRunner("build01-2", true),
+		sampleRunner("build01-3", false),
+	}
+	m, _ := runners.New(0, st).Update(st)
+
+	// カーソルを 2 台目へ置く。
+	m, _ = send(t, m, "j")
+
+	// 再検出で 1 台目が消える（並びが 1 つ詰まる）。
+	next := st
+	next.Result.Runners = []runner.Runner{
+		sampleRunner("build01-2", true),
+		sampleRunner("build01-3", false),
+	}
+	m, _ = m.Update(next)
+
+	m, c := send(t, m, "enter")
+	if !c.Modal {
+		t.Fatal("enter で詳細画面が開かない")
+	}
+	body := m.View().Content
+	if !strings.Contains(body, "build01-2") {
+		t.Errorf("選んでいた runner とは別の詳細が開いた:\n%s", body)
+	}
+	if strings.Contains(body, "build01-3") {
+		t.Errorf("1 つ下の runner の詳細が開いている:\n%s", body)
+	}
+}

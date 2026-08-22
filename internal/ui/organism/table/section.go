@@ -95,6 +95,25 @@ func (s section[T]) selected() (item T, ok bool) {
 	return s.shown[i], true
 }
 
+// restoredCursor は行の入れ替えの後にカーソルを置く位置を返す。
+//
+// 目印の行が残っていればその位置、消えていれば先頭に戻す。添字を据え置くと、
+// たまたまその位置に来た別の行を選んだことになる。先頭に戻すのは、利用者が選び直す
+// ことが分かる位置であり、破壊的操作の誤爆を避けられるためである。
+//
+// 目印を取れなかった区画（識別子を返す関数が無い）は今の添字を保つ。
+func (s section[T]) restoredCursor(a focusAnchor) int {
+	if !a.ok || s.def.ID == nil {
+		return s.tbl.Cursor()
+	}
+	for i, item := range s.shown {
+		if s.def.ID(item) == a.id {
+			return i
+		}
+	}
+	return 0
+}
+
 // render は行のセル列を返す。Render が未設定の区画では空のセルになる。
 //
 // 選択できない理由も一緒に渡す。理由を落とすと「なぜ選べないのか」を行に出せず、

@@ -39,10 +39,12 @@ func (t *Model[T]) SetItems(section int, items []T) {
 	if section < 0 || section >= len(t.sections) {
 		return
 	}
+	// 目印は行を入れ替える前に取る（normalizeFocus の doc）。
+	a := t.anchor()
 	t.sections[section].items = slices.Clone(items)
 	t.pruneChecked()
 	t.filterSection(section)
-	t.normalizeFocus()
+	t.normalizeFocus(a)
 	t.layout()
 }
 

@@ -168,12 +168,15 @@ func TestTableFilterAcceptAndCancel(t *testing.T) {
 
 // SetItems の後もカーソルは行の範囲に収まり、消えた行の選択は残らない（3 秒ごとの
 // 再検出で検出漏れした runner が戻ったときに、消えていた選択が復活しない）。
+//
+// カーソルを置いていた行そのものが消えた場合は先頭へ戻す（restoredCursor の doc）。
+// 添字を切り詰めて据えると、たまたまその位置に来た別の runner を選んだことになる。
 func TestTableSetItems(t *testing.T) {
 	tbl, _ := send(newTable(true, rows("a-1", "a-2", "a-3", "a-4", "a-5")), "G", "ctrl+a")
 
 	tbl.SetItems(0, rows("a-1", "a-2"))
-	if got := selectedName(tbl); got != "a-2" {
-		t.Errorf("カーソル位置 = %q, want a-2（範囲内へ収まる）", got)
+	if got := selectedName(tbl); got != "a-1" {
+		t.Errorf("カーソル位置 = %q, want a-1（選択していた行が消えたら先頭へ戻す）", got)
 	}
 	if got := names(tbl.Checked()); !slices.Equal(got, []string{"a-1", "a-2"}) {
 		t.Errorf("消えた行を含む選択 = %v, want [a-1 a-2]", got)
