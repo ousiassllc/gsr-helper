@@ -197,3 +197,24 @@ func TestFrameAtWidthMin(t *testing.T) {
 		t.Errorf("幅 %d では本体を描くべきである", token.WidthMin)
 	}
 }
+
+// 幅不足の縮退表示も端末の高さに収める。
+//
+// 案内は切り詰めずに折り返すため、幅 2 では 20 行を超える。高さの制限を通さないと
+// 画面が流れてスクロールバックを汚す。
+func TestFrameTooNarrowFitsHeight(t *testing.T) {
+	const width, height = 2, 5
+	got := template.Frame(template.FrameInput{Body: "本体の一覧", Width: width, Height: height})
+	if h := lipgloss.Height(got); h > height {
+		t.Errorf("高さ = %d, want %d 以下:\n%s", h, height, got)
+	}
+	// 幅 2 では 1 行 1 文字に折り返すので、案内の先頭だけが残る。
+	if got == "" || !strings.HasPrefix(got, "表") {
+		t.Errorf("表示不能である旨が出ていない: %q", got)
+	}
+
+	// 高さがまだ届いていない（0）ときは切らず、案内を落とさない。
+	if h := lipgloss.Height(template.Frame(template.FrameInput{Width: width, Height: 0})); h <= height {
+		t.Errorf("高さ 0 で縮退表示が切られている（行数 %d）", h)
+	}
+}

@@ -55,16 +55,20 @@ func RunnerColumns() []Column {
 
 // OrphanColumns は Runners タブ下部の孤児ユニット区画の列を返す。
 //
-// 必要幅は行頭 6 + 列幅合計 70 + 列間 2 = 78 セルで、WidthTarget（80）に全列が
+// 必要幅は行頭 6 + 列幅合計 71 + 列間 2 = 79 セルで、WidthTarget（80）に全列が
 // 収まる。UNIT の幅はユニット名（actions.runner.foo-bar.old01.service = 36 セル）が
 // そのまま入るように取ってある。末尾を切り詰めると名前の識別に使う部分が消える
 // ためである。この 3 列は ColumnDropOrder に含まれないので、幅が足りない場合は
 // molecule.Columns が末尾（NOTE）から落とす。
+//
+// NOTE が注記「（対応ディレクトリなし）」の 24 セルより 1 セル広いのは、NOTE が
+// この区画の最終列であり、organism が bubbles/table のセル余白の分だけ最終列を
+// 1 セル狭めるためである。ちょうど 24 にすると幅 80 でも注記が必ず中略される。
 func OrphanColumns() []Column {
 	return []Column{
 		{ID: ColUnit, Title: "UNIT", Width: 36, Right: false},
 		{ID: ColSvc, Title: "SVC", Width: 10, Right: false},
-		{ID: ColNote, Title: "NOTE", Width: 24, Right: false},
+		{ID: ColNote, Title: "NOTE", Width: 25, Right: false},
 	}
 }
 

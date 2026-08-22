@@ -47,7 +47,9 @@ const footerHeight = 2
 // 幅が足りない画面ごとに別の縮退表示を作らないためである。
 func Frame(in FrameInput) string {
 	if in.Width < token.WidthMin {
-		return tooNarrow(in.Width)
+		// 縮退表示も高さに収める。案内は折り返すので、幅が数セルしか無い端末では
+		// 枠を組んだ場合よりはるかに行数が増える。
+		return clampHeight(tooNarrow(in.Width), in.Height)
 	}
 
 	_, bodyHeight := BodySize(in.Width, in.Height)
@@ -60,13 +62,24 @@ func Frame(in FrameInput) string {
 	lines = append(lines, divider(in.Width))
 	lines = append(lines, fit(in.Status, 1, in.Width)...)
 	lines = append(lines, fit(in.Footer, footerHeight, in.Width)...)
-	if in.Height > 0 && len(lines) > in.Height {
-		// 高さが ChromeHeight に足りない端末では枠だけでも行が余る。端末の高さを
-		// 超えると画面が流れてスクロールバックを汚すため、末尾から落とす。
-		// 高さが 0（リサイズがまだ届いていない）ときは切らず、枠を組んだまま返す。
-		lines = lines[:in.Height]
+	// 高さが ChromeHeight に足りない端末では枠だけでも行が余る。
+	return clampHeight(strings.Join(lines, "\n"), in.Height)
+}
+
+// clampHeight は行数を height に収める。
+//
+// 端末の高さを超えると画面が流れてスクロールバックを汚すため、末尾から落とす。
+// height が 0 以下のときは切らない。リサイズがまだ届いておらず本当の高さが
+// 分からない状態であり、そこで切ると初回の描画が空になる。
+func clampHeight(s string, height int) string {
+	if height <= 0 {
+		return s
 	}
-	return strings.Join(lines, "\n")
+	lines := strings.Split(s, "\n")
+	if len(lines) <= height {
+		return s
+	}
+	return strings.Join(lines[:height], "\n")
 }
 
 // BodySize は Body に割り当てられる領域を返す。親 Model が算出して page に渡す。

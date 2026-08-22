@@ -104,9 +104,31 @@ func TestRunnerRowWarnMark(t *testing.T) {
 			lipgloss.Width(with[0]), lipgloss.Width(without[0]))
 	}
 
-	// 幅が注意記号の分すら無い場合も panic せず、幅を守る。
+	// 幅が注意記号の分すら無い場合も panic せず、幅を守る。名前を諦めても注意記号は
+	// 残す。行に注意があることを示すのはこの記号だけで、落とすと警告が画面から消える。
 	narrow := []token.Column{{ID: token.ColName, Title: "NAME", Width: 2, Right: false}}
-	if w := lipgloss.Width(RunnerRow(warned, narrow, plainStyles())[0]); w != 2 {
+	cell := RunnerRow(warned, narrow, plainStyles())[0]
+	if w := lipgloss.Width(cell); w != 2 {
 		t.Errorf("狭い NAME 列のセル幅 = %d, want 2", w)
+	}
+	if !strings.Contains(cell, token.IconWarn) {
+		t.Errorf("狭い NAME 列のセル = %q, want %q を含む", cell, token.IconWarn)
+	}
+}
+
+// 名前が空のときも他の列と同じ「値なし」の記号を出す。
+//
+// 空白のままだと値が無いのか描画に失敗したのかを読み分けられない。注意記号は
+// 名前が空でも消さない。
+func TestRunnerRowEmptyName(t *testing.T) {
+	cols := Columns(token.RunnerColumns(), 100)
+	nameless := RunnerRow(runner(func(v *RunnerView) { v.Name = "" }), cols, plainStyles())
+	if got := strings.TrimSpace(nameless[0]); got != token.IconNoUnit {
+		t.Errorf("名前が空のときの NAME セル = %q, want %q", nameless[0], token.IconNoUnit)
+	}
+
+	warned := RunnerRow(runner(func(v *RunnerView) { v.Name, v.Warn = "", true }), cols, plainStyles())
+	if want := token.IconNoUnit + " " + token.IconWarn; !strings.HasPrefix(warned[0], want) {
+		t.Errorf("名前が空で注意ありの NAME セル = %q, want %q で始まる", warned[0], want)
 	}
 }

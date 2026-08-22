@@ -50,12 +50,11 @@ func Pad(s string, width int, a Align) string {
 //
 // 全角文字の境界で 1 セル余ることがあるが、埋めるのは Pad の役割である。
 //
-// 幅は rune 単位で数えるため、結合文字や ZWJ 絵文字のような複数 rune から成る
-// 書記素（grapheme cluster）は途中で分割され得る。runner 名・ユニット名・
-// バージョン文字列は ASCII と日本語しか含まないため実害は無いが、_work の
-// パスやログ行に絵文字が混じると崩れる。cluster 単位で切るには
-// charmbracelet/x/ansi の ansi.Truncate が必要になり直接依存が 1 つ増えるため、
-// ここでは採らずに制約として残す。
+// 切る位置の判断を lipgloss（MaxWidth）に任せるのは、装飾済みの文字列に含まれる
+// ANSI 列を途中で割らないためである。自前に rune を数えると CSI の途中で切れて
+// 端末が後続の出力を飲み込む。molecule.KeyBar は装飾済みのキーヒントを Join へ
+// 渡し、Join は幅が足りない分をここで中略するので、この経路は実際に起きる。
+// あわせて書記素（結合文字・ZWJ 絵文字）も分割されなくなる。
 func Truncate(s string, width int) string {
 	if width <= 0 {
 		return ""
@@ -67,18 +66,7 @@ func Truncate(s string, width int) string {
 	if limit <= 0 {
 		return token.IconEllipsis
 	}
-
-	var b strings.Builder
-	used := 0
-	for _, r := range s {
-		w := lipgloss.Width(string(r))
-		if used+w > limit {
-			break
-		}
-		b.WriteRune(r)
-		used += w
-	}
-	return b.String() + token.IconEllipsis
+	return lipgloss.NewStyle().MaxWidth(limit).Render(s) + token.IconEllipsis
 }
 
 // Justify は左寄せと右寄せの文字列を指定幅の 1 行に収める。
@@ -187,8 +175,9 @@ func Path(p string, width int) string {
 
 // tail は文字列の末尾から width セル分を返す。
 //
-// Truncate と同じく rune 単位で数えるため、書記素の途中で切れ得る（Truncate の
-// コメント参照）。
+// rune 単位で数えるため、結合文字や ZWJ 絵文字のような複数 rune から成る書記素は
+// 途中で分割され得る。lipgloss には末尾から切る手立てが無く、_work のパスに絵文字が
+// 混じる場合に限る崩れなので、制約として残す。
 func tail(s string, width int) string {
 	if width <= 0 {
 		return ""

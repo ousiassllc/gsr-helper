@@ -1,6 +1,10 @@
 package token
 
-import "testing"
+import (
+	"testing"
+
+	"charm.land/lipgloss/v2"
+)
 
 func TestWidthMinIsBelowTarget(t *testing.T) {
 	if WidthMin >= WidthTarget {
@@ -53,7 +57,9 @@ func TestColumnsAreWellFormed(t *testing.T) {
 			if c.ID == "" || c.Title == "" {
 				t.Errorf("%s に識別子または見出しが空の列がある: %+v", name, c)
 			}
-			if c.Width < len([]rune(c.Title)) {
+			// 幅は表示セル数で見る。rune 数で数えると全角の見出しを過小に数え、
+			// 見出しが列幅に収まらない定義を見逃す。
+			if c.Width < lipgloss.Width(c.Title) {
 				t.Errorf("%s の列 %s は見出し %q より幅が狭い（幅 %d）", name, c.ID, c.Title, c.Width)
 			}
 			if seen[c.ID] {

@@ -38,7 +38,7 @@ func RunnerRow(v RunnerView, cols []token.Column, s token.Styles) []string {
 func runnerCell(v RunnerView, c token.Column, s token.Styles) string {
 	switch c.ID {
 	case token.ColName:
-		return runnerNameCell(v, c.Width, s)
+		return runnerNameCell(v, c, s)
 	case token.ColScope:
 		return dashCell(v.Scope, c, s)
 	case token.ColManaged:
@@ -65,11 +65,27 @@ func runnerCell(v RunnerView, c token.Column, s token.Styles) string {
 // 注意記号を行末（最後の列の後ろ）に足さないのは、bubbles/table が列幅を超えた
 // 分を切り落とすため、行末に付けた記号が消えてしまうからである。名前の幅を
 // 記号の分だけ狭めることで、記号の有無にかかわらず列幅が変わらない。
-func runnerNameCell(v RunnerView, width int, s token.Styles) string {
+//
+// 名前と記号を並べる余地が無い幅では名前を諦めて記号だけを描く。行に注意がある
+// ことを示すのはこの記号だけなので、落とすと警告そのものが画面から消える。
+// 名前が空のときは他の列（dashCell）と同じ「値なし」の記号を出す。空白のままだと
+// 値が無いのか描画に失敗したのかを読み分けられない。
+func runnerNameCell(v RunnerView, c token.Column, s token.Styles) string {
 	const markWidth = 2 // 空白 + 注意記号
-	if width <= markWidth {
-		return atom.Cell(v.Name, width, atom.Left)
+
+	if c.Width <= markWidth {
+		if v.Warn {
+			return atom.Pad(atom.WarnMark(v.Warn, s), c.Width, atom.Left)
+		}
+		return dashCell(v.Name, c, s)
 	}
-	name := atom.Truncate(v.Name, width-markWidth)
-	return atom.Pad(name+" "+atom.WarnMark(v.Warn, s), width, atom.Left)
+
+	name, role := v.Name, token.RolePlain
+	if name == "" {
+		name, role = token.IconNoUnit, token.RoleMuted
+	}
+	// 幅を揃えてから装飾する（styledCell と同じ順序。逆にすると切り詰めで ANSI 列が
+	// 壊れる）。
+	body := s.Style(role).Render(atom.Truncate(name, c.Width-markWidth))
+	return atom.Pad(body+" "+atom.WarnMark(v.Warn, s), c.Width, atom.Left)
 }

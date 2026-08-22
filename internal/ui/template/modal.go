@@ -57,7 +57,7 @@ func Modal(in ModalInput) string {
 	innerWidth := in.Width - modalFrameWidth
 	innerHeight := in.Height - modalFrameHeight
 	if innerWidth < modalMinInner || innerHeight < 1 {
-		return clip(modalContent(in, in.Height), in.Width, in.Height)
+		return clip(modalContent(in, in.Height, in.Width), in.Width, in.Height)
 	}
 
 	// Width() / Height() には領域そのものを渡す。lipgloss のこの 2 つは枠線と余白を
@@ -71,12 +71,17 @@ func Modal(in ModalInput) string {
 		Height(in.Height).
 		MaxWidth(in.Width).
 		MaxHeight(in.Height).
-		Render(modalContent(in, innerHeight))
+		Render(modalContent(in, innerHeight, innerWidth))
 	return lipgloss.Place(in.Width, in.Height, lipgloss.Center, lipgloss.Center, box)
 }
 
-// modalContent は見出しと本文を height 行に収めて返す。
-func modalContent(in ModalInput, height int) string {
+// modalContent は見出しと本文を height 行・width セルに収めて返す。
+//
+// 行の幅も切るのは、width を超える行が lipgloss の枠の中で折り返し、行数が増えて
+// 枠の下辺（╰…╯）が Height / MaxHeight の外へ押し出されるためである。行数だけを
+// 数えても、折り返した 1 行が 2 行を占めるので枠が閉じない。切り詰めを lipgloss に
+// 任せるのは clip と同じ理由（装飾済みの文字列の ANSI 列を壊さない）である。
+func modalContent(in ModalInput, height, width int) string {
 	lines := make([]string, 0, height)
 	if in.Title != "" {
 		lines = append(lines, in.Title)
@@ -89,6 +94,10 @@ func modalContent(in ModalInput, height int) string {
 	}
 	if len(lines) > height {
 		lines = lines[:height]
+	}
+	fit := lipgloss.NewStyle().MaxWidth(max(width, 1))
+	for i, line := range lines {
+		lines[i] = fit.Render(line)
 	}
 	return strings.Join(lines, "\n")
 }

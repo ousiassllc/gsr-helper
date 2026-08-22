@@ -62,6 +62,13 @@ func TestModalClipsOverflowingBody(t *testing.T) {
 	if h := lipgloss.Height(got); h != height {
 		t.Errorf("高さ = %d, want %d", h, height)
 	}
+	// 高さだけを見ると足りない。内側幅を超える行が枠の中で折り返すと行数が増え、
+	// 下辺が領域から押し出されて ╰…╯ が切り落とされる（高さは MaxHeight で
+	// 保たれるので気付けない）。
+	lines := strings.Split(got, "\n")
+	if !strings.HasPrefix(lines[0], "╭") || !strings.HasPrefix(lines[len(lines)-1], "╰") {
+		t.Errorf("枠の上辺・下辺が揃っていない:\n%s", got)
+	}
 }
 
 // 枠を描く余地が無い領域でも panic せず、内容を領域に収めて返す。

@@ -31,7 +31,7 @@ func TestOrphanRowCells(t *testing.T) {
 }
 
 func TestOrphanRowContents(t *testing.T) {
-	cols := Columns(token.OrphanColumns(), token.WidthTarget)
+	cols := sectionColumns(token.OrphanColumns(), token.WidthTarget)
 	cells := OrphanRow(sampleOrphan(), cols, plainStyles())
 
 	if !strings.HasPrefix(cells[0], "actions.runner.foo-bar.old01.service") {
@@ -49,4 +49,17 @@ func TestOrphanRowContents(t *testing.T) {
 	if got := strings.TrimSpace(noNote[2]); got != token.IconNoUnit {
 		t.Errorf("注記が無いときの NOTE セル = %q, want %q", got, token.IconNoUnit)
 	}
+}
+
+// sectionColumns は organism の区画が bubbles/table へ渡すのと同じ列を返す。
+//
+// organism の setWidth は、bubbles/table のセルが持つ右余白の分だけ最終列を 1 セル
+// 狭めてから表を組む。Columns の結果をそのまま使って中身を検証すると、実際の描画
+// では 1 セル足りずに中略されている値が「収まっている」ように見えてしまう。
+func sectionColumns(all []token.Column, width int) []token.Column {
+	cols := Columns(all, width)
+	if n := len(cols); n > 0 {
+		cols[n-1].Width = max(cols[n-1].Width-columnGutter, 0)
+	}
+	return cols
 }

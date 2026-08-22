@@ -4,6 +4,8 @@ import (
 	"testing"
 	"time"
 
+	"charm.land/lipgloss/v2"
+
 	"github.com/ousiassllc/gsr-helper/internal/ui/token"
 )
 
@@ -74,10 +76,11 @@ func TestCheckbox(t *testing.T) {
 			t.Errorf("Checkbox(%d) = %q, want %q", c.state, got, c.want)
 		}
 	}
-	// 3 状態の幅は揃っている（選択モードの切り替えで桁がずれない）。
+	// 3 状態の幅は揃っている（選択モードの切り替えで桁がずれない）。桁ずれは
+	// 表示セル数で決まるので、rune 数ではなく表示幅で数える。
 	widths := map[int]bool{}
 	for _, c := range cases {
-		widths[len([]rune(Checkbox(c.state, s)))] = true
+		widths[lipgloss.Width(Checkbox(c.state, s))] = true
 	}
 	if len(widths) != 1 {
 		t.Errorf("Checkbox の 3 状態で幅が揃っていない: %v", widths)

@@ -23,16 +23,22 @@ const (
 	columnPrefix = 6
 )
 
-// Columns は幅に収まる列だけを選ぶ。
+// Columns は幅に収まる列だけを選ぶ。ヘッダと行が同じ結果を使うことで桁ずれを防ぐ。
 //
-// token.ColumnDropOrder の順に落とし、token.ColumnsAlways の列は落とさない。
-// ヘッダと行が同じ結果を使うことで桁ずれを防ぐ。
+// 落とす順は次の 2 段で、収まった時点で止まる。
 //
-// 落とす順に載っていない列（孤児ユニットの NOTE や Jobs の WORKER PID など）は、
-// 順を使い切っても収まらない場合に末尾から落とす。落とす順は screens.md が
-// Runners タブについて定めたものであり、それだけに頼ると「落とせる列が 1 つも
-// 無い」区画ができて、幅 60 でも桁が溢れる。常に表示する列だけになっても
-// 収まらない場合はそれを返す（表示不能とするかの判断は template.Frame の責務）。
+//  1. token.ColumnDropOrder の順（_WORK → VERSION → MANAGED → SCOPE）。
+//     screens.md の「端末幅による列の省略」が Runners タブについて定めたものである。
+//  2. それでも収まらない場合は残った列の末尾から。右側の列ほど補足的な情報である。
+//     落とす順は Runners タブのためのものなので、それだけに頼ると孤児ユニットの
+//     NOTE や Jobs の WORKER PID のように「落とせる列が 1 つも無い」区画ができて、
+//     幅 60 でも桁が溢れる。
+//
+// どちらの段でも token.ColumnsAlways の列は落とさない。**all が空でなければ結果も
+// 空にならない**（最後の 1 列は幅が足りなくても残す）。列が 0 個になると見出しも
+// 行も描けず、Jobs タブのように常時表示の列を持たない区画が空表になるためである。
+// そのため結果は width を超え得る。超えるのは最小の列でも収まらない幅に限り、
+// 表示不能とするかの判断は template.Frame の責務である。
 func Columns(all []token.Column, width int) []token.Column {
 	keep := make([]token.Column, len(all))
 	copy(keep, all)
@@ -50,8 +56,9 @@ func Columns(all []token.Column, width int) []token.Column {
 		keep = dropColumn(keep, id)
 	}
 
-	// 末尾から落とすのは、右側の列ほど補足的な情報であるためである。
-	for i := len(keep) - 1; i >= 0 && !columnsFit(keep, width); i-- {
+	// 末尾から落とすのは、右側の列ほど補足的な情報であるためである。1 列だけに
+	// なったらそこで止める（列が 0 個の一覧は描けない）。
+	for i := len(keep) - 1; i >= 0 && len(keep) > 1 && !columnsFit(keep, width); i-- {
 		if hasColumnID(always, keep[i].ID) {
 			continue
 		}

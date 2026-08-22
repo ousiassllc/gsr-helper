@@ -76,11 +76,13 @@ func TestKeyBarGroupsReasons(t *testing.T) {
 	}
 }
 
-// 理由が複数あるときは 1 つだけを出し、残りは件数にまとめる。
+// 理由が複数あるときも取り落とさず、1 行に並べる。多数のキーを塞ぐ理由が先に来る。
 //
-// 2 つ並べると幅 80 で後ろの理由が中略され、対処の書かれた部分が読めなくなる。
-// 残すのは最も多くのキーを塞いでいる理由（能力不足は複数のキーに一斉に効く）である。
-func TestKeyBarKeepsOneReasonAndCountsRest(t *testing.T) {
+// フッタは 2 行に固定（template.ChromeHeight）なので理由ごとに行を増やせない。
+// 理由を件数にまとめて捨てるとフッタから辿れなくなるため、1 行に並べて幅が尽きた
+// 分だけを中略する。先頭を最も多くのキーを塞ぐ理由にするのは、能力不足
+// （root / systemd / 認証）が複数のキーに一斉に効き、最も広く当てはまるためである。
+func TestKeyBarShowsEveryReasonWidestFirst(t *testing.T) {
 	const unsupported = "この版では未対応です"
 	hints := []atom.Hint{
 		{Key: "l", Desc: "ログ", Enabled: false, Reason: unsupported},
@@ -89,19 +91,28 @@ func TestKeyBarKeepsOneReasonAndCountsRest(t *testing.T) {
 		{Key: "x", Desc: "停止", Enabled: false, Reason: rootReason},
 		{Key: "X", Desc: "強制", Enabled: false, Reason: rootReason},
 	}
-	reason := strings.Split(KeyBar(hints, token.WidthTarget, plainStyles()), "\n")[1]
 
-	if !strings.Contains(reason, rootReason) {
-		t.Errorf("理由の行 = %q, 多数のキーを塞ぐ理由が出ていない", reason)
+	// 幅が足りる端末ではどの理由も中略されない。
+	reason := strings.Split(KeyBar(hints, 200, plainStyles()), "\n")[1]
+	for _, want := range []string{"(s)(x)(X): " + rootReason, "(l)(d): " + unsupported} {
+		if !strings.Contains(reason, want) {
+			t.Errorf("理由の行 = %q, want %q を含む", reason, want)
+		}
 	}
-	if strings.Contains(reason, unsupported) {
-		t.Errorf("理由の行 = %q, 理由が 2 つ並んでいる", reason)
+	if !strings.HasPrefix(reason, "(s)(x)(X): "+rootReason) {
+		t.Errorf("理由の行 = %q, 最も多くのキーを塞ぐ理由が先頭に無い", reason)
 	}
-	if !strings.Contains(reason, "他 1 件") {
-		t.Errorf("理由の行 = %q, 残りの件数が出ていない", reason)
+
+	// 幅 80 では収まらないが、先頭の理由は最後まで残り、行数も増えない。
+	lines := strings.Split(KeyBar(hints, token.WidthTarget, plainStyles()), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("行数 = %d, want 2", len(lines))
 	}
-	if w := lipgloss.Width(reason); w > token.WidthTarget {
-		t.Errorf("理由の行の幅 = %d, want %d 以下（%q）", w, token.WidthTarget, reason)
+	if !strings.Contains(lines[1], rootReason) {
+		t.Errorf("理由の行 = %q, 先頭の理由が中略されている", lines[1])
+	}
+	if w := lipgloss.Width(lines[1]); w > token.WidthTarget {
+		t.Errorf("理由の行の幅 = %d, want %d 以下（%q）", w, token.WidthTarget, lines[1])
 	}
 }
 

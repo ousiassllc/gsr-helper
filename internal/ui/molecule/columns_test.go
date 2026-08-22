@@ -128,3 +128,26 @@ func TestColumnsFitCountsGutterBetweenColumnsOnly(t *testing.T) {
 		t.Error("列が無いのに収まらないと判定された")
 	}
 }
+
+// 入力に列があれば、どんな幅でも 1 列は返す。
+//
+// Jobs タブの列は 1 つも ColumnsAlways に含まれないため、末尾から落とす経路が
+// 歯止め無く走ると全列が消える。列が 0 個になると見出しも行も描けず、幅 19 未満の
+// Jobs タブが空表になる。表示不能とするかの判断は template.Frame の責務であり、
+// molecule.Columns は最小の列を返して幅を超えることを許す。
+func TestColumnsNeverReturnsEmptyForNonEmptyInput(t *testing.T) {
+	for name, all := range columnSets() {
+		for width := 20; width >= -10; width-- {
+			if got := Columns(all, width); len(got) == 0 {
+				t.Errorf("%s: 幅 %d で列が 0 個になった", name, width)
+			}
+		}
+	}
+
+	// 落とし切ったあとに残るのは先頭の列（最も識別に使う列）である。
+	for width := 10; width <= 18; width++ {
+		if got, want := columnIDs(Columns(token.JobColumns(), width)), []string{token.ColRunner}; !reflect.DeepEqual(got, want) {
+			t.Errorf("JobColumns: 幅 %d の列 = %v, want %v", width, got, want)
+		}
+	}
+}

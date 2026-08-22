@@ -1,6 +1,7 @@
 package atom
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 
@@ -98,7 +99,7 @@ func TestPath(t *testing.T) {
 		want  string
 	}{
 		{"収まる", p, 40, p},
-		{"ちょうど", p, len(p), p},
+		{"ちょうど", p, lipgloss.Width(p), p}, // 幅はバイト数ではなく表示セル数
 		{"中間を中略する", p, 24, "/opt/…/_work/bar"},
 		{"末尾だけ残す", p, 8, "…ork/bar"},
 		{"空文字", "", 10, ""},
@@ -205,5 +206,34 @@ func TestJoinKeepsPartsThatExactlyFit(t *testing.T) {
 	}
 	if w := lipgloss.Width(got); w > width-1 {
 		t.Errorf("Join の幅 = %d, 上限 %d を超えた（%q）", w, width-1, got)
+	}
+}
+
+// 装飾済みの文字列を切っても ANSI 列を割らない。
+//
+// molecule.KeyBar は装飾済みのキーヒントを atom.Join に渡し、Join は幅が足りない
+// 分を Truncate で中略する。CSI の途中で切ると端末が後続の出力を飲み込む。
+// 期待値を端末の色数に左右されないよう、エスケープを直接組んで渡す。
+func TestTruncateKeepsANSISequenceIntact(t *testing.T) {
+	const styled = "\x1b[31mbuild01-longname-1\x1b[0m"
+	csi := regexp.MustCompile("\x1b\\[[0-9;]*m")
+
+	for _, width := range []int{1, 2, 3, 5, 9, 17} {
+		got := Truncate(styled, width)
+		if w := lipgloss.Width(got); w > width {
+			t.Errorf("Truncate(装飾済み, %d) の幅 = %d, want %d 以下（%q）", width, w, width, got)
+		}
+		// 完全な CSI 列を取り除いてもエスケープ文字が残るなら、途中で切れている。
+		if rest := csi.ReplaceAllString(got, ""); strings.ContainsRune(rest, '\x1b') {
+			t.Errorf("Truncate(装飾済み, %d) が ANSI 列を割った: %q", width, got)
+		}
+		if want := token.IconEllipsis; !strings.HasSuffix(got, want) {
+			t.Errorf("Truncate(装飾済み, %d) = %q, want %q で終わる", width, got, want)
+		}
+	}
+
+	// 見える文字は装飾しない場合と同じだけ残す。
+	if got, want := csi.ReplaceAllString(Truncate(styled, 5), ""), Truncate("build01-longname-1", 5); got != want {
+		t.Errorf("装飾を除いた結果 = %q, want %q", got, want)
 	}
 }
