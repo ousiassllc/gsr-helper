@@ -92,7 +92,7 @@ graph TD
     Tmpl[template]
     Org[organism]
     OrgT[organism/table]
-    OrgP[organism/pane<br/>organism/dialog]
+    OrgP[organism/pane<br/>organism/dialog※未実装]
     Mol[molecule]
     Atom[atom]
     Tok[token]
