@@ -1,6 +1,7 @@
 package pane_test
 
 import (
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -81,5 +82,40 @@ func TestDetailScrolls(t *testing.T) {
 	small := newDetail(60, 10, 3)
 	if got := sendDetail(small, "j", "j", "ctrl+f").View(); got != small.View() {
 		t.Error("内容が収まっているのに表示位置が動いた")
+	}
+}
+
+// SetContent に渡したスライスは Detail の内部と共有しない。
+//
+// bubbles/viewport の SetContentLines は受け取ったスライスをそのまま持ち、改行を含む行を
+// 分割する際に中身を書き戻す（要素への代入と slices.Insert）。写しを取らないと呼び出し側の
+// スライスが書き換わり、page が手元の行を使い回した時点で表示が崩れる
+// （organism/table.Model.SetItems がこの危険のために写しを取っているのと同じ）。
+func TestDetailDoesNotShareContentSlice(t *testing.T) {
+	// 改行を含む行を先頭に置き、容量に余裕を持たせる。slices.Insert は余裕があると
+	// その場で要素を後ろへ詰めるため、呼び出し側の配列が書き換わる経路がここで開く
+	// （page が append で組み立てた行はこの形になりうる）。
+	lines := make([]string, 0, 8)
+	lines = append(lines, "1 行目\n2 行目", "3 行目", "4 行目")
+	want := slices.Clone(lines)
+
+	d := pane.NewDetail()
+	d.SetSize(40, 10)
+	d.SetContent(lines)
+
+	if !slices.Equal(lines, want) {
+		t.Errorf("渡したスライスが書き換わった: %q, want %q", lines, want)
+	}
+
+	// 渡した後に呼び出し側が書き換えても表示は変わらない。
+	before := d.View()
+	lines[0] = "書き換え"
+	if got := d.View(); got != before {
+		t.Errorf("渡したスライスの書き換えが表示に及んだ:\n%q\n→\n%q", before, got)
+	}
+
+	// 改行を含む行は分割して表示する（写しを取っても分割の挙動は保つ）。
+	if !strings.Contains(before, "1 行目") || !strings.Contains(before, "2 行目") {
+		t.Errorf("改行を含む行が分割されていない:\n%q", before)
 	}
 }
