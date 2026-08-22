@@ -115,10 +115,12 @@ func TestScanCanceledAfterListUnits(t *testing.T) {
 	})
 
 	states, warns := Scan(ctx, f)
+	// show は 1 件も発行しない。「ユニット数より少ない」では 1 件だけ漏れた場合を
+	// 見逃すため、キャンセル後の発行数はぴったり 0 件で見る。
 	shows := len(f.Calls()) - 1
-	if shows >= len(twoUnits) || len(states) >= len(twoUnits) || len(warns) >= len(twoUnits) {
-		t.Errorf("show %d 件 / states %d 件 / warns %d 件, want いずれも %d 件未満",
-			shows, len(states), len(warns), len(twoUnits))
+	if shows != 0 || len(states) != 0 || len(warns) != 0 {
+		t.Errorf("show %d 件 / states %d 件 / warns %d 件, want いずれも 0 件",
+			shows, len(states), len(warns))
 	}
 }
 

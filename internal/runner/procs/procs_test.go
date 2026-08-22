@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"testing"
+	"time"
 )
 
 func TestReadArgv0(t *testing.T) {
@@ -90,21 +91,97 @@ func TestProcStat(t *testing.T) {
 	}
 }
 
-// inspectProc / Scan は実 /proc を読む。検出成功の経路に入れるには
-// Runner.Listener という名前のプロセスを起動する必要があり、外部コマンド実行を持ち込まない
-// 方針のためここでは行わない。判定ロジックの分岐は上の 3 関数のテストで押さえ、
-// ここでは「runner でないものを弾く」ことと走査自体が成功することを見る。
+// 実 /proc を読む経路。runner が動いていないホストでも成り立つ「runner でないものを
+// 弾く」ことだけを見る（検出に成功する経路は TestScanFakeProc が偽の procfs で見る）。
 func TestScanOnRealProc(t *testing.T) {
-	if p, ok := inspectProc(os.Getpid()); ok {
+	if p, ok := inspectProc(procRoot, os.Getpid()); ok {
 		t.Errorf("テストプロセス自身を runner と判定した: %+v", p)
 	}
-	if p, ok := inspectProc(0); ok { // /proc/0 は存在しない（exe も cmdline も読めない）
+	if p, ok := inspectProc(procRoot, 0); ok { // /proc/0 は存在しない（exe も cmdline も読めない）
 		t.Errorf("存在しない PID を runner と判定した: %+v", p)
 	}
-	// runner が動いていないホストでは 0 件になる。走査自体が成功することを見る。
-	if _, err := Scan(); err != nil {
-		t.Fatalf("Scan() のエラー = %v", err)
+	// procfs が読めないときはエラーを返す（0 件と区別する。Discover は警告として出す）。
+	if _, err := scan(filepath.Join(t.TempDir(), "nope")); err == nil {
+		t.Error("読めないルートのエラー = nil, want 非 nil")
 	}
+}
+
+// 偽の procfs を組んで、検出に成功する経路が Process をどう埋めるかを見る。
+// 実 /proc では Runner.Listener という名前のプロセスを起動しないとこの経路に入らない。
+func TestScanFakeProc(t *testing.T) {
+	root := t.TempDir()
+	// 101: bin 配下の Listener。exe から種別とディレクトリの両方が決まる。
+	listener := mkDir(t, filepath.Join(root, "101"),
+		map[string]string{"cmdline": "/opt/r/bin/Runner.Listener\x00--startuptype\x00service\x00"})
+	symlink(t, "/opt/r/bin/Runner.Listener", filepath.Join(listener, "exe"))
+	// 202: exe が読めない Worker。cmdline[0] にフォールバックする。
+	mkDir(t, filepath.Join(root, "202"),
+		map[string]string{"cmdline": "/opt/r/bin/Runner.Worker\x00worker\x00"})
+	// 303: runner ではないプロセス。走査結果に入らない。
+	mkDir(t, filepath.Join(root, "303"), map[string]string{"cmdline": "/usr/bin/bash\x00"})
+	// self: PID ディレクトリではない名前。数値以外は読まずに飛ばす。
+	mkDir(t, filepath.Join(root, "self"),
+		map[string]string{"cmdline": "/opt/r/bin/Runner.Listener\x00"})
+
+	got, err := scan(root)
+	if err != nil {
+		t.Fatalf("scan() のエラー = %v", err)
+	}
+	want := []Process{
+		{PID: 101, Kind: Listener, Dir: "/opt/r", Exe: "/opt/r/bin/Runner.Listener", UID: os.Getuid()},
+		{PID: 202, Kind: Worker, Dir: "/opt/r", Exe: "/opt/r/bin/Runner.Worker", UID: os.Getuid()},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("scan() = %+v, want %d 件", got, len(want))
+	}
+	for i, w := range want {
+		// Started は /proc/<pid> の mtime（= プロセス生成時刻）。偽の procfs では
+		// ディレクトリの作成時刻になるので、同じ Stat の値と突き合わせる。
+		w.Started = mtime(t, filepath.Join(root, strconv.Itoa(w.PID)))
+		if got[i] != w {
+			t.Errorf("scan()[%d] = %+v, want %+v", i, got[i], w)
+		}
+	}
+}
+
+// bin 配下でない実行ファイルのプロセスは cwd からディレクトリを導く。
+// run.sh 経由など、bin 配下のパスが exe に出ない起動を落とさないため。
+func TestScanFakeProcCwdFallback(t *testing.T) {
+	root := t.TempDir()
+	dir := mkDir(t, filepath.Join(root, "404"),
+		map[string]string{"cmdline": "/opt/r/Runner.Listener\x00"})
+	symlink(t, "/opt/r/work", filepath.Join(dir, "cwd"))
+
+	got, err := scan(root)
+	if err != nil {
+		t.Fatalf("scan() のエラー = %v", err)
+	}
+	want := []Process{{
+		PID: 404, Kind: Listener, Dir: "/opt/r/work",
+		Exe: "/opt/r/Runner.Listener", UID: os.Getuid(), Started: mtime(t, dir),
+	}}
+	if len(got) != 1 || got[0] != want[0] {
+		t.Errorf("scan() = %+v, want %+v", got, want)
+	}
+}
+
+// symlink は target を指すリンクを作る。target は実在しなくてよい
+// （/proc/<pid>/exe は差し替え済みのパスを指すことがあり、os.Readlink は追わない）。
+func symlink(t *testing.T, target, link string) {
+	t.Helper()
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatalf("シンボリックリンクの作成に失敗しました: %v", err)
+	}
+}
+
+// mtime は path の更新時刻を返す。procStat が Started に使う値と同じ。
+func mtime(t *testing.T, path string) time.Time {
+	t.Helper()
+	fi, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("Stat に失敗しました: %v", err)
+	}
+	return fi.ModTime()
 }
 
 // mkDir は dir を作り、files の各ファイル名にその内容を書く。

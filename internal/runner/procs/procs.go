@@ -88,14 +88,23 @@ func (p Process) Elapsed() time.Duration {
 	return time.Since(p.Started)
 }
 
+// procRoot は procfs のマウントポイント。
+const procRoot = "/proc"
+
 // Scan は /proc を走査して Runner.Listener / Runner.Worker を集める。
 //
 // 実行ファイルのパスは /proc/<pid>/exe から取るが、他ユーザーのプロセスでは
 // 権限不足で読めないため cmdline[0] にフォールバックする。
-func Scan() ([]Process, error) {
-	entries, err := os.ReadDir("/proc")
+func Scan() ([]Process, error) { return scan(procRoot) }
+
+// scan は root を procfs として走査する。root を引数に取るのは、検出に成功する
+// 経路をテストから通せるようにするため。実 /proc では Runner.Listener という名前の
+// プロセスを起動しないと成功経路に入らず、外部コマンド実行をテストに持ち込むことに
+// なる。公開 API は Scan のままにして、走査対象の差し替えはパッケージ内に閉じる。
+func scan(root string) ([]Process, error) {
+	entries, err := os.ReadDir(root)
 	if err != nil {
-		return nil, fmt.Errorf("/proc の読み込みに失敗しました: %w", err)
+		return nil, fmt.Errorf("%s の読み込みに失敗しました: %w", root, err)
 	}
 
 	var procs []Process
@@ -107,7 +116,7 @@ func Scan() ([]Process, error) {
 		if err != nil {
 			continue // 数値以外は PID ディレクトリではない
 		}
-		p, ok := inspectProc(pid)
+		p, ok := inspectProc(root, pid)
 		if ok {
 			procs = append(procs, p)
 		}
@@ -115,9 +124,9 @@ func Scan() ([]Process, error) {
 	return procs, nil
 }
 
-// inspectProc は 1 プロセスを調べ、runner プロセスであれば内容を返す。
-func inspectProc(pid int) (Process, bool) {
-	procDir := filepath.Join("/proc", strconv.Itoa(pid))
+// inspectProc は root 配下の 1 プロセスを調べ、runner プロセスであれば内容を返す。
+func inspectProc(root string, pid int) (Process, bool) {
+	procDir := filepath.Join(root, strconv.Itoa(pid))
 
 	argv0 := readArgv0(filepath.Join(procDir, "cmdline"))
 	exe, err := os.Readlink(filepath.Join(procDir, "exe"))
@@ -146,7 +155,7 @@ func inspectProc(pid int) (Process, bool) {
 
 // readArgv0 は /proc/<pid>/cmdline の先頭要素を返す。cmdline は NUL 区切り。
 func readArgv0(path string) string {
-	//nolint:gosec // 呼び出し元が渡すのは /proc/<PID>/cmdline のみ。PID は strconv.Atoi で数値検証済み。
+	//nolint:gosec // 呼び出し元が渡すのは <procfs>/<PID>/cmdline のみ。PID は strconv.Atoi で数値検証済み。
 	b, err := os.ReadFile(path)
 	if err != nil || len(b) == 0 {
 		return ""
