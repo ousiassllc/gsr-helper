@@ -21,6 +21,11 @@ func TestNormalizeFillsAndValidates(t *testing.T) {
 		in      Config
 		want    Config
 		wantErr bool
+		// wantMsg はエラー文言。空でなければ完全一致で確かめる。
+		//
+		// 「何らかのエラー」だけを見ると、複数の規則に同時に触れる入力では
+		// 名前が示す境界を固定できない（どの規則が効いたのか分からない）。
+		wantMsg string
 	}{
 		{name: "既定値はそのまま通る", in: Default(), want: Default()},
 		{
@@ -51,16 +56,36 @@ func TestNormalizeFillsAndValidates(t *testing.T) {
 			name:    "warn が critical 以上",
 			in:      withConfig(func(c *Config) { c.DiskThresholds = DiskThresholds{Warn: 90, Critical: 90} }),
 			wantErr: true,
+			wantMsg: "disk_thresholds.warn は critical より小さい値にしてください: warn=90 critical=90",
 		},
 		{
-			name:    "warn が範囲外",
+			// warn / critical の上限そのものは通る。範囲外の境界を上下から挟む。
+			name: "warn と critical の上限",
+			in:   withConfig(func(c *Config) { c.DiskThresholds = DiskThresholds{Warn: 99, Critical: 100} }),
+			want: withConfig(func(c *Config) { c.DiskThresholds = DiskThresholds{Warn: 99, Critical: 100} }),
+		},
+		{
+			// 固定したいのは Warn > maxDiskWarn(99) の境界だが、この入力は
+			// Warn >= Critical にも触れている。maxDiskWarn(99) < maxDiskCritical(100)
+			// なので Warn=100 に対して Critical に 100 より大きい正当な値は無く、
+			// 上限超過だけに触れる入力は作れないためである。どちらの規則が効いたか
+			// は文言でしか区別できないので、文言まで固定する。
+			name:    "warn が上限超過",
 			in:      withConfig(func(c *Config) { c.DiskThresholds = DiskThresholds{Warn: 100, Critical: 100} }),
 			wantErr: true,
+			wantMsg: "disk_thresholds.warn は 1〜99 で指定してください: 100",
 		},
 		{
-			name:    "critical が範囲外",
+			name:    "warn が下限未満",
+			in:      withConfig(func(c *Config) { c.DiskThresholds = DiskThresholds{Warn: -1, Critical: 90} }),
+			wantErr: true,
+			wantMsg: "disk_thresholds.warn は 1〜99 で指定してください: -1",
+		},
+		{
+			name:    "critical が上限超過",
 			in:      withConfig(func(c *Config) { c.DiskThresholds = DiskThresholds{Warn: 80, Critical: 101} }),
 			wantErr: true,
+			wantMsg: "disk_thresholds.critical は 1〜100 で指定してください: 101",
 		},
 		{
 			name: "scan_roots は空要素を除いて重複を落とす",
@@ -117,6 +142,9 @@ func TestNormalizeFillsAndValidates(t *testing.T) {
 			if tt.wantErr {
 				if err == nil {
 					t.Fatalf("normalize() がエラーを返していない: %+v", got)
+				}
+				if tt.wantMsg != "" && err.Error() != tt.wantMsg {
+					t.Errorf("エラー = %q, want %q", err.Error(), tt.wantMsg)
 				}
 				return
 			}
