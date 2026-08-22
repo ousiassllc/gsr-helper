@@ -1,6 +1,7 @@
 package molecule
 
 import (
+	"strconv"
 	"strings"
 
 	"github.com/ousiassllc/gsr-helper/internal/ui/atom"
@@ -35,11 +36,32 @@ func KeyBar(hints []atom.Hint, width int, s token.Styles) string {
 
 // reasonLine は無効なキーの理由を 1 行にまとめる。
 //
-// 同じ理由のキーは "s/x/X: root 権限が必要です" のようにまとめる。理由ごとに
-// 1 行ずつ出すとフッタの高さが状況で変わるため、1 行に収める。
+// キーは丸括弧で囲む。1 行目はグレーアウトだけで無効を示す（幅を増やせない）ため、
+// 色を使えない端末で有効・無効を読み分ける手がかりはこの行が担う
+// （screens.md の共通レイアウトのフッタ 2 行目 "(s)(x)(X)(R)(D)(n)(u): root 権限が…"）。
+//
+// 理由が複数あるときは 1 つだけを出し、残りは件数にまとめる。2 つ並べると幅 80 で
+// 後ろの理由が中略され、対処の書かれた部分が読めなくなるためである。残す理由は
+// 最も多くのキーを塞いでいるものにする。能力不足（root / systemd / 認証）は複数の
+// キーに一斉に効くため、この規則では未対応のような個別の理由より優先される。
 func reasonLine(hints []atom.Hint, width int, s token.Styles) string {
-	order := make([]string, 0, len(hints))
-	keys := make(map[string][]string, len(hints))
+	order, keys := groupReasons(hints)
+	if len(order) == 0 {
+		return ""
+	}
+
+	top := widestReason(order, keys)
+	line := parenKeys(keys[top]) + ": " + top
+	if rest := len(order) - 1; rest > 0 {
+		line += "  " + token.IconWarn + " 他 " + strconv.Itoa(rest) + " 件"
+	}
+	return s.Muted.Render(atom.Truncate(line, width))
+}
+
+// groupReasons は無効なキーを理由ごとにまとめ、理由の出現順とキーの一覧を返す。
+func groupReasons(hints []atom.Hint) (order []string, keys map[string][]string) {
+	order = make([]string, 0, len(hints))
+	keys = make(map[string][]string, len(hints))
 	for _, h := range hints {
 		if h.Enabled || h.Reason == "" {
 			continue
@@ -49,13 +71,25 @@ func reasonLine(hints []atom.Hint, width int, s token.Styles) string {
 		}
 		keys[h.Reason] = append(keys[h.Reason], h.Key)
 	}
-	if len(order) == 0 {
-		return ""
-	}
+	return order, keys
+}
 
-	groups := make([]string, 0, len(order))
-	for _, reason := range order {
-		groups = append(groups, strings.Join(keys[reason], "/")+": "+reason)
+// widestReason は最も多くのキーを塞いでいる理由を返す。同数なら先に現れたものを採る。
+func widestReason(order []string, keys map[string][]string) string {
+	top := order[0]
+	for _, reason := range order[1:] {
+		if len(keys[reason]) > len(keys[top]) {
+			top = reason
+		}
 	}
-	return s.Muted.Render(atom.Truncate(strings.Join(groups, "  "), width))
+	return top
+}
+
+// parenKeys はキーを丸括弧で囲んで並べる（"(s)(x)(X)"）。
+func parenKeys(ks []string) string {
+	var b strings.Builder
+	for _, k := range ks {
+		b.WriteString("(" + k + ")")
+	}
+	return b.String()
 }

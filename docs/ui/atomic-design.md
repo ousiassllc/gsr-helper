@@ -21,11 +21,13 @@ Atomic Design は Web UI 向けの分類だが、本 TUI では次のように�
 | keymap | キーとヘルプ文言の定義。`bubbles/key.Binding` の集約 | なし | `key.Binding` / `key.Map` |
 | atom | それ以上分解すると意味を失う最小の表示単位 | なし | `func(...) string` |
 | molecule | atom を並べた「意味のある 1 行 / 1 区画」 | なし | `func(...) string` |
-| organism | カーソル・選択・スクロール・入力などのローカル状態を持つ部品 | ローカル状態 | `tea.Model` |
+| organism | カーソル・選択・スクロール・入力などのローカル状態を持つ部品 | ローカル状態 | `bubbles` 流（具体型を返す `Update` と `View() string`）※ |
 | template | 画面共通の枠。中身を知らず領域の配分だけを行う | サイズのみ | `func(...) string` |
 | page | タブ 1 枚。ドメイン層の呼び出しとキー入力の解釈を担う | 画面状態 | `tea.Model` |
 
 token と keymap は Atomic Design 本来の 5 階層には含まれない。token は `screens.md` の設計原則 4（色に依存しない）と列の省略順を、keymap は「キーとその説明文」を 1 箇所に集約するために独立させる。キー定義が page ごとに散ると、フッタ・ヘルプ・詳細画面の操作リストで説明文が食い違う。
+
+※ organism は `tea.Model` を実装せず、`bubbles` の各部品と同じ「具体型を返す `Update` と `View() string`」に揃える。`Table[T]` はジェネリック型であり `Update` の戻りを `tea.Model` に潰すと呼び出し側で毎回型アサーションが必要になって panic 経路が増えるためである。また `View()` が `tea.View` を返すと、organism を縦に並べて合成するたびに文字列へ戻す処理が入る。「interface は `Executor` / `doctor.Check` / `tea.Model` の 3 つに限る」という規則（[コンポーネント設計](../components/overview.md#主要な-interface-一覧)）は、`tea.Model` を page と親 Model に限定しても満たされる。
 
 親 Model（`ui.App`）は階層の外に置く。検出結果・`Caps`・端末サイズ・背景の明暗・現在のタブ・モーダルの重なりを保持し、page を切り替える唯一の主体である。
 
@@ -60,12 +62,15 @@ internal/ui/
   molecule/     atom を並べた 1 行 / 1 区画（純粋関数）
   organism/     ローカル状態を持つ部品（tea.Model）
   template/     画面共通の枠
-  page/         タブ 1 枚（tea.Model）
+  page/         タブ共通の Msg と、タブ間で共有する部品（詳細画面・モーダルの重なり）
+  page/<tab>/   タブ 1 枚（tea.Model）。runners / jobs / disk / logs / doctor / config / setup
 ```
 
-階層をパッケージで分けることで、**依存の方向を Go の import で機械的に強制する**。ドメイン層に対する「ドメインは `ui` に依存しない」という規則（[コンポーネント設計](../components/overview.md#依存の規則)）と同じ考え方を UI の内部にも適用する。
+階層をパッケージで分けることで、**依存の方向を Go の import で機械的に強制する**。
 
-パッケージ名は単数形にする。呼び出し側で `atom.StatusIcon` のように階層が読めるため、識別子に階層名を重ねない（`atom.AtomStatusIcon` は禁止）。
+**タブをサブパッケージに分けるのは行数上限のためである。** 行数チェック（`linterly`）の上限は 1 ディレクトリ 2000 行（テストを含む）で、集計は直下のファイルのみを対象とする。7 タブを `page/` に平置きすると 4 タブ目で上限に達するため、タブごとにパッケージを掘って独立した枠を持たせる。副作用として `page/<tab>` → `page` の一方向依存が Go の import で強制され、タブ同士が参照し合えなくなる（タブ間で共有する状態は親のみが持つという規則と揃う）。ドメイン層に対する「ドメインは `ui` に依存しない」という規則（[コンポーネント設計](../components/overview.md#依存の規則)）と同じ考え方を UI の内部にも適用する。
+
+パッケージ名は単数形にする。呼び出し側で `atom.StatusText` のように階層が読めるため、識別子に階層名を重ねない（`atom.AtomStatusText` は禁止）。
 
 ## 依存の方向
 
@@ -75,6 +80,7 @@ graph TD
     Page[page]
     Tmpl[template]
     Org[organism]
+    OrgP[organism/pane<br/>organism/dialog]
     Mol[molecule]
     Atom[atom]
     Tok[token]
@@ -87,11 +93,15 @@ graph TD
     App --> Tmpl
     Page --> Tmpl
     Page --> Org
+    Page --> OrgP
     Page --> Key
     Page -.->|tea.Cmd 内で呼ぶ| Domain
     Org --> Mol
     Org --> Bub
     Org --> Key
+    OrgP --> Bub
+    OrgP --> Key
+    OrgP --> Tok
     Mol --> Atom
     Atom --> Tok
     Tmpl --> Tok
@@ -107,6 +117,7 @@ graph TD
 | `atom` は `token` のみに依存する | 表示単位を単体でテストできる状態に保つ |
 | `molecule` は `atom` / `token` のみ。**molecule 同士は参照しない** | 同階層参照を許すと階層が意味を失う。共通化したい場合は atom に降ろすか organism に上げる |
 | `organism` は `molecule` / `atom` / `token` / `keymap` と `bubbles` / `huh` を使う | 一覧・スクロール・テキスト入力・フォームの実装は既存ライブラリに委ねる |
+| `organism` と `organism/pane` / `organism/dialog` は**どちらの向きにも import しない** | 分割の目的は行数上限の分散であり、部品同士の依存を増やすことではない。組み合わせるのは `page` |
 | `template` は `token` のみ。`organism` / `page` を import しない | 枠が中身を知ると、画面ごとに枠が分岐する |
 | `atom` / `molecule` / `template` は **bubbletea / bubbles を import しない** | 純粋関数に保ち、期待文字列との比較でテストできるようにする |
 | `keymap` を読むのは `page` と `organism.Help` のみ。`atom` / `molecule` にはキー文字列・説明・可否・理由をプリミティブに落として渡す | 「molecule 以下は表示用の値のみを受け取る」規則と揃える。`atom.KeyHint` の入力を単純な文字列に保ち、`key.Binding` の組み立てなしにテストできる |
@@ -119,17 +130,26 @@ graph TD
 
 ### 色
 
-| トークン | 用途 |
-|---------|------|
-| `ColorOK` | 正常・成功 |
-| `ColorWarn` | 警告・閾値超過 |
-| `ColorFail` | 異常・失敗 |
-| `ColorSkip` | 実行不可・スキップ |
-| `ColorMuted` | 補足情報・グレーアウト |
-| `ColorAccent` | カーソル位置・選択行 |
-| `ColorDanger` | 破壊的操作の警告文 |
+トークンは 2 種類に分ける。**「状態」と「表示上の役割」を同じ型にすると、色と記号を対で持つ規則（後述）の適用範囲が曖昧になる**ためである。役割トークンに記号を要求しても意味がなく、`Icon(Muted)` が「systemd ユニットなし」の `-` を返すような誤用を招く。
 
-**各トークンは明背景用と暗背景用の 2 値を持つ。** token は定数の集合ではなく `token.Styles(dark bool) Styles` として解決する。白背景の端末で `ColorMuted` の補足情報が読めなくなることを防ぐためである。
+| `StateToken`（状態。色と記号を**必ず対**で持つ） | 用途 |
+|---------|------|
+| `StateOK` | 正常・成功 |
+| `StateWarn` | 警告・閾値超過 |
+| `StateFail` | 異常・失敗 |
+| `StateSkip` | 実行不可・スキップ |
+
+| `RoleToken`（表示上の役割。色のみ） | 用途 |
+|---------|------|
+| `RolePlain` | 装飾なし |
+| `RoleOK` / `RoleWarn` / `RoleFail` / `RoleSkip` | 状態トークンに対応する色 |
+| `RoleMuted` | 補足情報・グレーアウト |
+| `RoleAccent` | カーソル位置・選択行 |
+| `RoleDanger` | 破壊的操作の警告文 |
+
+状態トークンから役割トークンへは一方向に変換できる（`StateToken.Role()`）。記号を引けるのは状態トークンのみで、役割トークンを渡すとコンパイルエラーになる。
+
+**各色は明背景用と暗背景用の 2 値を持つ。** token は定数の集合ではなく `token.NewStyles(dark, color bool) Styles` として解決する。白背景の端末で補足情報が読めなくなることを防ぐためである。第 2 引数で色そのものを無効化できるのは、`NO_COLOR` / `--no-color` / 非 TTY の判定を `cmd` が 1 つの値に決めて渡す設計に合わせるためである（後述の「背景の明暗と NO_COLOR」）。
 
 ### 記号
 
@@ -176,14 +196,16 @@ graph TD
 | `ColumnDropOrder` | `_WORK` → `VERSION` → `MANAGED` → `SCOPE` | 幅が足りない場合に落とす順 |
 | `Column` | 見出しと幅の組 | 列の定義。`organism.Table` が `table.Column` に変換する |
 
-列の省略は `molecule.ColumnHeader` と `molecule.RunnerRow` が同じトークンを参照して判断する。ヘッダと行の桁がずれることを防ぐ。
+列の省略は `molecule.Columns` が決め、行を返す molecule（`RunnerRow` など）と `organism.Table` はその結果をそのまま使う。**見出しは `bubbles/table` が描く**ため molecule 側に見出し用の部品は置かない。列幅の調整箇所を 1 つに保つことで、ヘッダと行の桁がずれる経路を作らない。
+
+`Columns` は「返した列は必ず幅に収まる」ことを契約とする。落とす順（`ColumnDropOrder`）を使い切ってもなお収まらない場合は、`ColumnsAlways` 以外の列を末尾から落とす。落とす順は Runners タブの列について定めたものなので、他の一覧の列がそこに載っていなくても契約が崩れないようにするためである。
 
 ## atom 一覧
 
 | atom | 引数 | 出力例 | 使用箇所 |
 |------|------|-------|---------|
-| `StatusIcon` | サービス状態 | `● active` / `○ inactive` / `✗ failed` / `-` | Runners |
-| `JobBadge` | 実行中か・経過時間 | `▶ 4m12s` / `idle` | Runners / Jobs |
+| `StatusText` | サービス状態 | `● active` / `○ inactive` / `✗ failed` / `-` と役割トークン | Runners |
+| `JobText` | 実行中か・経過時間 | `▶ 4m12s` / `idle` と役割トークン | Runners / Jobs |
 | `DoctorStatus` | OK / WARN / FAIL / SKIP | `✓ OK` / `⊘ SKIP` | Doctor |
 | `Cursor` | カーソル行か | `▸` / 空白 | 全一覧 |
 | `Checkbox` | 非表示 / 未選択 / 選択 | `[x]` / `[ ]` | Runners / Disk |
@@ -192,7 +214,7 @@ graph TD
 | `Files` | ファイル数 | `412,003` | Disk |
 | `Duration` | 経過時間 | `4m12s` | Runners / Jobs / ドレイン待機 |
 | `Ratio` | 使用率・警告閾値 | `82% ⚠` | ヘッダ / Disk |
-| `Version` | 現行・最新 | `2.309.0 ⚠` | Runners |
+| `VersionText` | 現行・最新 | `2.309.0 ⚠` と役割トークン | Runners |
 | `KeyHint` | キー・説明・可否・不可の理由 | `x:停止` / グレーアウト＋理由 | フッタ / ヘルプ |
 | `Path` | パス・最大幅 | 中略付き `/opt/…/_work/bar` | 全画面 |
 | `Cell` | 文字列・幅・寄せ | 幅を揃えた 1 セル | 全一覧 |
@@ -208,7 +230,7 @@ graph TD
 
 | molecule | 内容 | 対応する画面 |
 |----------|------|------------|
-| `ColumnHeader` | 一覧の列定義（見出しと幅）。幅トークンに従って列を落とす | 全一覧 |
+| `Columns` | 一覧の列定義（見出しと幅）。幅トークンに従って列を落とす | 全一覧 |
 | `RunnerRow` | runner 1 行のセル列（名前 / スコープ / 起動方式 / サービス / ジョブ / バージョン / `_work`） | Runners |
 | `OrphanRow` | 孤児ユニット 1 行のセル列（[FR-05](../requirements/functional.md)） | Runners |
 | `JobRow` | 実行中ジョブ 1 行のセル列 | Jobs |
@@ -230,19 +252,21 @@ graph TD
 
 ## organism 一覧
 
-| organism | ローカル状態 | 使う既存部品 | 責務 |
-|----------|------------|------------|------|
-| `Table` | カーソル位置・選択集合・絞り込み文字列 | `bubbles/table`（区画ごとに 1 つ）/ `textinput` | 一覧の共通実装。区画（セクション）に対応する |
-| `LogPane` | ペインの選択・追従の ON/OFF・フィルタ | `bubbles/viewport` / `textinput` | Logs の 2 ペイン。追従・手動スクロールでの解除・`G` での再開 |
-| `Confirm` | なし（既定はキャンセル） | — | 破壊的操作の共通ダイアログ |
-| `Detail` | スクロール位置 | `bubbles/viewport` | Doctor の詳細、runner の詳細（情報部分） |
-| `ProgressList` | 進捗の受信状態 | `bubbles/spinner` / `progress` | 一括処理の逐次表示と結果報告（[FR-15](../requirements/functional.md)） |
-| `DrainWaiter` | 対象ジョブ | `bubbles/stopwatch` / `spinner` | ドレイン待機。経過時間の計時、制約の注記と `esc` でのキャンセル |
-| `DiffApproval` | なし（既定はキャンセル） | — | 差分＋バックアップパスの提示と承認 |
-| `ChoiceList` | カーソル位置 | — | Setup のメニュー、反映方法の選択、**詳細画面の操作リスト** |
-| `Form` | `huh.Form` | `huh` | フォームのラッパー。テーマの適用と検証エラーの表示位置を統一する |
-| `Help` | スクロール位置 | `bubbles/help`（`FullHelpView`） | `?` の全キー一覧 |
-| `ErrorBanner` | なし | — | 失敗の表示 |
+パッケージは後述の「organism の分割方針」に従う。
+
+| organism | パッケージ | ローカル状態 | 使う既存部品 | 責務 |
+|----------|-----------|------------|------------|------|
+| `Table` | `organism` | カーソル位置・選択集合・絞り込み文字列 | `bubbles/table`（区画ごとに 1 つ）/ `textinput` | 一覧の共通実装。区画（セクション）に対応する |
+| `ChoiceList` | `organism` | カーソル位置 | — | Setup のメニュー、反映方法の選択、**詳細画面の操作リスト** |
+| `Detail` | `organism/pane` | スクロール位置 | `bubbles/viewport` | Doctor の詳細、runner の詳細（情報部分） |
+| `Help` | `organism/pane` | スクロール位置 | `bubbles/help`（`FullHelpView`） | `?` の全キー一覧 |
+| `LogPane` | `organism/pane` | ペインの選択・追従の ON/OFF・フィルタ | `bubbles/viewport` / `textinput` | Logs の 2 ペイン。追従・手動スクロールでの解除・`G` での再開 |
+| `ProgressList` | `organism/pane` | 進捗の受信状態 | `bubbles/spinner` / `progress` | 一括処理の逐次表示と結果報告（[FR-15](../requirements/functional.md)） |
+| `Confirm` | `organism/dialog` | なし（既定はキャンセル） | — | 破壊的操作の共通ダイアログ |
+| `DiffApproval` | `organism/dialog` | なし（既定はキャンセル） | — | 差分＋バックアップパスの提示と承認 |
+| `DrainWaiter` | `organism/dialog` | 対象ジョブ | `bubbles/stopwatch` / `spinner` | ドレイン待機。経過時間の計時、制約の注記と `esc` でのキャンセル |
+| `Form` | `organism/dialog` | `huh.Form` | `huh` | フォームのラッパー。テーマの適用と検証エラーの表示位置を統一する |
+| `ErrorBanner` | `organism` | なし | — | 失敗の表示 |
 
 スクロール・計時・アニメーションを自前で実装しない。上の表で「—」の部品は、いずれも既存部品に対応するものがないか、対応させると要件を満たせないものである（`ChoiceList` は区切り線と無効項目の理由表示を持つため）。
 
@@ -274,6 +298,10 @@ type RenderRow[T any] func(item T, cols []token.Column, checked bool) []string
 ジェネリクスは維持する。page はドメインの型のまま行を渡し、セル列への変換は molecule が担う。molecule が返すのは `[]string` であり、`table.Row` への変換は `Table` の側で行う（molecule は `bubbles` を import しないという規則を保つため）。列定義も同様に、molecule が `token.Column` を組み立て、`Table` が `table.Column` に変換する。
 
 `bubbles/table` は行を `table.Row` として持ち、カーソル移動・スクロール・列幅の調整を担う。本ツールが必要とする残りは `Table` が受け持つ。
+
+**`bubbles` の既定キーマップは必ず差し替える。** `table.DefaultKeyMap()` は `u` / `d` をハーフページ送り、`f` / `space` を次ページ、`b` を前ページに割り当てており、本ツールの `u`（バージョン更新）/ `d`（ドレイン停止）/ `space`（選択のトグル）を奪う。`viewport` の既定も `u` / `d` / `f` / `b` に加えて `h` / `l` を使い、`l`（ログを開く）と衝突する。`Table` と `Detail` は `keymap` の定義から組み立てた `KeyMap` を渡し、ページ送りは `ctrl+f` / `ctrl+b` のみに割り当てる。既定キーでスクロールしないことを回帰テストで固定する。
+
+**行のセル数は列数に揃える。** `bubbles/table` の行の描画は行のセルを走査しながら同じ添字で列を引くため、セル数が列数を超えると添字が範囲外になって panic する。`molecule` が返す `[]string` を `table.Row` に変換する時点で `Table` が列数に合わせて詰める。
 
 | 機能 | 担当 |
 |------|------|
@@ -375,6 +403,18 @@ func BodySize(width, height int) (w, h int)
 | `ConfigPage` | 6 | `ChoiceList` / `Form` / `DiffApproval` | `config` / `gh` |
 | `SetupPage` | 7 | `ChoiceList` / `Form` / `Confirm` / `ProgressList` | `setup` / `gh` |
 
+### タブを 1 つ追加するときに触る箇所
+
+タブの追加が既存コードの変更をほとんど伴わないことを、この構造で担保する。
+
+| 対象 | 変更内容 |
+|------|---------|
+| `internal/ui/page/<tab>/` | 新規パッケージ。`tea.Model` を実装し、共有状態の `Msg` を受けて `Chrome` の `Msg` を返す |
+| `internal/ui/tabs.go` | import 1 行と、タブのメタ情報のスライスへ 1 要素 |
+| `internal/ui/keymap/` | そのタブ固有のキーがある場合のみ、定義と `Set` への 1 フィールド |
+
+親 Model は `[]tab` を走査するだけで個別のタブを知らない。共有状態は 1 本の `Msg` で全 page に配られるので、新しいタブは受け取り側を書くだけで済む。モーダルと入力中の有無も page が `Msg` で報告するため、親はタブの内部状態を知らない。
+
 ### page の責務
 
 1. 親 Model から検出結果と `Caps` を **受け取る**（自分で検出しない）
@@ -407,6 +447,17 @@ page は検出結果を保持しない。タブ間で共有する状態は親の
 4. organism / molecule / atom は端末サイズを自分で問い合わせない
 
 幅が `token.WidthMin` を下回る場合の縮退は `template.Frame` が行い、page より下は関与しない。
+
+### page と organism の受け渡し
+
+organism は自分の内側だけを見て動くが、page との境界には次の約束を置く。守る側を 1 つに決めておかないと、page ごとに防御が散る。
+
+| 約束 | 守る側 | 理由 |
+|------|-------|------|
+| 受け取った / 返すスライスは写しを取る（`Table.SetItems` / `Table.Shown`） | organism | page が渡した後や受け取った後にスライスを書き換えても、organism の状態が壊れない。行数は高々数十なので確保のコストは事故の重さに見合う |
+| 描画は与えられた幅と高さを超えない | organism | 超えると端末が折り返し、本体以外の行数を固定した意味が失われる。`template.Frame` の切り詰めは最後の防波堤として残す |
+| 表示幅を数えるのは `atom` のみ | atom | 数える実装を 2 つ持たない。`atom.Justify` のように「理由の文字列を消さないことを優先して幅を超え得る」関数は、その旨を doc に書く |
+| 可否と理由の判断は page が行う | page | organism は受け取った値を描くだけにする（後述の「操作可否の判定」） |
 
 ### キー入力の配送
 
@@ -443,8 +494,8 @@ page は検出結果を保持しない。タブ間で共有する状態は親の
 | 画面（screens.md） | template | organism | 固有の molecule |
 |------------------|----------|----------|----------------|
 | 共通レイアウト | `Frame` | — | `CapsBar` / `TabBar` / `KeyBar` |
-| Runners タブ | `Frame` | `Table` | `ColumnHeader` / `RunnerRow` / `OrphanRow` |
-| Jobs タブ | `Frame` | `Table` | `ColumnHeader` / `JobRow` |
+| Runners タブ | `Frame` | `Table` | `Columns` / `RunnerRow` / `OrphanRow` |
+| Jobs タブ | `Frame` | `Table` | `Columns` / `JobRow` |
 | runner の詳細画面 | `Modal` | `Detail` + `ChoiceList` | 情報行 / `ActionRow` |
 | Disk タブ | `Frame` | `Table` | `FSSummaryLine` / `DiskTargetRow` |
 | クリーンアップの確認 | `Modal` | `Confirm` | `CommandBlock` |
@@ -477,6 +528,20 @@ page は検出結果を保持しない。タブ間で共有する状態は親の
 
 画面全体を描画したスナップショットテストは行わない（[非機能要件](../requirements/non-functional.md#テスト方針)）。部品単位の期待値テストはこれに含めない。
 
+## organism の分割方針
+
+`organism` は部品が最も多くなる階層で、1 ディレクトリ 2000 行（テストを含む）の上限に最初に達する。**この文書が定める部品を全部そろえた時点で上限を超える**ため、置き場所を先に決める。
+
+| パッケージ | 置く部品 | 性質 |
+|-----------|---------|------|
+| `organism` | `Table` / `ChoiceList` | カーソルと選択を持つ**対話的な一覧・選択** |
+| `organism/pane` | `Detail` / `Help` / `LogPane` / `ProgressList` | スクロールする**表示専用の領域** |
+| `organism/dialog` | `Confirm` / `DiffApproval` / `DrainWaiter` / `Form` | **承認・待機・入力** |
+
+`page` は 3 つとも import してよい。**パッケージ同士の参照は作らない**（`organism/pane` → `organism` も、その逆も）。分割の目的は行数上限の分散であり、部品同士の依存を増やすことではない。`Table` と `Confirm` をそれぞれ 1 実装に統一する規則（前述）は置き場所が変わっても維持する。
+
+`molecule` も同じ理由で上限に近づくが、**こちらは分割しない。** 「molecule 同士は参照しない」という同階層参照の禁止は Go の import では強制できず（`molecule/row` から `molecule/bar` を import できてしまう）、規則を構造で守るという本書の方針と衝突するためである。代わりに行系 molecule のテストを共通ヘルパへ寄せて 1 部品あたりの行数を抑える。
+
 ## 部品を追加するときの手順
 
 1. 決定フローで階層を決める
@@ -493,3 +558,5 @@ page は検出結果を保持しない。タブ間で共有する状態は親の
 | 1.0 | 2026-08-21 | 新規作成 | 初版 |
 | 1.1 | 2026-08-21 | `molecule.ActionRow` を追加。詳細画面の操作リストを `organism.ChoiceList` の再利用として定義 | 操作の起点を増やす FR-45〜FR-47 に対応するため。専用の organism を作らず既存部品で構成する |
 | 1.2 | 2026-08-21 | `keymap` 階層を追加。`organism` と `bubbles` / `huh` の対応を明示（`Table` は `bubbles/table` のラッパー、`?` のヘルプは `bubbles/help`）。キー入力の配送・入力モード・端末サイズの配り方・背景の明暗による色の解決・`huh.Theme` の適用を定義。幅計算を `lipgloss.Width` に一本化 | Charm 各ライブラリの使い方が仕様として未定義で、キーの二重解釈・サイズの渡し忘れ・配色とキー定義の二重管理が実装時に事故として現れる箇所だったため |
+| 1.3 | 2026-08-22 | `page` をタブごとのサブパッケージ構成に変更し、タブ追加時に触る箇所を明記。organism が `tea.Model` を実装せず `bubbles` 流の署名に揃えることを注記。`bubbles/table` と `bubbles/viewport` の既定キーマップを差し替える必要と、行のセル数を列数に揃える必要を追記。`organism` の分割方針（`pane` / `dialog`）と `molecule` を分割しない理由を追加 | 7 タブを平置きすると行数上限（1 ディレクトリ 2000 行）に達する。`bubbles` の既定キーマップは `u` / `d` / `space` / `f` / `b` / `h` / `l` を奪い、本ツールの操作キー（バージョン更新・ドレイン停止・選択・ログ）と衝突することが実装時に判明した |
+| 1.4 | 2026-08-22 | 色トークンを `StateToken`（状態。色と記号を対で持つ）と `RoleToken`（表示上の役割。色のみ）に分離。`atom` の `StatusIcon` / `JobBadge` / `Version` を素の値と役割トークンを返す `StatusText` / `JobText` / `VersionText` に変更。`molecule.ColumnHeader` を削除し `Columns` の契約を明記 | 役割トークンに記号を要求するのは意味がなく、`Icon(Muted)` が「systemd ユニットなし」の記号を返す誤用を招いていた。装飾済みの文字列を返す atom は列幅に合わせて切り詰められず、`deactivating` のような遷移中の状態でセルが列幅を超えていた。見出しは `bubbles/table` が描くため molecule 側の見出し部品は使われていなかった |

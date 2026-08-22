@@ -112,22 +112,33 @@ func TestFrameClipsLinesToWidth(t *testing.T) {
 	}
 }
 
-// 高さが枠に足りない場合も行を負にせず、枠の行だけを返す。
+// 高さが枠に足りない場合も行を負にせず、端末の高さも超えない。
+//
+// 枠だけで ChromeHeight 行を使うため、それより低い端末では末尾から落として高さに
+// 収める（超えると画面が流れてスクロールバックを汚す）。
 func TestFrameWithoutRoomForBody(t *testing.T) {
-	got := template.Frame(template.FrameInput{
-		Header: "ヘッダ",
-		Tabs:   "タブ",
-		Body:   "本体",
-		Status: "状態",
-		Footer: "フッタ\n理由",
-		Width:  80,
-		Height: 2,
-	})
-	if got := lipgloss.Height(got); got != template.ChromeHeight {
-		t.Errorf("全体の行数 = %d, want %d", got, template.ChromeHeight)
+	for _, height := range []int{template.ChromeHeight - 1, 3, 2, 1} {
+		got := template.Frame(template.FrameInput{
+			Header: "ヘッダ",
+			Tabs:   "タブ",
+			Body:   "本体",
+			Status: "状態",
+			Footer: "フッタ\n理由",
+			Width:  80,
+			Height: height,
+		})
+		if h := lipgloss.Height(got); h != height {
+			t.Errorf("高さ %d: 全体の行数 = %d, want %d", height, h, height)
+		}
+		if strings.Contains(got, "本体") {
+			t.Errorf("高さ %d: 本体の領域が無いのに本体が描かれている", height)
+		}
 	}
-	if strings.Contains(got, "本体") {
-		t.Error("本体の領域が無いのに本体が描かれている")
+
+	// 高さがまだ届いていない（0）ときは切らず、枠を組んだまま返す。
+	got := template.Frame(template.FrameInput{Header: "ヘッダ", Width: 80, Height: 0})
+	if h := lipgloss.Height(got); h != template.ChromeHeight {
+		t.Errorf("高さ 0 の行数 = %d, want %d", h, template.ChromeHeight)
 	}
 }
 

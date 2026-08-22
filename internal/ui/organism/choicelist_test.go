@@ -5,9 +5,11 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/ousiassllc/gsr-helper/internal/ui/keymap"
 	"github.com/ousiassllc/gsr-helper/internal/ui/organism"
+	"github.com/ousiassllc/gsr-helper/internal/ui/token"
 )
 
 // detailChoices は詳細画面の操作リストに相当する項目を返す。
@@ -138,5 +140,40 @@ func TestChoiceListView(t *testing.T) {
 	}
 	if got := c.View(); got != "" {
 		t.Errorf("表示 = %q, want 空", got)
+	}
+}
+
+// 区切り線は各行と同じだけ字下げする（screens.md の詳細画面のモックの `  ────…`）。
+//
+// 左端から引くと区切り線だけが行より外に出て、操作リストの区切りに見えない。
+func TestChoiceListDividerAlignsWithRows(t *testing.T) {
+	const width = 72
+	c := organism.NewChoiceList(keymap.NewList(), testStyles())
+	c.SetWidth(width)
+	c.SetItems(detailChoices())
+
+	// 添字 3 は最初の破壊的な操作（X）の前に入る区切り線の行。
+	divider := strings.Split(c.View(), "\n")[3]
+	if want := "  " + strings.Repeat(token.IconDivider, width-2); divider != want {
+		t.Errorf("区切り線 = %q, want %q", divider, want)
+	}
+}
+
+// どの行もカーソル記号を含めて幅に収まる。理由を右端へ寄せた行（添字 1 と 5。区切り線の
+// 1 行を挟む）はちょうど幅に収まる。理由は幅に収まらなければ末尾を中略するが、
+// 丸ごと消すことはしない（molecule.ActionRow / atom.Justify の契約）。
+func TestChoiceListRowsFitWidth(t *testing.T) {
+	for _, width := range []int{72, 60} {
+		c := organism.NewChoiceList(keymap.NewList(), testStyles())
+		c.SetWidth(width)
+		c.SetItems(detailChoices())
+
+		lines := strings.Split(c.View(), "\n")
+		for i, line := range lines {
+			w := lipgloss.Width(line)
+			if w > width || (w != width && (i == 1 || i == 5)) {
+				t.Errorf("幅 %d: %d 行目の幅 = %d（%q）", width, i, w, line)
+			}
+		}
 	}
 }

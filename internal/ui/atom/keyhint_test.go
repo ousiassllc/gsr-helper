@@ -24,27 +24,26 @@ func TestKeyHintDisabledKeepsKey(t *testing.T) {
 	}
 }
 
-// 色を使えない端末でも有効・無効を区別できる（screens.md の設計原則 4）。
+// 無効なキーでも表示幅を増やさない。
 //
-// グレーアウトだけでは NO_COLOR 相当の環境で 1 文字も変わらないため、
-// 丸括弧という色以外の手がかりを添える。
-func TestKeyHintDisabledDiffersWithoutColor(t *testing.T) {
+// 丸括弧で囲むと 1 つあたり 2 セル増え、幅 80 のフッタ 1 行目に screens.md が定める
+// 9 個のキーが収まらなくなる。色を使えない端末で有効・無効を読み分ける手がかりは
+// フッタ 2 行目（molecule.KeyBar）と操作リストの理由（molecule.ActionRow）が担う。
+func TestKeyHintDisabledKeepsWidth(t *testing.T) {
 	enabled := Hint{Key: "x", Desc: "停止", Enabled: true}
 	disabled := Hint{Key: "x", Desc: "停止", Enabled: false, Reason: "root 権限が必要です"}
 
-	for name, s := range map[string]bool{"色なし": false, "色あり": true} {
-		styles := plainStyles()
-		if s {
-			styles = colorStyles()
-		}
-		on, off := KeyHint(enabled, styles), KeyHint(disabled, styles)
-		if on == off {
-			t.Errorf("%s: 有効なキーと無効なキーの表示が同じである（%q）", name, on)
-		}
+	if got, want := KeyHint(disabled, plainStyles()), "x:停止"; got != want {
+		t.Errorf("KeyHint(無効) = %q, want %q", got, want)
+	}
+	if on, off := KeyHint(enabled, plainStyles()), KeyHint(disabled, plainStyles()); on != off {
+		t.Errorf("無効なキーの表示幅が有効なキーと違う（%q / %q）", on, off)
 	}
 
-	if got, want := KeyHint(disabled, plainStyles()), "(x:停止)"; got != want {
-		t.Errorf("KeyHint(無効) = %q, want %q", got, want)
+	// 色が使える端末ではグレーアウトで区別できる。
+	on, off := KeyHint(enabled, colorStyles()), KeyHint(disabled, colorStyles())
+	if on == off {
+		t.Errorf("色ありで有効なキーと無効なキーの表示が同じである（%q）", on)
 	}
 }
 
@@ -58,7 +57,7 @@ func TestKeyHintDegenerateInput(t *testing.T) {
 		{"空の Hint", Hint{}, ""},
 		{"キーのみ", Hint{Key: "?", Enabled: true}, "?"},
 		{"説明のみ", Hint{Desc: "ヘルプ", Enabled: true}, "ヘルプ"},
-		{"無効でキーのみ", Hint{Key: "?", Reason: "理由"}, "(?)"},
+		{"無効でキーのみ", Hint{Key: "?", Reason: "理由"}, "?"},
 	}
 	for _, c := range cases {
 		if got := KeyHint(c.h, s); got != c.want {

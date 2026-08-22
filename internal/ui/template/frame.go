@@ -60,6 +60,12 @@ func Frame(in FrameInput) string {
 	lines = append(lines, divider(in.Width))
 	lines = append(lines, fit(in.Status, 1, in.Width)...)
 	lines = append(lines, fit(in.Footer, footerHeight, in.Width)...)
+	if in.Height > 0 && len(lines) > in.Height {
+		// 高さが ChromeHeight に足りない端末では枠だけでも行が余る。端末の高さを
+		// 超えると画面が流れてスクロールバックを汚すため、末尾から落とす。
+		// 高さが 0（リサイズがまだ届いていない）ときは切らず、枠を組んだまま返す。
+		lines = lines[:in.Height]
+	}
 	return strings.Join(lines, "\n")
 }
 

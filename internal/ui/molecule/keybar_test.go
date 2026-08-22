@@ -53,26 +53,55 @@ func TestKeyBarAlwaysShowsHelp(t *testing.T) {
 }
 
 // 同じ理由のキーはまとめて 1 つの理由として出す。有効なキーの理由は出さない。
+//
+// キーは丸括弧で囲む（screens.md の共通レイアウトのフッタ 2 行目）。フッタ 1 行目は
+// 幅の都合でグレーアウトしか使えないため、色以外の手がかりはこの行が担う。
 func TestKeyBarGroupsReasons(t *testing.T) {
 	hints := []atom.Hint{
 		{Key: "s", Desc: "開始", Enabled: false, Reason: rootReason},
 		{Key: "x", Desc: "停止", Enabled: false, Reason: rootReason},
 		{Key: "X", Desc: "強制停止", Enabled: false, Reason: rootReason},
 		{Key: "l", Desc: "ログ", Enabled: true, Reason: "出ないはずの理由"},
-		{Key: "D", Desc: "削除", Enabled: false, Reason: "GitHub の認証が必要です"},
 	}
 	reason := strings.Split(KeyBar(hints, 120, plainStyles()), "\n")[1]
 
-	for _, want := range []string{"s/x/X: " + rootReason, "D: GitHub の認証が必要です"} {
-		if !strings.Contains(reason, want) {
-			t.Errorf("理由の行 = %q, want %q を含む", reason, want)
-		}
+	if want := "(s)(x)(X): " + rootReason; !strings.Contains(reason, want) {
+		t.Errorf("理由の行 = %q, want %q を含む", reason, want)
 	}
 	if strings.Count(reason, rootReason) != 1 {
 		t.Errorf("同じ理由が複数回出ている: %q", reason)
 	}
 	if strings.Contains(reason, "出ないはずの理由") {
 		t.Errorf("有効なキーの理由が出ている: %q", reason)
+	}
+}
+
+// 理由が複数あるときは 1 つだけを出し、残りは件数にまとめる。
+//
+// 2 つ並べると幅 80 で後ろの理由が中略され、対処の書かれた部分が読めなくなる。
+// 残すのは最も多くのキーを塞いでいる理由（能力不足は複数のキーに一斉に効く）である。
+func TestKeyBarKeepsOneReasonAndCountsRest(t *testing.T) {
+	const unsupported = "この版では未対応です"
+	hints := []atom.Hint{
+		{Key: "l", Desc: "ログ", Enabled: false, Reason: unsupported},
+		{Key: "d", Desc: "ドレイン", Enabled: false, Reason: unsupported},
+		{Key: "s", Desc: "開始", Enabled: false, Reason: rootReason},
+		{Key: "x", Desc: "停止", Enabled: false, Reason: rootReason},
+		{Key: "X", Desc: "強制", Enabled: false, Reason: rootReason},
+	}
+	reason := strings.Split(KeyBar(hints, token.WidthTarget, plainStyles()), "\n")[1]
+
+	if !strings.Contains(reason, rootReason) {
+		t.Errorf("理由の行 = %q, 多数のキーを塞ぐ理由が出ていない", reason)
+	}
+	if strings.Contains(reason, unsupported) {
+		t.Errorf("理由の行 = %q, 理由が 2 つ並んでいる", reason)
+	}
+	if !strings.Contains(reason, "他 1 件") {
+		t.Errorf("理由の行 = %q, 残りの件数が出ていない", reason)
+	}
+	if w := lipgloss.Width(reason); w > token.WidthTarget {
+		t.Errorf("理由の行の幅 = %d, want %d 以下（%q）", w, token.WidthTarget, reason)
 	}
 }
 

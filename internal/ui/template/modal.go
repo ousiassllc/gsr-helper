@@ -20,13 +20,22 @@ type ModalInput struct {
 const (
 	// modalFrameWidth は枠線と左右余白が使う幅（左右それぞれ 枠 1 + 余白 1）。
 	modalFrameWidth = 4
-	// modalFrameHeight は枠線が使う行数（上下 1 行ずつ）。
+	// modalFrameHeight は枠線が使う行数（上下 1 行ずつ）。上下の余白は付けない。
 	modalFrameHeight = 2
 	// modalMinInner は枠を描くために最低限必要な内側の幅。
 	modalMinInner = 4
 	// modalTitleGap は見出しと本文の間に空ける行数。
 	modalTitleGap = 1
 )
+
+// ModalPadding は Modal の枠と見出しが使う幅と行数を返す。
+//
+// モーダルの中身へ配る領域を page が算出するために公開する。非公開の定数の写しを
+// page 側に持たせず、真実をこのパッケージに 1 つだけ置く（BodySize と同じ形）。
+// 幅は左右それぞれの枠線 1 + 余白 1、行数は上下の枠線 2 + 見出し 1 + 空行 1 である。
+func ModalPadding() (w, h int) {
+	return modalFrameWidth, modalFrameHeight + modalTitleGap + 1
+}
 
 // Modal は中央寄せのオーバーレイ枠を返す。
 //
@@ -43,17 +52,23 @@ func Modal(in ModalInput) string {
 		return ""
 	}
 
+	// 中身に使える幅と行数。ModalPadding が page へ返すのと同じ引き算であり、
+	// page が配った中身がそのまま収まる大きさである。
 	innerWidth := in.Width - modalFrameWidth
 	innerHeight := in.Height - modalFrameHeight
 	if innerWidth < modalMinInner || innerHeight < 1 {
 		return clip(modalContent(in, in.Height), in.Width, in.Height)
 	}
 
+	// Width() / Height() には領域そのものを渡す。lipgloss のこの 2 つは枠線と余白を
+	// 含めた外側の大きさを指定するもので、内側の大きさではない。内側（innerWidth /
+	// innerHeight）を渡すと枠が modalFrameWidth / modalFrameHeight の分だけ小さくなり、
+	// ModalPadding を元に組まれた中身が折り返す・末尾が切れる。
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		Padding(0, 1).
-		Width(innerWidth).
-		Height(innerHeight).
+		Width(in.Width).
+		Height(in.Height).
 		MaxWidth(in.Width).
 		MaxHeight(in.Height).
 		Render(modalContent(in, innerHeight))

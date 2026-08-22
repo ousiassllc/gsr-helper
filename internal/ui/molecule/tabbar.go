@@ -23,10 +23,17 @@ func TabBar(tabs []TabView, width int, s token.Styles) string {
 	for _, t := range tabs {
 		parts = append(parts, tabLabel(t, s))
 	}
-	return atom.Join(parts, " ", width, token.IconEllipsis)
+	// 区切りは空文字にする。tabLabel が先頭に 1 セル（カーソル記号かその空白）を
+	// 持つため、これがタブ間の空白を兼ねる。ここで空白を挟むと 2 空白になり、
+	// screens.md の共通レイアウト（`[1]Runners [2]Jobs …`）と桁が合わない。
+	return atom.Join(parts, "", width, token.IconEllipsis)
 }
 
 // tabLabel はタブ 1 枚の表示を返す。
+//
+// 先頭の 1 セルは選択中のカーソル記号の場所で、非選択のタブは同幅の空白を置く。
+// 選択タブが変わっても桁が動かないようにするためである。タブ間の空白もこの 1 セルが
+// 兼ねる（TabBar は区切りを挟まない）。
 func tabLabel(t TabView, s token.Styles) string {
 	switch {
 	case !t.Enabled:

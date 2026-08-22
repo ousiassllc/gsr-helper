@@ -1,0 +1,130 @@
+package ui
+
+import (
+	"strconv"
+	"testing"
+
+	"github.com/ousiassllc/gsr-helper/internal/appconfig"
+	"github.com/ousiassllc/gsr-helper/internal/ui/keymap"
+	"github.com/ousiassllc/gsr-helper/internal/ui/token"
+)
+
+// capsMatrix は能力の組み合わせを返す。タブの有効・無効は Caps から決まるため、
+// 欠けている能力ごとに検証する。
+func capsMatrix() map[string]appconfig.Caps {
+	drops := map[string]func(*appconfig.Caps){
+		"すべてある":      func(*appconfig.Caps) {},
+		"非 root":     func(c *appconfig.Caps) { c.Root = false },
+		"systemd なし": func(c *appconfig.Caps) { c.Systemd = false },
+		"docker なし":  func(c *appconfig.Caps) { c.Docker = false },
+		"journal なし": func(c *appconfig.Caps) { c.Journal = false },
+		"gh 未認証":     func(c *appconfig.Caps) { c.GitHubToken = false },
+		"何も使えない": func(c *appconfig.Caps) {
+			*c = appconfig.Caps{}
+		},
+	}
+	out := make(map[string]appconfig.Caps, len(drops))
+	for name, drop := range drops {
+		c := testCaps()
+		drop(&c)
+		out[name] = c
+	}
+	return out
+}
+
+// newTestTabs は能力からタブを組み立てる。
+func newTestTabs(caps appconfig.Caps) []tab {
+	return newTabs(caps, keymap.New(), token.NewStyles(true, false), true)
+}
+
+// タブの番号キーは一意で、1 から連番になる（screens.md のグローバルキー）。
+func TestTabKeysAreUniqueAndSequential(t *testing.T) {
+	tabs := newTestTabs(testCaps())
+	if len(tabs) == 0 {
+		t.Fatal("タブが 1 枚も無い")
+	}
+
+	seen := make(map[string]bool, len(tabs))
+	for i, tb := range tabs {
+		if want := strconv.Itoa(i + 1); tb.Key != want {
+			t.Errorf("%d 番目のタブのキー = %q, want %q", i, tb.Key, want)
+		}
+		if seen[tb.Key] {
+			t.Errorf("番号キー %q が重複している", tb.Key)
+		}
+		seen[tb.Key] = true
+		if tb.Title == "" {
+			t.Errorf("%d 番目のタブに名前が無い", i)
+		}
+	}
+}
+
+// どの能力でも有効なタブの page は組み立てられる（能力不足は縮退で扱う）。
+//
+// 無効なタブ（この版で未実装のタブ）は Model を持たない。親はそこへキーも
+// StateMsg も配らない（app.go の live）。
+func TestEnabledTabModelsAreNeverNil(t *testing.T) {
+	for name, caps := range capsMatrix() {
+		t.Run(name, func(t *testing.T) {
+			for i, tb := range newTestTabs(caps) {
+				switch {
+				case tb.Enabled && tb.Model == nil:
+					t.Errorf("%d 番目のタブ（%s）は有効なのに Model が nil である", i, tb.Title)
+				case !tb.Enabled && tb.Model != nil:
+					t.Errorf("%d 番目のタブ（%s）は無効なのに Model を持っている", i, tb.Title)
+				}
+			}
+		})
+	}
+}
+
+// タブ行には screens.md の共通レイアウトの 7 枚を出す。
+//
+// 未実装のタブも出すのは、押しても何も起きないキーを作らないためである。後続 Issue は
+// 該当する 1 行を実装済みのタブに差し替えるだけで有効化できる。
+func TestTabsCoverSpecLayout(t *testing.T) {
+	want := []string{"Runners", "Jobs", "Disk", "Logs", "Doctor", "Config", "Setup"}
+	tabs := newTestTabs(testCaps())
+	if len(tabs) != len(want) {
+		t.Fatalf("タブの枚数 = %d, want %d", len(tabs), len(want))
+	}
+	for i, title := range want {
+		if tabs[i].Title != title {
+			t.Errorf("%d 番目のタブ = %q, want %q", i, tabs[i].Title, title)
+		}
+	}
+}
+
+// 無効なタブには必ず理由を添える（TabBar がグレーアウトの理由を出すため）。
+//
+// 実装済みのタブ（Runners / Jobs）はホスト内の読み取りだけで成立するので、どの能力でも
+// 無効にならない。未実装のタブは「この版では未対応です」を理由に持つ。
+func TestDisabledTabHasReason(t *testing.T) {
+	for name, caps := range capsMatrix() {
+		t.Run(name, func(t *testing.T) {
+			for _, tb := range newTestTabs(caps) {
+				switch {
+				case !tb.Enabled && tb.Reason == "":
+					t.Errorf("タブ %s が無効なのに理由が無い", tb.Title)
+				case tb.Enabled && tb.Reason != "":
+					t.Errorf("タブ %s は有効なのに理由がある: %s", tb.Title, tb.Reason)
+				}
+			}
+		})
+	}
+}
+
+// 初期のスナップショットは能力とキー定義を持って各 page へ渡る。
+//
+// 最初のリサイズと検出が届く前でも、page が配色とキー定義を持った状態で描画できる
+// ことを担保する。
+func TestTabsGetInitialState(t *testing.T) {
+	for _, tb := range newTestTabs(testCaps()) {
+		if tb.Model == nil {
+			continue
+		}
+		if v := tb.Model.View(); v.Content == "" {
+			t.Errorf("タブ %s が初期状態で何も描けていない", tb.Title)
+		}
+	}
+}

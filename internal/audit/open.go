@@ -14,14 +14,18 @@ const (
 	fileMode os.FileMode = 0o600
 )
 
-// Open は path に追記する Logger を返す。
+// Open は path に追記する Logger を返す。opts は New と同じ設定を受け付ける。
+//
+// 可変長の設定を受けるのは、識別子（uid / sudo_user）を呼び出し側が明示できる
+// ようにするためである。既定は環境変数の生値だが、cmd は検証済みの SUDO_USER を
+// 持っているので、それを渡せる経路が必要になる。
 //
 // 親ディレクトリが無ければ 0o700 で作る。既存ディレクトリのモードは変更しない
 // （/var/log 配下など、本ツールが作っていないディレクトリの権限を勝手に変えない）。
 // ファイルは 0o600 で開き、既存ファイルが緩い権限で残っていた場合は Chmod で締める。
 //
 // 返した Logger は使い終わったら Close すること。
-func Open(path string) (*Logger, error) {
+func Open(path string, opts ...Option) (*Logger, error) {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, dirMode); err != nil {
 		return nil, fmt.Errorf("%s の作成に失敗しました: %w", dir, err)
@@ -44,7 +48,7 @@ func Open(path string) (*Logger, error) {
 		return nil, fmt.Errorf("%s のパーミッション設定に失敗しました: %w", path, err)
 	}
 
-	l := New(f)
+	l := New(f, opts...)
 	l.closer = f
 	return l, nil
 }

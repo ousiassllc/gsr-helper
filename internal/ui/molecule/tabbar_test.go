@@ -39,6 +39,19 @@ func TestTabBarDistinguishesStatesWithoutColor(t *testing.T) {
 	}
 }
 
+// タブ間の区切りは空白 1 つである（screens.md の共通レイアウト
+// `[1]Runners [2]Jobs [3]Disk …`）。
+//
+// 期待値を 1 本の文字列で書くのは、区切りの空白数と「非選択タブがカーソル記号と
+// 同幅の空白を持つ」ことを同時に固定するためである。ラベル側の先頭 1 セルと
+// 区切りの両方で空白を入れると 2 空白になり、モックと桁が合わない。
+func TestTabBarSeparatesTabsWithSingleSpace(t *testing.T) {
+	want := token.IconCursor + "[1]Runners [2]Jobs (3)Disk"
+	if got := TabBar(sampleTabs(), 120, plainStyles()); got != want {
+		t.Errorf("タブ行 = %q, want %q", got, want)
+	}
+}
+
 func TestTabBarTruncatesToWidth(t *testing.T) {
 	titles := []string{"Runners", "Jobs", "Disk", "Logs", "Doctor", "Config", "Setup"}
 	tabs := make([]TabView, 0, len(titles))

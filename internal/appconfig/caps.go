@@ -168,3 +168,11 @@ func runProbe(
 	}
 	return res.ExitCode == 0 && len(bytes.TrimSpace(res.Stdout)) > 0
 }
+
+// SudoUser は検証済みの SUDO_USER を返す。文字種が不正なら空文字を返す。
+//
+// Caps.SudoUser と同じ値だが、Caps を得る前（監査ログを開く時点。Detect は Executor を
+// 必要とし、Executor は監査ログを必要とする）にも要るため関数として公開する。無いと
+// 呼び出し側が生の環境変数を読み直し、検証の有無が食い違う。Caps を持っているなら
+// Caps.SudoUser を使うこと。
+func SudoUser() string { return sudoUserFromEnv(os.Getenv) }

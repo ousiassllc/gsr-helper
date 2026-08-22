@@ -88,7 +88,8 @@ func Truncate(s string, width int) string {
 //
 // **そのため戻り値は width を超え得る**（left + " " + right が width より長い場合。
 // molecule.ActionRow を狭い幅で使う経路で起きる）。理由の文字列を消さないことを
-// 優先した結果であり、最終的な幅への切り詰めは template.Frame が行う。
+// 優先した結果である。幅に収める責任は行を組む側にあり、molecule.ActionRow は
+// 理由の末尾を Truncate で中略する。template.Frame の切り詰めは最後の防波堤として残る。
 func Justify(left, right string, width int) string {
 	if right == "" {
 		return left

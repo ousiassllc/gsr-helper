@@ -12,10 +12,16 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/ui/token"
 )
 
+// cursorWidth は行頭のカーソル記号と空白 1 つが使う幅。行の幅から差し引く。
+const cursorWidth = 2
+
 // Choice は 1 項目。可否と理由は page が決め、ChoiceList は判断しない。
 //
 // 実行できない項目も消さずに残す。消すと「押せない操作」と「存在しない操作」を
 // 区別できなくなる（screens.md の無効な操作の表示）。
+//
+// Impact と Reason は両方与えてよい。実際にどちらを描くかは Enabled で決まる
+// （molecule.ActionView の契約。無効な項目では影響を出さず理由だけを出す）。
 type Choice struct {
 	Key           string // 直接打てるキー。空なら無し
 	Desc          string // 動作の説明
@@ -89,8 +95,12 @@ func (c ChoiceList) View() string {
 		if item.DividerBefore {
 			// 区切り線より下は破壊的な操作の区画として扱う。
 			destructive = true
-			lines = append(lines, atom.Divider(c.width, "", c.styles))
+			// 各行と同じだけ字下げする。左端から引くと区切り線だけが行より
+			// 外へ出て、区切りが操作リストの一部に見えない（screens.md の詳細画面）。
+			lines = append(lines, strings.Repeat(" ", cursorWidth)+
+				atom.Divider(c.width-cursorWidth, "", c.styles))
 		}
+		// カーソル記号の分を引く。引かないと理由を右端へ寄せた行が幅を超える。
 		row := molecule.ActionRow(molecule.ActionView{
 			Key:         item.Key,
 			Desc:        item.Desc,
@@ -98,7 +108,7 @@ func (c ChoiceList) View() string {
 			Reason:      item.Reason,
 			Enabled:     item.Enabled,
 			Destructive: destructive,
-		}, c.width, c.styles)
+		}, max(c.width-cursorWidth, 0), c.styles)
 		lines = append(lines, atom.Cursor(i == c.cursor, c.styles)+" "+row)
 	}
 	return strings.Join(lines, "\n")

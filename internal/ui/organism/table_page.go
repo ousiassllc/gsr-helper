@@ -27,7 +27,14 @@ func (t *Table[T]) SetItems(section int, items []T) {
 //
 // 列の集合は幅に依存する（molecule.Columns）ためリサイズのたびに変わるが、Table を
 // 作り直すとカーソル位置・選択集合・絞り込みが失われる。
+//
+// 大きさが変わっていなければ何もしない。共有状態は自動更新のたびに全 page へ配られる
+// が、そのほとんどでサイズは変わらず、毎回解き直すと 1 周期で全タブ・全区画ぶんの
+// 全行再構築が積み上がるためである。
 func (t *Table[T]) SetSize(w, h int) {
+	if t.width == w && t.height == h {
+		return
+	}
 	t.width, t.height = w, h
 	for i := range t.sections {
 		t.setSectionWidth(i, w)

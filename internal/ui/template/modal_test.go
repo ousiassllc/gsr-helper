@@ -1,6 +1,7 @@
 package template_test
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 
@@ -91,6 +92,93 @@ func TestModalWithTooSmallArea(t *testing.T) {
 			}
 			if tt.height <= 0 && got != "" {
 				t.Errorf("領域が無いのに描画している: %q", got)
+			}
+		})
+	}
+}
+
+// ModalPadding は Modal の枠と見出しが実際に使う幅・行数と一致する。
+//
+// page はこの値で中身へ配る領域を算出する。写しを持たせず真実を 1 箇所に置くため、
+// 返り値が Modal の実装と一致していることを固定する。
+func TestModalPaddingMatchesFrame(t *testing.T) {
+	const width, height = 60, 12
+	padW, padH := template.ModalPadding()
+	if padW <= 0 || padH <= 0 {
+		t.Fatalf("ModalPadding() = (%d, %d), want 正の値", padW, padH)
+	}
+
+	// 枠と見出しを除いた領域にちょうど収まる本文は、切り詰められずに全行出る。
+	body := make([]string, 0, height-padH)
+	for i := range height - padH {
+		body = append(body, "行"+strconv.Itoa(i))
+	}
+	got := template.Modal(template.ModalInput{
+		Title:  "見出し",
+		Body:   strings.Join(body, "\n"),
+		Width:  width,
+		Height: height,
+	})
+	for _, line := range body {
+		if !strings.Contains(got, line) {
+			t.Errorf("本文の %q が切り詰められた:\n%s", line, got)
+		}
+	}
+
+	// 枠と余白が使う幅も一致する（本文が幅いっぱいでも折り返さない）。
+	filled := template.Modal(template.ModalInput{
+		Title:  "見出し",
+		Body:   strings.Repeat("x", width-padW),
+		Width:  width,
+		Height: height,
+	})
+	if w := lipgloss.Width(filled); w != width {
+		t.Errorf("幅 = %d, want %d", w, width)
+	}
+}
+
+// ちょうど内側幅に収まる本文は折り返さない。
+//
+// lipgloss の Width() は padding を含む幅なので、Modal が枠へ渡す幅と ModalPadding が
+// 返す幅の区別を落とすと、page が配った本文がモーダル内で折り返す（詳細画面の操作
+// リストが 2 行に割れる不具合）。幅を複数点で固定して再発を防ぐ。
+func TestModalDoesNotWrapBodyAtInnerWidth(t *testing.T) {
+	const height = 12
+	padW, _ := template.ModalPadding()
+	for _, width := range []int{60, 72, 80, 100} {
+		t.Run(strconv.Itoa(width), func(t *testing.T) {
+			inner := width - padW
+			body := []string{
+				strings.Repeat("x", inner),
+				strings.Repeat("あ", inner/2),
+				strings.Repeat("-", inner-1) + "x",
+			}
+			got := template.Modal(template.ModalInput{
+				Title:  "見出し",
+				Body:   strings.Join(body, "\n"),
+				Width:  width,
+				Height: height,
+			})
+
+			lines := strings.Split(got, "\n")
+			if len(lines) != height {
+				t.Errorf("行数 = %d, want %d", len(lines), height)
+			}
+			// 枠は領域を上下左右いっぱいに使う。Height() も枠と余白を含む大きさなので、
+			// 内側の行数を渡すと枠が 2 行縮んで上下に空行が入る。
+			if !strings.HasPrefix(lines[0], "╭") || !strings.HasPrefix(lines[len(lines)-1], "╰") {
+				t.Errorf("枠が領域を埋めていない:\n%s", got)
+			}
+			for i, line := range lines {
+				if w := lipgloss.Width(line); w > width {
+					t.Errorf("%d 行目の表示幅 = %d, want <= %d", i+1, w, width)
+				}
+			}
+			// 折り返すと本文の行に改行が入り、1 行として現れなくなる。
+			for _, line := range body {
+				if !strings.Contains(got, line) {
+					t.Errorf("本文の %q が折り返している:\n%s", line, got)
+				}
 			}
 		})
 	}

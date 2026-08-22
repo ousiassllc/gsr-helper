@@ -22,9 +22,11 @@ type Hint struct {
 // 無効なときもキーを消さずグレーアウトする（screens.md の無効な操作の表示）。
 // キーを消すと「押せない操作」と「存在しない操作」を区別できなくなる。
 //
-// 無効なときは丸括弧で囲む。グレーアウトだけでは色を使えない端末で有効なキーと
-// 1 文字も変わらず、「色に依存しない」（screens.md の設計原則 4）を満たせない。
-// TabBar が選択不可のタブを丸括弧で示すのと同じ手がかりに揃えてある。
+// **無効なときも幅を増やさない。** 丸括弧で囲むと 1 つあたり 2 セル増え、幅 80 の
+// フッタ 1 行目に screens.md が定める 9 個のキー（77 セル）が収まらなくなる。
+// 「色に依存しない」（screens.md の設計原則 4）は別の手がかりで満たす。フッタでは
+// 2 行目が無効なキーを "(s)(x)(X): 理由" と丸括弧付きで並べ（molecule.KeyBar）、
+// 詳細画面の操作リストでは同じ行の右端に理由が出る（molecule.ActionRow）。
 func KeyHint(h Hint, s token.Styles) string {
 	sep := ":"
 	if h.Key == "" || h.Desc == "" {
@@ -35,7 +37,7 @@ func KeyHint(h Hint, s token.Styles) string {
 		if label == "" {
 			return ""
 		}
-		return s.Muted.Render("(" + label + ")")
+		return s.Muted.Render(label)
 	}
 	return s.Accent.Render(h.Key) + sep + h.Desc
 }
