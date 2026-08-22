@@ -128,8 +128,7 @@ func Load(path string) (Config, error) {
 	}
 	// Decode は先頭のドキュメントだけを読む。--- で区切った 2 本目を黙って捨てるのは
 	// 「未知のキーを黙って無視しない」という本パッケージの方針と食い違うので弾く。
-	var rest Config
-	if derr := dec.Decode(&rest); !errors.Is(derr, io.EOF) {
+	if !singleDocument(dec) {
 		return Config{}, fmt.Errorf("%s には YAML ドキュメントを 1 つだけ書いてください", path)
 	}
 
@@ -138,6 +137,50 @@ func Load(path string) (Config, error) {
 		return Config{}, fmt.Errorf("%s の内容が不正です: %w", path, err)
 	}
 	return cfg, nil
+}
+
+// singleDocument は 2 本目以降に中身のあるドキュメントが無いかを返す。
+//
+// 末尾に --- だけが残っているファイルは受け付ける。区切りは 2 本目（中身の無い
+// null ドキュメント）を作るが、捨てるものが無いので「黙って捨てない」方針に
+// 反しない。手編集を前提にした形式（non-functional.md）では区切りだけが
+// 残る状態が普通に起こるため、これを起動失敗にはしない。
+//
+// 中身の判定を Config ではなく yaml.Node で行うのは、Config へデコードすると
+// null ドキュメントと「キーを 1 つも持たない本物の 2 本目」が同じ結果になり、
+// エラーを返さない Decode を区切りだけの場合と区別できないためである。
+func singleDocument(dec *yaml.Decoder) bool {
+	for {
+		var doc yaml.Node
+		err := dec.Decode(&doc)
+		if errors.Is(err, io.EOF) {
+			return true
+		}
+		// 壊れた 2 本目も「1 つだけ書く」規則の違反として同じ扱いにする。
+		if err != nil || !emptyDocument(&doc) {
+			return false
+		}
+	}
+}
+
+// emptyDocument は中身の無いドキュメントかを返す。
+//
+// 末尾の区切りだけが作る null ドキュメントは、Decode がゼロ値ではなく
+// 子を 1 つ持つ DocumentNode を返す（子は !!null のスカラ）ため、
+// yaml.Node.IsZero では判別できない。
+func emptyDocument(doc *yaml.Node) bool {
+	if doc.IsZero() {
+		return true
+	}
+	if doc.Kind != yaml.DocumentNode {
+		return false
+	}
+	for _, child := range doc.Content {
+		if child.Tag != "!!null" {
+			return false
+		}
+	}
+	return true
 }
 
 // pathOrDefault は空のパスを既定の配置先で埋める。Load と Exists が通す。

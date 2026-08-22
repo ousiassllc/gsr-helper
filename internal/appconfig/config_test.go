@@ -277,3 +277,33 @@ func TestDefaultPathRoundTrip(t *testing.T) {
 		t.Errorf("往復後 = %+v, want %+v", got, want)
 	}
 }
+
+// 末尾に --- だけが残っているファイルは 1 ドキュメントとして受け付けること。
+//
+// 手編集を前提にした形式（non-functional.md）なので、区切りだけが残る状態は
+// 普通に起こる。区切りの後に中身が無いなら「2 つ目のドキュメントを黙って
+// 捨てる」ことにはならないので弾く理由がない。
+func TestLoadAllowsTrailingDocumentSeparator(t *testing.T) {
+	for name, body := range map[string]string{
+		"末尾に区切りだけ":    "refresh_interval: 5\n---\n",
+		"末尾に区切りとコメント": "refresh_interval: 5\n---\n# あとで書く\n",
+		"末尾に区切りが 2 つ": "refresh_interval: 5\n---\n---\n",
+		"先頭と末尾に区切り":   "---\nrefresh_interval: 5\n---\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), confpath.FileName)
+			if err := os.WriteFile(path, []byte(body), confpath.FileMode); err != nil {
+				t.Fatalf("準備に失敗: %v", err)
+			}
+			got, err := Load(path)
+			if err != nil {
+				t.Fatalf("Load() でエラー: %v", err)
+			}
+			want := Default()
+			want.RefreshInterval = 5
+			if !reflect.DeepEqual(got, want) {
+				t.Errorf("Load() = %+v, want %+v", got, want)
+			}
+		})
+	}
+}
