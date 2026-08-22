@@ -44,6 +44,18 @@ type Result struct {
 //
 // 2 と 3 からもディレクトリを回収するため、走査ルート外の runner でも
 // 動いていれば検出できる。
+//
+// Options.Exec が nil のときは systemd を参照せず、警告も返さない
+// （systemctl が無い環境での縮退）。3 秒ごとのポーリングで同じ警告が積み上がるのを
+// 避けるためであり、systemd の可否は起動時に 1 回判定した Caps としてヘッダに出る。
+// このとき systemd 由来の情報（Runner.Svc / Result.OrphanUnits）は空になるが、
+// それは「ユニットが登録されていない」ことを意味しない。ユニット一覧そのものが
+// 取れなかった場合（list-units の失敗。systemd.ErrListUnits で区別する）も同じで、
+// Discover はこれを 0 件と読み替えず、起動方式を systemd 管理と断定しない側に倒す
+// （unitsListed）。1 ユニットの状態取得（show）の失敗は一覧は取れているので区別し、
+// ユニット名だけのプレースホルダとして残す。
+// この解釈は Discover の内側で完結するため、呼び出し側が ErrListUnits を見る必要は
+// ない。警告は Result.Warnings にまとめて返る。
 func Discover(ctx context.Context, opts Options) Result {
 	var res Result
 
