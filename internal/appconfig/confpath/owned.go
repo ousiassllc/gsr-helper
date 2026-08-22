@@ -5,11 +5,11 @@
 package confpath
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
-	"syscall"
 )
 
 // security.md の表のとおり、設定ファイルは 600、ディレクトリは 700。
@@ -21,47 +21,39 @@ const (
 )
 
 // fsOps は所有者・パーミッションを変える副作用。テストで差し替えるため関数値で持つ。
+//
+// パスは *os.Root（対象ユーザーのホーム）からの相対で受ける。絶対パスで受けると
+// 「どのホームに閉じた操作なのか」が呼び出しの形に現れず、ホームの外を触る
+// 呼び出しを書けてしまう。
 type fsOps struct {
 	geteuid func() int
-	chmod   func(string, os.FileMode) error
-	lchown  func(string, int, int) error
+	chmod   func(root *os.Root, name string, mode os.FileMode) error
+	lchown  func(root *os.Root, name string, uid, gid int) error
 }
 
-// realFS は実環境の副作用。
+// realFS は実環境の副作用。*os.Root のメソッドをそのまま使う。
 //
-// chown ではなく lchown を使う。chown(2) はリンクを辿るため、missingDirs の Stat →
-// MkdirAll → 所有者変更の隙に対象ユーザーが <home>/.config/gsr-helper を任意パスへの
-// シンボリックリンクへ差し替えると、root がそのリンク先を当該ユーザー所有に変えて
-// しまう。lchown はリンク自体を対象にするので無害化される（internal/audit が
-// O_NOFOLLOW で断っているのと同じ脅威に、同じ方針で対処する）。
+// os.Chmod / os.Chown を使わない。どちらもリンクを辿るため、「存在しない祖先の
+// 列挙 → MkdirAll → 所有者変更」の隙に対象ユーザーが <home>/.config を任意パスへの
+// シンボリックリンクへ差し替えると、root がそのリンク先を 0700 にし、当該ユーザー
+// 所有へ変えてしまう（internal/audit が O_NOFOLLOW で断っているのと同じ脅威）。
 //
-// chmod も同じ理由で os.Chmod を使わない。chmod(2) もリンクを辿るため、同じ隙に
-// リンクを差し替えられると root が任意のファイルのモードを 0700 に変えてしまう
-// （世界から読めていたファイルを読めなくする）。chmodNoFollow が O_NOFOLLOW で
-// 開いた fd に対して fchmod するので、リンクなら開く時点で失敗する。
-var realFS = fsOps{geteuid: os.Geteuid, chmod: chmodNoFollow, lchown: os.Lchown}
-
-// chmodNoFollow は dir のモードを変える。dir がシンボリックリンクなら失敗する。
+// リンク自体を対象にする lchown や、O_NOFOLLOW で開いた fd への fchmod でも足りない。
+// どちらも守るのは最後の要素だけで、経路の途中の要素がリンクに差し替えられた場合は
+// 通ってしまう。underHome の判定はパス名の字句だけを見るため、この差し替えを
+// 「ホーム配下のパス」と読んでしまう。
 //
-// O_NOFOLLOW | O_DIRECTORY で開いた fd に対して fchmod するため、開いた実体と
-// モードを変える実体が同一であることが保証される（パス名で 2 回参照しないので
-// 途中で差し替えられない）。
-func chmodNoFollow(dir string, mode os.FileMode) error {
-	//nolint:gosec // dir は本ツールが決めた設定ディレクトリ（<home>/.config/gsr-helper）または
-	// --config で指されたその親であり、開くこと自体が本関数の目的。O_NOFOLLOW でリンクは断つ。
-	f, err := os.OpenFile(dir, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_DIRECTORY, 0)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = f.Close() }()
-	return f.Chmod(mode)
-}
+// *os.Root はホーム（根）の外へ出る参照を各要素の解決時に拒む。相対リンクで
+// ホーム内に留まる場合だけ辿り、絶対リンクとホーム外へ出るリンク、.. による
+// 離脱はエラーになる。字句判定ではなく実際の解決で閉じ込めるので、途中の要素を
+// 差し替えられてもホームの外を触ることがない。
+var realFS = fsOps{geteuid: os.Geteuid, chmod: (*os.Root).Chmod, lchown: (*os.Root).Lchown}
 
 // MkdirOwned は dir を 700 で作り、本ツールが責任を持つディレクトリだけを所有者に合わせる。
 //
-// MkdirAll の前に「存在しない祖先」を列挙し、その中でも対象ユーザーのホームより
-// 下にあるものだけを chown 対象にする。こうしておくと、既存のディレクトリや
-// /home のような共有ディレクトリを chown する事故が構造的に起こらない。
+// 対象ユーザーのホームの外（--config で任意の場所を指した場合）は作るだけで、
+// mode も所有者も変えない。ホームの中は os.Root 経由で操作し、経路がホームの外へ
+// 出る場合はエラーにして何もしない。
 func (o Owner) MkdirOwned(dir string) error {
 	return o.mkdirOwnedFS(dir, realFS)
 }
@@ -74,27 +66,54 @@ func (o Owner) mkdirOwnedFS(dir string, ops fsOps) error {
 		return fmt.Errorf("%s のホームディレクトリ %s がありません", o.name, o.home)
 	}
 
-	targets := missingDirs(dir, o.home)
-	if err := os.MkdirAll(dir, DirMode); err != nil {
+	dir = filepath.Clean(dir)
+	if !underHome(o.home, dir) {
+		// --config で指された任意のディレクトリは他の用途と共有されうるので触らない。
+		// 名前だけで leaf と判断すると、--config /etc/gsr-helper/config.yaml のような
+		// 指定で root が /etc/gsr-helper を 0700 にし、さらに非特権ユーザー所有へ
+		// chown してしまう。本ツールへの sudo だけを許されたユーザーにとっては
+		// 権限昇格になる。
+		if err := os.MkdirAll(dir, DirMode); err != nil {
+			return fmt.Errorf("%s の作成に失敗しました: %w", dir, err)
+		}
+		return nil
+	}
+	return o.mkdirInHome(dir, ops)
+}
+
+// mkdirInHome は対象ユーザーのホーム配下の dir を作り、締め直す。
+//
+// ホームを根とする os.Root の中だけで操作するため、経路の途中の要素がホーム外への
+// シンボリックリンクに差し替えられていた場合は MkdirAll の時点で失敗し、
+// リンクの先には何も作らず、mode も所有者も変えない。
+func (o Owner) mkdirInHome(dir string, ops fsOps) error {
+	rel, err := filepath.Rel(o.home, dir)
+	if err != nil {
+		return fmt.Errorf("%s の作成に失敗しました: %w", dir, err)
+	}
+	root, err := os.OpenRoot(o.home)
+	if err != nil {
+		return fmt.Errorf("%s を開けませんでした: %w", o.home, err)
+	}
+	defer func() { _ = root.Close() }()
+
+	// MkdirAll の前に「存在しない祖先」を列挙し、それだけを chown 対象にする。
+	// こうしておくと、既存のディレクトリを chown する事故が構造的に起こらない。
+	targets := missingDirs(root, rel)
+	if err := root.MkdirAll(rel, DirMode); err != nil {
 		return fmt.Errorf("%s の作成に失敗しました: %w", dir, err)
 	}
 
 	// leaf は本ツール専用のディレクトリなので、既存でも mode と所有者を締め直す。
 	// root が 0755 で作ったまま残っていると、次に非 root で起動したときに一時
 	// ファイルを作れず自分の設定を書けない（security.md 4.）。
-	// ~/.config のような共有の祖先と、--config で指された任意のディレクトリは
-	// 他の用途と共有されうるので触らない。
-	//
-	// 線引きはディレクトリ名と「対象ユーザーのホーム配下であること」の両方で行う。
-	// 名前だけで判断すると、--config /etc/gsr-helper/config.yaml のような指定で
-	// root が /etc/gsr-helper を 0700 にし、さらに非特権ユーザー所有へ chown して
-	// しまう。本ツールへの sudo だけを許されたユーザーにとっては権限昇格になる。
-	if filepath.Base(dir) == DirName && underHome(o.home, dir) {
-		if err := ops.chmod(dir, DirMode); err != nil {
+	// ~/.config のような共有の祖先は他の用途と共有されうるので触らない。
+	if filepath.Base(rel) == DirName {
+		if err := chmodLeaf(root, rel, ops.chmod); err != nil {
 			return fmt.Errorf("%s のパーミッション設定に失敗しました: %w", dir, err)
 		}
-		if !slices.Contains(targets, dir) {
-			targets = append(targets, dir)
+		if !slices.Contains(targets, rel) {
+			targets = append(targets, rel)
 		}
 	}
 
@@ -102,27 +121,49 @@ func (o Owner) mkdirOwnedFS(dir string, ops fsOps) error {
 	if !ok {
 		return nil
 	}
-	return chownDirs(targets, uid, gid, ops.lchown)
+	return chownDirs(root, targets, uid, gid, ops.lchown)
 }
 
-// chownDirs は dirs の所有者を uid/gid に合わせる。
+// chmodLeaf は leaf の mode を DirMode にする。leaf がリンクなら締め直さない。
+//
+// os.Root はホームの外へ出る参照は拒むが、ホーム内で完結する相対リンクは辿る。
+// leaf は本ツール専用のディレクトリなので、リンクやファイルに差し替えられていたら
+// 意図した実体とは別のものを 0700 にすることになる。締め直しではなく失敗として扱う。
+func chmodLeaf(root *os.Root, rel string, chmod func(*os.Root, string, os.FileMode) error) error {
+	fi, err := root.Lstat(rel)
+	if err != nil {
+		return err
+	}
+	if !fi.IsDir() {
+		return errors.New("ディレクトリではありません")
+	}
+	return chmod(root, rel, DirMode)
+}
+
+// chownDirs は dirs（ホームからの相対パス）の所有者を uid/gid に合わせる。
 // リンクを辿らない理由は realFS のコメントを参照。
-func chownDirs(dirs []string, uid, gid int, lchown func(string, int, int) error) error {
+func chownDirs(root *os.Root, dirs []string, uid, gid int,
+	lchown func(*os.Root, string, int, int) error,
+) error {
 	for _, d := range dirs {
-		if err := lchown(d, uid, gid); err != nil {
-			return fmt.Errorf("%s の所有者変更に失敗しました: %w", d, err)
+		if err := lchown(root, d, uid, gid); err != nil {
+			return fmt.Errorf("%s の所有者変更に失敗しました: %w", filepath.Join(root.Name(), d), err)
 		}
 	}
 	return nil
 }
 
-// missingDirs は dir までの経路のうち、まだ存在せず home より下にあるものを
-// 浅い順に返す。home 自身とそれより上は含めない。
-func missingDirs(dir, home string) []string {
+// missingDirs は rel までの経路のうち、まだ存在しないものを浅い順に返す。
+// 根（ホーム）自身は含めない。
+//
+// 存在確認は root.Lstat で行う。os.Stat はリンクを辿るため、<home>/.config が
+// ホーム外へのリンクに差し替えられていると、リンクの先を見て「既にある」と
+// 誤判定する。Lstat ならリンクそのものを見るので、その先の実体を本ツールが
+// 作ったものとして扱ってしまうことがない。
+func missingDirs(root *os.Root, rel string) []string {
 	var missing []string
-	h := filepath.Clean(home)
-	for p := filepath.Clean(dir); p != h && underHome(h, p); p = filepath.Dir(p) {
-		if _, err := os.Stat(p); err == nil {
+	for p := rel; p != "."; p = filepath.Dir(p) {
+		if _, err := root.Lstat(p); err == nil {
 			break
 		}
 		missing = append(missing, p)
