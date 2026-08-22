@@ -62,6 +62,7 @@ graph TD
     Svc --> Exec
     Setup --> Exec
     Disk --> Exec
+    Logs --> Exec
     Doctor --> Exec
     GH --> Exec
     Appconf --> Exec
@@ -249,10 +250,27 @@ runner の追加・削除・バージョン更新。最も破壊的な操作を�
 
 | 要素 | 責務 |
 |------|------|
-| `List(Runner) []LogFile` | `_diag` 配下のログを更新時刻順に列挙 |
-| `Tail(ctx, path, out chan<- Line)` | `fsnotify` による追記の検知と送出 |
-| `Journal(ctx, unit, out chan<- Line)` | `journalctl -f` の出力を送出 |
-| `LatestWorker(Runner)` | 直近ジョブの Worker ログを特定 |
+| `List(Runner) ([]File, error)` | `_diag` 配下の `Runner_*.log` / `Worker_*.log` を更新時刻の降順で列挙（サイズ・更新時刻付き） |
+| `LatestWorker(Runner) (File, bool)` | 直近ジョブの Worker ログを特定（`l` の宛先） |
+| `Tail(ctx, path, out chan<- Line) error` | `fsnotify` による追記の検知と送出 |
+| `Journal(ctx, Executor, unit, out chan<- Line) error` | systemd ユニットのログを一定間隔で取得し、増えた分を送出 |
+| `Classify(text) Level` | 行の重大度（`ERROR` / `WARN`）の判定。強調表示（FR-25）の入力 |
+
+型名にパッケージ名を重ねない規約に従い、ログファイル 1 件は `File` と呼ぶ（`logs.LogFile` とはしない）。
+
+**`Tail` / `Journal` は戻るときに `out` を閉じる。** 受け手（`ui/page/logs`）は閉じたことで購読の終わりを知り、読み直しの `tea.Cmd` を発行し続けずに済む。したがって `out` は 1 本の購読専用に作る。
+
+**色は決めない。** 強調表示に使うのは `Level`（値）であり、色を割り当てるのは表示層である（[依存の規則](#依存の規則)）。
+
+#### `journalctl -f` を使わない理由
+
+`Journal` は `journalctl -u <unit> -n <N> --no-pager` を 2 秒ごとに発行し、前回の出力との重なりを除いた差分を送る。`-f`（follow）は使わない。
+
+`Executor` は 1 回の実行の出力をまとめて返す契約であり（`Run(ctx, name, args...) (Result, error)`）、`-f` を渡すと**タイムアウトまで 1 行も届かない**。追従のためだけに標準出力をストリームで受け取る経路を開けると、外部プロセスの実行が `Executor` 1 本ではなくなり、タイムアウト・監査記録・マスクの適用漏れを構造的に防ぐという `internal/exec` の目的が崩れる。取得のたびにプロセスを起こす費用より、実行経路を 1 本に保つほうを採る。
+
+重なりの判定は行の内容だけで行うため、**同じ文言が連続して出力された場合は重なりを長く取りすぎて数行を出し損ねることがある**。`journalctl` の行は時刻を含むため実際にはまれで、取りこぼしても次の取得で末尾側は必ず届く。
+
+取得は監査ログに記録しない（`exec.Options.SkipAudit`）。理由は [セキュリティ設計](../architecture/security.md#記録対象外とする読み取りコマンド) を参照。
 
 ### `internal/doctor`
 
@@ -332,7 +350,7 @@ type Executor interface {
 | `Runner` | 監査ログの `runner`。ホスト全体の操作では空 |
 | `Dir` | 作業ディレクトリ。監査ログの `dir` にもこの値を記録する（runner ディレクトリでの `config.sh` 実行に必要） |
 | `Env` | 追加の環境変数（`KEY=VALUE`） |
-| `SkipAudit` | この実行を監査ログに記録しない指定。**既定は偽（記録する）**。使ってよいのは再検出（`internal/runner/systemd` の `Scan`）が発行する読み取り専用コマンドだけ（[セキュリティ設計の監査ログ](../architecture/security.md#記録対象外とする再検出の読み取りコマンド)） |
+| `SkipAudit` | この実行を監査ログに記録しない指定。**既定は偽（記録する）**。使ってよいのは再検出（`internal/runner/systemd` の `Scan`）とログ追従（`internal/logs` の `Journal`）が発行する読み取り専用コマンドだけ（[セキュリティ設計の監査ログ](../architecture/security.md#記録対象外とする読み取りコマンド)） |
 
 `exec.WithOptions(ctx, o)` で載せ、実行側が `exec.OptionsFrom(ctx)` で取り出す。**監査レコードの `action` と `runner` を埋める経路はこれだけである。** 未設定でもエラーにはせず、`action` が空のレコードとして残る（記録漏れにはしない）。
 
@@ -532,9 +550,10 @@ interface はこの 3 つに留める。ドメインごとの interface は、�
 | 1.9 | 2026-08-22 | 走査ルートの合成規約（`--root` / `scan_roots` / `SkipDefaultRoots`）と `scanRoots` を追加。`exec.Options` に `SkipAudit` を追記。呼び出し元の無い `appconfig.Exists` と `State.Label()` を削除 | 既定の走査ルートが実ホストのパスを glob するため検証がホストに依存していた。読み取り専用の定期実行が監査ログを埋めていた。呼び出し元の無い公開 API は実際の必要に対して形が正しいかを確かめられない |
 | 1.10 | 2026-08-22 | `--refresh` / `--root` が設定ファイルと同じ有効範囲・検査を通すことと、走査ルートの重複除去が入口をまたぐことを明記 | `--refresh` に上限が無く、`--root` が `scan_roots` の絶対パス・`..` 検査を迂回していた |
 | 1.11 | 2026-08-22 | 監査ログのクローズ失敗を利用者に報告することを縮退の表に追加 | クローズのエラーを捨てており、監査ログのエラーのうちこれだけが利用者に見えなかった |
-| 1.12 | 2026-08-22 | `SkipAudit` を使ってよい範囲を「読み取り専用の定期実行」から「再検出（`Scan`）が発行する読み取り専用コマンド」に改め、参照先の見出しに追随 | 記録対象外の判定基準を発行契機から発行元へ統一したため（[セキュリティ設計](../architecture/security.md#記録対象外とする再検出の読み取りコマンド) 1.5） |
+| 1.12 | 2026-08-22 | `SkipAudit` を使ってよい範囲を「読み取り専用の定期実行」から「再検出（`Scan`）が発行する読み取り専用コマンド」に改め、参照先の見出しに追随 | 記録対象外の判定基準を発行契機から発行元へ統一したため（[セキュリティ設計](../architecture/security.md#記録対象外とする読み取りコマンド) 1.5） |
 | 1.13 | 2026-08-22 | `internal/runner` の責務表から `ScanProcesses` / `ScanUnits` の行を削除し、`Executor` が `nil` のときの縮退を `Discover` の行に統合。所要時間・キャンセルの契約と孤児にしないユニットの記述、下位パッケージの再公開範囲を実装に合わせた | 再公開面を絞って `Discover` を唯一の入口にしたため（Issue #42）。下位パッケージの `Scan` は 3 経路の突き合わせを迂回するため意図的に再公開していないが、仕様書には別名として再公開してあると書かれていた |
 | 1.14 | 2026-08-22 | `Result.Stderr` の取り込み上限を「先頭 1 MiB」から「1 MiB まで取り込み、あふれたら古い先頭を捨てて末尾を残す」に訂正 | 実装（`limitedBuffer`）は末尾を残しており、[セキュリティ設計](../architecture/security.md#標準エラー出力の取り込みと抜粋)の表とも記述が食い違っていた |
 | 1.15 | 2026-08-22 | `ui/page/action` を階層表に追加し、`ui/page` の責務から可否の判定を外す。タブ共通の `Msg` の列挙に `AttachMsg` / `ModalMsg` / `ResultMsg` / `ActivateMsg` / `DeactivateMsg` / `ShutdownMsg` を追加。親 Model の責務に page の寿命管理（切替時の `Deactivate` / `Activate`、終了時の `Shutdown` と `tea.Sequence` での後始末）を追加。可否の判断が `action.Allow` にある暫定である旨と、`svc` を持ち込む Issue が置き換える範囲を明記 | 可否の判定は Issue #34 で `ui/page/action` へ分離済みだったが、表は `ui/page` の責務のままで新しいパッケージの行も無かった。Issue #26 / #41 が足した 6 つの `Msg` と、親が担うようになった page の寿命管理が本書に反映されていなかった。「page がドメイン層（`svc.CanControl` など）に問い合わせ」は `svc` が存在しない以上そのまま読むと実装できず、暫定であることが読み取れなかった |
 | 1.16 | 2026-08-23 | `internal/ui` のサブパッケージ表に `ui/page/runnerdetail`（Runners / Jobs が共用する詳細モーダル）と `ui/page/pagetest`（テスト専用のフィクスチャ）の行を追加。「タブ間で共有する状態は親のみが持つ」の箇条書きに、それを守らせている検査（`TestOnlyTabsetImportsTabs`）を明記 | 表が `ui/page` → `ui/page/action` → `ui/page/<tab>` の 3 行だけで、`page/` 階層が「page + 共通部品 + タブ 1 枚ずつ」だと読めた。[TUI コンポーネント設計](../ui/atomic-design.md)（1.20）が明記した「`page/` は 1 ディレクトリ 1 タブではない」と食い違い、実在する 2 パッケージが本書からは辿れなかった。共有状態の規則も規約としてしか書かれておらず、それを機械的に守らせている検査が本書からは読み取れなかった（PR #67 のレビュー指摘） |
 | 1.17 | 2026-08-23 | `ui/page/pagetest` の行を「`page/<tab>` と親 Model が共用するテスト用の道具」に改め、`Msgs` / `ScanKey` / `StreamPage` を挙げた | 表は同パッケージを `page/<tab>` 用のフィクスチャに限定して書いていたが、親 Model 専用の道具（寿命テストの `StreamPage`、Issue #31 で移した打鍵の走査 `ScanKey`）も置かれており、[TUI コンポーネント設計](../ui/atomic-design.md) 側は「タブと親で共用する検証の道具の置き場」と記して親側からの利用を推奨している。2 文書が同じパッケージの守備範囲について別のことを述べていた（Issue #31 の最終ゲート指摘） |
+| 1.18 | 2026-08-23 | `internal/logs` の要素表を実装に合わせて更新（`LogFile` → `File`、`List` / `Tail` / `Journal` の戻り値、`Journal` が `Executor` を取ること、`Classify` の追加）。`journalctl -f` を使わず一定間隔の再発行と差分の送出で追従する理由を新設。依存グラフに `Logs --> Exec` を追加。`SkipAudit` を使ってよい範囲にログ追従の `journalctl` を追加 | ログ閲覧を実装した（Issue #9）。`Executor` は 1 回の実行の出力をまとめて返す契約で、`-f` を渡すとタイムアウトまで 1 行も届かない。追従のためだけにストリームの経路を開けると外部プロセスの実行が `Executor` 1 本でなくなり、タイムアウト・監査記録・マスクの適用漏れを構造的に防ぐという `internal/exec` の目的が崩れる。表が `Journal(ctx, unit, out)` としていたのは `Executor` を渡す道が無く実装できない署名だった |

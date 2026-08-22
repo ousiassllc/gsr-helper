@@ -11,7 +11,9 @@ import (
 	dlogs "github.com/ousiassllc/gsr-helper/internal/logs"
 	"github.com/ousiassllc/gsr-helper/internal/ui/atom"
 	"github.com/ousiassllc/gsr-helper/internal/ui/keymap"
+	"github.com/ousiassllc/gsr-helper/internal/ui/molecule"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
+	"github.com/ousiassllc/gsr-helper/internal/ui/token"
 )
 
 // 画面の組み立て（領域の配分・見出し・本文の絞り込みと強調）と、親へ返す
@@ -99,16 +101,25 @@ func compileFilter(s string) (*regexp.Regexp, error) {
 }
 
 // styleLine は重大度に応じて行を装飾する（FR-25 の強調表示）。
+//
+// 描くのは molecule.LogLine に任せ、ここは重大度から表示上の役割への対応づけだけを
+// 持つ。ドメインの型（dlogs.Level）を molecule へ渡さないためである
+// （atomic-design.md の依存の規則）。
 func (m Model) styleLine(l dlogs.Line) string {
-	switch l.Level {
+	return molecule.LogLine(l.Text, lineRole(l.Level), m.st.Styles)
+}
+
+// lineRole は重大度に対応する表示上の役割を返す。
+func lineRole(l dlogs.Level) token.RoleToken {
+	switch l {
 	case dlogs.LevelError:
-		return m.st.Styles.Fail.Render(l.Text)
+		return token.RoleFail
 	case dlogs.LevelWarn:
-		return m.st.Styles.Warn.Render(l.Text)
+		return token.RoleWarn
 	case dlogs.LevelPlain:
-		return l.Text
+		return token.RolePlain
 	default:
-		return l.Text
+		return token.RolePlain
 	}
 }
 

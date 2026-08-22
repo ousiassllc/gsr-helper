@@ -106,7 +106,7 @@ func TestOpenTabMovesAndDelivers(t *testing.T) {
 	if a.tabs[a.active].Title != page.TabLogs {
 		t.Errorf("移動後のタブ = %q, want %q", a.tabs[a.active].Title, page.TabLogs)
 	}
-	if !gotShowLog(spy) {
+	if pagetest.Delivered[page.ShowLogMsg](spy) != 1 {
 		t.Error("移動先へ用件が配られていない")
 	}
 }
@@ -125,16 +125,6 @@ func spyOfTitle(t *testing.T, a App, spies []*pagetest.Spy, title string) *paget
 	return nil
 }
 
-// gotShowLog は spy が用件（page.ShowLogMsg）を受け取ったかを返す。
-func gotShowLog(s *pagetest.Spy) bool {
-	for _, m := range s.Msgs() {
-		if _, ok := m.(page.ShowLogMsg); ok {
-			return true
-		}
-	}
-	return false
-}
-
 // 既に前面に居るタブへの要求でも用件は配る（同じタブで l を押した場合）。
 func TestOpenTabDeliversToActiveTab(t *testing.T) {
 	a, spies := withSpies(newApp(exec.NewFake()))
@@ -143,7 +133,7 @@ func TestOpenTabDeliversToActiveTab(t *testing.T) {
 
 	a, _ = update(a, page.OpenTabMsg{Title: title, Msg: page.ShowLogMsg{}})
 
-	if !gotShowLog(spy) {
+	if pagetest.Delivered[page.ShowLogMsg](spy) != 1 {
 		t.Error("前面に居るタブへ用件が配られていない")
 	}
 }
