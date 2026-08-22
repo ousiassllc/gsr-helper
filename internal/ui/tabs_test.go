@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/ousiassllc/gsr-helper/internal/appconfig"
+	"github.com/ousiassllc/gsr-helper/internal/exec"
 	"github.com/ousiassllc/gsr-helper/internal/ui/keymap"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 	"github.com/ousiassllc/gsr-helper/internal/ui/token"
@@ -35,7 +36,7 @@ func capsMatrix() map[string]appconfig.Caps {
 
 // newTestTabs は能力からタブを組み立てる。
 func newTestTabs(caps appconfig.Caps) []tab {
-	return newTabs(caps, keymap.New(), token.NewStyles(true, false), true)
+	return newTabs(caps, exec.NewFake(), keymap.New(), token.NewStyles(true, false), true)
 }
 
 // タブの番号キーは一意で、1 から連番になる（screens.md のグローバルキー）。

@@ -13,24 +13,26 @@ import (
 
 // blocked はモーダル表示中と入力中の 2 つの状態を返す。
 //
-// どちらもグローバルキーを解釈しない状態であり、同じ配送の規則が働く
-// （atomic-design.md のキー入力の配送）。
-func blocked() map[string]func(a App) App {
-	return map[string]func(a App) App{
-		"モーダル表示中": func(a App) App { a.chrome.Modal = true; return a },
-		"入力中":     func(a App) App { a.chrome.Input = "絞り込み"; return a },
+// どちらもグローバルキーを解釈しない状態であり、同じ配送の規則が働く。状態を持つのは
+// page 側であり、閉じ込めの判断も page が行う（page.GlobalKeyMsg の doc）ため、
+// spy の chrome に立てる。
+func blocked() map[string]func(s *spy) {
+	return map[string]func(s *spy){
+		"モーダル表示中": func(s *spy) { s.chrome.Modal = true },
+		"入力中":     func(s *spy) { s.chrome.Input = "絞り込み" },
 	}
 }
 
 // ctrl+c はどの状態でも親が処理して終了する。
 func TestInterruptQuitsInEveryState(t *testing.T) {
 	states := blocked()
-	states["通常"] = func(a App) App { return a }
+	states["通常"] = func(*spy) {}
 
 	for name, setup := range states {
 		t.Run(name, func(t *testing.T) {
 			a, spies := withSpies(newApp(exec.NewFake()))
-			_, cmd := update(setup(a), press("ctrl+c"))
+			setup(spies[0])
+			_, cmd := update(a, press("ctrl+c"))
 			if cmd == nil {
 				t.Fatal("ctrl+c で Cmd が発行されない")
 			}
@@ -45,16 +47,18 @@ func TestInterruptQuitsInEveryState(t *testing.T) {
 }
 
 // モーダル表示中と入力中は、グローバルキーを解釈せず有効タブへ流す。
+//
+// page が差し戻さない（page.BubbleKey を呼ばない）ことでキーが閉じ込められる。
 func TestGlobalKeysAreNotInterpretedWhenBlocked(t *testing.T) {
 	for name, setup := range blocked() {
 		t.Run(name, func(t *testing.T) {
 			for _, k := range []string{"1", "2", "7", "tab", "shift+tab", "r", "q"} {
 				a, spies := withSpies(newApp(exec.NewFake()))
-				next, cmd := update(setup(a), press(k))
-				if cmd != nil {
-					if _, quit := cmd().(tea.QuitMsg); quit {
-						t.Errorf("キー %q で終了している", k)
-					}
+				setup(spies[0])
+
+				next, cmd := sendKey(a, k)
+				if isQuit(cmd) {
+					t.Errorf("キー %q で終了している", k)
 				}
 				if next.active != 0 {
 					t.Errorf("キー %q でタブが %d に変わっている", k, next.active)
@@ -76,23 +80,22 @@ func TestGlobalKeys(t *testing.T) {
 		keys       []string
 		wantActive int
 		wantQuit   bool
-		toPage     bool
 	}{
-		"番号キーでタブを選ぶ":      {[]string{"2"}, 1, false, false},
-		"tab で次のタブへ":      {[]string{"tab"}, 1, false, false},
-		"同じタブの番号は無視する":    {[]string{"1"}, 0, false, false},
-		"q で終了する":         {[]string{"q"}, 0, true, false},
-		"? は page へ渡す":    {[]string{"?"}, 0, false, true},
-		"esc は page へ渡す":  {[]string{"esc"}, 0, false, true},
-		"一覧のキーは page へ渡す": {[]string{"j"}, 0, false, true},
-		"操作キーは page へ渡す":  {[]string{"x"}, 0, false, true},
+		"番号キーでタブを選ぶ":        {[]string{"2"}, 1, false},
+		"tab で次のタブへ":        {[]string{"tab"}, 1, false},
+		"同じタブの番号は無視する":      {[]string{"1"}, 0, false},
+		"q で終了する":           {[]string{"q"}, 0, true},
+		"? は page が処理する":    {[]string{"?"}, 0, false},
+		"esc は page が処理する":  {[]string{"esc"}, 0, false},
+		"一覧のキーは page が処理する": {[]string{"j"}, 0, false},
+		"操作キーは page が処理する":  {[]string{"x"}, 0, false},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			a, spies := withSpies(newApp(exec.NewFake()))
 			var cmd tea.Cmd
 			for _, k := range tt.keys {
-				a, cmd = update(a, press(k))
+				a, cmd = sendKey(a, k)
 			}
 
 			if a.active != tt.wantActive {
@@ -101,8 +104,9 @@ func TestGlobalKeys(t *testing.T) {
 			if got := isQuit(cmd); got != tt.wantQuit {
 				t.Errorf("終了したか = %v, want %v", got, tt.wantQuit)
 			}
-			if got := len(spies[0].keys) > 0; got != tt.toPage {
-				t.Errorf("page へ渡ったか = %v, want %v", got, tt.toPage)
+			// どのキーもまず page へ渡る（親が先に解釈しない。keys.go の handleKey）。
+			if len(spies[0].keys) != len(tt.keys) {
+				t.Errorf("page へ渡ったキー = %d 件, want %d 件", len(spies[0].keys), len(tt.keys))
 			}
 		})
 	}
@@ -119,15 +123,15 @@ func TestTabNavigation(t *testing.T) {
 		t.Fatal("有効なタブが 1 枚しかないため移動を検証できない")
 	}
 
-	if next, _ := update(a, press("tab")); next.active != 1 {
+	if next, _ := sendKey(a, "tab"); next.active != 1 {
 		t.Errorf("tab の後の有効タブ = %d, want 1", next.active)
 	}
-	if next, _ := update(a, press("shift+tab")); next.active != last {
+	if next, _ := sendKey(a, "shift+tab"); next.active != last {
 		t.Errorf("shift+tab の後の有効タブ = %d, want %d（末尾へ折り返す）", next.active, last)
 	}
 
 	missing := strconv.Itoa(len(a.tabs) + 1)
-	if next, _ := update(a, press(missing)); next.active != 0 {
+	if next, _ := sendKey(a, missing); next.active != 0 {
 		t.Errorf("番号 %s で有効タブが %d に変わっている", missing, next.active)
 	}
 }
@@ -148,7 +152,7 @@ func TestDisabledTabNumberShowsReason(t *testing.T) {
 		t.Fatal("無効なタブが 1 枚も無いため検証できない")
 	}
 
-	next, _ := update(a, press(a.tabs[target].Key))
+	next, _ := sendKey(a, a.tabs[target].Key)
 	if next.active != 0 {
 		t.Errorf("無効なタブへ移っている（active = %d）", next.active)
 	}
@@ -157,12 +161,14 @@ func TestDisabledTabNumberShowsReason(t *testing.T) {
 			t.Errorf("状態行 = %q, %q を含まない", next.status(), want)
 		}
 	}
-	if len(spies[0].keys) != 0 {
-		t.Error("無効なタブの番号キーを page へ渡している")
+	// 番号キーも page を経由する（親が先に解釈しない）。一覧は数字を使わないため、
+	// 押した番号が一覧の操作として解釈されることはない。
+	if len(spies[0].keys) != 1 {
+		t.Errorf("無効なタブの番号キーが page へ渡っていない（%d 件）", len(spies[0].keys))
 	}
 
 	// 次の打鍵で案内は消える（状態行に残り続けない）。
-	if after, _ := update(next, press("j")); strings.Contains(after.status(), a.tabs[target].Reason) {
+	if after, _ := sendKey(next, "j"); strings.Contains(after.status(), a.tabs[target].Reason) {
 		t.Errorf("次の打鍵の後の状態行 = %q, 案内が残っている", after.status())
 	}
 }
@@ -172,15 +178,15 @@ func TestRefreshKeyEmitsDiscover(t *testing.T) {
 	fake := exec.NewFake()
 	a, spies := withSpies(newApp(fake))
 
-	_, cmd := update(a, press("r"))
+	_, cmd := sendKey(a, "r")
 	if cmd == nil {
 		t.Fatal("r で Cmd が発行されない")
 	}
 	if _, ok := cmd().(discoveredMsg); !ok {
 		t.Errorf("r の Msg = %T, want discoveredMsg", cmd())
 	}
-	if len(spies[0].keys) != 0 {
-		t.Error("r を page へ渡している")
+	if len(spies[0].keys) != 1 {
+		t.Errorf("r が page へ渡っていない（%d 件）", len(spies[0].keys))
 	}
 }
 
@@ -195,10 +201,10 @@ func TestDisabledTabIsSkipped(t *testing.T) {
 		a.tabs[i].Reason = "テストのため無効"
 	}
 
-	if next, _ := update(a, press("tab")); next.active != 0 {
+	if next, _ := sendKey(a, "tab"); next.active != 0 {
 		t.Errorf("tab で無効なタブへ移っている（active = %d）", next.active)
 	}
-	if next, _ := update(a, press(a.tabs[1].Key)); next.active != 0 {
+	if next, _ := sendKey(a, a.tabs[1].Key); next.active != 0 {
 		t.Errorf("番号キーで無効なタブへ移っている（active = %d）", next.active)
 	}
 }
@@ -208,7 +214,7 @@ func TestSwitchTabRefreshesChrome(t *testing.T) {
 	a, spies := withSpies(newApp(exec.NewFake()))
 	a.chrome.Modal, a.chrome.Input = false, ""
 
-	a, cmd := update(a, press("2"))
+	a, cmd := sendKey(a, "2")
 	if a.active != 1 {
 		t.Fatalf("有効タブ = %d, want 1", a.active)
 	}

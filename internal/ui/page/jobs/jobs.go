@@ -100,7 +100,10 @@ func (m Model) forward(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(m.chrome(), cmd)
 }
 
-// handleKey はキー入力を解釈する。入力中とモーダル表示中はそのまま配る。
+// handleKey はキー入力を解釈する。
+//
+// 入力中とモーダル表示中は**親へ差し戻さない**。グローバルキーを閉じ込められるのは
+// この判定を持つ page だけである（page.GlobalKeyMsg の doc）。
 func (m Model) handleKey(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case m.tbl.Filtering(), m.overlay.Active():
@@ -112,7 +115,11 @@ func (m Model) handleKey(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(press, m.st.Keys.Global.Back):
 		m.tbl.ClearFilter()
 	default:
-		return m.forward(press)
+		// 自分が解釈しないキーは一覧へ渡し、同時に親へ差し戻す。タブ切替・再読み込み・
+		// 終了を解釈するのは親であり、一覧のキーと衝突しないことは keymap の
+		// TestNoDuplicateKeysInSameContext が担保する。
+		next, cmd := m.forward(press)
+		return next, tea.Batch(cmd, page.BubbleKey(press))
 	}
 	return m, m.chrome()
 }

@@ -91,7 +91,7 @@ func New(cfg appconfig.Config, caps appconfig.Caps, ex exec.Executor, o Options)
 		dark:     dark,
 		width:    0,
 		height:   0,
-		tabs:     newTabs(caps, keys, styles, dark),
+		tabs:     newTabs(caps, ex, keys, styles, dark),
 		active:   0,
 		chrome:   page.ChromeMsg{Tab: 0, Modal: false, Input: "", Status: "", Footer: nil},
 		notice:   "",
@@ -148,6 +148,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.chrome = msg
 		}
 		return a, nil
+	case page.GlobalKeyMsg:
+		// page が解釈しなかったキーだけがここへ戻る（page.GlobalKeyMsg の doc）。
+		return a.handleGlobalKey(msg.Press)
 	case page.TabMsg:
 		// ドメイン層の呼び出し結果は発行元のタブへ戻す（page.TabMsg の doc）。
 		return a.forwardTo(msg.Tab, msg.Msg)
@@ -193,6 +196,7 @@ func (a App) state() page.StateMsg {
 		Caps:   a.caps,
 		Styles: a.styles,
 		Keys:   a.keys,
+		Exec:   a.ex,
 		Dark:   a.dark,
 		BodyW:  w,
 		BodyH:  h,

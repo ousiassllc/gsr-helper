@@ -18,6 +18,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/ousiassllc/gsr-helper/internal/appconfig"
+	"github.com/ousiassllc/gsr-helper/internal/exec"
 	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/runner/scope"
 	"github.com/ousiassllc/gsr-helper/internal/ui/keymap"
@@ -61,14 +62,16 @@ func Caps() appconfig.Caps {
 
 // State は共有状態のスナップショットを組み立てる。
 //
-// 本体の領域と検出結果だけを引数に取る。配色・キー定義・能力は既定（色なし・全能力）で
-// あり、そこを振るテストは戻り値の該当フィールドだけを差し替える。
+// 本体の領域と検出結果だけを引数に取る。配色・キー定義・能力・Executor は既定
+// （色なし・全能力・exec.Fake）であり、そこを振るテストは戻り値の該当フィールドだけを
+// 差し替える。
 func State(w, h int, runners ...runner.Runner) page.StateMsg {
 	return page.StateMsg{
 		Result: runner.Result{Runners: runners},
 		Caps:   Caps(),
 		Styles: Styles(),
 		Keys:   Keys(),
+		Exec:   exec.NewFake(),
 		Dark:   true,
 		BodyW:  w,
 		BodyH:  h,

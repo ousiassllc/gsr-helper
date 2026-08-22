@@ -21,7 +21,7 @@ func TestTabMsgGoesBackToIssuingTab(t *testing.T) {
 
 	// タブ 0（Runners）がドメイン層を呼び、結果が届く前に利用者がタブ 1 へ移る。
 	cmd := page.Do(0, func() tea.Msg { return domainResult{n: 7} })
-	a, _ = update(a, press("2"))
+	a, _ = sendKey(a, "2")
 	if a.active != 1 {
 		t.Fatalf("タブ 1 に移っていない（active = %d）", a.active)
 	}
@@ -55,4 +55,30 @@ func received(s *spy) []domainResult {
 		}
 	}
 	return out
+}
+
+// 共有状態は Executor を全タブへ配る。
+//
+// ドメイン層を tea.Cmd で呼べるのは page 階層だけであり（atomic-design.md の依存の
+// 規則）、その page へ Executor を渡す道はこの Msg しかない。配らないと、操作を実装する
+// 後続 Issue ごとに StateMsg と親 Model の両方を直すことになる。
+//
+// **systemctl が無い環境でも nil にしない。** 検出だけが nil にして systemd の参照を
+// 落とす縮退を持つ（discover.go の discoverExec）が、それは runner.ScanUnits の契約で
+// あって page の約束ではない。
+func TestStateCarriesExecutorToEveryTab(t *testing.T) {
+	fake := exec.NewFake()
+	a, spies := withSpies(newApp(fake))
+	a.caps.Systemd = false // systemctl が無い環境でも配る
+
+	a, _ = update(a, tea.WindowSizeMsg{Width: 100, Height: 30})
+
+	for i, s := range spies {
+		if len(s.states) == 0 {
+			t.Fatalf("タブ %d に共有状態が配られていない", i)
+		}
+		if got := s.states[len(s.states)-1].Exec; got != fake {
+			t.Errorf("タブ %d が受け取った Executor = %v, want 起動時のもの", i, got)
+		}
+	}
 }

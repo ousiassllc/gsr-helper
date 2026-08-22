@@ -66,19 +66,29 @@ type spy struct {
 func (s *spy) Init() tea.Cmd { return nil }
 
 // Update は受け取った Msg を記録し、自分の ChromeMsg を返す。
+//
+// キーは本物の page と同じ規則で扱う。すなわち、モーダル表示中・入力中
+// （chrome の Modal / Input）は親へ差し戻さず、それ以外は差し戻す
+// （page.GlobalKeyMsg の doc）。差し戻さないと親はグローバルキーを解釈できない。
 func (s *spy) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	bubble := false
 	switch m := msg.(type) {
 	case page.StateMsg:
 		s.states = append(s.states, m)
 	case tea.KeyPressMsg:
 		s.keys = append(s.keys, m)
+		bubble = !s.chrome.Modal && s.chrome.Input == ""
 	default:
 		s.msgs = append(s.msgs, m)
 	}
 
 	c := s.chrome
 	c.Tab = s.tab
-	return s, func() tea.Msg { return c }
+	chrome := func() tea.Msg { return c }
+	if press, ok := msg.(tea.KeyPressMsg); ok && bubble {
+		return s, tea.Batch(chrome, page.BubbleKey(press))
+	}
+	return s, chrome
 }
 
 // View は本体の代わりにタブ番号を返す。
@@ -150,4 +160,23 @@ func update(a App, msg tea.Msg) (App, tea.Cmd) {
 		panic("Update が App 以外を返した")
 	}
 	return next, cmd
+}
+
+// sendKey は打鍵を渡し、page が差し戻したグローバルキーまで解釈させる。
+//
+// 親はキーを必ず有効タブへ渡し、page が自分では使わないキーだけを
+// page.GlobalKeyMsg として差し戻す（keys.go の配送）。実機ではこの往復が bubbletea の
+// Msg ループで起きるため、テストでも同じ順で回す。返す Cmd は差し戻しを処理した
+// 結果のもの（差し戻しが無ければ打鍵そのものの結果）である。
+func sendKey(a App, k string) (App, tea.Cmd) {
+	a, cmd := update(a, press(k))
+	for _, c := range cmdList(cmd) {
+		if c == nil {
+			continue
+		}
+		if msg, ok := c().(page.GlobalKeyMsg); ok {
+			return update(a, msg)
+		}
+	}
+	return a, cmd
 }

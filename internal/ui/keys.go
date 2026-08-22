@@ -7,35 +7,45 @@ import (
 
 // handleKey はキー入力を配送する。
 //
-// 段は 4 つあり、上の段で処理したキーは下の段へ渡さない
-// （atomic-design.md のキー入力の配送）。
+// **ctrl+c 以外のキーはまず有効タブへ渡す。** グローバルキー（タブ切替・再読み込み・
+// 終了）を解釈するのは、page がそのキーを自分では使わないと判断して差し戻してきた
+// とき（page.GlobalKeyMsg）だけである。
 //
-//  1. ctrl+c はどの状態でも親が処理して終了する
-//  2. モーダル表示中と入力中は**グローバルキーを一切解釈せず**有効タブにのみ渡す
-//  3. タブ切替・再読み込み・終了を親が処理する
-//  4. 残りは有効タブへ渡す
+// 親が先に解釈しないのは、モーダル表示中と入力中にグローバルキーを閉じ込める判断が
+// page にしかできないためである。以前は ChromeMsg で受け取った状態で親が判断して
+// いたが、その値は 1 打鍵ぶん古く、確認中に打った q でアプリが終わりえた
+// （page.GlobalKeyMsg の doc）。閉じ込めが必要な状態を知っているのはモーダルを
+// 持っている page だけなので、判断もそこに置く。
 //
-// 2 段目でグローバルキーを解釈しないのは、runner 名が build01-1 のように数字を
-// 含み、1〜7 を機能キーとして残すと名前で絞り込めないためである。モーダルへ
-// キーを閉じ込めるのは、確認中に打った x が背後の一覧で別の停止操作として
-// 解釈されることを防ぐためである。
+// キーが page と親で二重に解釈されないことは、同時に有効なキーが重複しないという
+// 規則が担保する（keymap の TestNoDuplicateKeysInSameContext）。1〜7 や q は一覧の
+// キーではないので、差し戻されるまでに一覧が反応することはない。
 //
-// ? と esc を親で処理せず page へ渡すのは、ヘルプの中身が画面ごとのキー集合に
-// 依存し、モーダルは page が organism として保持する設計だからである（esc も
-// 「選択のクリア」か「モーダルを 1 枚閉じる」かを page しか判断できない）。
+// ? と esc も page が処理する。ヘルプの中身が画面ごとのキー集合に依存し、モーダルは
+// page が organism として保持する設計だからである（esc も「選択のクリア」か
+// 「モーダルを 1 枚閉じる」かを page しか判断できない）。
 func (a App) handleKey(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// 前の打鍵で出した案内は次の打鍵で消す（状態行に残り続けないようにする）。
 	a.notice = ""
 
-	g := a.keys.Global
-	if key.Matches(press, g.Interrupt) {
+	if key.Matches(press, a.keys.Global.Interrupt) {
 		return a, tea.Quit
 	}
-	if a.chrome.Modal || a.chrome.Input != "" {
-		a, cmd := a.forward(press)
-		return a, cmd
+	if !a.live(a.active) {
+		// 差し戻してくれる page が居ないので親が直に解釈する。
+		return a.handleGlobalKey(press)
 	}
 
+	a, cmd := a.forward(press)
+	return a, cmd
+}
+
+// handleGlobalKey は page が解釈しなかったキーを処理する。
+//
+// 対象はタブ切替・再読み込み・終了だけである。page が使うキー（? / esc / 一覧の
+// 移動 / 操作キー）はここへ戻ってこない。
+func (a App) handleGlobalKey(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	g := a.keys.Global
 	switch {
 	case key.Matches(press, g.Quit):
 		return a, tea.Quit
@@ -55,8 +65,7 @@ func (a App) handleKey(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(press, g.TabSelect):
 		return a.selectTab(press.String())
 	default:
-		a, cmd := a.forward(press)
-		return a, cmd
+		return a, nil
 	}
 }
 
@@ -65,8 +74,8 @@ func (a App) handleKey(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 // 無効なタブでは移らず、無効である理由を状態行に出す。何も起きないと利用者からは
 // 「効かないキー」に見えるためである（screens.md の設計原則 2）。
 //
-// 有効タブへ転送しないのは、番号キーが親の担当だと決めた以上、押した番号が一覧の
-// 操作として解釈されるのを避けるためである。
+// 番号キーは page を経由して差し戻されたものである（handleKey）。一覧が数字を
+// 使わないため二重に解釈されることはない。
 func (a App) selectTab(k string) (tea.Model, tea.Cmd) {
 	for i := range a.tabs {
 		if a.tabs[i].Key != k {

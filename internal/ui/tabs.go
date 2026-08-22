@@ -4,6 +4,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/ousiassllc/gsr-helper/internal/appconfig"
+	"github.com/ousiassllc/gsr-helper/internal/exec"
 	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/ui/keymap"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
@@ -46,12 +47,13 @@ type tab struct {
 // 成立し、systemd が無くても run.sh 直起動の runner を表示できる）ため、常に有効で
 // ある。能力を必要とするタブ（追加・削除を行う Setup など）を足す Issue が、その
 // タブの行で Caps を見て Enabled と Reason を決める。
-func newTabs(caps appconfig.Caps, keys keymap.Set, s token.Styles, dark bool) []tab {
+func newTabs(caps appconfig.Caps, ex exec.Executor, keys keymap.Set, s token.Styles, dark bool) []tab {
 	init := page.StateMsg{
 		Result: runner.Result{},
 		Caps:   caps,
 		Styles: s,
 		Keys:   keys,
+		Exec:   ex,
 		Dark:   dark,
 		BodyW:  0,
 		BodyH:  0,

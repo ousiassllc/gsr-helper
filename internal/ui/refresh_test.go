@@ -45,8 +45,10 @@ func TestTickSkipsDiscoverWhileOneIsRunning(t *testing.T) {
 func TestRefreshKeySkipsDiscoverWhileOneIsRunning(t *testing.T) {
 	a, _ := update(newApp(exec.NewFake()), tickMsg{})
 
-	if _, cmd := update(a, press("r")); cmd != nil {
-		t.Errorf("検出中の r で検出が重ねられた（%T）", cmd)
+	// 打鍵は page を経由して差し戻される（keys.go の handleKey）。差し戻しを
+	// 処理した結果に検出が含まれないことを見る。
+	if next, _ := sendKey(a, "r"); next.inflight != 1 {
+		t.Errorf("検出中の r で検出が重ねられた（inflight = %d, want 1）", next.inflight)
 	}
 }
 

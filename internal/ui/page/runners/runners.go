@@ -109,9 +109,9 @@ func (m Model) forward(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // handleKey はキー入力を解釈する。
 //
-// 入力中とモーダル表示中はグローバルキーを解釈せず、そのまま配る
-// （atomic-design.md のキー入力の配送）。親も同じ順序で配送を止めるが、page 側でも
-// 判定するのは、親が ChromeMsg を受け取る前の 1 フレームでも取りこぼさないためである。
+// 入力中とモーダル表示中は**親へ差し戻さない**。グローバルキーを閉じ込められるのは
+// この判定を持つ page だけであり（page.GlobalKeyMsg の doc）、ここで差し戻すと
+// 確認中に打った q でアプリが終わる。
 func (m Model) handleKey(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case m.tbl.Filtering(), m.overlay.Active():
@@ -123,7 +123,11 @@ func (m Model) handleKey(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(press, m.st.Keys.Global.Back):
 		m.back()
 	default:
-		return m.forward(press)
+		// 自分が解釈しないキーは一覧へ渡し、同時に親へ差し戻す。タブ切替・再読み込み・
+		// 終了を解釈するのは親であり、一覧のキーと衝突しないことは keymap の
+		// TestNoDuplicateKeysInSameContext が担保する。
+		next, cmd := m.forward(press)
+		return next, tea.Batch(cmd, page.BubbleKey(press))
 	}
 	return m, m.chrome()
 }
