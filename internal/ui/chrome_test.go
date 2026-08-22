@@ -61,8 +61,9 @@ func TestFooterShowsEverySpecKeyAtWidth80(t *testing.T) {
 	}
 
 	// 無効なキーはフッタ 2 行目で丸括弧付きに並べ、理由を添える（設計原則 4）。
+	// 能力の揃ったホストで無効なのは、この版で未実装の操作（設定編集など）だけである。
 	reason := strings.Split(chrome.Footer(a.chromeView()), "\n")[1]
-	if !strings.Contains(reason, "(s)") || !strings.Contains(reason, "この版では未対応です") {
+	if !strings.Contains(reason, "(e)") || !strings.Contains(reason, "この版では未対応です") {
 		t.Errorf("フッタ 2 行目 = %q, 無効なキーと理由が出ていない", reason)
 	}
 }

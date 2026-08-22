@@ -11,23 +11,23 @@ import (
 
 	"github.com/ousiassllc/gsr-helper/internal/appconfig"
 	"github.com/ousiassllc/gsr-helper/internal/runner"
+	"github.com/ousiassllc/gsr-helper/internal/svc"
 	"github.com/ousiassllc/gsr-helper/internal/ui/atom"
 	"github.com/ousiassllc/gsr-helper/internal/ui/keymap"
 	"github.com/ousiassllc/gsr-helper/internal/ui/organism"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 )
 
-// 操作できない理由の文言。screens.md の「無効な操作の表示」の表と一致させる。
+// サービス制御に依らない操作（追加・削除・更新）が使う理由の文言。screens.md の
+// 「無効な操作の表示」の表と一致させる。
 //
 // 定数にするのは、フッタ（atom.KeyHint）と詳細画面の操作リスト（molecule.ActionRow）が
 // 同じ文字列を出すためである。同じ理由を 2 箇所に書くと片方だけが直る。
+//
+// **root / systemd / 管理外 / 判定不能の 4 つはここに無い。** サービス制御の可否と
+// 同じ理由であり、出どころを svc（ReasonRoot 他）の 1 箇所に寄せてある。認証と
+// ジョブ実行中は svc の関心事ではないのでここに残す。
 const (
-	reasonRoot       = "root 権限が必要です（sudo で起動してください）"
-	reasonSystemd    = "サービス制御は利用できません（systemctl が見つかりません）"
-	reasonStandalone = "systemd 管理外のため操作できません"
-	// reasonManagedUnknown は systemd の管理状態そのものが判定できない場合の理由。
-	// 「管理外」と言い切れないことと、その原因（ユニット一覧が取れなかった）を示す。
-	reasonManagedUnknown = "systemd の管理状態が判定できないため操作できません（ユニット一覧を取得できませんでした）"
 	//nolint:gosec // G101 誤検知。認証を促す画面上の説明文であり、資格情報を含まない。
 	reasonToken = "GitHub の認証が必要です（gh auth login）"
 	reasonBusy  = "ジョブ実行中です。先に d でドレイン停止してください"
@@ -106,28 +106,22 @@ func (s Set) List() []Def { return s.list }
 // 受け取った値を描くだけにする。判断を表示部品に持たせると、同じ判定がフッタ・操作
 // リスト・確認ダイアログの 3 箇所に分かれて食い違う。
 //
-// 本来この判定は svc.CanControl に集約する規約（components/overview.md の internal/svc）
-// だが、svc パッケージはサービス制御の Issue で作る。そこで本関数の中身を
-// svc.CanControl の呼び出しに差し替える（シグネチャは変えない）。
+// **サービス制御の可否は svc.CanControl へ委譲済みである**（components/overview.md の
+// internal/svc）。表示層が持つのは「どの操作をドメイン層のどの操作として問うか」
+// （svcOp）だけで、判定表そのものは持たない。残っているのは svc の関心事ではない
+// 追加・削除・更新（認証とジョブ実行中）と、実装状況の判定である。
 //
 // 判定は下の順で行い、最初に一致した理由を返す。能力の問題（root / systemd / 認証）を
 // 実装状況（Supported）で隠さないため、未対応の判定を最後に置く。
 func Allow(a Def, r runner.Runner, caps appconfig.Caps) (bool, string) {
+	if op, ok := svcOp(a.ID); ok {
+		if allowed, reason := svc.CanControl(op, r, caps); !allowed {
+			return false, reason
+		}
+	}
 	switch {
-	case !caps.Root && is(a, Start, Stop, Kill, Restart,
-		Delete, Add, Update):
-		return false, reasonRoot
-	case !caps.Systemd && is(a, Start, Stop, Kill, Restart,
-		Enable, Drain):
-		return false, reasonSystemd
-	case r.Managed == runner.ManagedStandalone && is(a, Start, Stop, Restart):
-		return false, reasonStandalone
-	// 管理状態が分からないまま systemd 経路の操作を出さない。実行経路が「systemd 管理か
-	// どうか」に依存する開始・停止・再起動・enable の切替だけを塞ぐ。強制停止とドレインは
-	// worker のプロセスに作用するので使え、ログ・設定・バージョンは管理経路に依存しない。
-	case r.Managed == runner.ManagedUnavailable && is(a, Start, Stop,
-		Restart, Enable):
-		return false, reasonManagedUnknown
+	case !caps.Root && is(a, Delete, Add, Update):
+		return false, svc.ReasonRoot
 	case !caps.GitHubToken && is(a, Add, Delete, Update):
 		return false, reasonToken
 	case r.Busy() && a.ID == Delete:
@@ -136,6 +130,30 @@ func Allow(a Def, r runner.Runner, caps appconfig.Caps) (bool, string) {
 		return false, page.ReasonUnsupported
 	default:
 		return true, ""
+	}
+}
+
+// svcOp は操作の識別子をサービス制御の操作へ対応付ける。対応が無ければ偽を返す。
+//
+// 対応表を UI 側に置くのは、svc がキー定義も action.ID も知らないためである
+// （依存は ui/page/action → svc の一方向）。追加・削除・更新・設定編集・ログは
+// systemd 経由のサービス制御ではないので、対応を持たない。
+func svcOp(id ID) (svc.Op, bool) {
+	switch id {
+	case Start:
+		return svc.OpStart, true
+	case Stop:
+		return svc.OpStop, true
+	case Kill:
+		return svc.OpKill, true
+	case Drain:
+		return svc.OpDrain, true
+	case Restart:
+		return svc.OpRestart, true
+	case Enable:
+		return svc.OpEnable, true
+	default:
+		return 0, false
 	}
 }
 

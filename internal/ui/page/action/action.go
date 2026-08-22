@@ -81,9 +81,10 @@ func Of(id string) (ID, bool) {
 
 // Def は詳細画面の操作リスト 1 項目の定義。
 //
-// Supported は「この版で実装済みか」を表す。操作の実装は後続の Issue が担うため、
-// 現時点ではすべて false である。Def の定義にこのフィールドを置くことで、
-// 後続 Issue は meta の 1 箇所を true にするだけで操作を有効化でき、
+// Supported は「この版で実装済みか」を表す。真なのはサービス制御の 6 つ
+// （開始・停止・強制停止・ドレイン停止・再起動・enable の切替）で、追加・削除・更新・
+// 設定編集・ログは後続の Issue が担うため偽である。Def の定義にこのフィールドを
+// 置くことで、後続 Issue は meta の 1 箇所を真にするだけで操作を有効化でき、
 // 可否の判定（Allow）とフッタ・操作リストの描画には手を入れずに済む。
 type Def struct {
 	ID          ID // どの操作か（判定はキーではなくこれで引く）
@@ -112,14 +113,17 @@ func newDef(id ID, k, desc string) Def {
 // 影響の文言は screens.md の詳細画面のモックに従う。破壊的な操作（区切り線の下に
 // 置くもの）は停止・強制停止・削除の 3 つである。
 //
-// Supported はすべて false を返す。操作の実装は後続の Issue（サービス制御・追加削除
-// 更新・ログ・設定編集）が担うため、この版では「押せるが何も起きない」経路を作らない。
+// Supported が真なのはサービス制御の 6 つ（internal/svc が実装した開始・停止・強制
+// 停止・ドレイン停止・再起動・enable の切替）に限る。追加・削除・更新・ログ・設定編集は
+// 後続の Issue が担うため偽のままで、「押せるが何も起きない」経路を作らない。
 func meta(id ID) (impact string, destructive, supported bool) {
 	switch id {
+	case Start, Drain, Restart, Enable:
+		return "", false, true
 	case Stop:
-		return "", true, false
+		return "", true, true
 	case Kill:
-		return token.IconWarn + " 実行中のジョブは中断されます", true, false
+		return token.IconWarn + " 実行中のジョブは中断されます", true, true
 	case Delete:
 		return token.IconWarn + " 登録解除 + サービス削除", true, false
 	default:
