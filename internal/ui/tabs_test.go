@@ -4,8 +4,11 @@ import (
 	"strconv"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/ousiassllc/gsr-helper/internal/appconfig"
 	"github.com/ousiassllc/gsr-helper/internal/exec"
+	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/ui/keymap"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 	"github.com/ousiassllc/gsr-helper/internal/ui/token"
@@ -139,6 +142,59 @@ func TestDisabledTabReasonIsShared(t *testing.T) {
 	for _, tb := range newTestTabs(testCaps()) {
 		if !tb.Enabled && tb.Reason != page.ReasonUnsupported {
 			t.Errorf("タブ %s の理由 = %q, want %q", tb.Title, tb.Reason, page.ReasonUnsupported)
+		}
+	}
+}
+
+// testState はタブへ配る共有状態のスナップショット。
+func testState() page.StateMsg {
+	return page.StateMsg{
+		Result: runner.Result{},
+		Caps:   testCaps(),
+		Styles: token.NewStyles(true, false),
+		Keys:   keymap.New(),
+		Exec:   exec.NewFake(),
+		Dark:   true,
+		BodyW:  80,
+		BodyH:  20,
+		Err:    nil,
+	}
+}
+
+// chromeTab は Cmd に含まれる ChromeMsg が名乗るタブ番号を返す。
+func chromeTab(cmd tea.Cmd) (int, bool) {
+	for _, c := range cmdList(cmd) {
+		if c == nil {
+			continue
+		}
+		if msg, ok := c().(page.ChromeMsg); ok {
+			return msg.Tab, true
+		}
+	}
+	return 0, false
+}
+
+// page が名乗るタブ番号は []tab の添字と一致する。
+//
+// page は自分のタブ番号を ChromeMsg と TabMsg に載せ、親はそれを添字として突き合わせる
+// （app.go の ChromeMsg / TabMsg の分岐）。ずれても例外もログも出ず、フッタ・状態行・
+// モーダルフラグが恒久的に更新されなくなり、page が発行した Cmd の結果は別のタブへ
+// 配られるだけなので、ここで機械的に検出する。
+func TestTabIndexMatchesPageTabNumber(t *testing.T) {
+	tabs := newTestTabs(testCaps())
+	st := testState()
+	for i := range tabs {
+		if tabs[i].Model == nil {
+			continue
+		}
+		_, cmd := tabs[i].Model.Update(st)
+		got, ok := chromeTab(cmd)
+		if !ok {
+			t.Errorf("%d 番目のタブ（%s）が ChromeMsg を返さない", i, tabs[i].Title)
+			continue
+		}
+		if got != i {
+			t.Errorf("タブ %s が名乗るタブ番号 = %d, want %d（[]tab の添字）", tabs[i].Title, got, i)
 		}
 	}
 }

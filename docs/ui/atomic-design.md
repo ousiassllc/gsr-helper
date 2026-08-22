@@ -575,7 +575,7 @@ runner の詳細画面は Runners / Jobs が共用するモーダルなので、
 | 対象 | 変更内容 |
 |------|---------|
 | `internal/ui/page/<tab>/` | 新規パッケージ。`tea.Model` を実装し、`page.StateMsg` を受けて `page.ChromeMsg` を返す |
-| `internal/ui/tabs.go` | import 1 行と、タブのメタ情報のスライスの該当行を実装済みに差し替える（`Model` を渡し `Enabled` を真にする） |
+| `internal/ui/tabs.go` | import 1 行と、`tabSpecs()` の該当行に `New`（`func(tab int, st page.StateMsg) tea.Model`）を足す。番号キーと page へ渡すタブ番号は `newTabs` が並び順から機械的に決めるので書かない |
 | `internal/ui/keymap/` | そのタブ固有のキーがある場合のみ、定義と `Set` への 1 フィールド |
 
 親 Model は `[]tab` を走査するだけで個別のタブを知らない。共有状態は 1 本の `Msg` で全 page に配られるので、新しいタブは受け取り側を書くだけで済む。モーダルと入力中の有無も page が `Msg` で報告するため、親はタブの内部状態を知らない。
@@ -610,7 +610,7 @@ type StateMsg struct {
 func Do(tab int, fn func() tea.Msg) tea.Cmd  // 結果を TabMsg{Tab, Msg} に包む
 ```
 
-`tab` には page 自身のタブ番号を渡す。番号は `tabs.go` のスライス上の添字（0 起点。画面に出る `[1]`〜`[7]` とは 1 ずれる）で、page の生成時に親から渡される。親は `TabMsg` を**選択中でないタブにも**発行元へ届け、`Model` を持たないタブ宛なら捨てる。包まずに `tea.Cmd` を返すと、結果が届くまでの間に利用者がタブを切り替えたときに別のタブへ渡って静かに失われる。
+`tab` には page 自身のタブ番号を渡す。番号は `tabs.go` のスライス上の添字（0 起点。画面に出る `[1]`〜`[7]` とは 1 ずれる）で、page の生成時に `newTabs` が添字から機械的に渡す（`tabSpecs()` に番号を書く場所は無い）。親は `TabMsg` を**選択中でないタブにも**発行元へ届け、`Model` を持たないタブ宛なら捨てる。包まずに `tea.Cmd` を返すと、結果が届くまでの間に利用者がタブを切り替えたときに別のタブへ渡って静かに失われる。
 
 **bubbletea / bubbles が解釈する `Msg`（終了・順次実行など）を包んではならない。** ランタイムへ届かなくなる。包むのは自分で発行したドメイン呼び出しの結果だけである。タグの付かない非キー `Msg` は従来どおり選択中のタブへ配られる。
 
