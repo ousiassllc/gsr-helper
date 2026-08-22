@@ -115,15 +115,67 @@ func update(a App, msg tea.Msg) (App, tea.Cmd) {
 // 結果のもの（差し戻しが無ければ打鍵そのものの結果）である。
 func sendKey(a App, k string) (App, tea.Cmd) {
 	a, cmd := update(a, press(k))
-	for _, c := range cmdList(cmd) {
-		if c == nil {
-			continue
-		}
-		if msg, ok := c().(page.GlobalKeyMsg); ok {
-			return update(a, msg)
-		}
+	if msg, ok := findBubbled(cmd); ok {
+		return update(a, msg)
 	}
 	return a, cmd
+}
+
+// findBubbled は page が差し戻したグローバルキーを返す。
+//
+// **入力中は ChromeMsg で走査を打ち切る。** 絞り込みの入力中、一覧が返す Cmd は
+// textinput のカーソル点滅（約 0.5 秒ブロックする）であり、束を総当たりで実行すると
+// 打鍵 1 つごとにその時間だけ待たされる（firstChrome が最初の 1 つで打ち切るのと
+// 同じ理由）。
+//
+// 打ち切ってよいのは page が組む束の形が決まっているためである。差し戻すときは
+// tea.Batch(tea.Batch(chrome, 一覧の Cmd), BubbleKey) となり、外側の先頭は束であって
+// ChromeMsg ではない。つまり先頭に ChromeMsg が現れた時点で差し戻しは無く、後ろに
+// 続くのは点滅の Cmd である。
+//
+// 入力中でなければ点滅の Cmd は無いので打ち切らない。tea.Batch は Cmd が 1 本だけに
+// なると束を畳むため、モーダル表示中のように一覧の Cmd が nil の場合は
+// tea.Batch(chrome, BubbleKey) と平らになり、ChromeMsg の後ろに差し戻しが並ぶ。
+func findBubbled(cmd tea.Cmd) (page.GlobalKeyMsg, bool) {
+	c, _ := firstChrome(cmd)
+	stopAtChrome := c.Input != ""
+
+	for _, one := range cmdList(cmd) {
+		if one == nil {
+			continue
+		}
+		switch msg := one().(type) {
+		case page.GlobalKeyMsg:
+			return msg, true
+		case page.ChromeMsg:
+			if stopAtChrome {
+				return page.GlobalKeyMsg{}, false
+			}
+		}
+	}
+	return page.GlobalKeyMsg{}, false
+}
+
+// firstChrome は Cmd を先頭から辿って最初の ChromeMsg を返す。
+//
+// 見つかった時点で打ち切るのは、絞り込みのカーソル点滅の Cmd（約 0.5 秒待つ）を
+// 実行しないためである。page は ChromeMsg を束の先頭に置いている（runners / jobs の
+// helper_test.go の findChrome と同じ約束）。
+func firstChrome(cmd tea.Cmd) (page.ChromeMsg, bool) {
+	if cmd == nil {
+		return page.ChromeMsg{}, false
+	}
+	switch msg := cmd().(type) {
+	case page.ChromeMsg:
+		return msg, true
+	case tea.BatchMsg:
+		for _, c := range msg {
+			if v, ok := firstChrome(c); ok {
+				return v, true
+			}
+		}
+	}
+	return page.ChromeMsg{}, false
 }
 
 // statusLine は親が描く状態行を返す。

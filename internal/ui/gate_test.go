@@ -13,7 +13,12 @@ import (
 )
 
 // press1 は打鍵を 1 つ送り、page が返した ChromeMsg と、差し戻しを親が解釈した結果の
-// Cmd を返す。
+// Cmd を返す。**キーが page に閉じ込められたときの Cmd は nil である。** page 自身の
+// Cmd は返さない。絞り込み中はそこにカーソル点滅の Cmd（約 0.5 秒ブロックする）が
+// 混じっており、呼び出し側が isQuit などで実行すると 1 打鍵ごとにその時間だけ
+// 待たされる。
+// 閉じ込めが外れたかどうかは、親が差し戻しを解釈した結果の Cmd に終了などが現れる
+// かで判定する。
 //
 // **打鍵は page → 親の往復を経る**（helper_test の sendKey と同じ）。App.Update を
 // 1 回呼ぶだけの update では page.GlobalKeyMsg が親へ戻らず、閉じ込めを判定する経路
@@ -31,38 +36,14 @@ func press1(a App, k string) (App, page.ChromeMsg, tea.Cmd) {
 	c, _ := firstChrome(cmd)
 
 	// 差し戻しは束の最上位に置かれる（page は tea.Batch(自分の結果, BubbleKey) を返す）。
-	for _, one := range cmdList(cmd) {
-		if one == nil {
-			continue
-		}
-		if global, ok := one().(page.GlobalKeyMsg); ok {
-			next, cmd = update(next, global)
-			return next, c, cmd
-		}
+	// 束を走査するときに page 自身の Cmd を実行しないことは findBubbled が担う
+	// （helper_test の doc）。
+	global, ok := findBubbled(cmd)
+	if !ok {
+		return next, c, nil
 	}
+	next, cmd = update(next, global)
 	return next, c, cmd
-}
-
-// firstChrome は Cmd を先頭から辿って最初の ChromeMsg を返す。
-//
-// 見つかった時点で打ち切るのは、絞り込みのカーソル点滅の Cmd（1 秒待つ）を実行しない
-// ためである。page は ChromeMsg を束の先頭に置いている（runners / jobs の
-// helper_test.go の findChrome と同じ約束）。
-func firstChrome(cmd tea.Cmd) (page.ChromeMsg, bool) {
-	if cmd == nil {
-		return page.ChromeMsg{}, false
-	}
-	switch msg := cmd().(type) {
-	case page.ChromeMsg:
-		return msg, true
-	case tea.BatchMsg:
-		for _, c := range msg {
-			if v, ok := firstChrome(c); ok {
-				return v, true
-			}
-		}
-	}
-	return page.ChromeMsg{}, false
 }
 
 // モーダルを開いた直後の打鍵でも、グローバルキーは背後へ抜けない。
