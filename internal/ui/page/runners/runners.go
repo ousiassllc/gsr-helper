@@ -89,8 +89,10 @@ func (m Model) setState(st page.StateMsg) (tea.Model, tea.Cmd) {
 	m.tbl.SetSize(st.BodyW, st.BodyH)
 	m.tbl.SetItems(sectionRunners, runnerRows(st.Result.Runners))
 	m.tbl.SetItems(sectionOrphans, orphanRows(st.Result.OrphanUnits))
-	m.overlay.SetState(st)
-	return m, m.chrome()
+	// モーダルが返す Cmd も親へ渡す（開いているモーダルが共有状態を受けて
+	// 何かを始めることがある。捨てるとその処理が動かない）。
+	cmd := m.overlay.SetState(st)
+	return m, tea.Batch(m.chrome(), cmd)
 }
 
 // forward はキー以外の Msg を配る。

@@ -85,8 +85,9 @@ func (m Model) setState(st page.StateMsg) (tea.Model, tea.Cmd) {
 	m.st = st
 	m.tbl.SetSize(st.BodyW, st.BodyH)
 	m.tbl.SetItems(sectionJobs, jobRows(st.Result.Runners))
-	m.overlay.SetState(st)
-	return m, m.chrome()
+	// モーダルが返す Cmd も親へ渡す（runners.go と同じ理由）。
+	cmd := m.overlay.SetState(st)
+	return m, tea.Batch(m.chrome(), cmd)
 }
 
 // forward はキー以外の Msg を配る。モーダル表示中は最上位のモーダルにのみ渡す。
