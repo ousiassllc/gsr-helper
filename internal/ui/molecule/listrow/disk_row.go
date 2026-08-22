@@ -9,8 +9,8 @@ import (
 //
 // 表記は screens.md の Disk タブのモックに合わせる。空欄にしないのは、集計が
 // 非同期で判明した行から順に埋まる（FR-28）ため、「まだ出ていない」と「0 バイト」を
-// 読み分ける必要があるからである。11 セルあり、SIZE 列の幅（token.DiskColumns）は
-// この文字列で決まっている。
+// 読み分ける必要があるからである。実測 11 セル（三点リーダ … は Ambiguous 幅で 1 セル）
+// あり、SIZE 列の幅（token.DiskColumns）はこの文字列で決まっている。
 const labelScanning = "（集計中…）"
 
 // labelScanFailed は集計に失敗した対象の SIZE 列に出す文字列。

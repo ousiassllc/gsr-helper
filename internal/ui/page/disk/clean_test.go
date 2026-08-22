@@ -48,7 +48,7 @@ func TestCleanKeyOnlyOpensConfirm(t *testing.T) {
 
 	// 何が起きるかは確認画面が示す（実行するコマンドと解放見込み）。
 	body := m.View().Content
-	for _, want := range []string{"prune", "解放見込み", noteIrreversible} {
+	for _, want := range []string{"prune", "解放見込み", noteDockerScope, noteIrreversible} {
 		if !strings.Contains(body, want) {
 			t.Errorf("確認画面に %q が出ていない:\n%s", want, body)
 		}
@@ -193,4 +193,16 @@ func hintDisabled(footer []atom.Hint, key, reason string) bool {
 		}
 	}
 	return false
+}
+
+// 選べない行の理由は disk.Target まで運ぶ（FR-31）。
+//
+// 表が選択を阻むだけにすると保護が表示層の約束で終わり、Target を直接組む呼び出しが
+// 1 つ増えた時点で黙って外れる（disk.Target.Protected の doc）。
+func TestCleanTargetsCarriesProtectedReason(t *testing.T) {
+	u := fakeUsage("build01-1 / _work/bar", 100)
+	u.Removable, u.Reason = false, busyReasonPrefix
+	if got := cleanTargets([]row{{usage: u}})[0].Protected; got != busyReasonPrefix {
+		t.Errorf("Protected = %q, want %q", got, busyReasonPrefix)
+	}
 }

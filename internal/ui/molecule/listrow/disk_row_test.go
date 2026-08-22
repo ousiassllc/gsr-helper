@@ -36,7 +36,7 @@ func diskViews() map[string]DiskTargetView {
 		"選択できない": {
 			Target: "build01-2 / _work/bar", Bytes: -1, Files: -1,
 			Path: "/opt/runners/build01-2/_work/bar", Scanning: true,
-			Reason: "ジョブ実行中のため削除不可", Failed: false,
+			Reason: busyReason, Failed: false,
 		},
 		"集計に失敗": {
 			Target: "build01-1 / _diag", Bytes: -1, Files: -1,
@@ -119,11 +119,23 @@ func TestDiskTargetRowMissingValues(t *testing.T) {
 	}
 }
 
+// busyReason はジョブ実行中で選択できない理由の**実文言**（internal/disk の
+// busyReason と同じ文字列）。
+//
+// 幅の検証に使うので写しをリテラルで置く。長さの制約（PATH 列に中略されずに収まる
+// 22 セル以内。token.DiskColumns）はこちら側の関心事であり、被テスト側の定数を
+// 参照すると文言が伸びても照合が追随して中略に気付けない。
+const busyReason = "ジョブ実行中で削除不可"
+
 // 集計中・集計失敗・選択不可はそれぞれ別の表示になる。
 //
 // 集計中と失敗を同じ表示にすると、待てば埋まるのか埋まらないのかを読み分けられない。
+//
+// **幅は 80（token.WidthTarget）で確かめる。** 表示を保証する幅で中略されないことが
+// 選択できない理由の要件（FR-31 の「理由の表示」）であり、広い幅で確かめると
+// 「読める理由」を一度も検証しないまま緑になる。
 func TestDiskTargetRowStates(t *testing.T) {
-	cols := molecule.Columns(token.DiskColumns(), 120, token.DiskColumnRules())
+	cols := molecule.Columns(token.DiskColumns(), token.WidthTarget, token.DiskColumnRules())
 
 	tests := map[string]struct {
 		view DiskTargetView
@@ -143,8 +155,8 @@ func TestDiskTargetRowStates(t *testing.T) {
 		"選択できない理由は PATH 列に出す": {
 			view: DiskTargetView{Target: "build01-2 / _work/bar", Bytes: -1, Files: -1,
 				Path: "/opt/runners/build01-2/_work/bar", Scanning: true,
-				Reason: "ジョブ実行中のため削除不可", Failed: false},
-			cell: 3, want: "ジョブ実行中のため削除不可",
+				Reason: busyReason, Failed: false},
+			cell: 3, want: busyReason,
 		},
 	}
 	for name, tt := range tests {

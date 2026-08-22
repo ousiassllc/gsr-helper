@@ -310,7 +310,7 @@ func Columns(all []token.Column, width int, rules token.ColumnRules) []token.Col
 | `Truncate` / `Pad` / `Justify` | 文字列・幅 | 幅に収めた文字列 | 全画面 |
 | `Hint` | — | `KeyHint` の入力（キー・説明・可否・理由） | フッタ / 詳細画面 |
 
-タブ 3〜7 でのみ使う atom（`DoctorStatus` / `Bytes` / `Files` / `Ratio`）は未実装である（後述の「実装状況」）。
+未実装の atom は `DoctorStatus` だけである（後述の「実装状況」）。`Bytes` / `Files` / `Ratio` は Disk タブ（[FR-27](../requirements/functional.md)〜[FR-29](../requirements/functional.md)）で使うため実装済みである。
 
 `Cell` は日本語を含む表の桁ずれを防ぐための atom。**文字列の表示幅の計算は `lipgloss.Width` に一本化し、この atom に閉じる。** 上位の階層は「どの列を何文字幅で置くか」を決めるだけで、幅そのものを数えない。
 
@@ -372,7 +372,9 @@ func Columns(all []token.Column, width int, rules token.ColumnRules) []token.Col
 
 ### `bubbles/progress` を使う範囲
 
-進捗バーは **全体件数が事前に確定する処理に限る**。一括追加（`n` 台中 `m` 台完了）と、選択済み対象のクリーンアップがこれに当たる。
+進捗バーは **全体件数が事前に確定する処理に限る**。一括追加（`n` 台中 `m` 台完了）がこれに当たる。
+
+**選択済み対象のクリーンアップは、件数が確定していてもバーを出さない。** バーを描く部品（`ProgressList`）がまだ無く、`page/disk` は状態行に `クリーンアップ中 (2/5)` のテキストだけを出す（organism 一覧の `ProgressList` の行）。部品ができた時点で差し替えられる位置にあるが、それまでは「バーを出す処理」に数えない。
 
 ディスク集計とドレイン待機ではバーを使わず、`spinner` と `stopwatch` で「動いていること」と経過時間のみを示す。ドレイン待機は待ち時間が無制限（[FR-07](../requirements/functional.md)）で、集計は対象ごとに判明順で埋まるため、分母を示すと完了時期を約束する表示になってしまう。
 
@@ -584,7 +586,7 @@ func ModalPadding() (w, h int)
 |------|------|-----------------|------------|------|
 | `runners.Model` | 1 | `organism/table` | 検出結果は親から受け取る。操作（`svc` / `setup`）は後続 Issue | 実装済み（一覧・詳細・可否の表示まで） |
 | `jobs.Model` | 2 | `organism/table` | 同上（対象は runner） | 実装済み（同上） |
-| `disk.Model` | 3 | `Table` / `Confirm` / `ProgressList` | `disk` | 未実装 |
+| `disk.Model` | 3 | `Table` / `Confirm` | `disk` | 実装済み（集計・クリーンアップ・確認ダイアログまで） |
 | `logs.Model` | 4 | `LogPane` | `logs` | 未実装 |
 | `doctor.Model` | 5 | `Table` / `Detail` | `doctor` | 未実装 |
 | `config.Model` | 6 | `ChoiceList` / `Form` / `DiffApproval` | `config` / `gh` | 未実装 |
@@ -937,17 +939,17 @@ Disk / Logs / Doctor タブの部品を足すときは、まずその部品が�
 | ディレクトリ | 行数 | 残り | 判定 |
 |------------|------|------|------|
 | `ui/organism/table` | 2157 | -157 | **WARN（超過中）** |
-| `ui/page/disk` | 1935 | 65 | pass |
+| `ui/page/disk` | 1997 | 3 | pass |
 | `ui` | 1875 | 125 | pass |
 | `ui/page` | 1608 | 392 | pass |
-| `ui/molecule` | 1541 | 459 | pass |
-| `ui/keymap` | 1212 | 788 | pass |
+| `ui/molecule` | 1583 | 417 | pass |
+| `ui/keymap` | 1273 | 727 | pass |
 | `ui/page/runners` | 1187 | 813 | pass |
 | `ui/page/runnerdetail` | 1174 | 826 | pass |
 | `ui/atom` | 1142 | 858 | pass |
-| `ui/molecule/listrow` | 888 | 1112 | pass |
+| `ui/molecule/listrow` | 900 | 1100 | pass |
 | `ui/page/jobs` | 888 | 1112 | pass |
-| `ui/token` | 812 | 1188 | pass |
+| `ui/token` | 817 | 1183 | pass |
 | `ui/page/pagetest` | 809 | 1191 | pass |
 | `ui/page/action` | 794 | 1206 | pass |
 | `ui/organism/pane` | 691 | 1309 | pass |
@@ -957,13 +959,13 @@ Disk / Logs / Doctor タブの部品を足すときは、まずその部品が�
 | `ui/tabset` | 345 | 1655 | pass |
 | `ui/chrome` | 283 | 1717 | pass |
 
-#### `ui/page/disk` の残り 65 行（Issue #13）
+#### `ui/page/disk` の残り 3 行（Issue #13）
 
-Disk タブは 1 ディレクトリに一覧・集計・クリーンアップ・確認モーダルの 4 つの関心事を持つため、タブ 1 枚としては最も大きい。**次にこのタブへ機能を足す Issue は、先に分割すること。** 分けるとすれば境界は明確で、クリーンアップ（`clean.go` / `confirm.go`、計 477 行）は集計・表示と独立しており `page/diskclean` として切り出せる。今分けないのは、切り出す先が `page/<tab>` の命名規約（1 ディレクトリ 1 タブ）から外れるうえ、現時点では上限内に収まっているためである。
+Disk タブは 1 ディレクトリに一覧・集計・クリーンアップ・確認モーダルの 4 つの関心事を持つため、タブ 1 枚としては最も大きい。**次にこのタブへ手を入れる Issue は、機能を足すかどうかに関わらず先に分割すること。** 残りは 3 行しかなく、doc コメントを数行足すだけで警告帯に入る。分けるとすれば境界は明確で、クリーンアップ（`clean.go` / `confirm.go`、計 491 行）は集計・表示と独立しており `page/diskclean` として切り出せる。今分けないのは、切り出す先が `page/<tab>` の命名規約（1 ディレクトリ 1 タブ）から外れるうえ、現時点ではまだ上限内に収まっているためである。
 
 #### 一覧タブを 2 枚足せる余裕（Issue #35）
 
-残る Disk / Logs / Doctor のうち一覧を持つタブは、行ビルダを `ui/molecule/listrow` へ、列定義を `ui/token` へ足す。既存の行ビルダはテスト込みで `runner_row` 272 行 / `job_row` 110 行 / `orphan_row` 116 行なので、**2 枚ぶんでも最大 550 行程度**である。`ui/molecule/listrow` の残り 1392 行はこれを 2 枚どころか 5 枚ぶん受けられる。
+残る Logs / Doctor のうち一覧を持つタブは、行ビルダを `ui/molecule/listrow` へ、列定義を `ui/token` へ足す。既存の行ビルダはテスト込みで `runner_row` 272 行 / `job_row` 110 行 / `orphan_row` 116 行 / `disk_row` 292 行なので、**2 枚ぶんでも最大 600 行程度**である。`ui/molecule/listrow` の残り 1100 行はこれを 2 枚とも受けられる。
 
 `ui` 直下は**タブが増えても 1 行も増えない**。タブを知るのは `ui/tabset` だけであり、親 Model は `[]tabset.Tab` を走査するだけだからである（「タブを 1 つ追加するときに触る箇所」）。残り 125 行は親 Model 自身のテストのための余裕である。
 
@@ -1022,7 +1024,6 @@ Issue #31 で `table_test.go` の空振りしていたテスト（`View() != ""`
 | 1.8 | 2026-08-22 | `Overlay` にタブ番号を持たせ、登録したモーダルへ `page.AttachMsg` で配る形を定義。モーダルから page への戻り道（`page.ResultMsg` を `page.Do` で包む）と、宛先を明示したモーダル宛の `Msg`（`page.ModalMsg`）を追加。`esc` の解釈順を「最上位のモーダルが `Modal.HandlesBack` で先に取り、取らなければ 1 枚閉じる」に変更。`Register` / `Open` / `OpenHelp` / `SetHelpScope` が返す `Cmd` を呼び出し側へ返す義務と、page が配送先を `Overlay.Handles` で決める規則を明記 | モーダルで決めた内容が page へ戻る道が無く、`ChoiceList` の決定は `forward` から最上位のモーダルへ配り直されて捨てられていた。モーダルが発行した `Cmd` にはタブ番号が載らないため、結果は「そのとき選択中のタブ」へ渡って静かに失われていた。背後のモーダル宛の結果は最上位に食われ、閉じた後に届いた結果は誰にも届かなかった。`esc` を `Overlay` が無条件に食うため、入力の取消を閉じる操作より先に解釈できなかった（Issue #26） |
 | 1.9 | 2026-08-22 | page の寿命を知らせる 3 つの `Msg`（`page.ActivateMsg` / `DeactivateMsg` / `ShutdownMsg`）と、終了時に後始末を `tea.Sequence` で `tea.Quit` より前に流す規則を、タブが守る約束に追加 | 親はタブを切り替えるとき移動先へ共有状態を配るだけで、離れるタブには何も送っていなかった。`journalctl -f` 相当の長寿命の呼び出しを持つ page は畳む機会が無く、タブを行き来するたびに購読が積み上がる。終了も `tea.Quit` を直に返しており、page の後始末が実行される前にランタイムが止まっていた（Issue #41） |
 | 1.10 | 2026-08-22 | 作り直して引き継ぐ方式の義務を「作り直す側が最後の大きさを覚え、配り直してから位置を戻す」と具体化し、`helpmodal.go` が満たしていないという記述を実装に合わせて修正 | `helpmodal.go` は `pane.NewHelp` の直後に `SetOffset` を呼んでおり、高さ 0 で丸められて位置が 0 に落ちていた。共有状態は 3 秒ごとに届くため、ヘルプを読んでいる間ずっと先頭へ戻され続けていた。別の runner の詳細を開いても情報部のスクロールが残る欠陥も同じ節が扱う範囲だった（Issue #30） |
-| 1.11 | 2026-08-23 | `organism/dialog` と `Confirm`、atom の `Bytes` / `Files` / `Ratio`、`molecule` の `FSSummaryLine` / `CommandBlock`、`molecule/listrow` の `DiskTargetRow`、`page/disk` を実装済みに更新。`ProgressList` の未実装対象から Disk を外し、クリーンアップの進捗を状態行で示すことを注記。ディレクトリの行数を実測値に更新し、`ui/page/disk` の残り 65 行に対する分割の指針（次に機能を足す Issue が `clean.go` / `confirm.go` を切り出す）を追加 | Issue #13 で Disk タブと確認ダイアログを実装したため。`organism/dialog` は「パッケージ自体が無い」と書かれていたが `Confirm` が入って存在するようになり、未実装の区分がそのままでは実態と食い違った。`ui/page/disk` は上限まで 65 行しかなく、印を残さないと次の Issue が上限に当たってから分割を考えることになる |
 | 1.11 | 2026-08-22 | `Overlay` の写しの意味を「変わりうる状態を 1 つの内部構造体にまとめ、写しは常にその参照を共有する」と定義し直し、中途半端な共有を禁じる記述を追加。`SetState` を開いているモーダルだけに配る形へ改め、`Register` / `Open` の時点で最新の `StateMsg` / `SizeMsg` をリプレイする契約と、`SizeMsg` は変化時のみという規則を明記。`ModalKind` の二重登録と未登録の `Open` を `panic` で表面化させる規則を追加。領域だけを設定する口（`SetSize`）を廃止 | 重なりのスタックだけが写しごとに分かれ `map` は共有されるという半端な状態で、文書はそれを「実体を共有する」と偽って記述していた。閉じているモーダルへ毎周期 `StateMsg` と `SizeMsg` を配るため、誰も見ていないヘルプを 3 秒ごとに全行組み直していた。同じ `ModalKind` を別々の Issue が選ぶと片方が到達不能になるが、上書きは黙って成功していた。`SetSize` は本番の呼び出し元が無く、`SetState` が毎周期上書きするため機能的に無効だった（Issue #32） |
 | 1.12 | 2026-08-22 | 操作の識別と可否の判定を `page/action` へ分離し、`page.ActionID` を `action.ID` に改称。表示層との境界を不透明な識別子（`organism.Choice.ID` / `ChosenMsg.ID`）で渡す規則、`action.Set` をキー定義から 1 度だけ組む規則、同じ先頭キーの重複を `panic` で検出する規則を追加。ディレクトリの行数表を実測値に更新 | 決定が「`ActionID` → キー文字列 → 再マップ」で往復しており、キーリテラル依存を排したはずの箇所に決定点だけが残っていた。`keymap.RunnerKeys` の 2 フィールドが同じ先頭キーを持つと片方が map 上書きで黙って消え、理由が未対応にすり替わる。可否の判定は呼ばれるたびに 11 要素の map を作り直しており、フッタ 1 回の描画で 9 回確保していた。`page` 直下が行数上限を超えたため、本書の「上限に近いディレクトリへ部品を足すときは先に分割の是非を検討する」に従って分けた（Issue #34） |
 | 1.13 | 2026-08-22 | `ChoiceList` の項目差し替えを `SetItems(items, policy)` に一本化し、カーソルの扱いを引数で宣言させる規則（ゼロ値は安全側）を追加。`Choice.ID` による決定の識別を表に追記 | `SetItems`（先頭へ戻す）と `UpdateItems`（位置を保つ）が名前だけで区別されており、取り違えても気付けない。誤ると FR-46（一覧の enter → 詳細の enter で破壊的操作に到達しない）が黙って崩れる（Issue #50） |
@@ -1038,3 +1039,5 @@ Issue #31 で `table_test.go` の空振りしていたテスト（`View() != ""`
 | 1.23 | 2026-08-23 | 走査（`scanKey`）の手書きの再帰を既存の `pagetest.Msgs` へ寄せ、`scanKey` と `scan_test.go` の doc が挙げていた「束が平らになる場面」を実測に合わせて訂正（モーダル表示中ではなく、一覧が `Cmd` を返さない通常の打鍵。モーダル表示中は束が畳まれて `ChromeMsg` 単体になる）。「この 34 行は次のテスト追加でほぼ尽きる」の段落から誤った分割候補を撤回し、`ui` 直下が非公開の状態に触れる内部テストであるために外部パッケージへ出せないことと、余裕は重複削減で作ることを明記 | 1.22 で追記した分割候補は「親 Model の非公開な状態には触らず `App` の公開の振る舞いだけを使っている」と書いていたが、挙げた 4 ファイルはすべて `a.chrome` / `a.active` / `a.inflight` / `a.tabs` / `tickMsg` / `discoveredMsg` に触れており**事実に反していた**。`helper_test.go` 冒頭が同じ PR 内で正反対の理由を明記しているうえ、そのまま着手すると本書が `organism/table` で退けたのと同じ「非公開状態の大量 export」へ誘導する。`scanKey` の doc が挙げた「モーダル表示中に平らな束になる」も実測では `ChromeMsg` 単体であり、閉じ込めの不変条件（モーダル中は差し戻さない）の逆を述べていた。走査の再帰は `pagetest.Msgs` の再実装で、`helper_test.go` 自身の「道具は `page/pagetest` から取る」方針にも反していた（Issue #31 の最終レビュー指摘） |
 | 1.24 | 2026-08-23 | 走査の道具を `ScanKey` として `page/pagetest` へ移し、`ui` 直下を 1966 → 1875 行（残り 125 行）に戻した。「余裕の作り方」の段落を、出せるもの（`App` の非公開に触れない道具）と出せないもの（`gate_test.go` / `app_keys_test.go`）の境目で書き直し。`ui/organism/table` に `fitcells_test.go`（詰めの白箱検証）を足して 2148 行・エラー境界まで 52 行へ更新し、本番 1053 行 / テスト 1095 行に訂正（**この本文への反映は漏れており、1.25 で適用した**）。行数表を実測へ更新。1.22 の行が遡って書き換えられていたのを当時の内容へ戻し、1.22 の理由欄に残っていた誤り（「モーダル表示中に破れる」）に訂正済みの注記を付けた | 1.23 が「候補はいずれも `App` の非公開な状態に触れるので外部パッケージへ出せない」と書いていたが、`ScanKey` とその網羅テストは `page` の型と `pagetest` しか使っておらず**事実に反していた**（1.22 の「非公開に触れない」という誤りを、逆向きの誤りで上書きしていた）。実際に export を 1 つも増やさず移せたので、記述を実態に合わせたうえで移動そのものを行った。`render_test.go` の「空セルで詰められる」は `View()` から観測できず、詰めの分岐を消しても全緑で**空振りだった**（空振りテストを直す PR が空振りを新規に持ち込んでいた）。`press1` の page → 親の往復にも回帰ガードが無く、往復を外しても全テストが緑だったため陽性対照を足した。`hints_test.go` の件数ガードは期待値を被テスト関数の入力（`keys.Footer()`）から作っており、`Footer()` が空になると両辺 0 で素通りしていた（Issue #31 の最終確認レビュー指摘） |
 | 1.25 | 2026-08-23 | `ui/organism/table` の本番/テスト内訳を実測（本番 1053 行 / テスト 1104 行）へ訂正し、行数表と節の数字を 2157 行・エラー境界まで 43 行へ更新。`ui` 直下のピークを 1967 行（残り 33 行）に、「export を 1 つも増やさず」を「`App` の非公開な状態を 1 つも export せず」に訂正し、WARN 帯の `ui/organism/table` へテスト整理を先行させずに足した例外の理由を記録 | 1.24 は「本番 1053 行 / テスト 1095 行に訂正」と記録していたが**その編集は実際には適用されておらず**、本文は 1058 行のままだった。1053+1058=2111 は `fitcells_test.go` 追加前の古い合計で、同じ節の見出し（2148 行）と食い違い、エラー境界までの余裕を 37 行ぶん甘く見せていた。改訂履歴が行っていない訂正を主張する形であり、1.21 が是正した「1 つの節が 2 つの値を主張する」欠陥の再発でもある（Issue #31 の最終ゲート指摘） |
+| 1.26 | 2026-08-23 | `organism/dialog` と `Confirm`、atom の `Bytes` / `Files` / `Ratio`、`molecule` の `FSSummaryLine` / `CommandBlock`、`molecule/listrow` の `DiskTargetRow`、`page/disk` を実装済みに更新。`ProgressList` の未実装対象から Disk を外し、クリーンアップの進捗を状態行で示すことを注記。ディレクトリの行数を実測値に更新し、`ui/page/disk` の残り 65 行に対する分割の指針（次に機能を足す Issue が `clean.go` / `confirm.go` を切り出す）を追加 | Issue #13 で Disk タブと確認ダイアログを実装したため。`organism/dialog` は「パッケージ自体が無い」と書かれていたが `Confirm` が入って存在するようになり、未実装の区分がそのままでは実態と食い違った。`ui/page/disk` は上限まで 65 行しかなく、印を残さないと次の Issue が上限に当たってから分割を考えることになる |
+| 1.27 | 2026-08-23 | atom 一覧の「タブ 3〜7 でのみ使う atom は未実装」を「未実装は `DoctorStatus` だけ」に訂正。page 一覧の `disk.Model` の行を実装済みにし、使う organism を実態（`Table` / `Confirm`）へ修正。「`bubbles/progress` を使う範囲」からクリーンアップを外し、バーを出さない理由（`ProgressList` が未実装で状態行のテキストのみ）を明記。行数表を実測値へ更新し（`ui/page/disk` 1997 行・残り 3 行、`ui/molecule` 1583 行、`ui/keymap` 1273 行、`ui/molecule/listrow` 900 行、`ui/token` 817 行）、`ui/page/disk` の節の見出しと本文を残り 3 行に合わせて「次に手を入れる Issue は機能追加でなくても先に分割する」に改訂。「一覧タブを 2 枚足せる余裕」の散文を表に合わせ、Disk を実装済み側へ移して `disk_row` 292 行を実測に加えた。1.11 が重複していた行を末尾へ 1.26 として付け直した | 実装状況表が「未実装の atom は `DoctorStatus` のみ」としているのに atom 一覧の散文は `Bytes` / `Files` / `Ratio` も未実装だと書いており、**同じコミットが更新した 2 箇所が正面から矛盾**していた。page 一覧の表だけが `disk.Model` を未実装のまま残し、しかも `page/disk` が使っていない `ProgressList` を挙げていた。「進捗バーを出す範囲」はクリーンアップを対象に含めていたが、`page/disk` は意図的にバーを描かず、同文書の organism 一覧の `ProgressList` の行とも食い違っていた。行数表の直後の散文は `残り 1392 行` という旧値と「残る Disk / Logs / Doctor」という旧状況のままだった。改訂履歴に追加された行は版番号が既存の 1.11 と重複し、しかも表の途中（1.10 の直後）に挿入されていた。本文が版番号で相互参照するため、重複は参照を壊す |

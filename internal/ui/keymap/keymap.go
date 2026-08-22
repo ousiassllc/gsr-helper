@@ -1,6 +1,10 @@
 package keymap
 
-import "charm.land/bubbles/v2/key"
+import (
+	"slices"
+
+	"charm.land/bubbles/v2/key"
+)
 
 // Set は 1 つの画面で参照するキー定義の集約。
 type Set struct {
@@ -135,6 +139,33 @@ func (s Set) RunnerListHelp() [][]key.Binding {
 // 一覧のキー・絞り込み中のキー・Disk 固有のキーを持つ画面のための組み合わせである
 // （RunnerListHelp と同じ形。載せる操作キーの集合だけが違う）。runner の操作キーは
 // この画面では効かないので渡さない。
+//
+// 一覧のキーからは **enter を外す**。Disk タブに詳細画面は無く、page/disk の
+// handleKey は enter に何もしない。List.Bindings をそのまま渡すと `enter 詳細を開く`
+// が並び、押しても何も起きないキーをヘルプが案内することになる
+// （screens.md の設計原則 2）。
 func (s Set) DiskHelp() [][]key.Binding {
-	return s.Help(s.List.Bindings(), s.List.FilterBindings(), s.Disk.Bindings())
+	return s.Help(s.listBindingsWithoutEnter(), s.List.FilterBindings(), s.Disk.Bindings())
+}
+
+// listBindingsWithoutEnter は enter を除いた通常モードの一覧のキーを返す。
+//
+// **List 側ではなくここに置く。** enter を外す理由は「このタブに詳細画面が無い」と
+// いう画面側の事情であり、一覧のキー定義そのものの性質ではない。List に専用の
+// メソッドを生やすと、一覧のキーが「enter 付き」と「enter 無し」の 2 系統あるように
+// 読める。
+//
+// 落とす相手は Enter と同じキーを持つ Binding として選ぶ。添字や説明文で選ぶと、
+// List.Bindings の並びや文言を変えたときに黙って別のキーが落ちる。入力中にのみ
+// 有効な Accept も enter だが、List.Bindings には含まれない（FilterBindings が返す）。
+func (s Set) listBindingsWithoutEnter() []key.Binding {
+	all := s.List.Bindings()
+	out := make([]key.Binding, 0, len(all))
+	for _, b := range all {
+		if slices.Equal(b.Keys(), s.List.Enter.Keys()) {
+			continue
+		}
+		out = append(out, b)
+	}
+	return out
 }

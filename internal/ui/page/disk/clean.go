@@ -257,13 +257,21 @@ func cleanTargets(rows []row) []disk.Target {
 	out := make([]disk.Target, 0, len(rows))
 	for _, r := range rows {
 		u := r.usage
+		// 選べない理由はドメインまで運ぶ。表（organism/table）が選択を阻むだけに
+		// すると、ジョブ実行中の保護（FR-31）が表示層だけの約束になる
+		// （disk.Target.Protected の doc）。
+		protected := u.Reason
+		if u.Removable {
+			protected = ""
+		}
 		out = append(out, disk.Target{
-			Label:  u.Label,
-			Base:   u.Base,
-			Path:   u.Path,
-			Bytes:  u.Bytes,
-			Files:  u.Files,
-			Docker: u.Kind == disk.KindDocker,
+			Label:     u.Label,
+			Base:      u.Base,
+			Path:      u.Path,
+			Bytes:     u.Bytes,
+			Files:     u.Files,
+			Docker:    u.Kind == disk.KindDocker,
+			Protected: protected,
 		})
 	}
 	return out

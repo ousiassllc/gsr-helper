@@ -19,6 +19,7 @@ func sampleFS() FSSummaryView {
 		UsedBytes:    410 * gib,
 		TotalBytes:   500 * gib,
 		InodePercent: 34,
+		Unavailable:  false,
 		Warn:         false,
 	}
 }
@@ -59,12 +60,14 @@ func TestFSSummaryLineMissingValues(t *testing.T) {
 		absent   string
 	}{
 		"総容量が未取得なら容量を出さない": {
-			view:     FSSummaryView{Path: "/", UsedPercent: 82, UsedBytes: -1, TotalBytes: 0, InodePercent: 0, Warn: false},
+			view: FSSummaryView{Path: "/", UsedPercent: 82, UsedBytes: -1, TotalBytes: 0,
+				InodePercent: 0, Unavailable: false, Warn: false},
 			contains: "使用 82%",
 			absent:   "(",
 		},
 		"マウントポイントが未取得": {
-			view:     FSSummaryView{Path: "", UsedPercent: 0, UsedBytes: 0, TotalBytes: 0, InodePercent: 0, Warn: false},
+			view: FSSummaryView{Path: "", UsedPercent: 0, UsedBytes: 0, TotalBytes: 0,
+				InodePercent: 0, Unavailable: false, Warn: false},
 			contains: token.IconNoUnit,
 			absent:   "(",
 		},
@@ -91,6 +94,27 @@ func TestFSSummaryLineFitsWidth(t *testing.T) {
 	for _, width := range []int{token.WidthTarget, 70, token.WidthMin, 20, 1} {
 		if got := lipgloss.Width(FSSummaryLine(v, width, plainStyles())); got > width {
 			t.Errorf("幅 %d の行幅 = %d, want %d 以下", width, got, width)
+		}
+	}
+}
+
+// TestFSSummaryLineUnavailable は取得に失敗した要約行が 0% と区別できることを
+// 確かめる（FR-29）。
+//
+// 「使用 0% / inode 0%」と描くと、枯渇しているファイルシステムを潤沢だと読ませる。
+// atom.Ratio は負値を 0 に丸めるため、真偽値を持たないとこの区別ができない。
+func TestFSSummaryLineUnavailable(t *testing.T) {
+	got := FSSummaryLine(FSSummaryView{
+		Path: "", UsedPercent: 0, UsedBytes: 0, TotalBytes: 0,
+		InodePercent: 0, Unavailable: true, Warn: false,
+	}, 80, plainStyles())
+
+	if strings.Contains(got, "0%") {
+		t.Errorf("FSSummaryLine = %q, want 0%% を含まない（未取得と区別できない）", got)
+	}
+	for _, want := range []string{"使用 " + token.IconNoUnit, "inode " + token.IconNoUnit} {
+		if !strings.Contains(got, want) {
+			t.Errorf("FSSummaryLine = %q, want %q を含む", got, want)
 		}
 	}
 }

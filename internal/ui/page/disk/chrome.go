@@ -39,15 +39,17 @@ func tableHeight(bodyH int) int {
 
 // summaryView はファイルシステム要約の表示用の構造体を返す。
 //
-// 取得に失敗した場合はゼロ値を渡す。molecule 側がパスを「値なし」、容量の併記を
-// 空として描くので、行の形を保ったまま縮退する（推測値を出さない）。
+// 取得に失敗した場合はゼロ値を渡したうえで **Unavailable を立てる。** 立てないと
+// 使用率が「0%」として描かれ、枯渇しているのに潤沢に見える（FSSummaryView の doc）。
+// パスと容量の併記はゼロ値のまま molecule 側が「値なし」「空」に落とす。
 //
 // Warn は常に偽である。閾値（appconfig.DiskThresholds）を page へ運ぶ経路が
 // page.StateMsg にまだ無いためで、判定を持てるようになった時点でここだけを直す
 // （molecule.FSSummaryLine の doc）。
 func (m Model) summaryView() molecule.FSSummaryView {
 	s := m.stats
-	if m.statsErr != nil {
+	failed := m.statsErr != nil
+	if failed {
 		s = disk.Stats{}
 	}
 	return molecule.FSSummaryView{
@@ -56,6 +58,7 @@ func (m Model) summaryView() molecule.FSSummaryView {
 		UsedBytes:    s.UsedBytes,
 		TotalBytes:   s.TotalBytes,
 		InodePercent: s.InodePercent(),
+		Unavailable:  failed,
 		Warn:         false,
 	}
 }

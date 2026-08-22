@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -23,6 +24,29 @@ var dockerLabels = map[string]string{
 	"Containers":    "docker / コンテナ",
 	"Local Volumes": "docker / ボリューム",
 	"Build Cache":   "docker / ビルドキャッシュ",
+}
+
+// prunedTypes は docker system prune -f が実際に回収する docker system df の種別。
+//
+// prune に付ける引数は -f だけに固定してある（plan.go の pruneCommand）。--volumes が
+// 無いためボリュームは 1 バイトも消えず、-a が無いため dangling 以外の未使用イメージも
+// 残る。したがって Images / Local Volumes の Reclaimable を解放見込みに足すと、確認
+// ダイアログが**絶対に実現しない量**を約束することになる。
+var prunedTypes = []string{"Containers", "Build Cache"}
+
+// PruneReclaimable は docker system prune -f が回収する見込みの容量を返す（FR-30）。
+//
+// 判断材料（どのコマンドを発行するか）を持つのはこのパッケージなので、どの種別が
+// 回収されるかの知識も page ではなくここに置く。page が種別名を書き写すと、prune の
+// 引数を変えたときに解放見込みだけが古い前提のまま残る。
+func PruneReclaimable(items []DockerItem) int64 {
+	var total int64
+	for _, it := range items {
+		if slices.Contains(prunedTypes, it.Type) {
+			total += it.Reclaimable
+		}
+	}
+	return total
 }
 
 // dfLine は docker system df --format {{json .}} が 1 行ごとに出す JSON。

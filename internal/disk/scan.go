@@ -25,7 +25,7 @@ const (
 //
 // 表示幅 22 セルに収まる長さにしてある。理由は Disk タブの PATH 列に載るが、この列は
 // 一覧の最終列であり、organism/table が bubbles/table のセル余白の分だけ最終列を 1 セル
-// 狭めるため、使えるのは token.DiskColumns の 26 セルではなく 25 セルである。これより
+// 狭めるため、使えるのは token.DiskColumns の 25 セルではなく 24 セルである。これより
 // 長いと末尾が中略され、FR-31 が求める「理由の表示」が「ジョブ実行中のため削除不…」に
 // なって読めない（docs/ui/screens.md の Disk タブのモックも同じ文言を使う）。
 const busyReason = "ジョブ実行中で削除不可"

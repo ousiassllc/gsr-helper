@@ -97,7 +97,10 @@ func TestApplyDoesNotFollowSymlink(t *testing.T) {
 func TestApplyValidatesBeforeRemoving(t *testing.T) {
 	dir := newTargetTree(t)
 	mkFile(t, filepath.Join(dir, "bin", "runsvc.sh"), 3)
-	bad := Target{Label: "build01-1 / bin", Base: dir, Path: filepath.Join(dir, "bin"), Bytes: 3, Files: 1, Docker: false}
+	bad := Target{
+		Label: "build01-1 / bin", Base: dir, Path: filepath.Join(dir, "bin"),
+		Bytes: 3, Files: 1, Docker: false, Protected: "",
+	}
 	good := pathTarget(dir, "_diag", 0)
 
 	// PlanClean を通さずに直接組み立てた計画。検証を通っていないパスが載っている。
@@ -113,6 +116,39 @@ func TestApplyValidatesBeforeRemoving(t *testing.T) {
 	}
 	if !exists(filepath.Join(dir, "bin", "runsvc.sh")) {
 		t.Error("検証を通らないパスを削除してしまった")
+	}
+	// 1 件の失敗で残りを止めない。
+	if exists(filepath.Join(dir, "_diag")) {
+		t.Error("後続の対象が削除されていない")
+	}
+	if len(rec.got) != 2 || rec.got[0].Err == nil || rec.got[1].Err != nil {
+		t.Errorf("Progress = %+v, want 2 件で 1 件目だけ Err", rec.got)
+	}
+}
+
+// TestApplyRefusesProtectedTarget は保護された対象を Apply が削除しないことを
+// 確かめる（FR-31）。PlanClean を迂回して手組みした CleanPlan を渡すのは、保護が
+// 計画の段階だけの約束になっていないか（disk.Target.Protected の doc）を見るためで
+// ある。TestApplyValidatesBeforeRemoving と同じ形。
+func TestApplyRefusesProtectedTarget(t *testing.T) {
+	dir := newTargetTree(t)
+	temp := filepath.Join(dir, "_work", "_temp")
+	mkFile(t, filepath.Join(temp, "a.txt"), 3)
+	busy := protectedTarget(dir, filepath.Join("_work", "_temp"))
+	good := pathTarget(dir, "_diag", 0)
+
+	plan := CleanPlan{Paths: []Target{busy, good}, Docker: false, Bytes: 100, Commands: nil}
+
+	var rec recorder
+	err := Apply(context.Background(), exec.NewFake(), plan, rec.record)
+	if err == nil {
+		t.Fatal("Apply がエラーを返さなかった")
+	}
+	if !strings.Contains(err.Error(), busyReason) {
+		t.Errorf("エラー文言 = %q, want %q を含む", err.Error(), busyReason)
+	}
+	if !exists(filepath.Join(temp, "a.txt")) {
+		t.Error("保護された対象を削除してしまった")
 	}
 	// 1 件の失敗で残りを止めない。
 	if exists(filepath.Join(dir, "_diag")) {

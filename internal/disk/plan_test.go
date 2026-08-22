@@ -34,12 +34,28 @@ func pathTarget(base, rel string, bytes int64) Target {
 		Bytes:  bytes,
 		Files:  1,
 		Docker: false,
+		// 既定は保護なし。保護された対象は protectedTarget が組む。
+		Protected: "",
 	}
 }
 
 // dockerTarget は docker の未使用リソースの対象を組み立てる。
 func dockerTarget(bytes int64) Target {
-	return Target{Label: dockerCleanLabel, Base: "", Path: "", Bytes: bytes, Files: -1, Docker: true}
+	return Target{
+		Label: dockerCleanLabel, Base: "", Path: "", Bytes: bytes, Files: -1,
+		Docker: true, Protected: "",
+	}
+}
+
+// protectedTarget は選べない理由が付いた対象を組み立てる（FR-31）。
+//
+// パスそのものは検証を通る（_work 配下の実在するディレクトリ）ものを使う。
+// 保護が「たまたま ValidatePath でも落ちる」ことで通ってしまわないようにするため
+// で、これを混ぜると保護の判定が消えても回帰テストが緑のままになる。
+func protectedTarget(base, rel string) Target {
+	t := pathTarget(base, rel, 100)
+	t.Protected = busyReason
+	return t
 }
 
 func TestPlanClean(t *testing.T) {
@@ -103,9 +119,23 @@ func TestPlanCleanErrors(t *testing.T) {
 			targets: []Target{
 				pathTarget(dir, "_diag", 10),
 				// filepath.Join に畳ませず ".." を残した生のパス。
-				{Label: "build01-1 / 相対参照", Base: dir, Path: dir + "/_work/../bin", Bytes: 10, Files: 1, Docker: false},
+				{
+					Label: "build01-1 / 相対参照", Base: dir, Path: dir + "/_work/../bin",
+					Bytes: 10, Files: 1, Docker: false, Protected: "",
+				},
 			},
 			wantMsg: `".." が含まれています`,
+		},
+		{
+			// ジョブ実行中の _work は計画に載せない（FR-31）。表が選択を阻むだけに
+			// すると、Target を直接組む呼び出しが 1 つ増えた時点で保護が黙って
+			// 外れる（disk.Target.Protected の doc）。
+			name: "保護された対象",
+			targets: []Target{
+				pathTarget(dir, "_diag", 10),
+				protectedTarget(dir, filepath.Join("_work", "_temp")),
+			},
+			wantMsg: busyReason,
 		},
 	}
 	for _, tt := range tests {

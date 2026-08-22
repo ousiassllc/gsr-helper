@@ -121,3 +121,22 @@ func TestParseDockerSize(t *testing.T) {
 		})
 	}
 }
+
+// TestPruneReclaimable は解放見込みに prune -f が実際に回収する種別だけを数えることを
+// 確かめる。イメージとボリュームを足すと、確認ダイアログが実現しない量を約束する
+// （--volumes 無しでボリュームは消えず、-a 無しで dangling 以外のイメージも残る）。
+func TestPruneReclaimable(t *testing.T) {
+	items := []DockerItem{
+		{Type: "Images", Label: "docker / イメージ", Size: 5000, Reclaimable: 4000},
+		{Type: "Containers", Label: "docker / コンテナ", Size: 300, Reclaimable: 200},
+		{Type: "Local Volumes", Label: "docker / ボリューム", Size: 900, Reclaimable: 900},
+		{Type: "Build Cache", Label: "docker / ビルドキャッシュ", Size: 700, Reclaimable: 700},
+		{Type: "Unknown", Label: "docker / Unknown", Size: 10, Reclaimable: 10},
+	}
+	if got, want := PruneReclaimable(items), int64(200+700); got != want {
+		t.Errorf("PruneReclaimable = %d, want %d", got, want)
+	}
+	if got := PruneReclaimable(nil); got != 0 {
+		t.Errorf("内訳が無いときの PruneReclaimable = %d, want 0", got)
+	}
+}

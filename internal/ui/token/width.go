@@ -98,22 +98,27 @@ func JobColumns() []Column {
 // 列間 3 = 79 セルで、WidthTarget（80）で 1 セル余る。行頭の内訳は molecule の
 // columnPrefix と揃えること。
 //
-// 各列の幅の根拠は次のとおりである。
-//   - TARGET 24: 最長の対象名「docker / dangling images」がちょうど収まる。
-//   - SIZE 11: 集計中の表示「（集計中…）」が 11 セルある。数値（102.4M）より
-//     こちらが幅を決める。切り詰めると集計中と集計失敗を読み分けられない。
+// 各列の幅の根拠は次のとおりである（いずれも lipgloss.Width での実測値）。
+//   - TARGET 25: docker の対象名で最も長い「docker / ビルドキャッシュ」が 25 セルで、
+//     ちょうど収まる。runner の対象名（「<runner 名> / _work/<リポジトリ>」）は
+//     runner 名とリポジトリ名の長さで際限なく伸びるため幅を決める根拠にならず、
+//     中略される前提で読む。docker の内訳は訳語が固定なので収めきれる。
+//   - SIZE 11: 集計中の表示「（集計中…）」が 11 セルある（三点リーダ … は East Asian
+//     Width が Ambiguous で 1 セル幅なので、6 文字でも 12 セルにはならない）。
+//     数値（102.4M）や「✗ 失敗」（6 セル）より長く、この文字列が幅を決める。
 //   - FILES 9: 7 桁（1,234,567）まで区切り付きで収まる。
-//   - PATH 26: 選択できない理由「ジョブ実行中のため削除不可」（26 セル）が収まる。
-//     理由はこの列に載るため（molecule/listrow.DiskTargetRow）、パスではなく理由の
-//     長さで決めてある。パスは atom.Path が中間を中略して収める。
+//   - PATH 25: 一覧の最終列であり、organism/table が bubbles/table のセル余白の分だけ
+//     最終列を 1 セル狭めるため実効 24 セルである。この列には選択できない理由が載り
+//     （molecule/listrow.DiskTargetRow）、理由は 22 セル以内に収める約束なので
+//     （disk.busyReason の doc）中略されない。パスは atom.Path が中間を中略して収める。
 //
 // SIZE と FILES を右寄せにするのは、桁の違う数値を縦に並べて比較する列だからである。
 func DiskColumns() []Column {
 	return []Column{
-		{ID: ColTarget, Title: "TARGET", Width: 24, Right: false},
+		{ID: ColTarget, Title: "TARGET", Width: 25, Right: false},
 		{ID: ColSize, Title: "SIZE", Width: 11, Right: true},
 		{ID: ColFiles, Title: "FILES", Width: 9, Right: true},
-		{ID: ColPath, Title: "PATH", Width: 26, Right: false},
+		{ID: ColPath, Title: "PATH", Width: 25, Right: false},
 	}
 }
 

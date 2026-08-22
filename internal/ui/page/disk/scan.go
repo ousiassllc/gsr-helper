@@ -20,15 +20,22 @@ import (
 const (
 	// dockerSkipLabel は docker が使えない環境で出す SKIP 行の表示名。
 	dockerSkipLabel = "docker"
-	// dockerSkipReason はその行を選択できない理由。
+	// dockerPruneLabel は実際に選べる docker の行の表示名。内訳とは別に 1 行置くのは、
+	// 発行するのが docker system prune -f 1 本で種別を選り分けられないためである
+	// （internal/disk が進捗に出す dockerCleanLabel と同じ文字列にしてある）。
+	dockerPruneLabel = "docker / 未使用リソース"
+	// 以下 3 つは選択できない理由。**いずれも 22 セル以内に収める。** 理由は一覧の
+	// 最終列（PATH）に載り、organism/table が最終列を 1 セル狭めるため使えるのは
+	// token.DiskColumns の 25 セルではなく 24 セルである。長いと末尾が中略されて
+	// 理由が読めない（disk.busyReason の doc と同じ制約）。
 	//
-	// 行ごと消さないのは、docker の内訳が「0 バイト」なのか「そもそも見ていない」
-	// のかを読み分けられなくするためである。受け入れ条件の「docker が無い環境でも
-	// 起動でき、docker 関連の集計・クリーンアップが SKIP として縮退する」はこの
-	// 1 行で満たす。
-	dockerSkipReason = "docker が使えないため集計できません"
-	// dockerFailReason は docker の集計そのものに失敗したときの理由。
-	dockerFailReason = "docker の集計に失敗したため選択できません"
+	// docker の行を消さずに理由付きで残すのは、内訳が「0 バイト」なのか「そもそも
+	// 見ていない」のかを読み分けられるようにするためである。受け入れ条件の「docker が
+	// 無い環境でも起動でき、docker 関連の集計・クリーンアップが SKIP として縮退する」
+	// はこの 1 行で満たす。
+	dockerSkipReason      = "docker が無く集計不可" // docker が使えない環境
+	dockerFailReason      = "docker の集計に失敗"  // 集計そのものに失敗した
+	dockerBreakdownReason = "内訳は選択できません"     // 内訳は選り分けて消せない
 	// rootPath は runner が 1 台も無いときにファイルシステムの残量を見る場所。
 	rootPath = "/"
 )
@@ -198,7 +205,8 @@ func (m *Model) onFSStats(msg fsStatsMsg) {
 //
 // 失敗しても行を落とさず、選択できない 1 行として出す。docker があるのに内訳を
 // 取れない状態は利用者が知るべき異常であり、黙って消すと「docker の分が計上されて
-// いない一覧」を正しい一覧として見せることになる。
+// いない一覧」を正しい一覧として見せることになる。選べる 1 行（dockerPruneLabel）を
+// 内訳より先に送るのは、それが唯一の操作対象だからである。
 func scanDocker(ctx context.Context, ex exec.Executor, out chan<- disk.Usage) {
 	items, err := disk.DockerUsage(ctx, ex)
 	if err != nil {
@@ -209,20 +217,27 @@ func scanDocker(ctx context.Context, ex exec.Executor, out chan<- disk.Usage) {
 		})
 		return
 	}
+	sendUsage(ctx, out, disk.Usage{
+		Kind: disk.KindDocker, Runner: "", Base: "", Path: "",
+		Label: dockerPruneLabel,
+		// prune -f が回収する種別だけの合計。どの種別が回収されるかを知っているのは
+		// 発行するコマンドを持つ internal/disk である。
+		Bytes: disk.PruneReclaimable(items), Files: -1,
+		Removable: true, Reason: "", Err: nil,
+	})
 	for _, it := range items {
 		sendUsage(ctx, out, disk.Usage{
 			Kind: disk.KindDocker, Runner: "", Base: "", Path: "",
 			Label: it.Label,
 			// 出すのは総容量ではなく解放できる量である。prune で消えるのは未使用
-			// 分だけなので、総容量を出すと選択合計と解放見込みが実際より大きくなり、
-			// 「13.6G 空くはずが空かない」という報告になる（screens.md の Disk タブの
-			// 選択合計は解放できる量の合計として書かれている）。
+			// 分だけなので、総容量を出すと内訳の合計が実際より大きくなる。
 			Bytes: it.Reclaimable,
 			// docker はファイル数を数えられない（disk.Usage.Files の doc）。
 			Files: -1,
-			// 能力があるなら選べる。実際に何が消えるかは確認ダイアログが
-			// docker system prune -f として明示する。
-			Removable: true, Reason: "", Err: nil,
+			// **内訳は選べない。** -f だけの prune はボリュームを 1 バイトも消さず
+			// dangling 以外のイメージも残すため、内訳の Reclaimable を選択合計に
+			// 載せると確認ダイアログが実現しない量を約束する。行を残すのは FR-27。
+			Removable: false, Reason: dockerBreakdownReason, Err: nil,
 		})
 	}
 }

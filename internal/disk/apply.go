@@ -69,7 +69,14 @@ func report(progress func(Progress), p Progress) {
 }
 
 // removeTarget は 1 対象を検証してから削除する。
+//
+// 保護の確認を ValidatePath と同じ位置で行うのは同じ理由による。保護された対象は
+// PlanClean が計画に載せないが、計画を組み立てずに Apply を呼ぶ経路が将来できても
+// ジョブ実行中の _work（FR-31）を迂回で消せないようにしておく。
 func removeTarget(ctx context.Context, t Target) error {
+	if t.Protected != "" {
+		return fmt.Errorf("%s の削除を中止しました: %s", t.Label, t.Protected)
+	}
 	if err := ValidatePath(t.Base, t.Path); err != nil {
 		return fmt.Errorf("%s の削除を中止しました: %w", t.Label, err)
 	}

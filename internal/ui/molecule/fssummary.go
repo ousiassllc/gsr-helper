@@ -22,7 +22,13 @@ type FSSummaryView struct {
 	UsedBytes    int64  // 使用量。未取得は負の値
 	TotalBytes   int64  // 総容量。未取得は 0 以下
 	InodePercent int    // inode 使用率（0〜100）
-	Warn         bool   // 警告閾値を超えたか
+	// Unavailable はファイルシステム情報そのものを取得できなかったか。
+	//
+	// 使用率は 0〜100 の範囲しか取れず、負値で「不明」を表せない（atom.Ratio は
+	// 負値を 0 に丸める）。真偽値を別に持たないと、取得に失敗した状態がそのまま
+	// 「使用 0% / inode 0%」になり、**枯渇しているのに潤沢に見える**。
+	Unavailable bool
+	Warn        bool // 警告閾値を超えたか
 }
 
 // FSSummaryLine は Disk タブの先頭に出すファイルシステムの要約を返す
@@ -49,8 +55,8 @@ func FSSummaryLine(v FSSummaryView, width int, s token.Styles) string {
 	// 記号は行末の警告にまとめるので、使用率には添えない。
 	const markOnRatio = false
 
-	usedText, usedRole := atom.Ratio(v.UsedPercent, markOnRatio)
-	inodeText, inodeRole := atom.Ratio(v.InodePercent, markOnRatio)
+	usedText, usedRole := fsRatio(v.Unavailable, v.UsedPercent, markOnRatio)
+	inodeText, inodeRole := fsRatio(v.Unavailable, v.InodePercent, markOnRatio)
 
 	parts := []string{
 		fsLabel,
@@ -62,6 +68,18 @@ func FSSummaryLine(v FSSummaryView, width int, s token.Styles) string {
 		parts = append(parts, atom.WarnMark(true, s)+" "+s.Warn.Render(fsWarnNote))
 	}
 	return atom.Join(parts, "  ", width, token.IconEllipsis)
+}
+
+// fsRatio は使用率のセルを返す。取得できていない場合は「値なし」の記号にする。
+//
+// 0% と書き分けるためである。ファイルシステム情報の取得に失敗した行を「使用 0%」と
+// 描くと、枯渇している相手を潤沢だと読ませる（internal/disk/fsstats.go が「最も
+// 避けたい誤表示」として挙げた状態そのものである）。
+func fsRatio(unavailable bool, percent int, warn bool) (string, token.RoleToken) {
+	if unavailable {
+		return token.IconNoUnit, token.RoleMuted
+	}
+	return atom.Ratio(percent, warn)
 }
 
 // fsPath はマウントポイントを返す。取得できていない場合は「値なし」の記号にする。

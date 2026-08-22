@@ -126,7 +126,7 @@ func TestDockerDegradesToSkipRow(t *testing.T) {
 	m := activate(t, newModel(t, st))
 
 	body := m.View().Content
-	if !strings.Contains(body, dockerSkipPrefix) {
+	if !strings.Contains(body, dockerSkipReasonText) {
 		t.Errorf("docker の SKIP 行が出ていない:\n%s", body)
 	}
 	if calls := fake.Calls(); len(calls) != 0 {
@@ -134,19 +134,36 @@ func TestDockerDegradesToSkipRow(t *testing.T) {
 	}
 }
 
-// docker が使える環境では内訳が行になり、選択できる。
+// docker が使える環境では内訳が行になり、先頭の「未使用リソース」だけを選択できる。
+//
+// **内訳（イメージ / ボリューム / …）は選べない。** 発行するのは
+// docker system prune -f 1 本で種別を選り分けられず、しかも -f だけの prune は
+// ボリュームを消さず dangling 以外のイメージも残すため、内訳を選ばせると確認
+// ダイアログの解放見込みが**絶対に実現しない量**になる（disk.PruneReclaimable の doc）。
 func TestDockerUsageBecomesSelectableRow(t *testing.T) {
 	st, _ := dockerState()
 	m := activate(t, newModel(t, st))
 
-	if !strings.Contains(m.View().Content, dockerCacheLabel) {
-		t.Fatalf("docker の内訳が行になっていない:\n%s", m.View().Content)
+	body := m.View().Content
+	if !strings.Contains(body, dockerCacheLabel) || !strings.Contains(body, dockerPruneLabel) {
+		t.Fatalf("docker の内訳と未使用リソースの行が出ていない:\n%s", body)
 	}
+	if !strings.Contains(body, dockerBreakdownReason) {
+		t.Errorf("内訳を選べない理由が行に出ていない:\n%s", body)
+	}
+
 	m, c := send(t, m, press("space"))
 	if len(m.tbl.Checked()) != 1 {
-		t.Fatal("docker の行を選択できない")
+		t.Fatal("未使用リソースの行を選択できない")
 	}
 	if !strings.Contains(c.Status, "選択: 1 件") {
 		t.Errorf("選択件数が状態行に出ていない（status = %q）", c.Status)
+	}
+
+	// 次の行（内訳）へ移しても選べない。
+	m, _ = send(t, m, press("j"))
+	m, _ = send(t, m, press("space"))
+	if n := len(m.tbl.Checked()); n != 1 {
+		t.Errorf("内訳の行が選ばれている（選択 %d 件, want 1 件）", n)
 	}
 }

@@ -26,14 +26,15 @@ const tabIndex = 2
 // dfJSON は docker system df の応答。ビルドキャッシュ 1 件だけを返す。
 const dfJSON = `{"Type":"Build Cache","Size":"12.4GB","Reclaimable":"12.4GB (100%)"}`
 
-// 行に出る文言の照合には**列幅で切り詰められない長さの接頭辞**を使う。
-// TARGET は 24 セル・PATH は 26 セルしかなく（token.DiskColumns）、全文はどの行でも
-// 中略される。全文で照合すると、表示できているのにテストだけが落ちる。
+// 行に出る文言の照合には**列幅に収まる長さの文字列**を使う（TARGET は 25 セル、
+// PATH は最終列なので実効 24 セル。token.DiskColumns）。収まる文言はリテラルの全文で
+// 照合する。被テスト側の定数を参照すると、文言が列幅を超えて伸びても照合が追随し、
+// 中略に気付けない。
 const (
 	// dockerCacheLabel は dfJSON から作られる行の表示名（internal/disk の訳語）。
-	dockerCacheLabel = "docker / ビルドキャッ"
-	// dockerSkipPrefix は docker が使えないときの理由。
-	dockerSkipPrefix = "docker が使えないため"
+	dockerCacheLabel = "docker / ビルドキャッシュ"
+	// dockerSkipReasonText は docker が使えないときの理由。
+	dockerSkipReasonText = "docker が無く集計不可"
 	// busyReasonPrefix はジョブ実行中で選べない理由（FR-31）。
 	busyReasonPrefix = "ジョブ実行中で削除不可"
 )

@@ -23,6 +23,9 @@ const (
 	// 起きる」と読めるためである。削除は internal/disk が自前で行い（進捗を出すため
 	// と、シンボリックリンクを辿らないため）、rm も find も起動しない。
 	noteFiles = "ファイル削除: 上記パスの再帰削除。シンボリックリンクは辿りません"
+	// noteDockerScope は prune -f が消さないものの明示。出さないと、一覧に並ぶ内訳
+	// （イメージ / ボリューム）まで消えると読める（disk.PruneReclaimable の doc）。
+	noteDockerScope = "docker: イメージとボリュームは prune -f では削除されません"
 	// noteIrreversible は取り消せないことの警告。
 	noteIrreversible = "削除したファイルは復元できません。"
 	// dockerTargetLabel は確認ダイアログに出す docker の対象名。
@@ -191,9 +194,12 @@ func confirmInput(plan disk.CleanPlan) dialog.ConfirmInput {
 		commands = append(commands, strings.Join(c, " "))
 	}
 
-	note := make([]string, 0, 2)
+	note := make([]string, 0, 3)
 	if len(plan.Paths) > 0 {
 		note = append(note, noteFiles)
+	}
+	if plan.Docker {
+		note = append(note, noteDockerScope)
 	}
 	note = append(note, noteIrreversible)
 

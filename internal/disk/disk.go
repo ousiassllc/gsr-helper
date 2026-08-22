@@ -110,6 +110,14 @@ type Target struct {
 	Files int64
 	// Docker は docker の未使用リソース（docker system prune -f）か。
 	Docker bool
+	// Protected は削除してはならない理由。空なら削除してよい。
+	//
+	// Usage.Removable / Reason をそのまま引き継ぐために持つ。ここで落とすと、
+	// ジョブ実行中の保護（FR-31）が表示層だけの約束になり、Target を直接組む
+	// 呼び出しが 1 つ増えた時点で黙って外れる。security.md「ジョブ実行中の
+	// 操作をガードする」は保護を構造として強制すると宣言しているため、可否は
+	// 境界の型で運び、PlanClean と Apply の両方で見る。
+	Protected string
 }
 
 // CleanPlan は削除計画（ドライラン）。PlanClean だけが組み立てる。

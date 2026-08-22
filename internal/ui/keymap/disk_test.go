@@ -91,6 +91,36 @@ func TestDiskHelpCarriesDiskKeysOnly(t *testing.T) {
 	}
 }
 
+// Disk タブの ? に enter は並ばない。
+//
+// Disk タブに詳細画面は無く、page/disk の handleKey は enter に何もしない。それでも
+// ヘルプに出すと「押しても何も起きないキーを出さない」（screens.md の設計原則 2）に
+// 反する。一覧共通の List.Bindings には enter が含まれるため、外す側を固定する。
+func TestDiskHelpOmitsEnter(t *testing.T) {
+	s := New()
+	// 通常モードの一覧グループ（Global に続く 2 番目）に enter があってはならない。
+	// 絞り込み中のグループ（3 番目）の enter は「絞り込みを確定」で実際に効くため
+	// 対象外である。
+	for _, b := range s.DiskHelp()[1] {
+		if slices.Contains(b.Keys(), "enter") {
+			t.Errorf("Disk タブの ? の一覧キーに enter（%q）が並んでいる", b.Help().Desc)
+		}
+	}
+	// 「詳細を開く」はこの画面のどこにも出ない。
+	for _, g := range s.DiskHelp() {
+		for _, b := range g {
+			if b.Help().Desc == s.List.Enter.Help().Desc {
+				t.Error("Disk タブの ? に「詳細を開く」が並んでいる（詳細画面は無い）")
+			}
+		}
+	}
+
+	// 一覧のキー自体は落ちていない（enter だけを外す）。
+	if got, want := len(s.listBindingsWithoutEnter()), len(s.List.Bindings())-1; got != want {
+		t.Errorf("enter を除いた一覧のキー数 = %d, want %d", got, want)
+	}
+}
+
 // 呼び出しごとに新しい値を返す（片方を無効化しても他に影響しない）。
 func TestDiskAndConfirmConstructorsReturnFreshValues(t *testing.T) {
 	d := NewDiskKeys()
