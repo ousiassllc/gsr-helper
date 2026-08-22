@@ -91,7 +91,7 @@ gh auth refresh -h github.com -s admin:org
 
 ## 実行する外部コマンド
 
-すべて `Executor` 経由で実行し、シェルは経由しない。**監査ログには原則として全件記録するが、下記 systemd の表の `list-units` / `show` のうち再検出（`internal/runner/systemd` の `Scan`）が発行するものだけは記録対象外である**（`exec.Options.SkipAudit`。理由と規則は [セキュリティ設計](../architecture/security.md#記録対象外とする読み取り専用の定期実行)）。実行の共通の約束（既定 30 秒のタイムアウト、期限切れ時のプロセスグループへの SIGKILL、親の環境変数の継承、出力の上限）は [コンポーネント設計](../components/overview.md#internalexec) に定める。
+すべて `Executor` 経由で実行し、シェルは経由しない。**監査ログには原則として全件記録するが、下記 systemd の表の `list-units` / `show` のうち再検出（`internal/runner/systemd` の `Scan`）が発行するものだけは記録対象外である**（`exec.Options.SkipAudit`。理由と規則は [セキュリティ設計](../architecture/security.md#記録対象外とする再検出の読み取りコマンド)）。実行の共通の約束（既定 30 秒のタイムアウト、期限切れ時のプロセスグループへの SIGKILL、親の環境変数の継承、出力の上限）は [コンポーネント設計](../components/overview.md#internalexec) に定める。
 
 ### systemd
 
@@ -105,7 +105,7 @@ gh auth refresh -h github.com -s admin:org
 | `journalctl -k --since <時刻>` | OOM Killer の履歴確認 | doctor |
 | `timedatectl show` | NTP 同期状態と時刻ずれの確認 | doctor |
 
-**上表の `list-units` / `show` は、再検出が 3 秒ごとに自動発行する分に限り監査ログに記録しない**（成功・失敗とも。詳細は [セキュリティ設計](../architecture/security.md#記録対象外とする読み取り専用の定期実行)）。同じコマンドでも利用者の操作を起点に発行する場合は記録する。表の他のコマンドは全件記録する。
+**上表の `list-units` / `show` は、再検出（`internal/runner/systemd` の `Scan`）が発行する分に限り監査ログに記録しない**（成功・失敗とも。詳細は [セキュリティ設計](../architecture/security.md#記録対象外とする再検出の読み取りコマンド)）。3 秒ごとの自動更新か利用者のキー操作（`r`）による手動再読み込みかは問わない。判定するのは発行契機ではなく発行元である。表の他のコマンドは全件記録する。
 
 `systemctl show` は出力順が保証されないため、`KEY=VALUE` を辞書として解釈する。`list-units` は `--plain` を付けても行頭に記号が付く場合があるため、位置ではなく「`actions.runner.` で始まり `.service` で終わるフィールド」を探す。`WorkingDirectory` は `-/path`（存在しなければ無視する指定）を取り得るため、先頭の `-` を除いてから runner ディレクトリと照合する。
 
@@ -185,3 +185,4 @@ TCP 接続の成否とレイテンシを確認する。到達先は runner が�
 | 1.3 | 2026-08-22 | `systemctl show` の並列発行・キャンセル時の打ち切り・失敗時の扱い、`WorkingDirectory` の `-` 接頭辞を追記 | 20 台規模で `show` が支配的になるため並列化した。取得失敗ユニットを孤児と誤分類する欠陥があった |
 | 1.4 | 2026-08-22 | `list-units` 自体の失敗が走査全体を中止することと `LoadState=not-found` のユニットの扱いを追記。`os/user.LookupId` をその他のシステムコマンドに追加。実行の共通の約束への参照を追加 | 「1 ユニットの失敗で全体を止めない」だけを書いていたため、最も影響範囲の広い縮退が仕様から読み取れなかった。`RunAsUser` の取得元に NSS 参照があることが未記載だった |
 | 1.5 | 2026-08-22 | 再検出が発行する `list-units` / `show` が監査ログの記録対象外であることを注記 | 「すべて Executor 経由で実行し、監査ログに記録する」と systemd の表が無条件のままで、記録対象外になった当のコマンドが表に載っていた |
+| 1.6 | 2026-08-22 | 記録対象外の判定を発行契機ではなく発行元（再検出の `Scan`）に統一し、「利用者の操作を起点に発行する場合は記録する」を削除 | 手動再読み込み（`r`）も同じ `Scan` を通るため記録されず、記述が実装と矛盾していた |

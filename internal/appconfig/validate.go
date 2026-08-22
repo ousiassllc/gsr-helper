@@ -72,7 +72,11 @@ func normalizeDefaults(d Defaults) (Defaults, error) {
 	return d, nil
 }
 
-// normalizeRoots は走査ルートを絶対パスに揃え、空要素と重複を落とす。
+// normalizeRoots は走査ルートを検証する。空要素を捨て、残りを CleanScanRoot に通す。
+//
+// 相対パスは絶対化せず「絶対パスで指定してください」と拒否する（根拠は cleanAbs の
+// doc）。重複除去はここでは行わず MergeScanRoots に集約してあり、設定ファイル内の
+// 重複も --root と入口をまたいだ重複も同じ実装で落ちる。
 func normalizeRoots(roots []string) ([]string, error) {
 	out := make([]string, 0, len(roots))
 	for _, r := range roots {
