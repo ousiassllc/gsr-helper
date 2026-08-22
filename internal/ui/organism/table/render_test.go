@@ -10,14 +10,17 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/ui/organism/table"
 )
 
-// RenderRow が返すセルの数と列の数が食い違ったときの、詰めと切り捨てを検証する。
+// RenderRow が返すセルの数が列数を超えたときの切り捨てを検証する。
+//
+// 詰め（足りない分を空セルで埋める）は View() から観測できないので、ここでは見ない
+// （fitcells_test.go が白箱で固定している）。
 
-// 行のセル数が列数と違っても panic せず、列数ぶんに揃う（理由は fitCells を参照）。
+// 行のセル数が列数と違っても panic せず、列数を超えない（理由は fitCells を参照）。
 func TestTableToleratesRenderRowCellCountMismatch(t *testing.T) {
 	tests := map[string]struct {
 		render table.RenderRow[row]
-		// want は 1 行に出る名前の数。Render は全セルに名前を入れるので、詰め・
-		// 切り捨ての後に残ったセルの数がそのまま数えられる。列は 2 つである。
+		// want は 1 行に出る名前の数。Render は全セルに名前を入れるので、切り捨ての
+		// 後に描画へ出たセルの数がそのまま数えられる。列は 2 つである。
 		want int
 	}{
 		"列数より多い": {

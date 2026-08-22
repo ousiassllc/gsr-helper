@@ -34,6 +34,11 @@ func TestScanKeyFindsBubbleInEveryShape(t *testing.T) {
 	chromeCmd := func() tea.Msg {
 		return page.ChromeMsg{Tab: 0, Modal: true, Input: "", Status: "", Footer: nil}
 	}
+	// 2 つ目の ChromeMsg。ScanKey は「最初の」ChromeMsg を返すと約束しているので、
+	// これを返すようになると約束が破れる（Modal が偽なので下の c.Modal で落ちる）。
+	laterChrome := func() tea.Msg {
+		return page.ChromeMsg{Tab: 9, Modal: false, Input: "", Status: "後", Footer: nil}
+	}
 	// 絞り込み中の一覧が返すカーソル点滅を模した、遅くて走査の対象外の Cmd。
 	slow := func() tea.Msg { time.Sleep(20 * time.Millisecond); return scanProbe{} }
 	// 遅れて返る差し戻し。時間で打ち切る走査はこれを見失う。
@@ -46,13 +51,14 @@ func TestScanKeyFindsBubbleInEveryShape(t *testing.T) {
 		cmd  tea.Cmd
 		want bool
 	}{
-		"最上位の末尾（入れ子）":               {tea.Batch(tea.Batch(chromeCmd, slow), page.BubbleKey(key)), true},
-		"ChromeMsg の後ろで平ら（束が畳まれた形）": {tea.Batch(chromeCmd, page.BubbleKey(key)), true},
-		"ChromeMsg より前":             {tea.Batch(page.BubbleKey(key), chromeCmd), true},
-		"入れ子の中":                     {tea.Batch(chromeCmd, tea.Batch(slow, page.BubbleKey(key))), true},
-		"遅れて返る":                     {tea.Batch(chromeCmd, slowBubble), true},
-		"差し戻し無し（閉じ込め。点滅だけ）":         {tea.Batch(chromeCmd, slow), false},
-		"ChromeMsg だけ":              {chromeCmd, false},
+		"最上位の末尾（入れ子）":                {tea.Batch(tea.Batch(chromeCmd, slow), page.BubbleKey(key)), true},
+		"ChromeMsg の後ろで平ら（束が畳まれた形）":  {tea.Batch(chromeCmd, page.BubbleKey(key)), true},
+		"ChromeMsg より前":              {tea.Batch(page.BubbleKey(key), chromeCmd), true},
+		"入れ子の中":                      {tea.Batch(chromeCmd, tea.Batch(slow, page.BubbleKey(key))), true},
+		"遅れて返る":                      {tea.Batch(chromeCmd, slowBubble), true},
+		"差し戻し無し（閉じ込め。点滅だけ）":          {tea.Batch(chromeCmd, slow), false},
+		"ChromeMsg が 2 つ（先に来たほうを返す）": {tea.Batch(chromeCmd, laterChrome, page.BubbleKey(key)), true},
+		"ChromeMsg だけ":               {chromeCmd, false},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {

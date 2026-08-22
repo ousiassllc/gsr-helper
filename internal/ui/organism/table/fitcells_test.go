@@ -25,8 +25,14 @@ func TestFitCells(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			if got := fitCells(tt.cells, tt.n); !slices.Equal(got, tt.want) {
+			got := fitCells(tt.cells, tt.n)
+			if !slices.Equal(got, tt.want) {
 				t.Errorf("fitCells(%q, %d) = %q, want %q", tt.cells, tt.n, got, tt.want)
+			}
+			// slices.Equal は nil と空スライスを等しいと見るので、列が無いときに
+			// nil を返すことは別に見る（見ないと n <= 0 の分岐を消しても緑になる）。
+			if tt.want == nil && got != nil {
+				t.Errorf("fitCells(%q, %d) = %q, want nil", tt.cells, tt.n, got)
 			}
 		})
 	}
