@@ -117,6 +117,14 @@ func TestArgsByKey(t *testing.T) {
 			want: []string{"api", "-H", "Authorization: ***"},
 		},
 		{
+			// パス 1 は隣を見ずに要素単体で判定するため、-H が前置されていなくても
+			// ":" の前がヘッダ名として秘密らしい要素はマスクされる
+			// （docs/architecture/security.md「段 1 は単調な 2 パスで行う」）。
+			name: "-H が無くてもヘッダ形の要素はマスクする",
+			args: []string{"api", "Authorization: Bearer ABCDEFGH", "--url", "https://x"},
+			want: []string{"api", "Authorization: ***", "--url", "https://x"},
+		},
+		{
 			name: "--header= 形式のヘッダも値だけ置換する",
 			args: []string{"--header=Authorization: token ABCDEFGH"},
 			want: []string{"--header=Authorization: ***"},

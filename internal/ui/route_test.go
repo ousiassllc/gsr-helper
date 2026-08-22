@@ -64,7 +64,7 @@ func received(s *spy) []domainResult {
 // 後続 Issue ごとに StateMsg と親 Model の両方を直すことになる。
 //
 // **systemctl が無い環境でも nil にしない。** 検出だけが nil にして systemd の参照を
-// 落とす縮退を持つ（discover.go の discoverExec）が、それは runner.ScanUnits の契約で
+// 落とす縮退を持つ（discover.go の discoverExec）が、それは runner.Discover の契約で
 // あって page の約束ではない。
 func TestStateCarriesExecutorToEveryTab(t *testing.T) {
 	fake := exec.NewFake()
