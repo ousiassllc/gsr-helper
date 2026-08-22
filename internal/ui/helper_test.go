@@ -58,6 +58,7 @@ type spy struct {
 	tab    int
 	states []page.StateMsg
 	keys   []tea.KeyPressMsg
+	msgs   []tea.Msg // StateMsg / キー以外に受け取った Msg（page が発行した Cmd の結果）
 	chrome page.ChromeMsg
 }
 
@@ -71,6 +72,8 @@ func (s *spy) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		s.states = append(s.states, m)
 	case tea.KeyPressMsg:
 		s.keys = append(s.keys, m)
+	default:
+		s.msgs = append(s.msgs, m)
 	}
 
 	c := s.chrome
@@ -91,7 +94,7 @@ func withSpies(a App) (App, []*spy) {
 		if !a.tabs[i].Enabled {
 			continue
 		}
-		s := &spy{tab: i, states: nil, keys: nil, chrome: pageChrome(i)}
+		s := &spy{tab: i, states: nil, keys: nil, msgs: nil, chrome: pageChrome(i)}
 		a.tabs[i].Model = s
 		spies = append(spies, s)
 	}

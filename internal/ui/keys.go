@@ -40,8 +40,14 @@ func (a App) handleKey(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(press, g.Quit):
 		return a, tea.Quit
 	case key.Matches(press, g.Refresh):
-		// 手動の再読み込みは Tick を待たずに検出の Cmd を発行する。
-		return a, a.discover()
+		// 手動の再読み込みは Tick を待たずに検出の Cmd を発行する。実行中の検出が
+		// あるときは重ねない（自動更新と同じ理由。discover.go の onTick）。その検出の
+		// 結果は遅くとも discoverBudget 以内に届く。
+		if a.inflight > 0 {
+			return a, nil
+		}
+		cmd := a.discover()
+		return a, cmd
 	case key.Matches(press, g.TabNext):
 		return a.moveTab(1)
 	case key.Matches(press, g.TabPrev):

@@ -59,6 +59,13 @@ type App struct {
 
 	result runner.Result
 	err    error
+
+	// inflight は実行中の検出の本数。0 でない間は新しい検出を始めない（onTick）。
+	inflight int
+	// seq は発行した検出の通し番号、applied は取り込んだ結果の番号。
+	// 古い周期の結果で新しい一覧を上書きしないために持つ（discoveredMsg.seq）。
+	seq     int
+	applied int
 }
 
 // tea.Model を実装していることをコンパイル時に確かめる。
@@ -75,25 +82,33 @@ func New(cfg appconfig.Config, caps appconfig.Caps, ex exec.Executor, o Options)
 	keys := keymap.New()
 	styles := token.NewStyles(dark, o.Color)
 	return App{
-		cfg:    cfg,
-		caps:   caps,
-		ex:     ex,
-		opts:   o,
-		keys:   keys,
-		styles: styles,
-		dark:   dark,
-		width:  0,
-		height: 0,
-		tabs:   newTabs(caps, keys, styles, dark),
-		active: 0,
-		chrome: page.ChromeMsg{Tab: 0, Modal: false, Input: "", Status: "", Footer: nil},
-		notice: "",
-		result: runner.Result{},
-		err:    nil,
+		cfg:      cfg,
+		caps:     caps,
+		ex:       ex,
+		opts:     o,
+		keys:     keys,
+		styles:   styles,
+		dark:     dark,
+		width:    0,
+		height:   0,
+		tabs:     newTabs(caps, keys, styles, dark),
+		active:   0,
+		chrome:   page.ChromeMsg{Tab: 0, Modal: false, Input: "", Status: "", Footer: nil},
+		notice:   "",
+		result:   runner.Result{},
+		err:      nil,
+		inflight: 0,
+		seq:      0,
+		applied:  0,
 	}
 }
 
-// Init は背景色の問い合わせ・初回検出・自動更新の Tick を発行する。
+// Init は背景色の問い合わせと最初の自動更新の周期を発行する。
+//
+// 検出をここで直に始めず即時の tickMsg に任せるのは、Init が Model を書き換えられない
+// （Cmd だけを返す）ためである。ここで発行すると「実行中の検出」を親が数えられず、
+// 二重起動を防ぐ判定（onTick）が起動直後だけ狂う。検出の入口を tickMsg の分岐 1 つに
+// 揃えることで、実行中の本数と通し番号が必ず親の状態に載る。
 //
 // tea.RequestBackgroundColor は Cmd ではなく Msg を返す関数なので、**呼ばずに**
 // 関数値のまま渡す（呼ぶと Msg になり Cmd として渡せない）。tea.Cmd は
@@ -101,8 +116,7 @@ func New(cfg appconfig.Config, caps appconfig.Caps, ex exec.Executor, o Options)
 func (a App) Init() tea.Cmd {
 	return tea.Batch(
 		tea.RequestBackgroundColor,
-		a.discover(),
-		a.tick(),
+		firstTick(),
 	)
 }
 
@@ -124,24 +138,19 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := a.distribute()
 		return a, cmd
 	case tickMsg:
-		return a, tea.Batch(a.discover(), a.tick())
+		cmd := a.onTick()
+		return a, cmd
 	case discoveredMsg:
-		// 期限切れ・失敗した周期の部分結果では上書きしない。runner.ScanUnits は
-		// ctx がキャンセルされた時点で残りの systemctl show を発行せず取れた分だけを
-		// 返すため、部分結果を採ると systemd 管理の runner が run.sh / - と誤表示され、
-		// 孤児ユニットも過少報告される。エラーは状態行の警告として出し、一覧は
-		// 直前の成功結果を保つ。
-		a.err = msg.err
-		if msg.err == nil {
-			a.result = msg.result
-		}
-		cmd := a.distribute()
+		cmd := a.applyDiscovered(msg)
 		return a, cmd
 	case page.ChromeMsg:
 		if msg.Tab == a.active {
 			a.chrome = msg
 		}
 		return a, nil
+	case page.TabMsg:
+		// ドメイン層の呼び出し結果は発行元のタブへ戻す（page.TabMsg の doc）。
+		return a.forwardTo(msg.Tab, msg.Msg)
 	default:
 		a, cmd := a.forward(msg)
 		return a, cmd
@@ -223,12 +232,21 @@ func (a App) live(i int) bool {
 // 戻りを tea.Model ではなく App にするのは、親 Model が値として流れる形を崩さない
 // ためである（一部の経路だけがポインタを返すと、どちらが最新の状態か追えなくなる）。
 func (a App) forward(msg tea.Msg) (App, tea.Cmd) {
-	if !a.live(a.active) {
+	return a.forwardTo(a.active, msg)
+}
+
+// forwardTo は Msg を指定したタブへ転送する。
+//
+// 選択中でないタブへも配るのは、page が発行した Cmd の結果を発行元へ戻すためである
+// （page.TabMsg の doc）。無効になったタブ宛の結果は捨てる。配る先の Model が無く、
+// 捨てても失われるのは自分で始めた処理の結果だけである。
+func (a App) forwardTo(i int, msg tea.Msg) (App, tea.Cmd) {
+	if !a.live(i) {
 		return a, nil
 	}
 
 	var cmd tea.Cmd
-	a.tabs[a.active].Model, cmd = a.tabs[a.active].Model.Update(msg)
+	a.tabs[i].Model, cmd = a.tabs[i].Model.Update(msg)
 	return a, cmd
 }
 

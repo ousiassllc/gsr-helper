@@ -14,12 +14,14 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/ui/template"
 )
 
-// Init は背景色の問い合わせ・初回検出・Tick の 3 本を発行する。
-func TestInitEmitsThreeCommands(t *testing.T) {
+// Init は背景色の問い合わせと最初の周期の Tick の 2 本を発行する。
+//
+// 検出は Init から直に発行しない（実行中の本数を親が数えられないため。Init の doc）。
+func TestInitEmitsBackgroundColorAndFirstTick(t *testing.T) {
 	fake := exec.NewFake()
 	cmds := cmdList(newApp(fake).Init())
-	if len(cmds) != 3 {
-		t.Fatalf("Init が発行した Cmd の本数 = %d, want 3", len(cmds))
+	if len(cmds) != 2 {
+		t.Fatalf("Init が発行した Cmd の本数 = %d, want 2", len(cmds))
 	}
 
 	// 1 本目は背景色の問い合わせ。RequestBackgroundColor は Cmd ではなく Msg を
@@ -28,17 +30,32 @@ func TestInitEmitsThreeCommands(t *testing.T) {
 		t.Errorf("1 本目の Msg = %#v, want 背景色の問い合わせ", got)
 	}
 
-	// 2 本目は初回検出。Executor を使う（systemd がある能力なので systemctl を叩く）。
-	if _, ok := cmds[1]().(discoveredMsg); !ok {
-		t.Errorf("2 本目の Msg = %T, want discoveredMsg", cmds[1]())
+	// 2 本目は即時の tickMsg。検出はこの Msg を受けた Update が始める。
+	if _, ok := cmds[1]().(tickMsg); !ok {
+		t.Errorf("2 本目の Msg = %T, want tickMsg", cmds[1]())
+	}
+	if n := len(fake.Calls()); n != 0 {
+		t.Errorf("Init が Executor を使っている（%d 件）", n)
+	}
+}
+
+// 最初の tickMsg で検出が走り、Executor を使う（systemd がある能力なので
+// systemctl を叩く）。
+func TestFirstTickRunsDiscover(t *testing.T) {
+	fake := exec.NewFake()
+	a, cmd := update(newApp(fake), tickMsg{})
+	cmds := cmdList(cmd)
+	if len(cmds) != 2 {
+		t.Fatalf("tickMsg が発行した Cmd の本数 = %d, want 2（検出 + 次の Tick）", len(cmds))
+	}
+	if _, ok := cmds[0]().(discoveredMsg); !ok {
+		t.Errorf("1 本目の Msg = %T, want discoveredMsg", cmds[0]())
 	}
 	if len(fake.Calls()) == 0 {
 		t.Error("検出が Executor を使っていない")
 	}
-
-	// 3 本目は Tick。実行すると自動更新の間隔だけ待つため、発行されたことだけを見る。
-	if cmds[2] == nil {
-		t.Error("Tick が発行されていない")
+	if a.inflight != 1 {
+		t.Errorf("実行中の検出の本数 = %d, want 1", a.inflight)
 	}
 }
 
