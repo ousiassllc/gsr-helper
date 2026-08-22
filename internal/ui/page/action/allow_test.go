@@ -188,28 +188,53 @@ func TestAllowPrecedence(t *testing.T) {
 	}
 }
 
-// 能力が足りている実装済みの操作は許可され、Allowed も Allow と同じ判定を返す。
+// 能力が足りている実装済みの操作は許可され、Allowed はキーから同じ理由を引く。
 //
-// Allowed は Jobs タブがキーだけから判定を引く入口である。理由まで一致することを見る
-// ため、能力を欠いた Caps（非 root）も通す。
+// Allowed は Jobs タブがキーだけから判定を引く入口である。
+//
+// **期待値は Allow で作らない。** Allowed は Allow の薄いラッパなので、被テスト関数
+// 自身で期待値を組むと比較が同語反復になり、どちらが壊れても一致して原理的に落ちない
+// （Issue #31）。非 root で塞がれる操作とそうでない操作をここに書き下し、キーから
+// 操作への対応（Set.byKey）が壊れたら落ちるようにする。
 func TestAllowPermitsAndAllowedAgrees(t *testing.T) {
-	keys := testKeys().Runner
+	// 非 root で塞がる操作は reasonRoot、それ以外はこの版では未対応の理由になる。
+	want := map[string]string{
+		"s": reasonRoot, "x": reasonRoot, "X": reasonRoot, "R": reasonRoot,
+		"u": reasonRoot, "n": reasonRoot, "D": reasonRoot,
+		"d": page.ReasonUnsupported, "E": page.ReasonUnsupported,
+		"e": page.ReasonUnsupported, "l": page.ReasonUnsupported,
+	}
+
+	// キー定義が持つ操作を 1 つ足したら、ここも足さないと落ちる（Detail は n を
+	// 載せないため List() ではなくキーの表と突き合わせる）。
+	set := NewSet(testKeys().Runner)
+	if got := len(keyIDs(testKeys().Runner)); got != len(want) {
+		t.Fatalf("検証するキーの数 = %d, want %d（キー定義が持つ操作の全件）", len(want), got)
+	}
+
 	noRoot := capsWithout(func(c *appconfig.Caps) { c.Root = false })
-	for _, k := range []string{"s", "x", "X", "d", "R", "E", "e", "u", "n", "D", "l"} {
+	for k, wantReason := range want {
 		if ok, reason := Allow(action(k, true), sampleRunner(), fullCaps()); !ok || reason != "" {
 			t.Errorf("キー %q = %v/%q, want true/空", k, ok, reason)
 		}
-		wantOK, wantReason := Allow(action(k, false), sampleRunner(), noRoot)
-		gotOK, gotReason := NewSet(keys).Allowed(k, sampleRunner(), noRoot)
-		if gotOK != wantOK || gotReason != wantReason {
-			t.Errorf("Allowed(%q) = %v/%q, want %v/%q", k, gotOK, gotReason, wantOK, wantReason)
+		ok, reason := set.Allowed(k, sampleRunner(), noRoot)
+		if ok || reason != wantReason {
+			t.Errorf("Allowed(%q) = %v/%q, want false/%q", k, ok, reason, wantReason)
 		}
 	}
 }
 
 // フッタのキーヒントは可否と理由を持つ。
+//
+// 件数を先に固定する。長さを見ずに回すと、Hints が空を返した日に「1 件も違反が
+// 無かった」として通ってしまう（Issue #31）。
 func TestHintsCarryReasons(t *testing.T) {
-	for _, h := range testActions().Hints(sampleRunner(), fullCaps(), testKeys().Runner) {
+	hints := testActions().Hints(sampleRunner(), fullCaps(), testKeys().Runner)
+	if want := len(testKeys().Runner.Footer()); len(hints) != want {
+		t.Fatalf("ヒントの件数 = %d, want %d", len(hints), want)
+	}
+
+	for _, h := range hints {
 		if h.Enabled {
 			t.Errorf("キー %q が有効になっている（この版では未対応のはず）", h.Key)
 		}

@@ -9,23 +9,23 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/ousiassllc/gsr-helper/internal/appconfig"
 	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/runner/scope"
-	"github.com/ousiassllc/gsr-helper/internal/ui/keymap"
 	"github.com/ousiassllc/gsr-helper/internal/ui/molecule"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/jobs"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
 	"github.com/ousiassllc/gsr-helper/internal/ui/token"
 )
 
 // press はキー入力の Msg を作る。
-func press(k string) tea.KeyPressMsg {
-	if k == "enter" {
-		return tea.KeyPressMsg{Code: tea.KeyEnter}
-	}
-	return tea.KeyPressMsg{Text: k, Code: []rune(k)[0]}
-}
+//
+// **組み立ては pagetest.Press に任せる。** enter だけを特別扱いしていた頃は
+// press("esc") が {Text:"esc", Code:'e'} を作っており、Key.String() が Text を返す
+// おかげで偶然 esc に一致していた。実端末が送るのは {Code: KeyEscape}（Text は空）で
+// あり、jobs_keys_test.go の絞り込み取消は**実在しない Msg** で検証されていた
+// （Issue #31）。
+func press(k string) tea.KeyPressMsg { return pagetest.Press(k) }
 
 // busyRunner はジョブを count 件実行している runner を返す。
 func busyRunner(name string, count int) runner.Runner {
@@ -52,20 +52,12 @@ func busyRunner(name string, count int) runner.Runner {
 }
 
 // testState は共有状態のスナップショットを返す。
+//
+// **私物の組み立てを持たない。** 自前で組んでいた頃は Exec を nil のままにしており、
+// 「systemctl が無い環境でも nil にはしない」という page.StateMsg の不変条件に反する、
+// **親が決して作らない状態**でしか Jobs タブを検証していなかった（Issue #31）。
 func testState(runners ...runner.Runner) page.StateMsg {
-	return page.StateMsg{
-		Result: runner.Result{Runners: runners, OrphanUnits: nil, Warnings: nil},
-		Caps: appconfig.Caps{
-			Root: true, Systemd: true, Docker: true, Journal: true,
-			GitHubToken: true, SudoUser: "ousiass",
-		},
-		Styles: token.NewStyles(true, false),
-		Keys:   keymap.New(),
-		Dark:   true,
-		BodyW:  80,
-		BodyH:  16,
-		Err:    nil,
-	}
+	return pagetest.State(80, 16, runners...)
 }
 
 // newModel は共有状態を配った Jobs タブを返す。

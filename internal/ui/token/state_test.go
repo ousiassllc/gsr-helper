@@ -1,6 +1,12 @@
 package token
 
-import "testing"
+import (
+	"go/ast"
+	"go/parser"
+	gotoken "go/token"
+	"strings"
+	"testing"
+)
 
 // allStates は定義済みの状態トークンをすべて返す。
 // 色と記号の対が揃っていることを走査するために使う。
@@ -80,6 +86,10 @@ func TestRoleColorHasLightAndDark(t *testing.T) {
 }
 
 // 記号は screens.md の記号表と一対一で対応する。
+//
+// **取りこぼしは icon.go を読んで検出する。** 手で並べた表だけでは、記号を足した
+// ときにここへ足し忘れても緑のままになる。実際 IconUnknown（SVC 列の要）と
+// IconEllipsis が抜けたまま「一対一」を主張していた（Issue #31）。
 func TestIconsMatchSpec(t *testing.T) {
 	cases := []struct {
 		name string
@@ -90,6 +100,7 @@ func TestIconsMatchSpec(t *testing.T) {
 		{"IconInactive", IconInactive, "○"},
 		{"IconFailed", IconFailed, "✗"},
 		{"IconNoUnit", IconNoUnit, "-"},
+		{"IconUnknown", IconUnknown, "?"},
 		{"IconJob", IconJob, "▶"},
 		{"IconWarn", IconWarn, "⚠"},
 		{"IconOK", IconOK, "✓"},
@@ -98,12 +109,58 @@ func TestIconsMatchSpec(t *testing.T) {
 		{"IconChecked", IconChecked, "[x]"},
 		{"IconUnchecked", IconUnchecked, "[ ]"},
 		{"IconDivider", IconDivider, "─"},
+		{"IconEllipsis", IconEllipsis, "…"},
 	}
+
+	covered := make(map[string]bool, len(cases))
 	for _, c := range cases {
 		if c.got != c.want {
 			t.Errorf("%s = %q, want %q", c.name, c.got, c.want)
 		}
+		covered[c.name] = true
 	}
+
+	for _, name := range iconConstNames(t) {
+		if !covered[name] {
+			t.Errorf("icon.go の %s がこの表に無い（記号を足したらここにも足すこと）", name)
+		}
+	}
+}
+
+// iconConstNames は icon.go が宣言する Icon* 定数の名前を返す。
+//
+// 定数は型の付かない文字列なので、実行時には列挙できない。宣言そのものを読むのが
+// 「記号表と一対一」を機械的に確かめる唯一の方法である。
+func iconConstNames(t *testing.T) []string {
+	t.Helper()
+
+	f, err := parser.ParseFile(gotoken.NewFileSet(), "icon.go", nil, 0)
+	if err != nil {
+		t.Fatalf("icon.go を読めない: %v", err)
+	}
+
+	var out []string
+	for _, decl := range f.Decls {
+		gen, ok := decl.(*ast.GenDecl)
+		if !ok || gen.Tok != gotoken.CONST {
+			continue
+		}
+		for _, spec := range gen.Specs {
+			vs, ok := spec.(*ast.ValueSpec)
+			if !ok {
+				continue
+			}
+			for _, name := range vs.Names {
+				if strings.HasPrefix(name.Name, "Icon") {
+					out = append(out, name.Name)
+				}
+			}
+		}
+	}
+	if len(out) == 0 {
+		t.Fatal("icon.go から Icon* 定数を 1 つも読み出せなかった")
+	}
+	return out
 }
 
 // 状態の記号は Doctor の判定表示（✓ OK / ⚠ WARN / ✗ FAIL / ⊘ SKIP）に対応する。

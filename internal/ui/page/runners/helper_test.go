@@ -6,23 +6,17 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/ousiassllc/gsr-helper/internal/appconfig"
 	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/runner/scope"
-	"github.com/ousiassllc/gsr-helper/internal/ui/keymap"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/runners"
-	"github.com/ousiassllc/gsr-helper/internal/ui/token"
 )
 
-// press はキー入力の Msg を作る。文字キーは Text、特殊キーは Code で表す。
-func press(k string) tea.KeyPressMsg {
-	special := map[string]rune{"space": tea.KeySpace, "enter": tea.KeyEnter, "esc": tea.KeyEscape}
-	if code, ok := special[k]; ok {
-		return tea.KeyPressMsg{Code: code}
-	}
-	return tea.KeyPressMsg{Text: k, Code: []rune(k)[0]}
-}
+// press はキー入力の Msg を作る。組み立ては pagetest.Press に任せる
+// （タブごとに写すと、特殊キーの表し方が食い違って実端末が送らない Msg で検証して
+// しまう。Issue #31 の jobs 側がその状態だった）。
+func press(k string) tea.KeyPressMsg { return pagetest.Press(k) }
 
 // testResult は runner 2 台と孤児ユニット 1 件の検出結果を返す。
 func testResult() runner.Result {
@@ -66,20 +60,15 @@ func sampleRunner(name string, busy bool) runner.Runner {
 }
 
 // testState は共有状態のスナップショットを返す。
+//
+// **私物の組み立てを持たない。** 自前で組んでいた頃は Exec を nil のままにしており、
+// 「systemctl が無い環境でも nil にはしない」という page.StateMsg の不変条件に反する、
+// **親が決して作らない状態**でしか Runners タブを検証していなかった（Issue #31）。
+// 孤児ユニットは pagetest が持たないので、この場で足す。
 func testState(w, h int) page.StateMsg {
-	return page.StateMsg{
-		Result: testResult(),
-		Caps: appconfig.Caps{
-			Root: true, Systemd: true, Docker: true, Journal: true,
-			GitHubToken: true, SudoUser: "ousiass",
-		},
-		Styles: token.NewStyles(true, false),
-		Keys:   keymap.New(),
-		Dark:   true,
-		BodyW:  w,
-		BodyH:  h,
-		Err:    nil,
-	}
+	st := pagetest.State(w, h, sampleRunner("build01-1", false), sampleRunner("build01-2", true))
+	st.Result.OrphanUnits = testResult().OrphanUnits
+	return st
 }
 
 // newModel は共有状態を配った状態の Runners タブを返す。
