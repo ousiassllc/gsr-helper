@@ -59,3 +59,24 @@ func TestAuditSinkIsSafeForConcurrentUse(t *testing.T) {
 		t.Errorf("件数が合わない: %q", buf.String())
 	}
 }
+
+// クローズの失敗は 1 行の警告として出す。捨てると、開けなかった場合と記録に
+// 失敗した場合は警告が出るのに、閉じ損ないだけが利用者に見えないままになる。
+func TestReportAuditClose(t *testing.T) {
+	var buf bytes.Buffer
+	reportAuditClose(nil, &buf)
+	if buf.Len() != 0 {
+		t.Errorf("失敗が無いのに出力している: %q", buf.String())
+	}
+
+	buf.Reset()
+	reportAuditClose(errors.New("監査ログのクローズに失敗しました: ディスクが満杯です"), &buf)
+	got := buf.String()
+	want := "警告: 監査ログのクローズに失敗しました: ディスクが満杯です\n"
+	if got != want {
+		t.Errorf("出力 = %q, want %q", got, want)
+	}
+	if strings.Count(got, "\n") != 1 {
+		t.Errorf("1 行で出していない: %q", got)
+	}
+}

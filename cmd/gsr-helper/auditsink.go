@@ -49,3 +49,19 @@ func (s *auditSink) report(w io.Writer) {
 	}
 	_, _ = fmt.Fprintf(w, "警告: 監査ログの記録に %d 件失敗しました（最初の失敗: %v）\n", s.count, s.first)
 }
+
+// reportAuditClose は監査ログのクローズの失敗を w に 1 行で報告する。
+//
+// **クローズの失敗を捨てると、利用者が唯一見られない監査ログのエラーになる。**
+// 開けなかった場合（openAudit）と記録に失敗した場合（auditSink.report）はどちらも
+// 警告として出るのに、閉じ損ないだけが誰の目にも触れない状態だった。
+// audit.Logger.Close はまさに報告されるためにエラーを包んでいる。
+//
+// 終了コードは変えない。ここに至る時点で TUI は正常に終わっており、記録の失敗を
+// 操作の失敗として扱わない方針（同上の 2 つと同じ）に揃える。
+func reportAuditClose(err error, w io.Writer) {
+	if err == nil {
+		return
+	}
+	_, _ = fmt.Fprintf(w, "警告: %v\n", err)
+}
