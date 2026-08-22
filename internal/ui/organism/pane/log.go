@@ -3,10 +3,12 @@ package pane
 import (
 	"slices"
 
+	"charm.land/bubbles/v2/textinput"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/ousiassllc/gsr-helper/internal/ui/keymap"
+	"github.com/ousiassllc/gsr-helper/internal/ui/token"
 )
 
 // Log はログ本文の表示領域。スクロールは bubbles/viewport に委ね、末尾への追従を足す。
@@ -20,15 +22,33 @@ import (
 type Log struct {
 	vp     viewport.Model
 	follow bool
+	// filter は正規表現フィルタの入力欄（FR-25）。突き合わせそのものは行わない。
+	//
+	// 一致の判定を持たないのは、Log が持っているのが装飾済みの行だからである。
+	// 装飾済みの文字列に正規表現を当てると ANSI 列が一致に混ざる。絞り込みは
+	// 素の行を持つ page が行い、Log は入力欄と確定値だけを預かる。
+	filter textinput.Model
+	// filtering は入力モードか。確定・取消のキーを解釈するのは page である。
+	filtering bool
+	// applied は確定済みのフィルタ。取消で入力欄をここへ戻す。
+	applied string
 }
 
 // NewLog はログ本文の表示領域を組み立てる。追従は ON で始める。
 //
 // 開いた直後に見たいのは末尾（今起きていること）だからである（screens.md の Logs タブ）。
-func NewLog() Log {
+func NewLog(s token.Styles) Log {
 	vp := viewport.New()
 	vp.KeyMap = viewportKeyMap(keymap.NewList())
-	return Log{vp: vp, follow: true}
+	return Log{vp: vp, follow: true, filter: newFilterInput(s), filtering: false, applied: ""}
+}
+
+// Restyle は配色を差し替える。
+//
+// 背景の明暗は起動後に届き、切り替わることもある（organism/table.Model.Restyle と
+// 同じ理由）。行の装飾は page が付け直すので、ここで差し替えるのは入力欄だけである。
+func (l *Log) Restyle(s token.Styles) {
+	l.filter.SetStyles(filterStyles(s))
 }
 
 // SetContent は表示する行を差し替える。追従が ON なら末尾へ寄せる。
@@ -75,6 +95,14 @@ func (l *Log) SetFollow(on bool) {
 // 位置が変わらない（追従を切る理由が無い）ためである。位置の結果で判断すれば、
 // スクロールのキーが増えても判定を足さずに済む。
 func (l Log) Update(msg tea.Msg) (Log, tea.Cmd) {
+	if l.filtering {
+		// 入力中はスクロールへ渡さない。フィルタは英数字と記号を打つので、
+		// j / k / G がそのままスクロールになると入力できない（screens.md の入力中）。
+		var cmd tea.Cmd
+		l.filter, cmd = l.filter.Update(msg)
+		return l, cmd
+	}
+
 	var cmd tea.Cmd
 	l.vp, cmd = l.vp.Update(msg)
 	if l.follow && !l.vp.AtBottom() {

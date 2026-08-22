@@ -19,7 +19,7 @@ func logLines(n int) []string {
 
 // newLogPane は大きさを決めたログ本文の領域を返す。
 func newLogPane(lines int) pane.Log {
-	l := pane.NewLog()
+	l := pane.NewLog(testStyles())
 	l.SetSize(40, 5)
 	l.SetContent(logLines(lines))
 	return l
@@ -110,7 +110,7 @@ func TestLogKeepsTailOnResize(t *testing.T) {
 
 // 渡したスライスを書き換えても表示は崩れない（写しを取って渡している）。
 func TestLogCopiesContent(t *testing.T) {
-	l := pane.NewLog()
+	l := pane.NewLog(testStyles())
 	l.SetSize(40, 5)
 	lines := logLines(3)
 	l.SetContent(lines)
@@ -118,5 +118,83 @@ func TestLogCopiesContent(t *testing.T) {
 	lines[0] = "書き換えた"
 	if got := l.View(); strings.Contains(got, "書き換えた") {
 		t.Errorf("呼び出し側のスライスの書き換えが表示に出た:\n%s", got)
+	}
+}
+
+// フィルタは入力中だけカーソル付きの入力欄を、確定後は確定値を見出しへ返す。
+func TestLogFilterLifecycle(t *testing.T) {
+	l := newLogPane(5)
+	if l.FilterView() != "" {
+		t.Errorf("初期のフィルタ表記 = %q, want 空", l.FilterView())
+	}
+
+	l.StartFilter()
+	if !l.Filtering() {
+		t.Fatal("入力モードに入っていない")
+	}
+	l, _ = l.Update(press("E"))
+	l, _ = l.Update(press("R"))
+	l.AcceptFilter()
+
+	if l.Filtering() {
+		t.Error("確定しても入力モードのままである")
+	}
+	if got := l.Filter(); got != "ER" {
+		t.Errorf("確定値 = %q, want ER", got)
+	}
+	if got := l.FilterView(); !strings.Contains(got, "ER") {
+		t.Errorf("見出しのフィルタ表記 = %q, want ER を含む", got)
+	}
+}
+
+// 取消は確定済みの値へ戻す（打ちかけの文字を残さない）。
+func TestLogFilterCancelRestoresApplied(t *testing.T) {
+	l := newLogPane(5)
+	l.StartFilter()
+	l, _ = l.Update(press("A"))
+	l.AcceptFilter()
+
+	l.StartFilter()
+	l, _ = l.Update(press("B"))
+	l.CancelFilter()
+
+	if got := l.Filter(); got != "A" {
+		t.Errorf("取消後の確定値 = %q, want A", got)
+	}
+	l.StartFilter()
+	if got := l.FilterView(); strings.Contains(got, "AB") {
+		t.Errorf("取消したはずの入力が残っている: %q", got)
+	}
+}
+
+// 解除するとフィルタが空になる（入力中でないときの esc）。
+func TestLogClearFilter(t *testing.T) {
+	l := newLogPane(5)
+	l.StartFilter()
+	l, _ = l.Update(press("A"))
+	l.AcceptFilter()
+
+	l.ClearFilter()
+	if got := l.Filter(); got != "" {
+		t.Errorf("解除後の確定値 = %q, want 空", got)
+	}
+	if got := l.FilterView(); got != "" {
+		t.Errorf("解除後の表記 = %q, want 空", got)
+	}
+}
+
+// 入力中の打鍵はスクロールへ流さない（j / k / G を入力欄へ入れる）。
+func TestLogFilterSwallowsScrollKeys(t *testing.T) {
+	l := newLogPane(20)
+	l.StartFilter()
+
+	before := l.View()
+	l, _ = l.Update(press("k"))
+	if got := l.View(); got != before {
+		t.Errorf("入力中の k でスクロールした:\nbefore:\n%s\nafter:\n%s", before, got)
+	}
+	l.AcceptFilter()
+	if got := l.Filter(); got != "k" {
+		t.Errorf("入力中の打鍵 = %q, want k（入力欄へ入る）", got)
 	}
 }
