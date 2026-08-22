@@ -104,7 +104,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		//
 		// 詳細画面・確認ダイアログ・待機画面の決定はすべて runnerop が解釈する。
 		// Jobs タブと同じ経路にすることで、起点によって確認の強さが変わらない。
-		return m, tea.Batch(m.chrome(), m.ops.Result(msg))
+		//
+		// ops の呼び出しは return より前に出す。**同じ return 文に置いてはならない。**
+		// m.chrome() と m.ops.Result(msg) を同じ tea.Batch の引数に並べると、Go は
+		// 関数呼び出しの引数を左から右へ評価するので、chrome が ops の変更**前**の
+		// 状態を読む（m.ops.Result はポインタレシーバで m.ops を書き換える）。
+		// 結果として、キャンセル時は overlay.Close() 済みなのに ChromeMsg.Modal が
+		// 真のままになり、閉じたダイアログのフッタヒントが次の共有状態（既定 3 秒後）
+		// まで残る。setState が同じ理由で登録の Cmd を先に取り出しているのと同じ規約
+		// である。
+		c := m.ops.Result(msg)
+		return m, tea.Batch(m.chrome(), c)
 	case runnerop.Msg:
 		return m.handleOps(msg)
 	default:
@@ -125,7 +135,13 @@ func (m Model) handleOps(msg runnerop.Msg) (tea.Model, tea.Cmd) {
 		// 打つ経路で起きる）。選び直させるほうが安全側である。
 		m.tbl.ClearSelection()
 	}
-	return m, tea.Batch(m.chrome(), m.ops.Update(msg))
+	// ops の呼び出しは return より前に出す（case page.ResultMsg と同じ理由）。
+	// **同じ return 文に置いてはならない。** 並べると chrome が m.ops.Update より
+	// 先に評価され、DoneMsg の結果文字列（m.ops.Status()）が ChromeMsg に載らない。
+	// 直前に選択を解いているので「選択: N 件」も消えており、状態行は次の共有状態
+	// （既定 3 秒後）まで丸ごと空白になる。一括操作の成否を読む手がかりが消える。
+	c := m.ops.Update(msg)
+	return m, tea.Batch(m.chrome(), c)
 }
 
 // View はモーダルが開いていればそれを、無ければ一覧を返す。
