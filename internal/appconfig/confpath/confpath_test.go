@@ -18,6 +18,10 @@ func fakeUser(name, home string, uid, gid string) *user.User {
 	return &user.User{Uid: uid, Gid: gid, Username: name, Name: name, HomeDir: home}
 }
 
+// alwaysDir はホームの存在確認を常に真にする。ホームの有無そのものを見るテスト
+// （TestResolveOwnerFallsBackWhenHomeMissing）以外は関心が無いためである。
+func alwaysDir(string) bool { return true }
+
 // fakeLookup は name が既知のときだけユーザーを返す lookup を作る。
 // 呼ばれた引数を calls に記録し、文字種検証で弾かれたかを検証できるようにする。
 func fakeLookup(known map[string]*user.User, calls *[]string) func(string) (*user.User, error) {
@@ -68,7 +72,7 @@ func TestResolveOwner(t *testing.T) {
 			var calls []string
 			got, err := resolveOwner(tt.sudoUser, fakeLookup(known, &calls), func() (*user.User, error) {
 				return self, nil
-			})
+			}, alwaysDir)
 			if err != nil {
 				t.Fatalf("resolveOwner() でエラー: %v", err)
 			}
@@ -86,7 +90,7 @@ func TestResolveOwnerSelfError(t *testing.T) {
 	var calls []string
 	_, err := resolveOwner("", fakeLookup(nil, &calls), func() (*user.User, error) {
 		return nil, errors.New("boom")
-	})
+	}, alwaysDir)
 	if err == nil {
 		t.Fatal("実行ユーザーの取得に失敗してもエラーを返していない")
 	}
@@ -132,7 +136,7 @@ func TestConfigPathAvoidsRootHome(t *testing.T) {
 	var calls []string
 	o, err := resolveOwner("ousiass", fakeLookup(known, &calls), func() (*user.User, error) {
 		return fakeUser("root", "/root", "0", "0"), nil
-	})
+	}, alwaysDir)
 	if err != nil {
 		t.Fatalf("resolveOwner() でエラー: %v", err)
 	}
@@ -258,5 +262,81 @@ func TestValidUserName(t *testing.T) {
 		if got := validUserName(name); got != want {
 			t.Errorf("validUserName(%q) = %v, want %v", name, got, want)
 		}
+	}
+}
+
+// ホームの外にあるディレクトリには mode も所有者も触らないこと。
+//
+// 名前だけで leaf と判断すると、--config /etc/gsr-helper/config.yaml のような指定で
+// root が /etc/gsr-helper を 0700 にし、さらに非特権ユーザー所有へ chown してしまう。
+// 本ツールへの sudo だけを許されたユーザーにとっては権限昇格になる。
+func TestMkdirOwnedFSLeavesPathsOutsideHomeAlone(t *testing.T) {
+	home := t.TempDir()
+	// ホームとは無関係な場所にある、名前だけが leaf と同じディレクトリ。
+	dir := filepath.Join(t.TempDir(), "etc", DirName)
+
+	var chowned, chmodded []string
+	ops := fsOps{
+		geteuid: func() int { return 0 },
+		chmod:   func(p string, _ os.FileMode) error { chmodded = append(chmodded, p); return nil },
+		lchown:  func(p string, _, _ int) error { chowned = append(chowned, p); return nil },
+	}
+	o := Owner{name: "u", home: home, uid: 1000, gid: 1000}
+	if err := o.mkdirOwnedFS(dir, ops); err != nil {
+		t.Fatalf("mkdirOwnedFS() でエラー: %v", err)
+	}
+	if len(chmodded) != 0 {
+		t.Errorf("ホーム外のパーミッションを変更している: %v", chmodded)
+	}
+	if len(chowned) != 0 {
+		t.Errorf("ホーム外の所有者を変更している: %v", chowned)
+	}
+	if _, err := os.Stat(dir); err != nil {
+		t.Errorf("ディレクトリ自体は作られるべき: %v", err)
+	}
+}
+
+// chmod もリンクを辿らないこと。
+//
+// leaf をシンボリックリンクに差し替えられると、root がリンク先のファイルを 0700 に
+// してしまう（世界から読めていたファイルを読めなくする）。lchown と同じ脅威なので
+// 同じ方針で断つ。
+func TestRealFSChmodDoesNotFollowSymlink(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "target")
+	if err := os.WriteFile(target, []byte("x"), 0o644); err != nil {
+		t.Fatalf("準備に失敗: %v", err)
+	}
+	link := filepath.Join(dir, DirName)
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatalf("準備に失敗: %v", err)
+	}
+
+	if err := realFS.chmod(link, DirMode); err == nil {
+		t.Error("シンボリックリンクへの chmod が成功している")
+	}
+	fi, err := os.Stat(target)
+	if err != nil {
+		t.Fatalf("Stat に失敗: %v", err)
+	}
+	if got := fi.Mode().Perm(); got != 0o644 {
+		t.Errorf("リンク先の mode が変わっている: %o, want 644", got)
+	}
+}
+
+// ホームを持たないユーザー（サービスアカウントなど）で sudo された場合は、
+// 設定が保存できなくなるより実行ユーザーの設定ディレクトリに倒すこと。
+func TestResolveOwnerFallsBackWhenHomeMissing(t *testing.T) {
+	known := map[string]*user.User{"svc": fakeUser("svc", "/nonexistent", "1001", "1001")}
+	var calls []string
+
+	got, err := resolveOwner("svc", fakeLookup(known, &calls), func() (*user.User, error) {
+		return fakeUser("root", "/root", "0", "0"), nil
+	}, func(string) bool { return false })
+	if err != nil {
+		t.Fatalf("resolveOwner() でエラー: %v", err)
+	}
+	if want := (Owner{name: "root", home: "/root", uid: 0, gid: 0}); got != want {
+		t.Errorf("resolveOwner() = %+v, want %+v", got, want)
 	}
 }

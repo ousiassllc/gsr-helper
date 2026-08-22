@@ -27,14 +27,19 @@ const (
 	// exec の既定（30 秒）より短くしているのは、能力判定が起動シーケンス上にあり
 	// 「起動から一覧表示まで 1 秒以内」（docs/requirements/non-functional.md）を
 	// 目標にしているためである。応答しない docker daemon で起動を待たせない。
-	defaultProbeTimeout = time.Second
+	defaultProbeTimeout = 500 * time.Millisecond
 
 	// detectBudget は Detect 全体の予算。
 	//
 	// トークン判定は sudo 経路 → 直接実行の 2 本を逐次で発行しうるため、1 コマンド
-	// あたりの上限だけでは合計 2 秒かかり、上記の 1 秒目標を大きく超える。
+	// あたりの上限だけでは合計 1 秒かかり、上記の 1 秒目標に収まらない。
 	// 全体にも期限を掛けて超過分は「能力なし」に倒す（縮退動作で扱える）。
-	detectBudget = 1500 * time.Millisecond
+	//
+	// 予算を 1 秒より内側に取るのは、Detect が cmd/gsr-helper の起動シーケンス上で
+	// 同期的に呼ばれるため、この予算がそのまま初回描画までの時間に乗るからである。
+	// 本来は先に描画してから能力判定の結果を後から反映する方が正しいが、それには
+	// UI 側の変更が必要なので、ここでは予算を目標の内側に収める形で守る。
+	detectBudget = 800 * time.Millisecond
 
 	// dockerServerVersionFormat は docker info から daemon の版だけを取り出す指定。
 	dockerServerVersionFormat = "{{.ServerVersion}}"

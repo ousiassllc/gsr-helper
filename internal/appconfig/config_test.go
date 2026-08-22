@@ -136,17 +136,23 @@ func TestRefreshDuration(t *testing.T) {
 
 // security.md の表どおりファイルは 600、ディレクトリは 700 になること。
 //
-// 既に緩い mode で存在する場合も締め直す。os.WriteFile では perm が新規作成時にしか
-// 効かず、root が 644・0755 で作ったものが直らないと、次に非 root で起動したときに
+// 既に緩い mode で存在するファイルは締め直す。os.WriteFile では perm が新規作成時に
+// しか効かず、root が 644 で作ったものが直らないと、次に非 root で起動したときに
 // 自分の設定を読み書きできない。
+//
+// 一方でディレクトリの mode を締め直すのは「対象ユーザーのホーム配下」に限る。
+// --config で指された任意のディレクトリを root が 0700 にすると、本ツールへの sudo
+// だけを許されたユーザーが任意のディレクトリを閉じられてしまう。ホーム配下の leaf を
+// 締め直すことは confpath の TestMkdirOwnedFSTargets が担保する。
 func TestSavePermissions(t *testing.T) {
 	clearOwnerEnv(t)
 	for _, tt := range []struct {
 		name            string
 		predir, prefile os.FileMode // 0 なら事前に作らない
+		wantDir         os.FileMode // 0 なら confpath.DirMode
 	}{
 		{name: "多段の親ごと作る"},
-		{name: "既存の緩いディレクトリを締め直す", predir: 0o755},
+		{name: "既存のディレクトリの mode はホーム外なので変えない", predir: 0o755, wantDir: 0o755},
 		{name: "既存の緩いファイルを 600 に直す", predir: 0o700, prefile: 0o644},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -166,7 +172,11 @@ func TestSavePermissions(t *testing.T) {
 				t.Fatalf("Save() でエラー: %v", err)
 			}
 			assertPerm(t, path, confpath.FileMode)
-			assertPerm(t, dir, confpath.DirMode)
+			wantDir := tt.wantDir
+			if wantDir == 0 {
+				wantDir = confpath.DirMode
+			}
+			assertPerm(t, dir, wantDir)
 		})
 	}
 }

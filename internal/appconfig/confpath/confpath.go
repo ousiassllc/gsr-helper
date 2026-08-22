@@ -18,6 +18,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 )
 
 // 配置先の決定に読む環境変数。検証を伴う読み取りをこのパッケージに寄せるため、
@@ -70,7 +71,30 @@ type fsOps struct {
 // シンボリックリンクへ差し替えると、root がそのリンク先を当該ユーザー所有に変えて
 // しまう。lchown はリンク自体を対象にするので無害化される（internal/audit が
 // O_NOFOLLOW で断っているのと同じ脅威に、同じ方針で対処する）。
-var realFS = fsOps{geteuid: os.Geteuid, chmod: os.Chmod, lchown: os.Lchown}
+//
+// chmod も同じ理由で os.Chmod を使わない。chmod(2) もリンクを辿るため、同じ隙に
+// リンクを差し替えられると root が任意のファイルのモードを 0700 に変えてしまう
+// （世界から読めていたファイルを読めなくする）。chmodNoFollow が O_NOFOLLOW で
+// 開いた fd に対して fchmod するので、リンクなら開く時点で失敗する。
+var realFS = fsOps{geteuid: os.Geteuid, chmod: chmodNoFollow, lchown: os.Lchown}
+
+// chmodNoFollow は dir のモードを変える。dir がシンボリックリンクなら失敗する。
+//
+// O_NOFOLLOW | O_DIRECTORY で開いた fd に対して fchmod するため、開いた実体と
+// モードを変える実体が同一であることが保証される（パス名で 2 回参照しないので
+// 途中で差し替えられない）。
+func chmodNoFollow(dir string, mode os.FileMode) error {
+	//nolint:gosec // dir は本ツールが決めた設定ディレクトリ（<home>/.config/gsr-helper）または
+	// --config で指されたその親であり、開くこと自体が本関数の目的。O_NOFOLLOW でリンクは断つ。
+	//nolint:gosec // dir は本ツールが決めた設定ディレクトリ（<home>/.config/gsr-helper）または
+	// --config で指されたその親であり、開くこと自体が本関数の目的。O_NOFOLLOW でリンクは断つ。
+	f, err := os.OpenFile(dir, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_DIRECTORY, 0)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = f.Close() }()
+	return f.Chmod(mode)
+}
 
 // Default は設定ファイルの既定の配置先を返す。
 //
@@ -93,7 +117,7 @@ func (o Owner) ConfigPath() string {
 
 // Resolve は実環境から所有者を解決する。
 func Resolve() (Owner, error) {
-	return resolveOwner(SudoUserFrom(os.Getenv), user.Lookup, user.Current)
+	return resolveOwner(SudoUserFrom(os.Getenv), user.Lookup, user.Current, isDir)
 }
 
 // SudoUserFrom は getenv 経由で SUDO_USER を読む。文字種が不正なら空を返す。
@@ -111,16 +135,23 @@ func SudoUserFrom(getenv func(string) string) string {
 
 // resolveOwner は設定ファイルの所有者を決める。
 //
-// sudoUser が使えないとき（未設定・不正な文字種・存在しないユーザー）は実行ユーザーに
-// フォールバックする。lookup / self を引数に取るのはテストで差し替えるためである。
+// sudoUser が使えないとき（未設定・不正な文字種・存在しないユーザー・ホームが無い）は
+// 実行ユーザーにフォールバックする。lookup / self / homeIsDir を引数に取るのは
+// テストで差し替えるためである。
+//
+// ホームの有無まで見るのは、ホームを持たないユーザー（サービスアカウントなど）で
+// sudo された場合に設定が保存できなくなるのを避けるためである。本ツールはホームを
+// 作らない（root が作ると root 所有 0700 になり当該ユーザーが通れない）ので、
+// 置けない場所を指し続けるより実行ユーザーの設定ディレクトリに倒す。
 func resolveOwner(
 	sudoUser string,
 	lookup func(string) (*user.User, error),
 	self func() (*user.User, error),
+	homeIsDir func(string) bool,
 ) (Owner, error) {
 	if validUserName(sudoUser) {
 		if u, err := lookup(sudoUser); err == nil {
-			if o, oerr := toOwner(u); oerr == nil {
+			if o, oerr := toOwner(u); oerr == nil && homeIsDir(o.home) {
 				return o, nil
 			}
 		}
@@ -130,6 +161,12 @@ func resolveOwner(
 		return Owner{}, fmt.Errorf("実行ユーザーの取得に失敗しました: %w", err)
 	}
 	return toOwner(u)
+}
+
+// isDir は p が存在するディレクトリかを返す。
+func isDir(p string) bool {
+	fi, err := os.Stat(p)
+	return err == nil && fi.IsDir()
 }
 
 // toOwner は os/user の値を Owner に変換する。
@@ -195,8 +232,13 @@ func (o Owner) mkdirOwnedFS(dir string, ops fsOps) error {
 	// root が 0755 で作ったまま残っていると、次に非 root で起動したときに一時
 	// ファイルを作れず自分の設定を書けない（security.md 4.）。
 	// ~/.config のような共有の祖先と、--config で指された任意のディレクトリは
-	// 他の用途と共有されうるので触らない。線引きはディレクトリ名で行う。
-	if filepath.Base(dir) == DirName {
+	// 他の用途と共有されうるので触らない。
+	//
+	// 線引きはディレクトリ名と「対象ユーザーのホーム配下であること」の両方で行う。
+	// 名前だけで判断すると、--config /etc/gsr-helper/config.yaml のような指定で
+	// root が /etc/gsr-helper を 0700 にし、さらに非特権ユーザー所有へ chown して
+	// しまう。本ツールへの sudo だけを許されたユーザーにとっては権限昇格になる。
+	if filepath.Base(dir) == DirName && underHome(o.home, dir) {
 		if err := ops.chmod(dir, DirMode); err != nil {
 			return fmt.Errorf("%s のパーミッション設定に失敗しました: %w", dir, err)
 		}
