@@ -111,7 +111,7 @@ func TestRunnerDetailRoutesKeysToChoiceList(t *testing.T) {
 	d.list.SetItems([]organism.Choice{
 		{Key: "l", Desc: "ログを開く", Impact: "", Reason: "", Enabled: true, DividerBefore: false},
 		{Key: "D", Desc: "削除", Impact: "", Reason: "ジョブ実行中です", Enabled: false, DividerBefore: true},
-	})
+	}, organism.ResetCursor)
 
 	_, cmd := sendDetail(d, "l")
 	if cmd == nil {

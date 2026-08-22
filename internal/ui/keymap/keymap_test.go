@@ -157,6 +157,38 @@ func listNormal(t *testing.T, l List) []key.Binding {
 	return out
 }
 
+// enter と esc の共有は「特別扱いの除外」ではなく、モードの分割で成り立っている。
+//
+// List.Accept（enter）と List.Enter（enter）、List.Cancel（esc）と Global.Back（esc）は
+// 同じキーを使うが、有効になるモードが排他である（入力中はグローバルキーを解釈せず、
+// 通常時は Accept / Cancel を解釈しない。atomic-design.md のキー入力の配送）。
+// そこで**キーを分けるのではなく、モードの分割そのものを固定する。** List の全
+// フィールドが Bindings と FilterBindings のどちらか一方だけに現れることを見れば、
+// 「どちらのモードにも属さないキー」も「両方に属するキー」も作れない（Issue #50）。
+func TestListModesPartitionEveryKey(t *testing.T) {
+	l := NewList()
+
+	seen := make(map[string]int, reflect.TypeOf(l).NumField())
+	for _, b := range append(l.Bindings(), l.FilterBindings()...) {
+		seen[b.Help().Desc]++
+	}
+
+	v := reflect.ValueOf(l)
+	for i := range v.NumField() {
+		b, ok := v.Field(i).Interface().(key.Binding)
+		if !ok {
+			t.Fatalf("%s は key.Binding ではない", reflect.TypeOf(l).Field(i).Name)
+		}
+		switch seen[b.Help().Desc] {
+		case 1:
+		case 0:
+			t.Errorf("%s がどちらのモードにも属していない", reflect.TypeOf(l).Field(i).Name)
+		default:
+			t.Errorf("%s が両方のモードに属している", reflect.TypeOf(l).Field(i).Name)
+		}
+	}
+}
+
 func assertNoDuplicateKeys(t *testing.T, context string, bindings []key.Binding) {
 	t.Helper()
 

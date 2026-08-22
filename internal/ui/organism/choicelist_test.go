@@ -31,7 +31,7 @@ func detailChoices() []organism.Choice {
 func newChoices(items []organism.Choice) organism.ChoiceList {
 	c := organism.NewChoiceList(keymap.NewList(), testStyles())
 	c.SetWidth(72)
-	c.SetItems(items)
+	c.SetItems(items, organism.ResetCursor)
 	return c
 }
 
@@ -66,7 +66,7 @@ func TestChoiceListResetsCursorOnSetItems(t *testing.T) {
 		t.Fatal("カーソルが動いていない")
 	}
 
-	c.SetItems(detailChoices())
+	c.SetItems(detailChoices(), organism.ResetCursor)
 	if got := c.Cursor(); got != 0 {
 		t.Errorf("開き直した後のカーソル = %d, want 0", got)
 	}
@@ -151,7 +151,7 @@ func TestChoiceListDividerAlignsWithRows(t *testing.T) {
 	const width = 72
 	c := organism.NewChoiceList(keymap.NewList(), testStyles())
 	c.SetWidth(width)
-	c.SetItems(detailChoices())
+	c.SetItems(detailChoices(), organism.ResetCursor)
 
 	// 添字 3 は最初の破壊的な操作（X）の前に入る区切り線の行。
 	divider := strings.Split(c.View(), "\n")[3]
@@ -167,7 +167,7 @@ func TestChoiceListRowsFitWidth(t *testing.T) {
 	for _, width := range []int{72, 60} {
 		c := organism.NewChoiceList(keymap.NewList(), testStyles())
 		c.SetWidth(width)
-		c.SetItems(detailChoices())
+		c.SetItems(detailChoices(), organism.ResetCursor)
 
 		lines := strings.Split(c.View(), "\n")
 		for i, line := range lines {
@@ -179,7 +179,7 @@ func TestChoiceListRowsFitWidth(t *testing.T) {
 	}
 }
 
-// UpdateItems は内容を差し替えてもカーソル位置を保つ。
+// KeepCursor は内容を差し替えてもカーソル位置を保つ。
 //
 // 同じ対象の状態が変わっただけ（3 秒ごとの再検出でジョブが始まった等）でカーソルが
 // 先頭へ戻ると、操作を選んでいる途中で選択がずれる。本番の呼び出し元は
@@ -195,7 +195,7 @@ func TestChoiceListUpdateItemsKeepsCursor(t *testing.T) {
 	next := detailChoices()
 	next[2].Enabled = false
 	next[2].Reason = "ジョブ実行中です"
-	c.UpdateItems(next)
+	c.SetItems(next, organism.KeepCursor)
 	if got := c.Cursor(); got != 2 {
 		t.Errorf("内容の差し替え後のカーソル = %d, want 2", got)
 	}
@@ -204,21 +204,21 @@ func TestChoiceListUpdateItemsKeepsCursor(t *testing.T) {
 	}
 
 	// 件数が減ったら末尾へ丸める（範囲外を指したままにしない）。
-	c.UpdateItems(detailChoices()[:2])
+	c.SetItems(detailChoices()[:2], organism.KeepCursor)
 	if got := c.Cursor(); got != 1 {
 		t.Errorf("件数が減った後のカーソル = %d, want 1", got)
 	}
 
 	// 空になっても 0 に収まる。
-	c.UpdateItems(nil)
+	c.SetItems(nil, organism.KeepCursor)
 	if got := c.Cursor(); got != 0 {
 		t.Errorf("空にした後のカーソル = %d, want 0", got)
 	}
 
-	// SetItems は逆に先頭（安全側）へ戻す（FR-46）。
-	c.SetItems(detailChoices())
+	// ResetCursor（ゼロ値）は逆に先頭（安全側）へ戻す（FR-46）。
+	c.SetItems(detailChoices(), organism.ResetCursor)
 	c, _ = sendChoice(c, "j", "j")
-	c.SetItems(detailChoices())
+	c.SetItems(detailChoices(), organism.ResetCursor)
 	if got := c.Cursor(); got != 0 {
 		t.Errorf("SetItems の後のカーソル = %d, want 0（安全側へ戻していない）", got)
 	}

@@ -175,24 +175,35 @@ func Path(p string, width int) string {
 
 // tail は文字列の末尾から width セル分を返す。
 //
-// rune 単位で数えるため、結合文字や ZWJ 絵文字のような複数 rune から成る書記素は
-// 途中で分割され得る。lipgloss には末尾から切る手立てが無く、_work のパスに絵文字が
-// 混じる場合に限る崩れなので、制約として残す。
+// 末尾を数えるのではなく、**先頭を lipgloss で落とした残り**を返す。lipgloss には
+// 末尾から切る手立てが無いが、先頭からの切り詰め（MaxWidth）は書記素を割らないので、
+// 落とす幅を 1 セルずつ広げて残りが収まった時点で止めれば末尾側も書記素の境界に
+// そろう。rune を末尾から数えると、結合文字や ZWJ 絵文字が途中で分割される
+// （Truncate と同じ理由。_work のパスに絵文字が混じると起きる）。
+//
+// 落とす幅を広げる回数は文字列の表示幅で頭打ちになる。パスの表示は 1 行ぶんなので
+// 実際の反復は数回で終わる。
 func tail(s string, width int) string {
 	if width <= 0 {
 		return ""
 	}
-	runes := []rune(s)
-	used := 0
-	i := len(runes)
-	for ; i > 0; i-- {
-		w := lipgloss.Width(string(runes[i-1]))
-		if used+w > width {
-			break
-		}
-		used += w
+	total := lipgloss.Width(s)
+	if total <= width {
+		return s
 	}
-	return string(runes[i:])
+
+	for drop := total - width; drop <= total; drop++ {
+		head := lipgloss.NewStyle().MaxWidth(drop).Render(s)
+		rest, ok := strings.CutPrefix(s, head)
+		if !ok {
+			// 切り詰めが元の文字列の接頭辞にならない形（想定外）。末尾を返さない。
+			return ""
+		}
+		if lipgloss.Width(rest) <= width {
+			return rest
+		}
+	}
+	return ""
 }
 
 // Divider は区画の区切り線を返す。title が空なら線だけを返す。

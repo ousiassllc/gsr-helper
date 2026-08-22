@@ -88,7 +88,7 @@ func newModel(keys keymap.Set, s token.Styles) Model {
 
 // Open は対象を差し替えて詳細を開く。
 //
-// 操作リストのカーソルは organism.ChoiceList.SetItems が常に先頭（安全側）へ戻す。
+// 操作リストのカーソルは organism.ResetCursor で先頭（安全側）へ戻す。
 // 一覧の enter → 詳細の enter で破壊的操作に到達しないための規則（FR-46）である。
 //
 // **情報部のスクロールも先頭へ戻す。** 80x24 では情報部に配れる行数が 1 行まで
@@ -98,7 +98,7 @@ func newModel(keys keymap.Set, s token.Styles) Model {
 func (d *Model) Open(r runner.Runner, caps appconfig.Caps) {
 	d.target, d.caps = r, caps
 	items := d.actions.Choices(r, caps)
-	d.list.SetItems(items)
+	d.list.SetItems(items, organism.ResetCursor)
 	d.opRows = len(items) + 1 // 破壊的操作の前に置く区切り線 1 本
 	d.refresh()
 	d.info.GotoTop()
@@ -122,7 +122,7 @@ func (d *Model) SetSize(w, h int) {
 // 3 秒ごとの再検出は一時的に 1 台を取りこぼすことがあり、そのたびに詳細が空に
 // なると読めないためである。
 //
-// 操作リストのカーソルは保つ（UpdateItems）。同じ対象の状態が変わっただけで
+// 操作リストのカーソルは保つ（organism.KeepCursor）。同じ対象の状態が変わっただけで
 // カーソルが先頭へ戻ると、操作を選んでいる途中で選択がずれる。対象そのものを
 // 差し替える Open は逆に先頭へ戻す（FR-46）。
 func (d *Model) SetState(st page.StateMsg) {
@@ -135,7 +135,7 @@ func (d *Model) SetState(st page.StateMsg) {
 	}
 
 	items := d.actions.Choices(d.target, d.caps)
-	d.list.UpdateItems(items)
+	d.list.SetItems(items, organism.KeepCursor)
 	d.opRows = len(items) + 1
 	d.refresh()
 }

@@ -77,24 +77,35 @@ func NewChoiceList(keys keymap.List, s token.Styles) ChoiceList {
 	return ChoiceList{items: nil, cursor: 0, keys: keys, styles: s, width: 0}
 }
 
-// SetItems は項目を差し替え、カーソルを先頭（安全側）へ戻す。
+// CursorPolicy は項目を差し替えるときのカーソルの扱い。
 //
-// 詳細を開き直すたびに安全側へ戻す規則（FR-46）をここで担保する。一覧の enter → 詳細の
-// enter で破壊的操作に到達しないようにするためである。
-func (c *ChoiceList) SetItems(items []Choice) {
-	c.items = items
-	c.cursor = 0
-}
+// 差し替えの意味を**引数で必ず宣言させる**ために置く。以前は SetItems（先頭へ戻す）と
+// UpdateItems（位置を保つ）の 2 つのメソッドを並べていたが、名前だけでは取り違えが
+// 防げず、誤ると FR-46（一覧の enter → 詳細の enter で破壊的操作に到達しない）が
+// 黙って崩れる。**ゼロ値は安全側（ResetCursor）である。**
+type CursorPolicy int
 
-// UpdateItems は項目の内容を差し替え、カーソル位置を保つ。
-//
-// 同じ対象の状態が変わったとき（3 秒ごとの再検出でジョブが始まった等）に使う。
-// SetItems を使うとカーソルが先頭へ戻り、操作を選んでいる途中で選択がずれる。
-// **対象そのものを差し替えるときは SetItems を使うこと**（FR-46 の「一覧の enter →
-// 詳細の enter で破壊的操作に到達しない」は先頭へ戻すことで担保している）。
-func (c *ChoiceList) UpdateItems(items []Choice) {
+// CursorPolicy の取り得る値。
+const (
+	// ResetCursor はカーソルを先頭（安全側）へ戻す。対象そのものを差し替えるときに使う。
+	//
+	// 詳細を開き直すたびに安全側へ戻す規則（FR-46）をここで担保する。
+	ResetCursor CursorPolicy = iota
+	// KeepCursor はカーソル位置を保つ。同じ対象の内容だけが変わったときに使う。
+	//
+	// 3 秒ごとの再検出でジョブが始まった等。先頭へ戻すと、操作を選んでいる途中で
+	// 選択がずれる。件数が減った場合は末尾へ丸める。
+	KeepCursor
+)
+
+// SetItems は項目を差し替える。カーソルの扱いは policy で宣言する。
+func (c *ChoiceList) SetItems(items []Choice, policy CursorPolicy) {
 	c.items = items
-	c.cursor = min(max(c.cursor, 0), max(len(items)-1, 0))
+	if policy == KeepCursor {
+		c.cursor = min(max(c.cursor, 0), max(len(items)-1, 0))
+		return
+	}
+	c.cursor = 0
 }
 
 // Restyle は配色とキー定義を差し替える。項目とカーソル位置は保つ。
