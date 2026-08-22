@@ -170,15 +170,16 @@ runner との紐付けは `UnitName`（`.service` ファイル）を第一に、
 
 ### 表示用の派生値
 
-モデル側が持つ表示用のメソッドは次の 3 つである。いずれも**一覧向けの短い表記**であり、これ以外に短い表記を作らない。
+モデル側が持つ表示用のメソッドは次の 2 つである。いずれも**一覧向けの短い表記**であり、これ以外に短い表記を作らない。
 
-| 派生値 | 返す値 |
-|-------|-------|
-| `ManagedBy.String()` | `systemd` / `run.sh` / `-`（未稼働）/ `?`（判定不能） |
-| `SvcState.Label()` | `-`（`ActiveState` が空）/ `active`（`SubState` が同じか空）/ `active/running`（両方あり異なる） |
-| `ProcKind.String()` | `Runner.Listener` / `Runner.Worker` / `unknown` |
+| 派生値 | 返す値 | 呼び出し元 |
+|-------|-------|-----------|
+| `ManagedBy.String()` | `systemd` / `run.sh` / `-`（未稼働）/ `?`（判定不能） | MANAGED 列 |
+| `ProcKind.String()` | `Runner.Listener` / `Runner.Worker` / `unknown` | `Result.Warnings` の文言（どの種別のプロセスかを示す） |
 
-**MANAGED 列は `ManagedBy.String()` をそのまま出す。** 一方 SVC 列は記号を伴うため UI 側（`atom.StatusText` / `atom.StatusUnknown`）が組み立てる。記号を伴う表記をドメイン層に置くと、色と記号の対の定義（`token`）が 2 箇所に分かれる。`SvcState.Label()` は記号を持たない素の表記であり、ログや doctor の説明文のように記号を要さない用途のためにある。
+**MANAGED 列は `ManagedBy.String()` をそのまま出す。** 一方 SVC 列は記号を伴うため UI 側（`atom.StatusText` / `atom.StatusUnknown`）が組み立てる。記号を伴う表記をドメイン層に置くと、色と記号の対の定義（`token`）が 2 箇所に分かれる。
+
+**呼び出し元の無い表示用メソッドは置かない。** `SvcState` にも記号を持たない素の表記を返す `Label()` があったが、SVC 列も詳細画面も `atom.StatusText` を通しており呼び出し元が無かったため削除した。ドメイン層に 2 つ目の表示用の写像を残すと、表示の変更が片方にしか入らずに食い違う。記号を要さない表記が必要になった時点で、その用途に合わせて追加する。
 
 詳細画面で「何が分かっていないのか」を文で示す言い換え（`-` → `未稼働（サービス登録なし・プロセスなし）` など）も表示側の関心事であり、`internal/ui/page/runnerdetail` が持つ（[画面仕様](../ui/screens.md#詳細画面enter)）。
 
@@ -410,3 +411,4 @@ defaults:
 | 1.4 | 2026-08-22 | `Managed` を 4 値に更新し、`RunAsUser` の UID フォールバックと FR-43 への影響を追記。表示用の派生値・`Discover` の `Options`・`Result.Warnings` の文言一覧を追加。Kind Unknown が `Parse` の戻りではないことを明記。自前設定の検証範囲と起動を止める読み込みエラー、監査ログの `error` フィールドの規則とローテーションの扱いを追加 | ユニット一覧が取れない状態を「ユニットが無い」と同一視すると起動方式を誤表示する。`RunAsUser` が UID になり得ることを知らずに `sudo -l -U` へ渡すと判定が失敗する。設定の検証・警告の文言・監査ログに残す内容がいずれも実装のみに存在し、仕様から読み取れなかった |
 | 1.5 | 2026-08-22 | `Process.Dir` の ` (deleted)` の扱いを明記し、削除済みディレクトリで稼働する runner の扱い（一覧に出さず警告 1 件）と `Started` に mtime を使う根拠（実機確認の記録）を追加 | どちらも実装に検証されていない仮定として残っており、稼働中の runner が一覧から黙って消える経路になっていた |
 | 1.6 | 2026-08-22 | `Discover` の `Options` に `SkipDefaultRoots` を追加 | 既定の走査ルートが実ホストのパスを直接 glob するため、`Discover` / `collectDirs` を通る検証が実ホストの状態に依存していた |
+| 1.7 | 2026-08-22 | 表示用の派生値から `SvcState.Label()` を削除し、残る 2 つに呼び出し元を明記 | 呼び出し元が無く、ドメイン層に 2 つ目の表示用の写像を残すと表示の変更が片方にしか入らない |

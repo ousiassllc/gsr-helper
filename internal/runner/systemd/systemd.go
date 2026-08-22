@@ -51,17 +51,6 @@ type State struct {
 	MainPID    int
 }
 
-// Label はテーブル表示用の状態ラベルを返す。
-func (s State) Label() string {
-	if s.Active == "" {
-		return "-"
-	}
-	if s.Sub != "" && s.Sub != s.Active {
-		return s.Active + "/" + s.Sub
-	}
-	return s.Active
-}
-
 // Scan は actions.runner.* の systemd ユニットとその状態を集める。
 //
 // ex が nil のときは systemd を参照せず何も返さない（systemctl が無い環境での縮退）。

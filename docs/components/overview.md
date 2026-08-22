@@ -183,7 +183,7 @@ runner の検出とモデル定義。**最下層**であり、他のドメイン
 | パッケージ | 主な要素 |
 |-----------|---------|
 | `runner/procs` | `Process` / `Kind` / `Scan`。`/proc/<pid>/exe` の末尾に付く ` (deleted)` を照合の前に落とす（runner の自動更新でバイナリが差し替わっても稼働中の runner を見落とさない）。`Process.Exe` には印を残した生の値を保つ |
-| `runner/systemd` | `State` / `Scan` / `ErrListUnits`。`list-units` と並列の `show`、`WorkingDirectory` の先頭 `-` の除去、`State.Label()` |
+| `runner/systemd` | `State` / `Scan` / `ErrListUnits`。`list-units` と並列の `show`、`WorkingDirectory` の先頭 `-` の除去 |
 
 ### `internal/runner/scope`
 
@@ -402,8 +402,9 @@ type Executor interface {
 | `Load(path) (Config, error)` | 読み込み。すべての項目に既定値を持たせ、ファイルが無くても動作する。値の検証と起動を止めるエラーは [データモデル](../architecture/data-model.md#検証と既定値) |
 | `Save(Config, path) error` | 書き込み。一時ファイル + rename で常に 0600・**`SUDO_USER` の所有権**にする |
 | `DefaultPath() (string, error)` | 配置先の決定（`SUDO_USER` を考慮） |
-| `Exists(path) (bool, error)` | 設定ファイルの有無。初回起動ウィザード（FR-41）の判定に使う想定の API。**FR-41 は未実装のため現時点の呼び出し元は無い** |
 | `Detect(ctx, Executor, Options) Caps` | root / systemd / docker / journalctl / トークンの能力判定（下記） |
+
+**呼び出し元の無い公開 API は置かない。** 設定ファイルの有無を返す `Exists` は初回起動ウィザード（FR-41）のための API として用意してあったが、FR-41 が未実装で呼び出し元が無く、実際の必要に対して形が正しいかを確かめる手段が無かったため削除した。FR-41 を実装する際に、その時の必要に合わせて追加する。
 
 #### 能力判定（`appconfig/hostcaps`）
 
@@ -436,7 +437,7 @@ type Executor interface {
 
 | パッケージ | 置くもの |
 |-----------|---------|
-| `appconfig` | `Config` / `Default` / `Load` / `Save` / `Exists` / 検証 |
+| `appconfig` | `Config` / `Default` / `Load` / `Save` / 検証 |
 | `appconfig/confpath` | 配置先の決定、所有者の決定、`SUDO_USER` の検証、所有権付きの原子的な書き込み |
 | `appconfig/hostcaps` | 能力判定 |
 
@@ -520,3 +521,4 @@ interface はこの 3 つに留める。ドメインごとの interface は、�
 | 1.6 | 2026-08-22 | 依存関係に `appconfig --> exec` を追加。`appconfig` の責務表に `Exists` と能力判定の並行実行を追記 | `appconfig` の能力判定が `Executor` 経由で外部コマンドを発行しており、グラフに依存が無かったため |
 | 1.7 | 2026-08-22 | スコープ判定を `internal/runner/scope` として分離。`ScanUnits` の所要時間とキャンセルの契約、`systemctl show` 失敗ユニットを孤児にしない規則を追記 | `Scope` は GitHub API のパス生成にも使うため、`internal/gh` が `internal/runner` 全体に依存せず参照できる形にした。`show` 失敗ユニットは `WorkingDirectory` が空になるため孤児と誤判定される欠陥があった |
 | 1.8 | 2026-08-22 | `exec` の実行オプション・タイムアウト・プロセスグループ・出力上限、`audit` の縮退と記録失敗の通知、`appconfig` の能力判定の上限（800 ms）と設定ファイルの配置規則、`cmd` の終了コードと監査ログの縮退を追記。`exec` / `appconfig` / `runner` のサブパッケージ分割を記載。`attach` が決める値と `list-units` 失敗時の縮退を明記。`cmd` から代替スクリーンと panic 復元の記述を削除 | これらはいずれも実装のみに存在する契約で、仕様からは値も縮退の範囲も読み取れなかった。代替スクリーンは親 Model が宣言し panic 復元は bubbletea が行うため、`cmd` の責務としていた記述が実装と食い違っていた |
+| 1.9 | 2026-08-22 | 走査ルートの合成規約（`--root` / `scan_roots` / `SkipDefaultRoots`）と `scanRoots` を追加。`exec.Options` に `SkipAudit` を追記。呼び出し元の無い `appconfig.Exists` と `State.Label()` を削除 | 既定の走査ルートが実ホストのパスを glob するため検証がホストに依存していた。読み取り専用の定期実行が監査ログを埋めていた。呼び出し元の無い公開 API は実際の必要に対して形が正しいかを確かめられない |
