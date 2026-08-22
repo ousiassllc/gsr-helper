@@ -22,11 +22,11 @@ const (
 	// discoverBudget は 1 回の検出に与える上限（deadline）。
 	//
 	// **自動更新間隔とは切り離す。** 間隔と同値にすると --refresh 1 のような短い間隔では
-	// ほぼ毎周期で期限切れになり、runner.ScanUnits が残りの systemctl show を発行せずに
+	// ほぼ毎周期で期限切れになり、runner.Discover が残りの systemctl show を発行せずに
 	// 取れた分だけを返す。その部分結果では Svc が紐付かない runner が出るため、systemd
 	// 管理の runner が run.sh / - と誤表示され、孤児ユニットも過少報告される。
 	//
-	// 値は 15 秒とする。runner.ScanUnits は systemctl show を 8 件ずつのバッチで発行し、
+	// 値は 15 秒とする。runner.Discover は systemctl show を 8 件ずつのバッチで発行し、
 	// 1 コマンドの上限は exec の既定（30 秒）である。正常時の show は数ミリ秒で終わるので、
 	// 想定台数（20 台程度）でも 15 秒は十分に余る。一方 systemctl が応答しない異常時には
 	// 1 コマンドの上限（30 秒）より先に打ち切るため、1 回の検出が 30 秒以上生き残って
@@ -90,7 +90,7 @@ func (a *App) applyDiscovered(msg discoveredMsg) tea.Cmd {
 	}
 	a.applied = msg.seq
 
-	// 期限切れ・失敗した周期の部分結果では上書きしない。runner.ScanUnits は
+	// 期限切れ・失敗した周期の部分結果では上書きしない。runner.Discover は
 	// ctx がキャンセルされた時点で残りの systemctl show を発行せず取れた分だけを
 	// 返すため、部分結果を採ると systemd 管理の runner が run.sh / - と誤表示され、
 	// 孤児ユニットも過少報告される。エラーは状態行の警告として出し、一覧は
@@ -131,7 +131,7 @@ func (a *App) discover() tea.Cmd {
 
 // discoverExec は検出に使う Executor を返す。
 //
-// systemctl が無い環境では nil を返す。runner.ScanUnits は Executor が nil のとき
+// systemctl が無い環境では nil を返す。runner.Discover は Executor が nil のとき
 // systemd を参照しない（systemctl 不在時の縮退）ため、3 秒ごとに失敗するコマンドを
 // 発行し続けずに済む。
 func (a App) discoverExec() exec.Executor {
