@@ -50,10 +50,10 @@ type ModalMsg struct {
 
 // ResultMsg はモーダルが、自分を開いた page へ返す決定。
 //
-// **Overlay ではなく page が解釈する。** page の Update はモーダルへの転送
-// （Overlay.Handles を見る default）より前にこの case を置くこと。転送すると決定は
-// 発行元のモーダル自身へ戻って捨てられる（Overlay.Handles も ResultMsg には偽を
-// 返し、取り違えを構造で塞いでいる）。
+// **Overlay ではなく page が解釈する。** page の Update は自分の case でこれを
+// 受けること。転送すると決定は発行元のモーダル自身へ戻って捨てられる。
+// Overlay.Handles が ResultMsg に偽を返すことと合わせた**二重の守り**であり、
+// 決定を解釈するのは Overlay ではなく page だという分担を page 側から明示する。
 //
 // 発行側は AttachMsg で受け取ったタブ番号を使って Do(tab, ...) で包む。タブを
 // 切り替えても発行元の page へ戻り、閉じた後でも page が受けるため宛先を失わない。
