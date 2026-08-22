@@ -605,32 +605,56 @@ func Do(tab int, fn func() tea.Msg) tea.Cmd  // 結果を TabMsg{Tab, Msg} に�
 type ModalKind string // 種類。page/<tab> が自分の定数を宣言する
 
 type Modal struct {
-    Model tea.Model                     // 中身。キー・SizeMsg・StateMsg はここへ渡る
+    Model tea.Model                     // 中身。キー・SizeMsg・StateMsg・AttachMsg はここへ渡る
     Title func(m tea.Model) string      // 見出し
     Hints func(m tea.Model) []atom.Hint // フッタに出すキーヒント
+    HandlesBack func(m tea.Model) bool  // esc を自分で解釈するか。nil なら常に 1 枚閉じる
 }
 
-func (o *Overlay) Register(kind ModalKind, m Modal)
+func NewOverlay(tab int, keys keymap.Set, s token.Styles, dark bool) Overlay
+func (o *Overlay) Register(kind ModalKind, m Modal) tea.Cmd
 func (o *Overlay) Open(kind ModalKind, msg tea.Msg) tea.Cmd
-func (o *Overlay) OpenHelp()
+func (o *Overlay) OpenHelp() tea.Cmd
 func (o *Overlay) Close()                       // 最上位を 1 枚だけ閉じる
 func (o Overlay) Active() bool                  // 1 枚以上開いているか
+func (o Overlay) Handles(msg tea.Msg) bool      // page がこの Msg を Overlay へ渡すか
 func (o Overlay) Modal(kind ModalKind) (Modal, bool)
 func (o *Overlay) SetState(st StateMsg) tea.Cmd
 func (o *Overlay) SetSize(w, h int)
-func (o *Overlay) SetHelpScope(scope HelpScope)  // ? に出すキーの範囲を差し替える
+func (o *Overlay) SetHelpScope(scope HelpScope) tea.Cmd // ? に出すキーの範囲を差し替える
 ```
+
+**`Register` / `Open` / `OpenHelp` / `SetHelpScope` が返す `tea.Cmd` は呼び出し側まで返すこと。** 登録した時点・開いた時点で処理を始めるモーダル（ログの購読、差分の計算）は、この `Cmd` が捨てられるとその処理を動かせない。
+
+**page はキー以外の `Msg` の配送先を `Overlay.Handles` で決める。** 開閉だけで判断すると、宛先を明示した `page.ModalMsg` が閉じている間に捨てられ、page 宛の決定（`page.ResultMsg`）はモーダル自身へ戻って消える。
 
 **種類を中央の `iota` に集めない。** 集めるとタブを 1 つ足すたびに共有ファイルへ定数を足すことになる。`NewOverlay` が登録するのは `page.ModalHelp` だけで、それ以外は画面が `Register` で足す（runner の詳細は `runnerdetail.Kind`、確認や差分承認は各 Issue が持ち込む）。
 
-モーダルの中身が受け取る `Msg` は次の 4 種である。
+モーダルの中身が受け取る `Msg` は次の 6 種である。
 
 | `Msg` | 内容 |
 |-------|------|
 | `page.StateMsg` | 共有状態。**開いていないモーダルにも配る**（開いた瞬間に古い配色・古い検出結果で描かれることを防ぐ） |
 | `page.SizeMsg{W, H}` | 中身が使える領域（本体領域から `template.ModalPadding` を引いた値） |
+| `page.AttachMsg{Tab}` | 自分が乗っているタブ番号。`Register` で届く。**モーダルが発行する `Cmd` と page へ返す決定はこの番号で `page.Do` に包む** |
 | 開くときに渡した `Msg` | 「何を開くか」（対象の runner、確認の文面）。`Overlay` は種類ごとの引数を知らない |
-| キー | **最上位の 1 枚にいる間だけ。** `esc` は `Overlay` が受けて 1 枚閉じるので中身には届かない |
+| `page.ModalMsg{Kind, Msg}` の中身 | 宛先を明示した `Msg`。**開いていなくても、最上位でなくても**その種類へ届く（背後で始めた処理の結果を回収する経路） |
+| キー | **最上位の 1 枚にいる間だけ。** `esc` は `Modal.HandlesBack` が真のときだけ中身へ届き、偽なら `Overlay` が 1 枚閉じる |
+
+##### モーダルから page への戻り道
+
+モーダルは自分で決めたことを実行できない（ドメイン層を呼べるのは page 階層だけ）。決定は `page.ResultMsg{Kind, Msg}` に包み、`page.AttachMsg` で受け取ったタブ番号で `page.Do` に包んで返す。
+
+```go
+res := page.ResultMsg{Kind: Kind, Msg: chosen}
+return m, page.Do(m.tab, func() tea.Msg { return res })
+```
+
+- `page.Do` で包むので、**タブを切り替えても決定は発行元のタブへ戻る**
+- `page.ResultMsg` で包むので、**page の `Update` が自分の `case` で受けられる**（`Overlay.Handles` は `ResultMsg` に偽を返すため、転送してモーダル自身へ帰ることがない）
+- モーダルを閉じた後に届いても page が受けるので、**決定が宛先を失って静かに捨てられない**
+
+page 側は `default`（`Overlay` への転送）より**前**に `case page.ResultMsg:` を置くこと。
 
 #### 4. 操作の可否は `page.ActionID` で引く
 
@@ -867,3 +891,4 @@ Disk / Logs / Doctor タブの部品を足すときは、まずその部品が�
 | 1.4 | 2026-08-22 | 色トークンを `StateToken`（状態。色と記号を対で持つ）と `RoleToken`（表示上の役割。色のみ）に分離。`atom` の `StatusIcon` / `JobBadge` / `Version` を素の値と役割トークンを返す `StatusText` / `JobText` / `VersionText` に変更。`molecule.ColumnHeader` を削除し `Columns` の契約を明記 | 役割トークンに記号を要求するのは意味がなく、`Icon(Muted)` が「systemd ユニットなし」の記号を返す誤用を招いていた。装飾済みの文字列を返す atom は列幅に合わせて切り詰められず、`deactivating` のような遷移中の状態でセルが列幅を超えていた。見出しは `bubbles/table` が描くため molecule 側の見出し部品は使われていなかった |
 | 1.5 | 2026-08-22 | `RenderRow` を `RowInput` 1 引数に変更し、カーソル・チェックボックスのガター列と選択不可の理由の分担を明記。`molecule.Columns` の契約を「空を返さない・幅は超え得る」に改め、落とす順を区画ごとの `token.ColumnRules` に置き換え。ディレクトリ構成・依存グラフ・`keymap` の読み手・`lipgloss` への依存を実装に合わせて修正。キーの配送を「page が先に判定し、使わないキーを親へ差し戻す」形に反転。`page.Do` / `TabMsg`・`Overlay.Register`・`StateMsg.Exec`・`Set.Help`・`ActionID` をタブ追加時の約束として定義。モーダルの重なりの所有者を page と明記。`Help` のスクロールと絞り込みの行を追記。実装状況の節を追加 | 文書が宣言していた `RenderRow` の署名はコードに存在せず、これに従うとコンパイルできなかった。`Columns` の「必ず幅に収まる」契約は列 0 個を招くため実装が満たしておらず、契約の側を実態に合わせた。キーの配送は親が 1 打鍵ぶん古い状態で判断しており、連続打鍵で確認中の `q` が終了に届いていた。タブを足す 5 つの後続 Issue が親 Model を読まずに済むよう、非同期結果の差し戻しとモーダル登録の契約を明文化する必要があった。未実装の部品に印が無く、仕様と実装済みを読み分けられなかった |
 | 1.6 | 2026-08-22 | `Detail.SetContent` を「受け取ったスライスは写しを取る」約束の対象に追加。背景の明暗を「起動後に届き、切り替わることもあるため届くたびに解決し直す」入力として定義。page と organism の約束に配色の配り直しを organism 側（取り込んだ配色を後から配り直せる形にする）と page 側（`StateMsg` ごとに渡し直す）の 2 行として追加し、配り直しの 2 方式（`Restyle` を生やす / 作り直して必要な状態だけ引き継ぐ）と選び分けの基準を「配色とキー定義の配り直し」に定義。配り直しが要る部位を「`SetStyles` で `bubbles/table` へ渡す見出し／行へ焼き込むセル・カーソル記号・チェックボックス／`bubbles/textinput` が既定を持つ絞り込みの入力欄」と書き分け、区切り線と確定後の絞り込みの行は organism が毎回描くため差し替えだけで追随する側だと明記。作り直し方式には「保つべき状態を作り直した後に、大きさが決まってから戻す」義務があること、`pane.Help` / `helpmodal.go` は現状その順序を満たせずスクロール位置を引き継げていないことを追記。配り直しの義務を負うタブの列挙を Disk / Logs / Doctor に揃えた | `bubbles/viewport` の `SetContentLines` は渡されたスライスを書き戻すため、写しを取らないと page 側の行が organism に書き換えられていた。文書は背景の明暗を起動時に 1 度解決するものとして書いていたが、応答は起動後に届き切り替わりもするため、解決済みの `token.Styles` を配り渡す記述だけでは配り直しの義務が読み取れなかった。一覧は配色を行へ焼き込む以上フィールドの差し替えでは追随せず、未実装の Disk / Logs / Doctor タブをこの文書から実装すると配り直しが漏れて同じ欠陥が再発する。配り直しの方式は実装 3 者で分かれており（`table.Model` は差し替え + 行の組み立て直し + 入力欄の渡し直し、`ChoiceList` は差し替えのみ、`pane.Help` は `helpmodal.go` が作り直す）、`Restyle` を一律の義務として書くと `pane.Help` が約束違反に読めた。配り直しが要る部位の列挙も実態とずれており、選択行には ANSI の入れ子を避けるためあえて装飾を付けないのに列挙に含み、区切り線は organism 自身が `token.Styles` から毎回描く（`bubbles/table` は区切り線に相当するスタイルを持たない）のに `bubbles/table` の描画物として挙げ、実際に配り直しが要る絞り込みの入力欄が漏れていた。**この列挙漏れは実装の欠陥をそのまま追認していた**——`table.Model.Restyle` は入力欄を配り直しておらず、背景色を切り替えても `bubbles/textinput` の既定色が残り、色を無効にした設定でも色が付いていた。`pane.Help` の引き継ぎも「位置以外に失うものが無い」と断言していたが、`Overlay.SetState` が `StateMsg` の後に `SizeMsg` を送るため `SetOffset` は高さ 0 で丸められ、実際には位置が 0 に落ちていた |
+| 1.7 | 2026-08-22 | `Overlay` にタブ番号を持たせ、登録したモーダルへ `page.AttachMsg` で配る形を定義。モーダルから page への戻り道（`page.ResultMsg` を `page.Do` で包む）と、宛先を明示したモーダル宛の `Msg`（`page.ModalMsg`）を追加。`esc` の解釈順を「最上位のモーダルが `Modal.HandlesBack` で先に取り、取らなければ 1 枚閉じる」に変更。`Register` / `Open` / `OpenHelp` / `SetHelpScope` が返す `Cmd` を呼び出し側へ返す義務と、page が配送先を `Overlay.Handles` で決める規則を明記 | モーダルで決めた内容が page へ戻る道が無く、`ChoiceList` の決定は `forward` から最上位のモーダルへ配り直されて捨てられていた。モーダルが発行した `Cmd` にはタブ番号が載らないため、結果は「そのとき選択中のタブ」へ渡って静かに失われていた。背後のモーダル宛の結果は最上位に食われ、閉じた後に届いた結果は誰にも届かなかった。`esc` を `Overlay` が無条件に食うため、入力の取消を閉じる操作より先に解釈できなかった（Issue #26） |

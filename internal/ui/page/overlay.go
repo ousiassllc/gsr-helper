@@ -10,44 +10,6 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/ui/token"
 )
 
-// ModalKind はモーダルの種類。page/<tab> が自分の種類を定数で宣言する。
-//
-// 文字列にするのは、種類の集合を 1 つの iota の並びに集めないためである。集めると
-// タブを 1 つ足すたびにこの共有ファイルへ定数を足すことになる（Confirm・
-// DiffApproval・DrainWaiter・ProgressList はそれぞれ別の Issue が持ち込む）。
-type ModalKind string
-
-// ModalHelp は ? の全キー一覧。どの画面にもあるため Overlay が自分で登録する。
-//
-// これ以外の種類は画面が Register で足す（runner の詳細画面は
-// page/runnerdetail、確認や差分承認は各 Issue が持ち込む）。
-const ModalHelp ModalKind = "help"
-
-// SizeMsg はモーダル 1 枚が使える領域。Overlay が枠と見出しの分を引いてから配る。
-//
-// StateMsg と分けているのは、StateMsg の BodyW / BodyH が本体の領域（枠の外側）で
-// あり、モーダルの中身が使える領域とは別の値だからである。
-type SizeMsg struct {
-	W int
-	H int
-}
-
-// Modal は重ねられるモーダル 1 枚の定義。
-//
-// 中身は tea.Model として持つ。独自の interface を作らない規約（interface は
-// Executor / doctor.Check / tea.Model の 3 つに限る。components/overview.md）に収めつつ、
-// 「キーを Update で受け、View で描く」という約束を bubbletea と同じ形にできる。
-// 開く・大きさが変わる・共有状態が届く、はすべて Msg として Model へ渡るため、
-// Overlay は個々のモーダルの API を知らない。
-//
-// 見出しとキーヒントは tea.Model から取れないため、Model を引数に取る関数として
-// 登録する（Model は Update で差し替わるので、値を閉じ込めると古くなる）。
-type Modal struct {
-	Model tea.Model                     // 中身。キー・SizeMsg・StateMsg はここへ渡る
-	Title func(m tea.Model) string      // モーダルの見出し
-	Hints func(m tea.Model) []atom.Hint // フッタに出すキーヒント
-}
-
 // Overlay はモーダルの重なりを管理する。
 //
 // キーは最上位の 1 枚にのみ渡し、背後の page には届けない。確認中に打った x が
@@ -58,10 +20,15 @@ type Modal struct {
 // 種類の数と無関係にするためである。モーダルを増やす Issue は Register で自分の
 // 種類を足すだけで、この共有ファイルを触らない。
 //
+// **自分が乗っているタブ番号を持ち、登録したモーダルへ配る**（AttachMsg）。モーダルが
+// 発行する Cmd の結果と page へ返す決定は Do(tab, ...) で包む必要があり、その tab を
+// モーダルへ渡せるのは Overlay だけだからである。
+//
 // **コピーは重なりの実体を共有する。** stack のスライスと modals の map は写しても
 // 同じ実体を指すため、page は直前の Update が返した 1 つの値だけを持つこと
 // （organism/table.Model と同じ約束）。
 type Overlay struct {
+	tab    int
 	keys   keymap.Set
 	styles token.Styles
 
@@ -72,13 +39,14 @@ type Overlay struct {
 	height int
 }
 
-// NewOverlay はモーダルの重なりを組み立てる。
+// NewOverlay はモーダルの重なりを組み立てる。tab には page 自身のタブ番号を渡す。
 //
 // ヘルプ（ModalHelp）だけを登録した状態で返す。ヘルプに出すキーの範囲は一覧 +
 // runner 操作（keymap.Set.RunnerListHelp）を既定とし、別の範囲を持つタブは
 // SetHelpScope で差し替える。それ以外のモーダルは画面が Register で足す。
-func NewOverlay(keys keymap.Set, s token.Styles, dark bool) Overlay {
+func NewOverlay(tab int, keys keymap.Set, s token.Styles, dark bool) Overlay {
 	o := Overlay{
+		tab:    tab,
 		keys:   keys,
 		styles: s,
 		stack:  nil,
@@ -89,6 +57,9 @@ func NewOverlay(keys keymap.Set, s token.Styles, dark bool) Overlay {
 	// 登録する部品には初期の共有状態を渡す。最初のリサイズと検出が届く前でも
 	// 配色とキー定義を持った状態で描けるようにするためである（newTabs と同じ形）。
 	st := StateMsg{Keys: keys, Styles: s, Dark: dark}
+	// ヘルプの登録が返す Cmd は捨てる。helpModal は表示専用でドメイン層を呼ばず、
+	// AttachMsg にも SizeMsg にも Cmd を返さないため取りこぼしにならない。画面が
+	// 足すモーダルは Register の戻り値を呼び出し側へ返すこと。
 	o.Register(ModalHelp, newHelpModal(st, keymap.Set.RunnerListHelp))
 	return o
 }
@@ -97,23 +68,32 @@ func NewOverlay(keys keymap.Set, s token.Styles, dark bool) Overlay {
 //
 // 種類ごとに部品を 1 つだけ持つ（同じ種類を 2 枚重ねない）ため、重なりは種類の
 // 並びだけで表せる。
-func (o *Overlay) Register(kind ModalKind, m Modal) {
+//
+// **戻り値の Cmd は呼び出し側まで返すこと。** 登録した時点で自分のタブ番号と領域を
+// 受け取ったモーダルが処理を始めることがあり、捨てるとその処理が動かない。
+func (o *Overlay) Register(kind ModalKind, m Modal) tea.Cmd {
 	o.modals[kind] = m
-	o.send(kind, SizeMsg{W: o.innerWidth(), H: o.innerHeight()})
+	return tea.Batch(
+		o.send(kind, AttachMsg{Tab: o.tab}),
+		o.send(kind, SizeMsg{W: o.innerWidth(), H: o.innerHeight()}),
+	)
 }
 
 // SetHelpScope は ? に出すキーの範囲を差し替える。
 //
 // Set から範囲を選ぶ関数を渡すのは、配色やキー定義が差し替わったときに Overlay が
 // 自分で組み直せるようにするためである（page が declare し直す必要が無い）。
-func (o *Overlay) SetHelpScope(scope HelpScope) {
-	o.Register(ModalHelp, newHelpModal(o.state(), scope))
+func (o *Overlay) SetHelpScope(scope HelpScope) tea.Cmd {
+	return o.Register(ModalHelp, newHelpModal(o.state(), scope))
 }
 
 // Open は種類を指定してモーダルを開く。既に開いていれば最上位へ動かす。
 //
 // 開くときに渡した Msg は中身の Model へそのまま届く。「何を開くか」（対象の runner や
 // 確認の文面）を Msg で渡すことで、Overlay は種類ごとの引数を知らずに済む。
+//
+// 戻り値の Cmd は呼び出し側まで返すこと（Register の doc と同じ理由。開いた瞬間に
+// 購読や計算を始めるモーダルはこの Cmd で処理を始める）。
 func (o *Overlay) Open(kind ModalKind, msg tea.Msg) tea.Cmd {
 	if _, ok := o.modals[kind]; !ok {
 		return nil
@@ -125,8 +105,8 @@ func (o *Overlay) Open(kind ModalKind, msg tea.Msg) tea.Cmd {
 }
 
 // OpenHelp は全キー一覧を開く。
-func (o *Overlay) OpenHelp() {
-	o.Open(ModalHelp, nil)
+func (o *Overlay) OpenHelp() tea.Cmd {
+	return o.Open(ModalHelp, nil)
 }
 
 // Close は最上位のモーダルを 1 枚だけ閉じる。
@@ -151,6 +131,24 @@ func (o Overlay) Modal(kind ModalKind) (Modal, bool) {
 
 // Active はモーダルを 1 枚以上開いているかを返す。ChromeMsg.Modal に載せる値である。
 func (o Overlay) Active() bool { return len(o.stack) > 0 }
+
+// Handles は page がこの Msg を Overlay へ渡すべきかを返す。
+//
+// page の「キー以外を配る」判定をこの 1 つに集める。開いているかどうかだけで
+// 判断すると、宛先を明示した ModalMsg が閉じている間に捨てられ、page 宛の決定
+// （ResultMsg）はモーダル自身へ戻って消える。
+func (o Overlay) Handles(msg tea.Msg) bool {
+	switch msg.(type) {
+	case ModalMsg:
+		// 宛先が決まっている。開いていなくても届ける。
+		return true
+	case ResultMsg:
+		// 決定は page が解釈する。戻すと発行元のモーダルへ帰って捨てられる。
+		return false
+	default:
+		return o.Active()
+	}
+}
 
 // SetState は共有状態のスナップショットを開いていないモーダルにも配る。
 //
@@ -179,17 +177,25 @@ func (o *Overlay) SetSize(w, h int) {
 	}
 }
 
-// Update はキーを最上位のモーダルにのみ渡す。
+// Update は宛先付きの Msg をその種類へ、それ以外を最上位のモーダルへ渡す。
 //
-// esc はここで受けて 1 枚閉じる。最上位が受け取る前に閉じる判断をするのは、
-// 「戻る」の意味をモーダルの種類ごとに実装させないためである。
+// esc は最上位のモーダルが自分で解釈する（Modal.HandlesBack が真）ときだけ渡し、
+// そうでなければここで 1 枚閉じる。先に渡す順序にするのは、入力や編集の取消を
+// 閉じる操作より先に解釈させるためである。判断はモーダルが返す真偽値 1 つに
+// 委ねるので、Overlay は種類ごとの分岐を持たない。
 func (o Overlay) Update(msg tea.Msg) (Overlay, tea.Cmd) {
+	if to, ok := msg.(ModalMsg); ok {
+		// 宛先が明示されている。閉じていても最上位でなくてもその種類へ届ける。
+		return o, o.send(to.Kind, to.Msg)
+	}
+
 	top, ok := o.top()
 	if !ok {
 		return o, nil
 	}
 
-	if press, isKey := msg.(tea.KeyPressMsg); isKey && key.Matches(press, o.keys.Global.Back) {
+	press, isKey := msg.(tea.KeyPressMsg)
+	if isKey && key.Matches(press, o.keys.Global.Back) && !o.handlesBack(top) {
 		o.Close()
 		return o, nil
 	}

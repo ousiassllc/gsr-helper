@@ -19,7 +19,7 @@ const (
 
 // newOverlay はモーダルを 1 枚も開いていない状態で返す。
 func newOverlay() Overlay {
-	o := NewOverlay(testKeys(), testStyles(), true)
+	o := NewOverlay(testTab, testKeys(), testStyles(), true)
 	o.Register(kindFirst, newStub("1 枚目"))
 	o.Register(kindSecond, newStub("2 枚目"))
 	o.SetSize(80, 20)

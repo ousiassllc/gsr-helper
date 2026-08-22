@@ -102,6 +102,9 @@ func standaloneRunner() runner.Runner {
 // testKeys はキー定義の集約を返す。
 func testKeys() keymap.Set { return keymap.New() }
 
+// testTab は検証で使うタブ番号。0 以外にして、配られる番号が既定値でないことを見る。
+const testTab = 2
+
 // stubModal は登録したモーダルが受け取った Msg を記録するテスト用の中身。
 //
 // 重なりの規則を種類に依らず検証するために使う（具体的なモーダルを混ぜると、
@@ -109,20 +112,36 @@ func testKeys() keymap.Set { return keymap.New() }
 type stubModal struct {
 	body   string
 	keys   []string
+	msgs   []tea.Msg // キー・共有状態・大きさ・タブ番号以外に届いた Msg
 	states int
 	size   SizeMsg
+	tab    int  // AttachMsg で受け取ったタブ番号
+	back   bool // esc を自分で解釈するか（Modal.HandlesBack が返す値）
 }
+
+// stubEcho は stubModal が受け取った Msg をそのまま返す Cmd の結果。
+//
+// Register / Open が返す Cmd が捨てられていないことを、種類に依らず確かめるために置く。
+type stubEcho struct{ Msg tea.Msg }
 
 // tea.Model を実装していることをコンパイル時に確かめる。
 var _ tea.Model = (*stubModal)(nil)
 
 // newStub は本文を持つモーダルを組み立てる。
 func newStub(body string) Modal {
+	m := &stubModal{
+		body: body, keys: nil, msgs: nil, states: 0,
+		size: SizeMsg{W: 0, H: 0}, tab: -1, back: false,
+	}
 	return Modal{
-		Model: &stubModal{body: body, keys: nil, states: 0, size: SizeMsg{W: 0, H: 0}},
+		Model: m,
 		Title: func(tea.Model) string { return body },
 		Hints: func(tea.Model) []atom.Hint {
 			return []atom.Hint{{Key: "y", Desc: "実行", Enabled: true, Reason: ""}}
+		},
+		HandlesBack: func(model tea.Model) bool {
+			s, ok := model.(*stubModal)
+			return ok && s.back
 		},
 	}
 }
@@ -137,8 +156,15 @@ func (m *stubModal) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.states++
 	case SizeMsg:
 		m.size = msg
+	case AttachMsg:
+		m.tab = msg.Tab
+	default:
+		m.msgs = append(m.msgs, msg)
 	}
-	return m, nil
+	// 受け取った Msg を Cmd にして返す。呼び出し側が Cmd を捨てていないことを
+	// 種類に依らず確かめられるようにするためである。
+	echo := stubEcho{Msg: msg}
+	return m, func() tea.Msg { return echo }
 }
 
 func (m *stubModal) View() tea.View { return tea.NewView(m.body) }

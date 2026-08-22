@@ -43,6 +43,9 @@ func newHelpModal(st StateMsg, scope HelpScope) Modal {
 		Model: m,
 		Title: func(tea.Model) string { return helpTitle },
 		Hints: helpHints,
+		// esc は常に 1 枚閉じる。ヘルプは入力も編集も持たない表示専用のモーダルで
+		// あり、esc に「閉じる」以外の意味を与えない。
+		HandlesBack: nil,
 	}
 }
 
