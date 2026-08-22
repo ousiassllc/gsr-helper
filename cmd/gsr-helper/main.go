@@ -71,9 +71,15 @@ func run(args []string, stdout, stderr io.Writer) int {
 	lg := openAudit(cfg.AuditLog, stderr)
 	defer func() { _ = lg.Close() }()
 
+	// 監査記録の失敗は「コマンドの失敗」と混ぜず、専用の通知先で受けて終了後に
+	// 報告する。通知先を渡さないと command が stderr へ直接書き、代替スクリーンの
+	// 表示を壊す（auditSink のコメント）。
+	sink := &auditSink{}
+	defer func() { sink.report(stderr) }()
+
 	// 秘密情報の提供元は NoSecrets。この版はトークンをメモリに保持しない
 	// （GitHub API を使う機能の Issue で、トークンを保持する提供元に差し替える）。
-	ex := command.New(command.NoSecrets, command.WithAudit(lg))
+	ex := command.New(command.NoSecrets, command.WithAudit(lg), command.WithAuditErrorFunc(sink.add))
 	caps := appconfig.Detect(context.Background(), ex, appconfig.Options{HasToken: nil, Timeout: 0})
 
 	app := ui.New(cfg, caps, ex, ui.Options{
