@@ -28,7 +28,9 @@ const (
 var shared = map[string]bool{
 	"action":       true,
 	"runnerdetail": true,
-	"pagetest":     true,
+	// runnerop は Runners / Jobs が共用するサービス制御の制御部であり、タブではない。
+	"runnerop": true,
+	"pagetest": true,
 }
 
 // テスト用の道具は本番の経路から import されない。

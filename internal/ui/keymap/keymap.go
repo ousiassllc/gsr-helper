@@ -4,17 +4,19 @@ import "charm.land/bubbles/v2/key"
 
 // Set は 1 つの画面で参照するキー定義の集約。
 type Set struct {
-	Global Global
-	List   List
-	Runner RunnerKeys
+	Global  Global
+	List    List
+	Runner  RunnerKeys
+	Confirm Confirm
 }
 
 // New はキー定義の集約を返す。
 func New() Set {
 	return Set{
-		Global: NewGlobal(),
-		List:   NewList(),
-		Runner: NewRunnerKeys(),
+		Global:  NewGlobal(),
+		List:    NewList(),
+		Runner:  NewRunnerKeys(),
+		Confirm: NewConfirm(),
 	}
 }
 
@@ -67,6 +69,21 @@ func (s Set) Contexts() []Context {
 			Name:   "入力中",
 			Fields: []string{"Global", "List"},
 			Keys:   []key.Binding{s.List.Accept, s.List.Cancel, s.Global.Interrupt},
+		},
+		{
+			// モーダル表示中はグローバルキーが効かず、ctrl+c だけが例外
+			// （screens.md のモーダル表示中）。
+			//
+			// **Global.Bindings() を丸ごと入れてはならない。** Global.Back の esc は
+			// Confirm.No の esc と綴りが同じで重複と判定されるが、両者が同時に
+			// 有効になることはない。モーダルを開いている page はキーを親へ差し戻さず
+			// （page.GlobalKeyMsg の doc）、esc は最上位のダイアログが自分で解釈する
+			// （page.Modal.HandlesBack）ためである。**同時に有効なキー**の集合を
+			// 実態どおり狭く取るのがこのコンテキストの役目であり、広く取ると
+			// 起こり得ない衝突で検査が落ちる。
+			Name:   "確認ダイアログ",
+			Fields: []string{"Confirm"},
+			Keys:   []key.Binding{s.Confirm.Yes, s.Confirm.No, s.Global.Interrupt},
 		},
 	}
 }

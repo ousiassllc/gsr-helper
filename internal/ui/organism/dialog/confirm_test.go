@@ -30,7 +30,7 @@ func stopInput() dialog.ConfirmInput {
 
 // newConfirm は確認ダイアログを組み立てる。
 func newConfirm(in dialog.ConfirmInput) dialog.Confirm {
-	c := dialog.NewConfirm(keymap.NewGlobal(), testStyles())
+	c := dialog.NewConfirm(keymap.NewConfirm(), testStyles())
 	c.SetSize(confirmWidth, confirmHeight)
 	c.SetInput(in)
 
@@ -196,7 +196,7 @@ func TestConfirmHints(t *testing.T) {
 func TestConfirmRestyleKeepsInput(t *testing.T) {
 	c := newConfirm(stopInput())
 
-	c.Restyle(keymap.NewGlobal(), testStyles())
+	c.Restyle(keymap.NewConfirm(), testStyles())
 
 	if !strings.Contains(c.View(), "build01-1") {
 		t.Errorf("Restyle で中身が消えた:\n%s", c.View())

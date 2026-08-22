@@ -53,54 +53,25 @@ type ConfirmedMsg struct {
 	OK bool
 }
 
-// confirmKeys は確認ダイアログのキー定義（screens.md の確認ダイアログ）。
-//
-// keymap に置かず、ここで組み立てる。y / n は確認ダイアログの中だけで有効な
-// キーであり、モーダル表示中は他のキーが効かない（キー入力の配送）ため、
-// 同時に有効なキーの重複検査（keymap.Set.Contexts）の対象にならないからである。
-// esc だけは全画面共通の「戻る」なので keymap.Global.Back をそのまま使う。
-type confirmKeys struct {
-	yes    key.Binding
-	no     key.Binding
-	cancel key.Binding
-}
-
-// newConfirmKeys は確認ダイアログのキー定義を返す。
-//
-// **enter を n と同じキャンセル側に割り当てる。** 一覧で enter を押して詳細を開き、
-// 詳細で enter を押して操作を選ぶという連続操作の勢いのまま、確認の enter で
-// 破壊的操作が走ることを防ぐためである（screens.md の確認ダイアログ。既定は
-// キャンセル）。実行は y だけで、確認を素通りできるキーを他に作らない。
-func newConfirmKeys(g keymap.Global) confirmKeys {
-	return confirmKeys{
-		yes: key.NewBinding(
-			key.WithKeys("y"),
-			key.WithHelp("y", "実行"),
-		),
-		no: key.NewBinding(
-			key.WithKeys("n", "enter"),
-			key.WithHelp("n", "キャンセル"),
-		),
-		cancel: g.Back,
-	}
-}
-
 // Confirm は破壊的操作の確認ダイアログ。ローカル状態を持たない（既定はキャンセル）。
 //
 // 見出し（Title）はモーダルの枠が描くため、View が返すのは中身だけである。
 type Confirm struct {
 	in     ConfirmInput
-	keys   confirmKeys
+	keys   keymap.Confirm
 	styles token.Styles
 	width  int
 	height int
 }
 
 // NewConfirm は確認ダイアログを組み立てる。
-func NewConfirm(keys keymap.Global, s token.Styles) Confirm {
+//
+// キー定義は受け取るだけで組み立てない。y / n / enter / esc の割り当てとその理由は
+// keymap.NewConfirm が持つ（キーの定義は ui/keymap に集約する）。
+func NewConfirm(keys keymap.Confirm, s token.Styles) Confirm {
 	return Confirm{
 		in:     ConfirmInput{Title: "", Targets: nil, Impact: nil, Command: nil, Note: nil},
-		keys:   newConfirmKeys(keys),
+		keys:   keys,
 		styles: s,
 		width:  0,
 		height: 0,
@@ -117,8 +88,8 @@ func (c *Confirm) SetInput(in ConfirmInput) {
 // 作り直さずに差し替えるのは、共有状態が 3 秒ごとに配られるためである
 // （organism.ChoiceList.Restyle と同じ理由）。確認の最中に作り直すと、
 // 3 秒ごとに中身が空へ戻る。
-func (c *Confirm) Restyle(keys keymap.Global, s token.Styles) {
-	c.keys, c.styles = newConfirmKeys(keys), s
+func (c *Confirm) Restyle(keys keymap.Confirm, s token.Styles) {
+	c.keys, c.styles = keys, s
 }
 
 // SetSize はダイアログの中身に配られた領域を設定する。
@@ -144,9 +115,9 @@ func (c Confirm) Update(msg tea.Msg) (Confirm, tea.Cmd) {
 	}
 
 	switch {
-	case key.Matches(press, c.keys.yes):
+	case key.Matches(press, c.keys.Yes):
 		return c, confirmed(true)
-	case key.Matches(press, c.keys.no), key.Matches(press, c.keys.cancel):
+	case key.Matches(press, c.keys.No):
 		return c, confirmed(false)
 	}
 	return c, nil
@@ -165,13 +136,13 @@ func (c Confirm) View() string {
 
 // Hints はフッタに出すキーヒントを返す。
 //
-// esc と enter は n と同じキャンセルなので並べない。フッタ 1 行目は幅 80 に
-// 収める必要があり（molecule.KeyBar）、同じ結果になるキーを 3 つ並べると
-// 他の画面のヒントを押し出す。3 つとも効くことは ? の全キー一覧で示す。
+// esc と enter は n と同じキャンセルであり、keymap.Confirm.No が 1 つの Binding に
+// まとめて持つ（Help().Key は "n"）。同じ結果になるキーを 3 つ並べるとフッタ 1 行目の
+// 幅 80 に収まらず、他の画面のヒントを押し出す。
 func (c Confirm) Hints() []atom.Hint {
 	return []atom.Hint{
-		hint(c.keys.yes, "実行"),
-		hint(c.keys.no, "キャンセル"),
+		hint(c.keys.Yes, "実行"),
+		hint(c.keys.No, "キャンセル"),
 	}
 }
 

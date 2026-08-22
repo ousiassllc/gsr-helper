@@ -69,16 +69,17 @@ internal/ui/
   organism/         カーソルと選択を持つ対話的な部品（ChoiceList）
   organism/table/   区画に分かれた一覧の共通実装（Model[T]）
   organism/pane/    スクロールする表示専用の領域（Detail / Help）
-  organism/dialog/  承認・待機・入力（未実装。後述の「実装状況」）
+  organism/dialog/  承認・待機・入力（Confirm / DrainWaiter。DiffApproval / Form は未実装）
   template/         画面共通の枠
   page/             タブ共通の Msg と、タブ間で共有する部品（モーダルの重なり・page の寿命）
   page/action/      runner に対する操作の識別・可否の判定・一覧の組み立て
   page/<tab>/       タブ 1 枚（tea.Model）。runners / jobs / disk / logs / doctor / config / setup
   page/runnerdetail/ runner の詳細画面（Runners / Jobs が共用するモーダル）
+  page/runnerop/    runner のサービス制御（Runners / Jobs が共用する確認・実行・報告）
   page/pagetest/    page/<tab> のテスト用フィクスチャ（共有状態と Msg の記録）
 ```
 
-**`page/` は「1 ディレクトリ 1 タブ」ではない。** タブが共用する部品（`page/action` / `page/runnerdetail`）とテスト用フィクスチャ（`page/pagetest`）も同じ階層に並ぶ。どれがタブでどれが共有部品かは名前からは決まらないので、`page/pagetest/import_test.go` の `shared` に共有部品を列挙し、**そこに載っていない `page/<名前>` をタブとして扱う**。新しいタブは自動で検査の対象になり、共有部品を足すときだけ明示的な追記が要る。
+**`page/` は「1 ディレクトリ 1 タブ」ではない。** タブが共用する部品（`page/action` / `page/runnerdetail` / `page/runnerop`）とテスト用フィクスチャ（`page/pagetest`）も同じ階層に並ぶ。どれがタブでどれが共有部品かは名前からは決まらないので、`page/pagetest/import_test.go` の `shared` に共有部品を列挙し、**そこに載っていない `page/<名前>` をタブとして扱う**。新しいタブは自動で検査の対象になり、共有部品を足すときだけ明示的な追記が要る。
 
 `page/pagetest` は `page` 自身の内部テストからは使えない（import が循環する）。`page` のテストは自前のスタブを持つ。
 
@@ -101,7 +102,7 @@ graph TD
     Tmpl[template]
     Org[organism]
     OrgT[organism/table]
-    OrgP[organism/pane<br/>organism/dialog※未実装]
+    OrgP[organism/pane<br/>organism/dialog]
     Mol[molecule]
     Row[molecule/listrow]
     Atom[atom]
@@ -358,15 +359,15 @@ func Columns(all []token.Column, width int, rules token.ColumnRules) []token.Col
 | `Help` | `organism/pane` | スクロール位置 | `bubbles/help`（`FullHelpView`） | `?` の全キー一覧 | 実装済み |
 | `LogPane` | `organism/pane` | ペインの選択・追従の ON/OFF・フィルタ | `bubbles/viewport` / `textinput` | Logs の 2 ペイン。追従・手動スクロールでの解除・`G` での再開 | 未実装（Logs タブ） |
 | `ProgressList` | `organism/pane` | 進捗の受信状態 | `bubbles/spinner` / `progress` | 一括処理の逐次表示と結果報告（[FR-15](../requirements/functional.md)） | 未実装（Setup / Disk タブ） |
-| `Confirm` | `organism/dialog` | なし（既定はキャンセル） | — | 破壊的操作の共通ダイアログ | 未実装 |
+| `Confirm` | `organism/dialog` | なし（既定はキャンセル） | — | 破壊的操作の共通ダイアログ | 実装済み |
 | `DiffApproval` | `organism/dialog` | なし（既定はキャンセル） | — | 差分＋バックアップパスの提示と承認 | 未実装（Config タブ） |
-| `DrainWaiter` | `organism/dialog` | 対象ジョブ | `bubbles/stopwatch` / `spinner` | ドレイン待機。経過時間の計時、制約の注記と `esc` でのキャンセル | 未実装 |
+| `DrainWaiter` | `organism/dialog` | 対象ジョブ | `bubbles/stopwatch` / `spinner` | ドレイン待機。経過時間の計時、制約の注記と `esc` でのキャンセル | 実装済み |
 | `Form` | `organism/dialog` | `huh.Form` | `huh` | フォームのラッパー。テーマの適用と検証エラーの表示位置を統一する | 未実装（`huh` も未導入） |
 | `ErrorBanner` | `organism` | なし | — | 失敗の表示 | 未実装 |
 
 一覧の共通実装は `organism/table.Model[T]`（生成は `table.New`）である。パッケージ名が型名を兼ねるため、本書で `Table` と書くのはこの型を指す。`bubbles/table` はこのパッケージ内で `btable` として import する（名前の衝突を避けるため）。
 
-`organism/dialog` は**このパッケージ自体がまだ存在しない**。置く部品が確定しているので分割方針としては定義を残すが、実装は各ダイアログを持ち込む Issue が作る（後述の「実装状況」）。
+`organism/dialog` には `Confirm` と `DrainWaiter` がある。`DiffApproval`（Config タブ）と `Form`（`huh` 未導入）は置き場所だけが決まっており、実装は各ダイアログを持ち込む Issue が作る（後述の「実装状況」）。
 
 スクロール・計時・アニメーションを自前で実装しない。上の表で「—」の部品は、いずれも既存部品に対応するものがないか、対応させると要件を満たせないものである（`ChoiceList` は区切り線と無効項目の理由表示を持つため）。
 
@@ -491,7 +492,7 @@ func (d Detail) Offset() int // 先頭から隠している行数
 
 ### `Confirm` を 1 つに統一する
 
-> **実装状況: 未実装。** `organism/dialog` と `Confirm` はまだ存在しない。この節は、確認を伴う操作を持ち込む Issue が守る規約である。
+> **実装状況: 実装済み。** サービス制御の `x` / `X` / `R` がこの `Confirm` を経る。組み立ては `ui/page/runnerop` の 1 箇所に集約してあり、Runners タブ・Jobs タブ・詳細画面のどの起点からも同じ入力（`ConfirmInput`）を作る。残りの確認（削除 / バージョン更新 / クリーンアップ / 追加のプレビュー / 設定の書き込み）を持ち込む Issue も、この節の規約に従って**同じ `Confirm` を使う**こと。
 
 `screens.md` に現れる確認（停止 / 強制停止 / 削除 / バージョン更新 / クリーンアップ / 追加のプレビュー / 設定の書き込み）は、すべて **対象・影響・実行するコマンド・`y/N`** という同じ構造を持つ。
 
@@ -545,7 +546,7 @@ type ConfirmInput struct {
 | template | 領域 | 使用箇所 | 状況 |
 |----------|------|---------|------|
 | `Frame` | ヘッダ / タブ行 / 本体 / 状態行 / フッタ | 全画面 | 実装済み |
-| `Modal` | 中央寄せのオーバーレイ枠 | runner の詳細 / ヘルプ（今後 `Confirm` / `DrainWaiter` / `DiffApproval` も） | 実装済み |
+| `Modal` | 中央寄せのオーバーレイ枠 | runner の詳細 / ヘルプ / `Confirm` / `DrainWaiter`（今後 `DiffApproval` も） | 実装済み |
 | `Split` | 左右 2 ペイン | Logs（ファイル一覧と本文）、Config（項目と現在値） | 未実装（Logs / Config タブ） |
 
 `Frame` は `screens.md` の「共通レイアウト」に対応する。
@@ -863,6 +864,7 @@ Disk / Logs / Doctor タブの部品を足すときは、まずその部品が�
 | Runners タブ | `Frame` | `Table` | `Columns` / `RunnerRow` / `OrphanRow` | 実装済み |
 | Jobs タブ | `Frame` | `Table` | `Columns` / `JobRow` | 実装済み |
 | runner の詳細画面 | `Modal` | `Detail` + `ChoiceList` | `ActionRow` | 実装済み |
+| サービス制御の確認（停止 / 強制停止 / 再起動） | `Modal` | `Confirm` | — | 実装済み |
 | ヘルプ | `Modal` | `Help` | —（`bubbles/help` が描く） | 実装済み |
 | Disk タブ | `Frame` | `Table` | `FSSummaryLine` / `DiskTargetRow` | 未実装 |
 | クリーンアップの確認 | `Modal` | `Confirm` | `CommandBlock` | 未実装 |
@@ -876,7 +878,7 @@ Disk / Logs / Doctor タブの部品を足すときは、まずその部品が�
 | 実行前の確認 | `Modal` | `Confirm` | `CommandBlock` | 未実装 |
 | 追加中の進捗 | `Frame` | `ProgressList` | `ProgressRow` | 未実装 |
 | 削除の確認 | `Modal` | `Confirm` | — | 未実装 |
-| ドレイン待機 | `Modal` | `DrainWaiter` | — | 未実装 |
+| ドレイン待機 | `Modal` | `DrainWaiter` | — | 実装済み |
 
 **runner の詳細画面の情報部に専用の molecule は置かない。** ラベルと値を 1 行に組む処理は `page/runnerdetail` が `atom.Cell` / `atom.Truncate` から組み立てる。行の形が画面固有で使い回さないうえ、詳細用の言い換え（`-` → `未稼働（サービス登録なし・プロセスなし）`）を持つのが page の関心事だからである。
 
@@ -919,12 +921,12 @@ Disk / Logs / Doctor タブの部品を足すときは、まずその部品が�
 
 | 区分 | 対象 |
 |------|------|
-| 実装済み | `token` / `keymap` / `atom` / `molecule`（フッタ・タブ行・ヘッダ・操作リスト・列選択）/ `molecule/listrow`（`RunnerRow` / `JobRow` / `OrphanRow`）/ `chrome` / `tabset` / `organism`（`ChoiceList`）/ `organism/table` / `organism/pane`（`Detail` / `Help`）/ `template`（`Frame` / `Modal`）/ `page` / `page/runners` / `page/jobs` / `page/runnerdetail` |
+| 実装済み | `token` / `keymap` / `atom` / `molecule`（フッタ・タブ行・ヘッダ・操作リスト・列選択）/ `molecule/listrow`（`RunnerRow` / `JobRow` / `OrphanRow`）/ `chrome` / `tabset` / `organism`（`ChoiceList`）/ `organism/table` / `organism/pane`（`Detail` / `Help`）/ `organism/dialog`（`Confirm` / `DrainWaiter`）/ `template`（`Frame` / `Modal`）/ `page` / `page/runners` / `page/jobs` / `page/runnerdetail` / `page/runnerop` |
 | 未実装（タブ 3〜7 の Issue が持ち込む） | `page/disk` / `page/logs` / `page/doctor` / `page/config` / `page/setup`、`organism/pane` の `LogPane` / `ProgressList`、`template.Split`、atom の `DoctorStatus` / `Bytes` / `Files` / `Ratio`、`molecule/listrow` の `DiskTargetRow` / `DoctorRow` / `LogLine` / `SettingRow` / `DiffLine` / `ProgressRow`、molecule の `FSSummaryLine` / `CommandBlock` / `SummaryCounts` |
-| 未実装（パッケージ自体が無い） | `organism/dialog`（`Confirm` / `DiffApproval` / `DrainWaiter` / `Form`）、`organism.ErrorBanner` |
+| 未実装 | `organism/dialog` の `DiffApproval`（Config タブ）と `Form`（`huh` 未導入）、`organism.ErrorBanner` |
 | 未導入の依存 | `huh`（`Form` と `huh.Theme` に必要） |
 
-実装済みのタブでも、runner に対する**操作そのもの（開始・停止・削除・更新・ログ・設定編集）は未実装**である。キーとフッタと詳細画面の操作リストは出るが、可否の判定が `この版では未対応です` で塞ぐ（[画面仕様](screens.md#無効な操作の表示)）。押しても何も起きない経路を作らないためである。
+runner に対する操作のうち、**サービス制御の 6 つ（開始 / 停止 / 強制停止 / ドレイン停止 / 再起動 / enable の切替）は実装済み**である（`internal/svc` と `ui/page/runnerop`）。**追加・削除・バージョン更新・ログ・設定編集は未実装**で、キーとフッタと詳細画面の操作リストには出るが、可否の判定が `この版では未対応です` で塞ぐ（[画面仕様](screens.md#無効な操作の表示)）。押しても何も起きない経路を作らないためである。
 
 **未実装の節を削らない。** 削ると、タブを足す Issue が同じ設計判断（`Confirm` を 1 実装に統一する、進捗バーを出す範囲、`Table` を増やさない）をやり直すことになる。実装が追いついた時点でこの表から行を外す。
 
@@ -939,16 +941,18 @@ Disk / Logs / Doctor タブの部品を足すときは、まずその部品が�
 | ディレクトリ | 行数 | 残り | 判定 |
 |------------|------|------|------|
 | `ui/organism/table` | 2157 | -157 | **WARN（超過中）** |
-| `ui` | 1875 | 125 | pass |
+| `ui` | 1876 | 124 | pass |
+| `ui/page/runners` | 1833 | 167 | pass |
 | `ui/page` | 1608 | 392 | pass |
+| `ui/page/runnerop` | 1258 | 742 | pass |
 | `ui/molecule` | 1197 | 803 | pass |
-| `ui/page/runners` | 1187 | 813 | pass |
 | `ui/page/runnerdetail` | 1174 | 826 | pass |
+| `ui/page/jobs` | 1092 | 908 | pass |
+| `ui/organism/dialog` | 1076 | 924 | pass |
+| `ui/keymap` | 1049 | 951 | pass |
 | `ui/atom` | 983 | 1017 | pass |
-| `ui/keymap` | 974 | 1026 | pass |
-| `ui/page/jobs` | 888 | 1112 | pass |
-| `ui/page/pagetest` | 809 | 1191 | pass |
-| `ui/page/action` | 794 | 1206 | pass |
+| `ui/page/pagetest` | 888 | 1112 | pass |
+| `ui/page/action` | 841 | 1159 | pass |
 | `ui/token` | 712 | 1288 | pass |
 | `ui/organism/pane` | 691 | 1309 | pass |
 | `ui/template` | 657 | 1343 | pass |
@@ -960,6 +964,19 @@ Disk / Logs / Doctor タブの部品を足すときは、まずその部品が�
 #### 一覧タブを 2 枚足せる余裕（Issue #35）
 
 残る Disk / Logs / Doctor のうち一覧を持つタブは、行ビルダを `ui/molecule/listrow` へ、列定義を `ui/token` へ足す。既存の行ビルダはテスト込みで `runner_row` 272 行 / `job_row` 110 行 / `orphan_row` 116 行なので、**2 枚ぶんでも最大 550 行程度**である。`ui/molecule/listrow` の残り 1392 行はこれを 2 枚どころか 5 枚ぶん受けられる。
+
+#### サービス制御を `page/runnerop` へ出した判断（Issue #5）
+
+Runners タブと Jobs タブは、同じサービス制御（確認 → 実行 → 結果の報告）を持つ。**タブごとに書き写さず、`page/runnerop` に集約した。** 理由は行数だけではない。
+
+- 「操作の起点は複数、確認は 1 つ」（[画面仕様の設計原則](screens.md#設計原則)）を構造で守るためである。書き写すと、片方のタブだけ確認を飛ばす退行がコンパイルも既存の検査も通ってしまう。
+- `ui/page` 直下（残り 392 行）には置けない。`page` は 7 タブすべてが import する共通の土台であり、runner 固有の制御をそこへ混ぜると Disk / Logs / Doctor まで引きずる。`page/runnerdetail` を分けたのと同じ判断である。
+
+依存は `page/runnerop` → `page` / `page/action` / `page/runnerdetail` / `organism/dialog` / `svc` の一方向で、タブからは `runnerop` を import するが逆は無い。**タブではないので `page/pagetest/import_test.go` の `shared` に登録してある**（登録しないと `TestOnlyTabsetImportsTabs` がタブと誤認して落ちる）。
+
+`ui/page/runners` は 1187 → 1833 行になった（残り 167 行）。増分の大半はサービス制御の検証（発行コマンド列・確認の経路・一括操作・可否の再判定・詳細画面からの起点）である。**次にこのタブへ足す Issue は、まず検証の道具が `page/pagetest` へ出せないかを見ること**（`Pump` はその方針で出した。下記）。
+
+非同期の往復（page が `Cmd` を返し、親が `page.TabMsg` を外して発行元のタブへ戻す）を回す道具 `pagetest.Pump` は、Runners / Jobs の両方が使うため `page/pagetest` に置いた。タブごとに写すと、往復の 1 段を書き忘れたテストだけが「何も起きない」を正常として緑になる。
 
 `ui` 直下は**タブが増えても 1 行も増えない**。タブを知るのは `ui/tabset` だけであり、親 Model は `[]tabset.Tab` を走査するだけだからである（「タブを 1 つ追加するときに触る箇所」）。残り 125 行は親 Model 自身のテストのための余裕である。
 

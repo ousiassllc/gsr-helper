@@ -213,10 +213,14 @@ runner の検出とモデル定義。**最下層**であり、他のドメイン
 | `Kill(ctx, Executor, Runner)` | **強制停止**。`Runner.Listener` と `Runner.Worker` の PID へ `kill -KILL` を 1 回発行し、ユニット名があれば続けて `systemctl stop` を発行する。systemd 管理でなくても動く |
 | `DaemonReload` | drop-in 変更の反映 |
 | `Drain(ctx, Executor, Runner, progress)` / `Drainer` | `Runner.Worker` の消滅を待ってから停止。無制限に待ち、`ctx` のキャンセルで中断（このとき停止処理は行わない）。`Drainer` は走査手段・間隔・時刻を差し替えられる |
+| `CommandLine(Op, Runner) []string` | 操作が発行するコマンドを実行順に返す。確認ダイアログの「実行するコマンド全文」がこれを読む |
+| `Enabled(Runner) bool` | ユニットが enable 済みかを返す。`OpEnable` が enable / disable のどちらへ倒れるかの判定を 1 箇所に置く |
 | `CanControl(Op, Runner, Caps) (bool, string)` | 操作可否と不可の理由を返す。`run.sh` 直起動・非 root・systemd 不在・管理状態の判定不能を判定 |
 | `ReasonRoot` / `ReasonSystemd` / `ReasonStandalone` / `ReasonManagedUnknown` | 不可の理由の文言。表示側が同じ文言を持たないよう公開する |
 
 `CanControl` が `Op` を取るのは、[無効な操作の表示](../ui/screens.md#無効な操作の表示) の判定表が操作ごとに塞ぐ範囲を変えるためである（root が要るのは開始・停止・強制停止・再起動の 4 つで、ドレイン停止と enable の切替は要らない）。`CanControl` を 1 箇所に集約し、UI 側で操作可否の判断を再実装しない。
+
+**確認ダイアログに出すコマンド全文は `CommandLine` から引く。** 表示側で `"systemctl " + verb + " " + unit` を組み直すと、承認した文面と実際に発行される内容が食い違いうる。「実行コマンド全文の提示と `y/N`」（[画面仕様の操作フロー](../requirements/functional.md)）は、提示と実行が同じ 1 箇所から出ていて初めて意味を持つ。
 
 **`Kill` は `systemctl kill` を使わない。** 対象を main プロセス以外へ広げるフラグの綴りが systemd のバージョンで変わり（`--kill-who` / `--kill-whom`）、既定のままでは main プロセスしか落とせずに worker が生き残るためである。プロセスを落とした後に `systemctl stop` まで打つのは、シグナルだけでは systemd 側が「停止した」と記録せず `Restart=` 付きのユニットが戻ってくるためである。`kill` が失敗しても `stop` は試み、両方の結果を `errors.Join` でまとめる。
 
@@ -475,11 +479,13 @@ bubbletea の Model 群。**内部を Atomic Design で階層化する。** 部�
 | `ui/page/action` | page | 操作の識別子（`action.ID`）と、可否・理由の判定（`Allow` / `Set`）。依存は `page/action` → `page` の一方向で、`page` からは参照しない |
 | `ui/page/<tab>` | page | タブ 1 枚（`tea.Model`）。organism を構成し、キー入力をドメイン層の `tea.Cmd` に変換する |
 | `ui/page/runnerdetail` | page | runner の詳細画面。Runners / Jobs が共用するモーダルで、タブではない。依存は `page/runnerdetail` → `page` の一方向 |
+| `ui/page/runnerop` | page | runner に対するサービス制御の起点（対象の決定・確認ダイアログ・実行・結果の報告）。Runners / Jobs / 詳細画面が共用し、タブではない。依存は `page/runnerop` → `page` / `page/action` / `page/runnerdetail` / `organism/dialog` / `svc` の一方向 |
 | `ui/page/pagetest` | page | `page/<tab>` **と親 Model** が共用するテスト用の道具（共有状態・`Spy`・打鍵の組み立て・`Cmd` の展開と走査（`Msgs` / `ScanKey`）・長寿命の購読を模した `StreamPage`）。**テスト専用で本番からは import しない**（`TestNoProductionCodeImportsPagetest` が本番ファイルの import を読んで検査する） |
 | `ui/template` | template | 画面共通の枠（ヘッダ / タブ / 本体 / 状態行 / フッタ、モーダル、2 ペイン）。中身を知らない |
 | `ui/organism` | organism | カーソルと選択を持つ対話的な部品（`ChoiceList`）。`tea.Model` は実装せず `bubbles` 流の署名に揃える |
 | `ui/organism/table` | organism | 区画に分かれた一覧の共通実装（`bubbles/table` のラッパー） |
 | `ui/organism/pane` | organism | スクロールする表示専用の領域（`Detail` / `Help`） |
+| `ui/organism/dialog` | organism | 承認・待機のダイアログ（`Confirm` / `DrainWaiter`）。`DiffApproval` / `Form` は未実装 |
 | `ui/molecule` | molecule | 1 区画の描画（ヘッダ・タブ行・フッタ・操作リスト・列の選択）。純粋関数 |
 | `ui/molecule/listrow` | molecule | 一覧の 1 行。セル列（`[]string`）を返す。純粋関数。一覧を持つタブが 1 つずつ足す |
 | `ui/chrome` | molecule | 本体以外の領域（ヘッダ・タブ行・状態行・フッタ）の中身の組み立て。親 Model の型も bubbletea も知らない純粋関数。import するのは `ui/molecule` / `ui/atom` / `ui/token` だけで、**ドメインの型は受け取らない**（`chrome.View` はバッジの真偽値・件数・`[]molecule.TabView` といった表示用の値のみ）。`Caps` / `Result` / `[]tabset.Tab` からの写し替えは親 Model が行う |
@@ -545,3 +551,4 @@ interface はこの 3 つに留める。ドメインごとの interface は、�
 | 1.16 | 2026-08-23 | `internal/ui` のサブパッケージ表に `ui/page/runnerdetail`（Runners / Jobs が共用する詳細モーダル）と `ui/page/pagetest`（テスト専用のフィクスチャ）の行を追加。「タブ間で共有する状態は親のみが持つ」の箇条書きに、それを守らせている検査（`TestOnlyTabsetImportsTabs`）を明記 | 表が `ui/page` → `ui/page/action` → `ui/page/<tab>` の 3 行だけで、`page/` 階層が「page + 共通部品 + タブ 1 枚ずつ」だと読めた。[TUI コンポーネント設計](../ui/atomic-design.md)（1.20）が明記した「`page/` は 1 ディレクトリ 1 タブではない」と食い違い、実在する 2 パッケージが本書からは辿れなかった。共有状態の規則も規約としてしか書かれておらず、それを機械的に守らせている検査が本書からは読み取れなかった（PR #67 のレビュー指摘） |
 | 1.17 | 2026-08-23 | `ui/page/pagetest` の行を「`page/<tab>` と親 Model が共用するテスト用の道具」に改め、`Msgs` / `ScanKey` / `StreamPage` を挙げた | 表は同パッケージを `page/<tab>` 用のフィクスチャに限定して書いていたが、親 Model 専用の道具（寿命テストの `StreamPage`、Issue #31 で移した打鍵の走査 `ScanKey`）も置かれており、[TUI コンポーネント設計](../ui/atomic-design.md) 側は「タブと親で共用する検証の道具の置き場」と記して親側からの利用を推奨している。2 文書が同じパッケージの守備範囲について別のことを述べていた（Issue #31 の最終ゲート指摘） |
 | 1.18 | 2026-08-23 | 依存関係に `Svc --> Appconf` を追加。`internal/svc` の責務表に `Op` / `Kill` / `Drainer` / 理由の文言を足し、`CanControl` のシグネチャを `CanControl(Op, Runner, Caps)` に訂正。可否の判断が `action.Allow` にある暫定である旨を、`svc.CanControl` へ委譲済みの記述に置き換えた | サービス制御（Issue #5）で `internal/svc` を実装したため。`CanControl` は操作ごとに塞ぐ範囲が違う（[無効な操作の表示](../ui/screens.md#無効な操作の表示)）ので `Runner` と `Caps` だけでは判定できず、仕様書のシグネチャのままでは実装できなかった。`Caps` を引数に取る以上 `appconfig` への依存もグラフに必要で、強制停止（`Kill`）は責務表に行が無かった |
+| 1.19 | 2026-08-23 | `internal/ui` のサブパッケージ表に `ui/page/runnerop` と `ui/organism/dialog` の行を追加。`internal/svc` の責務表に `CommandLine` / `Enabled` を追加し、確認ダイアログのコマンド全文が `CommandLine` を出どころとする規約を明記 | サービス制御（Issue #5）で実装したパッケージが本書の階層表から辿れなかった。実行コマンドの提示と実行を別々に組み立てると承認の意味が失われるため、出どころを 1 箇所に定める規約を仕様の側にも残す必要があった |

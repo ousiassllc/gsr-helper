@@ -12,11 +12,13 @@ import (
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/ui/atom"
 	"github.com/ousiassllc/gsr-helper/internal/ui/organism/table"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/action"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/runnerdetail"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/runnerop"
 )
 
 const (
@@ -37,6 +39,10 @@ type Model struct {
 	// actions はキー定義から 1 度だけ組んだ操作の表。描画のたびに組み直さない
 	// （action.Set の doc）。
 	actions action.Set
+	// ops は runner のサービス制御の制御部。Runners タブと同じものを持つ
+	// （page/runnerop）。操作対象がジョブではなく runner であり（FR-47）、
+	// 起点が違っても確認と実行の経路を 1 つに保つためである。
+	ops runnerop.Model
 	// initCmd はモーダルを登録したときに返った Cmd。最初の共有状態で流し、nil に落とす。
 	initCmd tea.Cmd
 }
@@ -52,13 +58,16 @@ func New(tab int, st page.StateMsg) Model {
 	// ヘルプと詳細画面、どちらの登録が返した Cmd も畳み込む（runners.go と同じ理由）。
 	overlay, help := page.NewOverlay(tab, st)
 	detail := overlay.Register(runnerdetail.Kind, runnerdetail.New(st))
-	cmd := tea.Batch(help, detail)
+	// 確認ダイアログと待機画面の登録は runnerop が行う（runners.go と同じ理由）。
+	ops, opsCmd := runnerop.New(tab, overlay, st)
+	cmd := tea.Batch(help, detail, opsCmd)
 	return Model{
 		tab:     tab,
 		st:      st,
 		tbl:     newTable(st.Keys, st.Styles),
 		overlay: overlay,
 		actions: action.NewSet(st.Keys.Runner),
+		ops:     ops,
 		initCmd: cmd,
 	}
 }
@@ -78,7 +87,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// モーダルが返した決定は page が受ける（runners.go と同じ理由）。
 		// page.Overlay.Handles が ResultMsg に偽を返すことと合わせた二重の守りで
 		// あり、並びは関係しない（型スイッチの default は常に最後に評価される）。
-		return m, m.chrome()
+		//
+		// 決定の解釈は runnerop に任せる。Runners タブと同じ確認フローを通すためで
+		// あり、ここに独自の分岐を書くと Jobs タブだけ確認が変わりうる（FR-45〜FR-47）。
+		return m, tea.Batch(m.chrome(), m.ops.Result(msg))
+	case runnerop.Msg:
+		// 制御部宛の Msg はタブが受けて渡す（runners.go の handleOps と同じ理由。
+		// 包まないと待機画面に吸われる）。Jobs タブは一括選択を持たないので、
+		// 完了時に解く選択も無い。
+		return m, tea.Batch(m.chrome(), m.ops.Update(msg))
 	default:
 		return m.forward(msg)
 	}
@@ -104,6 +121,7 @@ func (m Model) setState(st page.StateMsg) (tea.Model, tea.Cmd) {
 	m.tbl.Restyle(st.Keys.List, st.Styles)
 	m.tbl.SetSize(st.BodyW, st.BodyH)
 	m.tbl.SetItems(sectionJobs, jobRows(st.Result.Runners))
+	m.ops.SetState(st, m.actions)
 	// 登録の Cmd は return より前に取り出す（runners.go と同じ理由。同じ return 文に
 	// 置くと、返り値 m の読み取りと m.initCmd の破棄の評価順が未規定になる）。
 	init := m.flushInit()
@@ -145,8 +163,17 @@ func (m Model) handleKey(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(press, m.st.Keys.List.Enter):
 		cmd = m.openDetail()
 	case key.Matches(press, m.st.Keys.Global.Back):
+		// 直近の操作の結果も消す（runners.go の back と同じ理由）。
+		m.ops.ClearStatus()
 		m.tbl.ClearFilter()
 	default:
+		// runner の操作キー（d / X / R）はここで解釈する（FR-47）。対象はジョブでは
+		// なく、カーソル位置のジョブを実行している runner 1 台である。**解釈した
+		// キーは一覧へも親へも渡さない**（runners.go と同じ理由）。
+		if c, ok := m.ops.HandleKey(press, runnerop.JobsOps(), m.targets()); ok {
+			cmd = c
+			break
+		}
 		// 自分が解釈しないキーは一覧へ渡し、同時に親へ差し戻す。タブ切替・再読み込み・
 		// 終了を解釈するのは親であり、一覧のキーと衝突しないことは keymap の
 		// 重複検査（keymap.Set.Contexts の「一覧画面（通常モード）」）が担保する。
@@ -169,6 +196,16 @@ func (m *Model) openDetail() tea.Cmd {
 		return nil
 	}
 	return runnerdetail.Open(&m.overlay, cur.runner, m.st.Caps)
+}
+
+// targets は操作の対象を返す。
+//
+// 一括選択は使わない。Jobs タブの一覧は選択できず（rows.go の Selectable）、
+// 対象はカーソル位置のジョブを実行している runner 1 台だからである。選び方そのものは
+// Runners タブと同じ runnerop.Targets に通し、片方だけが別の決め方をしないようにする。
+func (m Model) targets() []runner.Runner {
+	cur, ok := m.tbl.Selected()
+	return runnerop.Targets(nil, cur.runner, ok)
 }
 
 // chrome は親へ本体以外の状態を知らせる Cmd を返す。
@@ -195,11 +232,14 @@ func (m Model) input() string {
 //
 // 選択件数は出さない。Jobs タブは複数選択して一括操作する画面ではなく（操作対象は
 // カーソル位置のジョブを実行している runner 1 台）、区画も選択できないためである。
+//
+// 優先順は 入力中 → 直近の操作の結果。入力中はグローバルキーが効かない状態そのもの
+// なので最優先で示す（runners.go の status と同じ規則。選択件数が無いぶん段が 1 つ少ない）。
 func (m Model) status() string {
 	if in := m.input(); in != "" {
 		return "入力中: " + in
 	}
-	return ""
+	return m.ops.Status()
 }
 
 // footer はフッタのキーヒントを返す。

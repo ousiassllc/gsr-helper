@@ -108,13 +108,13 @@ func (s Set) List() []Def { return s.list }
 //
 // **サービス制御の可否は svc.CanControl へ委譲済みである**（components/overview.md の
 // internal/svc）。表示層が持つのは「どの操作をドメイン層のどの操作として問うか」
-// （svcOp）だけで、判定表そのものは持たない。残っているのは svc の関心事ではない
+// （SvcOp）だけで、判定表そのものは持たない。残っているのは svc の関心事ではない
 // 追加・削除・更新（認証とジョブ実行中）と、実装状況の判定である。
 //
 // 判定は下の順で行い、最初に一致した理由を返す。能力の問題（root / systemd / 認証）を
 // 実装状況（Supported）で隠さないため、未対応の判定を最後に置く。
 func Allow(a Def, r runner.Runner, caps appconfig.Caps) (bool, string) {
-	if op, ok := svcOp(a.ID); ok {
+	if op, ok := SvcOp(a.ID); ok {
 		if allowed, reason := svc.CanControl(op, r, caps); !allowed {
 			return false, reason
 		}
@@ -133,12 +133,17 @@ func Allow(a Def, r runner.Runner, caps appconfig.Caps) (bool, string) {
 	}
 }
 
-// svcOp は操作の識別子をサービス制御の操作へ対応付ける。対応が無ければ偽を返す。
+// SvcOp は操作の識別子をサービス制御の操作へ対応付ける。対応が無ければ偽を返す。
 //
 // 対応表を UI 側に置くのは、svc がキー定義も action.ID も知らないためである
 // （依存は ui/page/action → svc の一方向）。追加・削除・更新・設定編集・ログは
 // systemd 経由のサービス制御ではないので、対応を持たない。
-func svcOp(id ID) (svc.Op, bool) {
+//
+// 公開しているのは、可否の判定（Allow）だけでなく**実行と確認ダイアログの
+// コマンド表示**（ui/page/runnerop）も同じ対応を必要とするためである。対応表が
+// 2 箇所に分かれると、片方だけが新しい操作を知っている状態を作れてしまい、
+// 「フッタでは押せるのに実行だけ何も起きない」形の欠陥になる。
+func SvcOp(id ID) (svc.Op, bool) {
 	switch id {
 	case Start:
 		return svc.OpStart, true

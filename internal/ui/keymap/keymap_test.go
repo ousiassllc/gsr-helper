@@ -47,6 +47,8 @@ func allBindings(s Set) []named {
 		{"Runner.Update", s.Runner.Update},
 		{"Runner.Edit", s.Runner.Edit},
 		{"Runner.Logs", s.Runner.Logs},
+		{"Confirm.Yes", s.Confirm.Yes},
+		{"Confirm.No", s.Confirm.No},
 	}
 }
 
@@ -73,7 +75,8 @@ func TestAllBindingsCoversEveryField(t *testing.T) {
 	s := New()
 	want := reflect.TypeOf(s.Global).NumField() +
 		reflect.TypeOf(s.List).NumField() +
-		reflect.TypeOf(s.Runner).NumField()
+		reflect.TypeOf(s.Runner).NumField() +
+		reflect.TypeOf(s.Confirm).NumField()
 	if got := len(allBindings(s)); got != want {
 		t.Fatalf("検証対象の件数 = %d, want %d（Binding を追加したらテストも追う）", got, want)
 	}
@@ -113,6 +116,8 @@ func TestKeyAssignmentsMatchSpec(t *testing.T) {
 		"Runner.Update":    {"u"},
 		"Runner.Edit":      {"e"},
 		"Runner.Logs":      {"l"},
+		"Confirm.Yes":      {"y"},
+		"Confirm.No":       {"n", "enter", "esc"},
 	}
 	for _, b := range allBindings(New()) {
 		if !reflect.DeepEqual(b.binding.Keys(), want[b.name]) {
@@ -209,6 +214,12 @@ func TestConstructorsReturnFreshValues(t *testing.T) {
 	r.Stop.SetEnabled(false)
 	if !NewRunnerKeys().Stop.Enabled() {
 		t.Error("NewRunnerKeys の返り値への変更が次の呼び出しに影響している")
+	}
+
+	c := NewConfirm()
+	c.Yes.SetEnabled(false)
+	if !NewConfirm().Yes.Enabled() {
+		t.Error("NewConfirm の返り値への変更が次の呼び出しに影響している")
 	}
 
 	s := New()
