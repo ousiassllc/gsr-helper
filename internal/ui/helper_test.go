@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"reflect"
 	"strings"
 	"time"
 
@@ -138,7 +139,7 @@ func applyChrome(a App, cmd tea.Cmd) App {
 	return a
 }
 
-// cmdList は Batch の Cmd を展開して返す。
+// cmdList は Batch / Sequence の Cmd を展開して返す。
 //
 // 中の Cmd は実行しない。実行すると Tick が自動更新の間隔だけ待ち、検出が
 // ホストを走査してしまう。
@@ -146,10 +147,30 @@ func cmdList(cmd tea.Cmd) []tea.Cmd {
 	if cmd == nil {
 		return nil
 	}
-	if batch, ok := cmd().(tea.BatchMsg); ok {
-		return batch
+	if inner, ok := asCmds(cmd()); ok {
+		return inner
 	}
 	return []tea.Cmd{cmd}
+}
+
+// asCmds は Msg が Cmd の並び（Batch / Sequence）ならその中身を返す。
+//
+// tea.Sequence が返す Msg の型は非公開なので、tea.BatchMsg のように型では
+// 判別できない。Cmd のスライスであることだけを見て展開する。
+func asCmds(msg tea.Msg) ([]tea.Cmd, bool) {
+	v := reflect.ValueOf(msg)
+	if v.Kind() != reflect.Slice || v.Type().Elem() != reflect.TypeOf(tea.Cmd(nil)) {
+		return nil, false
+	}
+	out := make([]tea.Cmd, 0, v.Len())
+	for i := range v.Len() {
+		c, ok := v.Index(i).Interface().(tea.Cmd)
+		if !ok {
+			return nil, false
+		}
+		out = append(out, c)
+	}
+	return out, true
 }
 
 // update は Msg を 1 つ渡し、App と Cmd を返す。

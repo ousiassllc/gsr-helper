@@ -36,8 +36,10 @@ func TestInterruptQuitsInEveryState(t *testing.T) {
 			if cmd == nil {
 				t.Fatal("ctrl+c で Cmd が発行されない")
 			}
-			if _, ok := cmd().(tea.QuitMsg); !ok {
-				t.Errorf("ctrl+c の Msg = %T, want tea.QuitMsg", cmd())
+			// 終了は後始末を流し切ってから行うため tea.Sequence に包まれる
+			// （page.ShutdownMsg の doc）。
+			if !isQuit(cmd) {
+				t.Errorf("ctrl+c の Msg = %T, want 終了を含む Cmd", cmd())
 			}
 			if len(spies[0].keys) != 0 {
 				t.Error("ctrl+c を page へ渡している")
@@ -227,20 +229,41 @@ func TestSwitchTabRefreshesChrome(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("切り替えで Cmd が発行されない")
 	}
-	c, ok := cmd().(page.ChromeMsg)
-	if !ok {
-		t.Fatalf("切り替えの Msg = %T, want page.ChromeMsg", cmd())
+	// 切り替えは離脱・活性化・共有状態の 3 本を束ねて返すため、束の中から探す。
+	found := false
+	for _, c := range cmdList(cmd) {
+		if got, ok := c().(page.ChromeMsg); ok && got.Tab == 1 {
+			found = true
+		}
 	}
-	if c.Tab != 1 {
-		t.Errorf("報告されたタブ = %d, want 1", c.Tab)
+	if !found {
+		t.Errorf("切り替えの Cmd に移動先タブの ChromeMsg が無い（%T）", cmd())
 	}
 }
 
 // isQuit は Cmd が終了を指示しているかを返す。
+//
+// 終了は page の後始末を流し切ってから行うため tea.Sequence に包まれる
+// （keys.go の quit）。包みの中まで見ないと終了を見落とす。
 func isQuit(cmd tea.Cmd) bool {
 	if cmd == nil {
 		return false
 	}
-	_, ok := cmd().(tea.QuitMsg)
-	return ok
+	msg := cmd()
+	if _, ok := msg.(tea.QuitMsg); ok {
+		return true
+	}
+	seq, ok := asCmds(msg)
+	if !ok {
+		return false
+	}
+	for _, c := range seq {
+		if c == nil {
+			continue
+		}
+		if _, quit := c().(tea.QuitMsg); quit {
+			return true
+		}
+	}
+	return false
 }

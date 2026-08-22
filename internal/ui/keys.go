@@ -3,6 +3,8 @@ package ui
 import (
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 )
 
 // handleKey はキー入力を配送する。
@@ -29,7 +31,7 @@ func (a App) handleKey(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	a.notice = ""
 
 	if key.Matches(press, a.keys.Global.Interrupt) {
-		return a, tea.Quit
+		return a.quit()
 	}
 	if !a.live(a.active) {
 		// 差し戻してくれる page が居ないので親が直に解釈する。
@@ -48,7 +50,7 @@ func (a App) handleGlobalKey(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	g := a.keys.Global
 	switch {
 	case key.Matches(press, g.Quit):
-		return a, tea.Quit
+		return a.quit()
 	case key.Matches(press, g.Refresh):
 		// 手動の再読み込みは Tick を待たずに検出の Cmd を発行する。実行中の検出が
 		// あるときは重ねない（自動更新と同じ理由。discover.go の onTick）。その検出の
@@ -115,7 +117,45 @@ func (a App) activate(i int) (tea.Model, tea.Cmd) {
 		return a, nil
 	}
 
+	// 離れるタブに終わりを知らせる。知らせないと、裏に回った page はストリームや
+	// goroutine を畳む機会が無く、タブを行き来するたびに購読が積み上がる
+	// （page.DeactivateMsg の doc）。
+	a, off := a.forwardTo(a.active, page.DeactivateMsg{})
+
 	a.active = i
 	a.chrome = pageChrome(i)
-	return a.forward(a.state())
+	// 移動先には前面に戻ったことを知らせてから共有状態を配る。畳んだ処理を張り直す
+	// page が、最新のスナップショットを持った状態で張り直せるようにするためである。
+	a, on := a.forwardTo(i, page.ActivateMsg{})
+	next, st := a.forward(a.state())
+	return next, tea.Batch(off, on, st)
+}
+
+// quit は全 page に終了を知らせ、後始末の Cmd を流し切ってから終了する。
+//
+// tea.Quit を直に返すと、page が持つ長寿命の処理（ログの購読、監視の goroutine）は
+// 畳まれないままランタイムが止まる。tea.Batch では終了と後始末が並走して同じ競合に
+// なるため、tea.Sequence で**後始末を先に**流す（page.ShutdownMsg の doc）。
+func (a App) quit() (tea.Model, tea.Cmd) {
+	a, cleanup := a.broadcast(page.ShutdownMsg{})
+	if cleanup == nil {
+		return a, tea.Quit
+	}
+	return a, tea.Sequence(cleanup, tea.Quit)
+}
+
+// broadcast は有効な全タブへ Msg を配り、返った Cmd をまとめる。
+//
+// 選択中のタブだけに配らないのは、裏のタブも自分で始めた処理を持つためである
+// （裏に回ったときに畳み損ねた処理をここで確実に閉じられる）。
+func (a App) broadcast(msg tea.Msg) (App, tea.Cmd) {
+	cmds := make([]tea.Cmd, 0, len(a.tabs))
+	for i := range a.tabs {
+		var cmd tea.Cmd
+		a, cmd = a.forwardTo(i, msg)
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	}
+	return a, tea.Batch(cmds...)
 }
