@@ -35,7 +35,7 @@ const (
 	// dockerSkipPrefix は docker が使えないときの理由。
 	dockerSkipPrefix = "docker が使えないため"
 	// busyReasonPrefix はジョブ実行中で選べない理由（FR-31）。
-	busyReasonPrefix = "ジョブ実行中のため削除"
+	busyReasonPrefix = "ジョブ実行中で削除不可"
 )
 
 func press(k string) tea.KeyPressMsg { return pagetest.Press(k) }
