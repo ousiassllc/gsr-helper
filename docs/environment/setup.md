@@ -48,6 +48,7 @@ Makefile                   タスク定義（CI / 手元で共用。Git Hooks �
 | Go | ビルド・テスト・開発ツールの実行 | バージョンは `go.mod` に従う |
 | make | タスク実行 | 大半の Linux ディストリビューションに同梱 |
 | git | バージョン管理・Git Hooks | — |
+| C コンパイラ（`gcc` / `cc`） | `make test` の競合検出 | `-race` は cgo を必要とする（実測: `CGO_ENABLED=0 go test -race` が `-race requires cgo` で失敗する）。Debian 系では `build-essential` で導入する |
 
 golangci-lint / linterly / lefthook は個別にインストールしない。後述のとおり `go.mod` の tool ディレクティブで管理し、`go tool` 経由で実行する。
 
@@ -95,7 +96,7 @@ lint / test / build のコマンド列を Makefile に集約し、**CI と手元
 | `make vet` | `go vet ./...` |
 | `make lint` | `golangci-lint run` |
 | `make linterly` | 行数チェック |
-| `make test` | `go test ./...` |
+| `make test` | `go test -race ./...`（競合検出あり） |
 | `make build` | `go build ./...` で全パッケージのコンパイルを検証し、`cmd/gsr-helper` が存在する場合はさらに単一バイナリ `gsr-helper` を生成する |
 | `make hooks` | Lefthook を Git Hooks に登録 |
 | `make check` | `fmt-check` → `vet` → `lint` → `linterly` → `test` を順に実行 |
@@ -147,8 +148,8 @@ lint: ## golangci-lint を実行する
 linterly: ## 行数チェックを実行する
 	$(GO) tool linterly check
 
-test: ## テストを実行する
-	$(GO) test ./...
+test: ## テストを実行する（競合検出あり）
+	$(GO) test -race ./...
 
 build: ## 全パッケージをコンパイル検証し、エントリポイントがあればバイナリを生成する
 	$(GO) build ./...
@@ -162,6 +163,21 @@ hooks: ## Git Hooks を登録する
 
 check: fmt-check vet lint linterly test ## すべてのチェックを実行する
 ```
+
+### テストは常に競合検出付きで実行する
+
+`make test` は `go test -race ./...` である。**競合検出を別ターゲット（`test-race` 等）に分けない。** CI・`make check`・pre-push フックはいずれも `make test` を呼ぶため、ターゲットを分けると「どの経路で競合検出が働くか」が増えた分だけ分岐し、CI だけで検出される競合が手元で再現しない状態を作る。
+
+| 項目 | 実測値 |
+|------|-------|
+| `go test ./...`（ビルドキャッシュあり） | 1.5 秒 |
+| `go test -race ./...`（ビルドキャッシュあり） | 21 秒 |
+
+増分のほぼ全部が `internal/exec/command` の 20.6 秒である。このパッケージのテストは外部コマンドへの依存を避けるために**テストバイナリ自身を子プロセスとして起動する**ため、競合検出を有効にしたバイナリの起動コスト（1 回あたり約 1 秒）を起動回数ぶん払う。ほかのパッケージは合計しても数秒に収まる。
+
+**pre-push では競合検出付きで実行する。** push はコミットより頻度が低く、20 秒台は「壊れたコードをリモートに上げない」目的に見合う。一方 pre-commit には入れない（「数秒で終わる静的チェックのみ」という狙いを壊す）。
+
+**`-race` は cgo を必要とする。** C コンパイラが無い環境では `-race requires cgo` で失敗するため、開発マシンと runner ホストの双方に `gcc` が必要である（[ランナーホストのセットアップ](../operations/runner-host-setup.md#c-コンパイラ)）。
 
 ## CI/CD
 
@@ -284,6 +300,7 @@ CI は GitHub ホストランナーではなく self-hosted runner で実行す�
 | OS | Linux（amd64）。対象 OS と一致するため、GitHub ホストランナーでは検証できない `systemctl` / `journalctl` 前提の挙動もそのまま確認できる |
 | ワークスペース | ジョブ間で作業ディレクトリが再利用される。`actions/checkout` の既定（`clean: true`）に依存し、ビルド成果物を残す前提のステップを書かない |
 | ツールの導入 | Go は `actions/setup-go` がツールキャッシュへ導入する。ホストに Go を事前インストールしない（バージョンの二重管理を避ける） |
+| C コンパイラ | `make test` は `-race` 付きで実行され、`-race` は cgo を必要とするため `gcc` がホストに必要である。`setup-go` は C コンパイラを導入しない（[ランナーホストのセットアップ](../operations/runner-host-setup.md#c-コンパイラ)） |
 | 並列実行 | `lint` / `test` / `build` の 3 ジョブが同時に走るため、runner は 3 台以上を稼働させる。台数が足りない場合はジョブが順番待ちになるだけで失敗はしない。前段の `guard` は GitHub ホストランナーで動くため self-hosted の台数を消費しない |
 | 権限 | CI ジョブは runner の実行ユーザー権限で動く。`sudo` を必要とするテストを CI に置かない（`Executor` のテスト実装で代替する。[非機能要件 / 保守性・テスト](../requirements/non-functional.md#保守性テスト)） |
 
@@ -466,7 +483,7 @@ Lefthook を使う。`make hooks`（= `go tool lefthook install`）で登録す�
 | フック | 実行内容 | 狙い |
 |--------|---------|------|
 | pre-commit | gofmt（自動修正）・golangci-lint（HEAD からの差分のみ）・linterly | 数秒で終わる静的チェックのみ。コミットを軽く保つ |
-| pre-push | `make test` | 壊れたコードをリモートに上げない |
+| pre-push | `make test`（競合検出あり） | 壊れたコードをリモートに上げない |
 
 `lefthook.yml`:
 
@@ -561,3 +578,4 @@ pre-push:
 | 1.9 | 2026-08-22 | `make fmt-check` の対象解決をディレクトリ単位からファイル単位（`go list` の `.GoFiles` / `.CgoFiles` / `.TestGoFiles` / `.XTestGoFiles` / `.IgnoredGoFiles`）へ変更し、`gofmt` を `$(GO) env GOROOT` 由来の `$(GOFMT)` に固定。`go list` の失敗と対象 0 件を `exit 1` にした。ターゲット一覧表・Makefile 定義・「Format」節を実装に同期し、`internal/buildconfig` に Makefile の回帰テストを追加 | 1.3 の修正（`gofmt -l $$($(GO) list -f '{{.Dir}}' ./...)`）は、リポジトリルートに `.go` ファイルが 1 本置かれてルート自体がパッケージになると `gofmt` が `.claude/worktrees/` 配下まで再帰して無効化される。`gofmt -l` は `testdata/` も検査するが `go fmt ./...` は対象外にするため、未整形のフィクスチャを置くと `make fmt` で直せないのに `fmt-check` が落ちるデッドロックになる。`fmt` が GOROOT の `gofmt`、`fmt-check` が PATH の `gofmt` を使う非対称も、`GO` を差し替えた環境で整形と検査のツールチェーンをずらす。さらにコマンド置換の終了ステータスを捨てていたため `go.mod` 破損時に検査が静かに通り、対象 0 件では `gofmt` が引数なしで起動して標準入力を読み無言でハングすることを実測した（`timeout 5 gofmt -l` が exit 124）。Issue #14 |
 | 1.10 | 2026-08-22 | fork ガードを全ジョブの `if:` 条件から、GitHub ホストランナー上で動く `guard` ジョブ + `needs: guard` へ置き換え、判定を許可リスト形（`push` と同一リポジトリの `pull_request` だけを許可し、それ以外は失敗）にした。「fork からの PR で self-hosted ジョブを起動しない」節を private + `allow_forking: false` の実態と多層防御の現状表に更新し、required status check には `guard` を指定する運用・実 fork PR での実測が行えない理由を明記。ワークフロー定義のコードブロックを実体と同期し、`internal/buildconfig` に `guard` スクリプトの回帰テストと仕様書コードブロックの同期テストを追加。あわせて `docs/operations/runner-host-setup.md` に「runner group の対象リポジトリ」節を追加（同 1.1） | 従前の `if:` 条件は「`pull_request` でなければ無条件に実行する」ブロックリスト形で、`merge_group` / `workflow_dispatch` を `on:` に足すと左辺が真になって短絡し fork チェックが評価されないまま実行される。また `if:` で skip されたジョブは required status check に対して success として報告されるため、CI が一度も走っていない PR が緑になりマージ可能に見える。skip ではなく失敗するゲートジョブにすれば、この 2 点をワークフロー定義の側で閉じられる。fork PR 承認ポリシーの `all_external_contributors` 化は実測で private リポジトリには設定できず（`fork-pr-contributor-approval` API が 422 `Fork PR approval is not allowed for private repositories.`）、`allow_forking: false` のため実 fork PR での確認経路も存在しないため、public へ戻す場合の手順として記録した。runner group の対象リポジトリ限定は `admin:org` スコープが無く API から確認できない（403）ため、運用手順側へ記録した。Issue #17 |
 | 1.11 | 2026-08-22 | `lefthook.yml` の実行モデルを 3 点決着させた。(1) pre-commit の `lint` を `go tool golangci-lint run --new-from-rev=HEAD` にして HEAD からの差分だけを対象にし、残る制約（丸ごと未ステージのファイルは対象に含まれる）と全体チェックを CI が担うことを明記。(2) `lefthook: go tool lefthook` を追加して hook 実行時のバージョンを `go.mod` に固定。(3) make を経由するかどうかの基準を表にし、`linterly` / `test` を `make linterly` / `make test` へ寄せた。あわせて `priority: 1/2/3` を明示して実行順を命名から切り離し、「Git Hooks」節を小見出しに整理。「タスクランナー」節と「ディレクトリ構造」の記述を実態に同期 | (1) 作業ツリー全体を無条件に検査すると、コミット済みの既存指摘が 1 件あるだけで無関係でクリーンなコミットも落ち続ける（実測: 既存コミットに `errcheck` 違反を 1 件入れると別ファイルのクリーンなコミットが失敗し、`--new-from-rev=HEAD` では成功した。`.go` の削除のみのコミットも通るようになった）。(2) hook スクリプトの探索順は PATH 上の `lefthook` が `go tool lefthook` より先であり、グローバルインストールがある環境ではピン留めが効かない（実測: 指定前は hook のバナーが `lefthook v2.1.6`、指定後は `lefthook v1.13.6`）。この値は hook 生成時に埋め込まれるため変更後は `make hooks` の再実行が必要である。(3) `fmt` は `{staged_files}`、`lint` は `--new-from-rev=HEAD` というコミット内容へのスコープが必要で make ターゲットでは表現できないが、`linterly` は `check [path]` がパスを 1 つしか取らずディレクトリ単位の行数上限も全体を見ないと判定できないため絞れず、`test` は絞る必要がない。この 2 つを make 経由にすればコマンド列の二重管理が消え、テストの実行方法を Makefile の 1 箇所で管理できる。`priority` は lefthook v1.13.6 に存在し名前比較より優先されるため、`fmt` → `lint` の依存を命名に頼らず固定できる。サンドボックスの clone で pre-commit（正常・lint 違反でコミット中止・既存違反の無視・削除のみのコミット）と pre-push（失敗テストで push 拒否）の 5 ケースを実測した。Issue #18 |
+| 1.12 | 2026-08-22 | `make test` を `go test -race ./...` にし、競合検出を別ターゲットに分けない方針と実測値・pre-push で実行する判断を「テストは常に競合検出付きで実行する」節に記録。「必要なもの」と self-hosted runner の前提に C コンパイラを追加し、`internal/buildconfig` に競合を実際に検出できることの回帰テストを追加。あわせて `docs/operations/runner-host-setup.md` に「C コンパイラ」節を追加（同 1.2） | `internal/runner.ScanUnits` の `systemctl show` 並列化以降、複数 goroutine から呼ばれる箇所が増えたのに `make test` に `-race` が無く、CI では競合が検出されないまま緑になる状態だった。ターゲットを分けると CI と手元で競合検出の有無が分岐するため、`make test` 自体に付けて CI・`make check`・pre-push の 3 経路すべてに効かせた。実測でビルドキャッシュあり 1.5 秒 → 21 秒に増えるが、増分のほぼ全部は `internal/exec/command` がテストバイナリ自身を子プロセスとして起動する設計に由来する（競合検出付きバイナリの起動コストが 1 回約 1 秒）。push はコミットより頻度が低いため pre-push では許容し、pre-commit には入れない。`-race` は cgo を必要とするため（実測: `CGO_ENABLED=0 go test -race` が `-race requires cgo`）、開発マシンと runner ホストの前提に C コンパイラを追加した。Issue #21 |

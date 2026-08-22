@@ -44,8 +44,8 @@ lint: ## golangci-lint を実行する
 linterly: ## 行数チェックを実行する
 	$(GO) tool linterly check
 
-test: ## テストを実行する
-	$(GO) test ./...
+test: ## テストを実行する（競合検出あり）
+	$(GO) test -race ./...
 
 build: ## 全パッケージをコンパイル検証し、エントリポイントがあればバイナリを生成する
 	$(GO) build ./...

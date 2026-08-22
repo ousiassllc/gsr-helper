@@ -60,6 +60,15 @@ org（`ousiassllc`）レベルに登録した runner は、**runner group の対
 - **この設定の確認・変更には org 管理者の権限が必要**で、API から触るには `admin:org` スコープが要る（実測: `gh api orgs/ousiassllc/actions/runner-groups` が 403 `You must be an org admin or have the runners and runner groups fine-grained permission.`）。CI から機械的に検証できないため、**runner を追加・移動したときに手動で確認する**。
 - **public リポジトリへ runner を提供する設定にはしない。** 既定のままであれば、リポジトリを public に戻した時点でジョブは実行されず `queued` で止まる。これは fork PR 経由で第三者のコードが runner 上で走ることを防ぐ層として機能する（実測: 対象リポジトリを public のまま運用していたとき、org に 12 台登録・1 台稼働の状態で run が 15 分以上 `queued` のまま引き取られず、private 化した直後に同じ run が実行された）。
 
+## C コンパイラ
+
+**`gcc` をホストに入れる。** CI の `test` ジョブは `make test`（= `go test -race ./...`）を実行し、**競合検出は cgo を必要とする**ため C コンパイラが無いとジョブが失敗する（実測: `CGO_ENABLED=0 go test -race` が `-race requires cgo` で失敗する）。`actions/setup-go` は Go ツールチェーンだけを導入し、C コンパイラは入れない。
+
+```bash
+sudo apt-get install -y build-essential
+gcc --version   # 確認
+```
+
 ## 言語ツールチェーン
 
 **ホストへの事前インストールは不要。** Go / Node / Terraform / Atlas はいずれも各 `setup-*` アクションがジョブ実行時に取得する。
@@ -73,6 +82,7 @@ org（`ousiassllc`）レベルに登録した runner は、**runner group の対
 | Docker | `docker: command not found` |
 | Buildx | `the --chmod option requires BuildKit`（`COPY --chmod` を含む Dockerfile のビルド時） |
 | docker グループ | `permission denied while trying to connect to the Docker daemon socket` |
+| C コンパイラ（`gcc`） | `-race requires cgo; enable cgo by setting CGO_ENABLED=1`（`make test` 実行時） |
 
 ## doctor での検出
 
@@ -95,3 +105,4 @@ org（`ousiassllc`）レベルに登録した runner は、**runner group の対
 |----|------|---------|---------|
 | 1.0 | 2026-08-21 | 新規作成 | 初版。doctor のジョブ実行の前提チェック（FR-43）の根拠となる実運用の手順を記録 |
 | 1.1 | 2026-08-22 | 「runner group の対象リポジトリ」節を追加し、対象リポジトリの限定と public リポジトリへ提供しない既定を維持する運用を明記 | self-hosted runner を掴めるリポジトリを絞ることが fork PR ガードの一次防御の 1 層であるにもかかわらず、手順として記録されていなかったため（Issue #17）。設定の確認には `admin:org` スコープが必要で CI から機械的に検証できないため、手動確認のタイミングもあわせて明記した |
+| 1.2 | 2026-08-22 | 「C コンパイラ」節を追加し、`build-essential` の導入手順と「欠けているものと症状」への行を追記 | CI の `test` ジョブが `make test`（= `go test -race ./...`）を実行するようになり、競合検出は cgo を必要とするため C コンパイラがホストの前提に加わった。`actions/setup-go` は C コンパイラを導入しないため、欠けているとジョブが `-race requires cgo` で失敗する（Issue #21） |
