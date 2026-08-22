@@ -211,3 +211,27 @@ func TestTabIndexMatchesPageTabNumber(t *testing.T) {
 		}
 	}
 }
+
+// タブをまたぐ移動が指す名前は、実在する有効なタブに一致する。
+//
+// 移動先は文字列（page.OpenTabMsg.Title）で指すため、タブ名を変えると移動だけが
+// 静かに効かなくなる（親は一致するタブが無ければ何もしない）。コンパイルエラーにも
+// ならないので、ここで機械的に突き合わせる。
+func TestOpenTabTitlesMatchTabs(t *testing.T) {
+	tabs := newTestTabs(pagetest.Caps())
+	for _, title := range []string{page.TabLogs} {
+		found := false
+		for _, tb := range tabs {
+			if tb.Title != title {
+				continue
+			}
+			found = true
+			if !tb.Enabled {
+				t.Errorf("移動先のタブ %q が無効である（l を押しても開けない）", title)
+			}
+		}
+		if !found {
+			t.Errorf("移動先の名前 %q に一致するタブが無い", title)
+		}
+	}
+}

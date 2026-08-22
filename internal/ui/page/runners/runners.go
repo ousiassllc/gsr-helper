@@ -92,11 +92,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// である。** 決定を解釈するのは Overlay ではなく page だという分担を、この
 		// case が page 側から明示する（Go の型スイッチの default は記述位置に
 		// 関わらず最後に評価されるため、並びは関係しない）。
-		//
-		// この版の runner 操作はすべて未対応（page.Action.Supported が偽）であり、
-		// 無効な項目では ChoiceList が決定を発行しないため、実行できる処理はまだ
-		// 無い。操作を実装する Issue はここに分岐を足す。
-		return m, m.chrome()
+		return m.handleResult(msg)
 	default:
 		return m.forward(msg)
 	}
@@ -181,6 +177,8 @@ func (m Model) handleKey(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		cmd = m.overlay.OpenHelp()
 	case key.Matches(press, m.st.Keys.List.Enter):
 		cmd = m.openDetail()
+	case key.Matches(press, m.st.Keys.Runner.Logs):
+		cmd = m.openLogs()
 	case key.Matches(press, m.st.Keys.Global.Back):
 		m.back()
 	default:

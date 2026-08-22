@@ -22,6 +22,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/ui/keymap"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/jobs"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/logs"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/runners"
 	"github.com/ousiassllc/gsr-helper/internal/ui/token"
 )
@@ -72,7 +73,7 @@ func specs() []spec {
 		{Title: "Runners", New: func(i int, st page.StateMsg) tea.Model { return runners.New(i, st) }},
 		{Title: "Jobs", New: func(i int, st page.StateMsg) tea.Model { return jobs.New(i, st) }},
 		{Title: "Disk", New: nil},
-		{Title: "Logs", New: nil},
+		{Title: page.TabLogs, New: func(i int, st page.StateMsg) tea.Model { return logs.New(i, st) }},
 		{Title: "Doctor", New: nil},
 		{Title: "Config", New: nil},
 		{Title: "Setup", New: nil},

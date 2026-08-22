@@ -112,8 +112,9 @@ func newDef(id ID, k, desc string) Def {
 // 影響の文言は screens.md の詳細画面のモックに従う。破壊的な操作（区切り線の下に
 // 置くもの）は停止・強制停止・削除の 3 つである。
 //
-// Supported はすべて false を返す。操作の実装は後続の Issue（サービス制御・追加削除
-// 更新・ログ・設定編集）が担うため、この版では「押せるが何も起きない」経路を作らない。
+// Supported が真なのは Logs（ログを開く）だけである。残る操作の実装は後続の Issue
+// （サービス制御・追加削除更新・設定編集）が担うため、この版では「押せるが何も
+// 起きない」経路を作らない。
 func meta(id ID) (impact string, destructive, supported bool) {
 	switch id {
 	case Stop:
@@ -122,6 +123,8 @@ func meta(id ID) (impact string, destructive, supported bool) {
 		return token.IconWarn + " 実行中のジョブは中断されます", true, false
 	case Delete:
 		return token.IconWarn + " 登録解除 + サービス削除", true, false
+	case Logs:
+		return "", false, true
 	default:
 		return "", false, false
 	}

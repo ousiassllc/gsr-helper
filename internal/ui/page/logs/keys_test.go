@@ -1,0 +1,231 @@
+package logs
+
+import (
+	"strings"
+	"testing"
+
+	tea "charm.land/bubbletea/v2"
+
+	dlogs "github.com/ousiassllc/gsr-helper/internal/logs"
+	"github.com/ousiassllc/gsr-helper/internal/ui/atom"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
+)
+
+// キーの解釈（ペイン切替・追従・フィルタ・journalctl）を検証する。
+
+// sample は行を直に持たせたタブを返す。
+//
+// 購読を張らずに本文の組み立てだけを見たい検証で使う。購読ごと辿る検証は
+// stream_test.go にある。
+func sample(t *testing.T, lines ...string) Model {
+	t.Helper()
+
+	st, r := withLogs(t)
+	m := newTab(t, st)
+	m.target = target{runner: r, file: dlogs.File{Name: "Worker_1.log"}, journal: false}
+	for _, s := range lines {
+		m.lines = append(m.lines, dlogs.NewLine(s))
+	}
+	m.applyLines()
+	return m
+}
+
+// bubbled は Cmd に親への差し戻し（GlobalKeyMsg）が含まれるかを返す。
+func bubbled(cmd tea.Cmd) bool {
+	for _, c := range pagetest.Expand(cmd) {
+		if c == nil {
+			continue
+		}
+		if _, ok := c().(page.GlobalKeyMsg); ok {
+			return true
+		}
+	}
+	return false
+}
+
+// hint は Cmd の ChromeMsg からキー k のヒントを返す。
+func hint(t *testing.T, cmd tea.Cmd, k string) (atom.Hint, bool) {
+	t.Helper()
+
+	for _, h := range chromeOf(t, cmd).Footer {
+		if h.Key == k {
+			return h, true
+		}
+	}
+	return atom.Hint{}, false
+}
+
+// tab はペインを切り替え、**親へ差し戻さない**（差し戻すと 1 打鍵でタブも移る）。
+func TestTabSwitchesPaneWithoutBubbling(t *testing.T) {
+	m := sample(t, "a")
+	if m.focus != focusList {
+		t.Fatalf("初期のペイン = %v, want 一覧", m.focus)
+	}
+
+	next, cmd := step(t, m, press("tab"))
+	if next.focus != focusBody {
+		t.Errorf("tab の後のペイン = %v, want 本文", next.focus)
+	}
+	if bubbled(cmd) {
+		t.Error("tab を親へ差し戻している（次のタブへ移ってしまう）")
+	}
+	if got := chromeOf(t, cmd).Status; !strings.Contains(got, paneBody) {
+		t.Errorf("状態行 = %q, want 操作中のペインを含む", got)
+	}
+
+	next, _ = step(t, next, press("tab"))
+	if next.focus != focusList {
+		t.Errorf("2 度目の tab の後のペイン = %v, want 一覧", next.focus)
+	}
+}
+
+// f は追従を切り替え、G は末尾へ戻して追従を再開する（screens.md の Logs タブ）。
+func TestFollowToggleAndResume(t *testing.T) {
+	m := sample(t, "a", "b", "c")
+	m, _ = step(t, m, press("tab")) // 本文のペインへ
+
+	m, _ = step(t, m, press("f"))
+	if m.body.Following() {
+		t.Fatal("f を押しても追従が続いている")
+	}
+	if got := m.header(); !strings.Contains(got, followOff) {
+		t.Errorf("見出し = %q, want %q を含む", got, followOff)
+	}
+
+	m, _ = step(t, m, press("G"))
+	if !m.body.Following() {
+		t.Error("G で追従を再開できていない")
+	}
+}
+
+// 手動スクロールで追従が切れる（末尾から離れた時点で切る）。
+func TestManualScrollStopsFollowing(t *testing.T) {
+	lines := make([]string, 0, 40)
+	for range 40 {
+		lines = append(lines, "line")
+	}
+	m := sample(t, lines...)
+	m, _ = step(t, m, press("tab"))
+
+	m, _ = step(t, m, press("k"))
+	if m.body.Following() {
+		t.Error("上へスクロールしても追従が続いている")
+	}
+}
+
+// / でフィルタを入力し、enter で確定すると一致する行だけが残る（FR-25）。
+func TestFilterKeepsMatchingLinesOnly(t *testing.T) {
+	m := sample(t, "info line", "[ERROR] boom", "warn line")
+
+	m, cmd := step(t, m, press("/"))
+	if !m.body.Filtering() {
+		t.Fatal("フィルタの入力モードに入っていない")
+	}
+	if got := chromeOf(t, cmd).Input; got != inputFilter {
+		t.Errorf("入力中の名称 = %q, want %q", got, inputFilter)
+	}
+
+	for _, k := range strings.Split("ERROR", "") {
+		m, _ = step(t, m, press(k))
+	}
+	m, _ = step(t, m, press("enter"))
+
+	got := m.body.View()
+	if !strings.Contains(got, "boom") {
+		t.Errorf("一致する行が消えている:\n%s", got)
+	}
+	if strings.Contains(got, "info line") {
+		t.Errorf("一致しない行が残っている:\n%s", got)
+	}
+}
+
+// esc は確定済みのフィルタを解除する（絞り込みの前の状態へ戻る）。
+func TestEscClearsFilter(t *testing.T) {
+	m := sample(t, "info line", "[ERROR] boom")
+	m, _ = step(t, m, press("/"))
+	for _, k := range strings.Split("ERROR", "") {
+		m, _ = step(t, m, press(k))
+	}
+	m, _ = step(t, m, press("enter"))
+
+	m, _ = step(t, m, press("esc"))
+	if got := m.body.Filter(); got != "" {
+		t.Fatalf("esc の後のフィルタ = %q, want 空", got)
+	}
+	if got := m.body.View(); !strings.Contains(got, "info line") {
+		t.Errorf("解除しても行が戻っていない:\n%s", got)
+	}
+}
+
+// 正規表現として解けないフィルタは理由を状態行に出す（黙って全行を消さない）。
+func TestInvalidFilterReportsReason(t *testing.T) {
+	m := sample(t, "info line")
+	m, _ = step(t, m, press("/"))
+	m, _ = step(t, m, press("["))
+	m, cmd := step(t, m, press("enter"))
+
+	if m.filterErr == nil {
+		t.Fatal("不正な正規表現が理由として残っていない")
+	}
+	if got := chromeOf(t, cmd).Status; !strings.Contains(got, "正規表現") {
+		t.Errorf("状態行 = %q, want 不正な正規表現である旨", got)
+	}
+	if got := m.body.View(); !strings.Contains(got, "info line") {
+		t.Errorf("解けないフィルタで行が消えた:\n%s", got)
+	}
+}
+
+// 入力中のグローバルキーは入力欄へ入り、親へ差し戻さない（screens.md の入力中）。
+func TestFilterSwallowsGlobalKeys(t *testing.T) {
+	m := sample(t, "a")
+	m, _ = step(t, m, press("/"))
+
+	m, cmd := step(t, m, press("q"))
+	if bubbled(cmd) {
+		t.Error("入力中のキーを親へ差し戻している（q で終了してしまう）")
+	}
+	m, _ = step(t, m, press("enter"))
+	if got := m.body.Filter(); got != "q" {
+		t.Errorf("確定したフィルタ = %q, want q", got)
+	}
+}
+
+// journalctl が無い環境では J が縮退し、理由をフッタに出す（受け入れ条件）。
+func TestJournalDegradesWithoutCapability(t *testing.T) {
+	st, r := withLogs(t)
+	st.Caps.Journal = false
+
+	m := newTab(t, st)
+	m.target = target{runner: r, file: dlogs.File{Name: "Worker_1.log"}, journal: false}
+
+	next, cmd := step(t, m, press("J"))
+	if next.target.journal {
+		t.Error("journalctl が無いのに切り替わった")
+	}
+	h, ok := hint(t, cmd, "J")
+	if !ok {
+		t.Fatal("フッタに J が出ていない（キーは消さない）")
+	}
+	if h.Enabled || h.Reason != reasonNoJournal {
+		t.Errorf("J のヒント = %v/%q, want false/%q", h.Enabled, h.Reason, reasonNoJournal)
+	}
+}
+
+// systemd ユニットを持たない runner でも J は縮退する。
+func TestJournalDegradesWithoutUnit(t *testing.T) {
+	st, r := withLogs(t)
+	r.UnitName = ""
+
+	m := newTab(t, st)
+	m.target = target{runner: r, file: dlogs.File{Name: "Worker_1.log"}, journal: false}
+
+	next, cmd := step(t, m, press("J"))
+	if next.target.journal {
+		t.Error("ユニットが無いのに切り替わった")
+	}
+	h, _ := hint(t, cmd, "J")
+	if h.Reason != reasonNoUnit {
+		t.Errorf("J の理由 = %q, want %q", h.Reason, reasonNoUnit)
+	}
+}
