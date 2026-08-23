@@ -107,3 +107,18 @@ func TestWorkUsageRejectsNonDirectory(t *testing.T) {
 		t.Error("_work がファイルなのにエラーを返していない")
 	}
 }
+
+// リンク切れの _work は 0 バイトではなくエラーにする。
+//
+// 別ボリュームへ寄せたが未マウント、という今回まさに想定した失敗形である。
+// 0 を返すと「集計できていないのに 0 バイト」という確定値が一覧に出る。
+func TestWorkUsageRejectsBrokenSymlink(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Symlink(filepath.Join(dir, "does-not-exist"), filepath.Join(dir, "_work")); err != nil {
+		t.Fatalf("Symlink: %v", err)
+	}
+
+	if _, err := WorkUsage(context.Background(), newRunner(dir, false)); err == nil {
+		t.Error("リンク切れの _work でエラーを返していない（0 バイトとして確定してしまう）")
+	}
+}

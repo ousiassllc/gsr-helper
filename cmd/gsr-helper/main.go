@@ -82,10 +82,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	//
 	// **監査ログより先に作る。** 外部コマンドを伴わない破壊的操作の記録
 	// （audit.Logger.Report）も同じ受け皿へ流すため、Logger の生成時に渡す。
-	sink := &auditSink{}
+	lg, sink := newAudit(cfg.AuditLog, stderr)
 	defer func() { sink.report(stderr) }()
-
-	lg := openAudit(cfg.AuditLog, stderr, sink.add)
 	// クローズの失敗も報告する。バッファに残ったレコードが書けなかった場合が
 	// 黙って消えると、監査ログのエラーのうちこれだけが利用者に見えない。
 	defer func() { reportAuditClose(lg.Close(), stderr) }()
@@ -165,6 +163,17 @@ func configPath(configured string, stderr io.Writer) string {
 // 直接書き、bubbletea が代替スクリーンを握っている間に画面が壊れる。外部コマンドの
 // 記録失敗（command.WithAuditErrorFunc）と同じ受け皿へ流すことで、記録の失敗が
 // どちらの経路で起きても終了後に 1 か所でまとめて報告される。
+// newAudit は監査ログの出力先と、記録の失敗を集める受け皿を**組にして**返す。
+//
+// **2 つを別々に組み立てさせない。** 通知先を渡し忘れると audit が os.Stderr へ直接
+// 書き、bubbletea が代替スクリーンを握っている間に画面が壊れる。呼び出し側が
+// 「Logger を作る」「sink を作る」「繋ぐ」の 3 手を踏む形だと、繋ぐ 1 手を落としても
+// コンパイルは通る。組で返せばその落とし穴が消える。
+func newAudit(path string, stderr io.Writer) (*audit.Logger, *auditSink) {
+	sink := &auditSink{}
+	return openAudit(path, stderr, sink.add), sink
+}
+
 func openAudit(path string, stderr io.Writer, onErr func(error)) *audit.Logger {
 	id := audit.WithIdentity(os.Geteuid(), appconfig.SudoUser())
 	lg, err := audit.Open(path, id, audit.WithErrorFunc(onErr))

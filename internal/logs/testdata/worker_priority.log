@@ -1,0 +1,7 @@
+[2026-08-21 16:00:01Z INFO Worker] Starting Worker
+[2026-08-21 16:00:02Z INFO ProcessInvokerWrapper] Starting process:
+  File name: '/usr/bin/docker'
+  Working directory: '/opt/runners/build01-1'
+[2026-08-21 16:00:03Z INFO JobExtensionRunner] Update repository ousiassllc/other-repo's path to '/opt/runners/build01-1/_work/gsr-helper/other-repo'
+[2026-08-21 16:00:04Z INFO PipelineDirectoryManager] Loading tracking config if exists: /opt/runners/build01-1/_work/_PipelineMapping/ousiassllc/gsr-helper/PipelineFolder.json
+[2026-08-21 16:00:05Z INFO PipelineDirectoryManager] Update workspace to '/opt/runners/build01-1/_work/gsr-helper/gsr-helper'

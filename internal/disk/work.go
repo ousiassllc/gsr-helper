@@ -37,6 +37,13 @@ func WorkUsage(ctx context.Context, r runner.Runner) (int64, error) {
 	fi, err := os.Stat(work)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
+		// **エントリ自体があるかで書き分ける。** リンク切れのシンボリックリンク
+		// （別ボリュームへ寄せたが未マウント、という今回まさに想定した失敗形）でも
+		// os.Stat は ENOENT を返す。0 を返すと「集計できていないのに 0 バイト」と
+		// いう確定値になるので、辿れないことをエラーとして伝える。
+		if _, lerr := os.Lstat(work); lerr == nil {
+			return 0, fmt.Errorf("%s を辿れません（リンク切れの可能性があります）", work)
+		}
 		// ジョブを 1 度も実行していない runner。0 バイトとして扱う（上の doc）。
 		return 0, nil
 	case err != nil:
@@ -53,7 +60,12 @@ func WorkUsage(ctx context.Context, r runner.Runner) (int64, error) {
 	// 確定値**を一覧に出す（未集計は `-` に縮退させるのが本来の扱い）。
 	//
 	// 削除（Apply / removeTree）が辿らないのとは扱いが違ってよい。あちらはリンク先の
-	// 実体を消さないための約束で、こちらは読むだけである。
+	// 実体を消さないための約束で、こちらは読むだけである
+	// （security.md「シンボリックリンクの扱い」）。
+	//
+	// **Scan には同じ手当てが要らない。** あちらの走査対象は `_work` の子（`_work/<repo>`
+	// など）なので、リンクは経路の途中にあり OS のパス解決が通す。root がリンクになるのは
+	// _work 全体を 1 回で数えるこちらだけである。
 	target, err := filepath.EvalSymlinks(work)
 	if err != nil {
 		return 0, fmt.Errorf("%s の解決に失敗しました: %w", work, err)

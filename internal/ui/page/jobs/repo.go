@@ -21,6 +21,13 @@ import (
 // まだ引いていないジョブについてだけ Cmd を発行する。ジョブが変われば鍵も変わる
 // ので、同じ runner で次のジョブが始まれば自動的に引き直される。
 
+// maxParseTries は 1 つのジョブについて Worker ログを引き直す上限。
+//
+// 再検出は 3 秒ごとなので、およそ 30 秒ぶん待ってから諦める計算になる。ログが
+// 書かれ始めるまでの猶予としては十分で、取り出し口を持たないジョブ（checkout を
+// しないワークフロー）でも 3 秒ごとの読み取りがジョブの間ずっと続くことはない。
+const maxParseTries = 10
+
 // jobKey はジョブ 1 件を識別する鍵。runner ディレクトリと Worker の PID の組。
 //
 // PID を含めるのは、**同じ runner で次のジョブが始まったら引き直す**ためである。
@@ -60,6 +67,16 @@ func (m *Model) resolveInfo(runners []runner.Runner) tea.Cmd {
 		if _, pending := m.asked[key]; pending {
 			continue
 		}
+		// **引き直しには上限を置く。** 取り出し口を持たないジョブ（checkout をしない
+		// ワークフロー）では永久に空のままなので、際限なく引くと 3 秒ごとにログを
+		// 読み続けることになる。上限に達したら引かず、`-` のままにする。
+		if m.tries[key] >= maxParseTries {
+			continue
+		}
+		if m.tries == nil {
+			m.tries = make(map[string]int)
+		}
+		m.tries[key]++
 		if m.asked == nil {
 			m.asked = make(map[string]struct{})
 		}
@@ -85,6 +102,11 @@ func (m *Model) prune(live map[string]struct{}) {
 			delete(m.asked, key)
 		}
 	}
+	for key := range m.tries {
+		if _, ok := live[key]; !ok {
+			delete(m.tries, key)
+		}
+	}
 }
 
 // parseWorker は runner の直近の Worker ログを解析する Cmd を返す。
@@ -108,10 +130,12 @@ func (m Model) parseWorker(key string, r runner.Runner, started time.Time) tea.C
 			// このジョブのログがまだ現れていない。次の周期で引き直す。
 			return jobInfoMsg{key: key, retry: true}
 		}
-		// ログが現れた以上、読めた内容がそのジョブの答えである（取り出し口を持たない
-		// ジョブもあるので、空でも覚えて引き直さない）。
 		info, _ := logs.ParseWorker(dir, f.Name)
-		return jobInfoMsg{key: key, info: info}
+		// **ログはあるが取り出し口がまだ書かれていない**ことがある（Worker が
+		// ファイルを作った直後）。ここで覚えると、そのジョブは終了まで `-` のまま
+		// 固定される。リポジトリ名が取れるまでは覚えずに引き直す（上限は
+		// maxParseTries）。
+		return jobInfoMsg{key: key, info: info, retry: info.Repository == ""}
 	})
 }
 

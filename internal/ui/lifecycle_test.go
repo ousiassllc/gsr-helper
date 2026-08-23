@@ -149,7 +149,7 @@ func TestInitialTabIsActivatedExactlyOnce(t *testing.T) {
 
 // 起動時に前面化を受け取ったタブから離れて戻っても、購読は積み上がらない。
 //
-// activateInitial が「1 度だけ」を覚えることと、activate が配る往復ぶんの
+// tabset.ActivateOnce が「1 度だけ」を覚えることと、activate が配る往復ぶんの
 // 前面化・非活性化が対になっていることの両方を見る。
 func TestInitialActivationDoesNotDoubleCountOnReturn(t *testing.T) {
 	a, pages := withStreams(newApp(exec.NewFake()))

@@ -34,23 +34,20 @@ import (
 // どちらも見つからない場合のフォールバック（`<_work>/<repo>/<repo>`）は
 // WorkspaceFallback が別に持つ（下記の doc）。
 
-// 読み取りの上限。
+// workerParseLimit は ParseWorker が読む最大バイト数。
 //
-// **2 つとも必要である。** Worker ログは Job message の JSON ダンプ（ジョブの設定を
-// 丸ごと含む）を 1 行で書き出すため、行 1 本が数 MB になることがある。
+// Worker ログは Job message の JSON ダンプ（ジョブの設定を丸ごと含む）を **1 行**で
+// 書き出すため、行 1 本が数 MB になることがある。上限を置くのは、取り出し口が 1 つも
+// 無いログ（ジョブが checkout 前に落ちた場合など）で際限なく読まないための歯止めで
+// ある。**最優先の取り出し口が両方そろった時点で読むのをやめる**ので、正常なログで
+// この上限に達することはない。
 //
-//   - workerParseLimit はファイル全体から読む量の上限。取り出し口が 1 つも無いログ
-//     （ジョブが checkout 前に落ちた場合など）で際限なく読まないための歯止めである。
-//     **両方の値が見つかった時点で読むのをやめる**ので、正常なログでこの上限に
-//     達することはない。1 MiB では JSON ダンプの後ろに出る取り出し口（作業
-//     ディレクトリ）へ届かないことがあったため広げた。
-//   - workerMaxLine は 1 行の上限。bufio.Scanner の既定（64 KiB）では JSON ダンプの
-//     行で読み取りが止まり、その後ろの行を一切見られない。
-const (
-	workerParseLimit = 8 << 20  // 8 MiB
-	workerMaxLine    = 4 << 20  // 4 MiB
-	workerLineBuffer = 64 << 10 // 初期バッファ。長い行だけが workerMaxLine まで伸びる
-)
+// bufio.Scanner ではなく bufio.Reader を使うのは、Scanner が 1 行の上限を超えると
+// bufio.ErrTooLong で**その行以降を一切読まなくなる**ためである。JSON ダンプが上限を
+// 超えた瞬間に、その後ろに出る取り出し口へ届かなくなる（この関数の主目的そのものが
+// 静かに失われる）。Reader なら行の長さに関わらず読み進められ、使う量は
+// workerParseLimit で頭打ちになる。
+const workerParseLimit = 8 << 20 // 8 MiB
 
 // JobInfo は Worker ログから読み取ったジョブの素性。読み取れなかった項目は空文字。
 type JobInfo struct {
@@ -89,24 +86,58 @@ func ParseWorker(dir, name string) (JobInfo, error) {
 	}
 	defer func() { _ = f.Close() }()
 
-	var info JobInfo
-	sc := bufio.NewScanner(io.LimitReader(f, workerParseLimit))
-	sc.Buffer(make([]byte, 0, workerLineBuffer), workerMaxLine)
-	for sc.Scan() {
-		line := sc.Text()
-		if info.Repository == "" {
-			info.Repository = firstMatch(line, repoFromMapping, repoFromJobMessage, repoFromMultiRepo)
+	var repo, work ranked
+	r := bufio.NewReader(io.LimitReader(f, workerParseLimit))
+	for {
+		line, rerr := r.ReadString('\n')
+		repo = pick(repo, line, repoFromMapping, repoFromJobMessage, repoFromMultiRepo)
+		work = pick(work, line, workspaceFromUpdate, workspaceFromWorkingDir)
+		// **最優先の取り出し口がそろったときだけ打ち切る。** 低い優先度で埋まった値は
+		// 後の行に出る高い優先度の一致で上書きされうるので、そこで止めてはならない。
+		if repo.rank == bestRank && work.rank == bestRank {
+			break
 		}
-		if info.Workspace == "" {
-			info.Workspace = firstMatch(line, workspaceFromUpdate, workspaceFromWorkingDir)
-		}
-		if info.Repository != "" && info.Workspace != "" {
+		if rerr != nil {
+			// EOF・上限到達・読み取り失敗。取れた分を返す（呼び出し側は空を `-` に縮退）。
 			break
 		}
 	}
-	// 読み取りの失敗（長すぎる行・途中で切れたファイル）はそこまでで打ち切る。
-	// 取れた分は返す（呼び出し側は空を `-` に縮退する）。
-	return info, nil
+	return JobInfo{Repository: repo.value, Workspace: work.value}, nil
+}
+
+// bestRank は最も優先度の高い取り出し口の順位。
+const bestRank = 1
+
+// ranked は取り出した値と、それを取った取り出し口の優先順位（1 が最優先）。
+//
+// **順位を値と一緒に持つのが要点である。** 抽出は 1 行ずつ行う（行境界を越えないため）
+// ので、優先順は同じ行の中でしか自然には効かない。順位を覚えずに「先に見つかった方を
+// 採る」と、行をまたいだ瞬間に**文書順が優先順に勝つ**。たとえば multi-repo
+// チェックアウトでは副リポジトリの `Update repository ...`（順位 3）が
+// `_PipelineMapping`（順位 1）より前に出ることがあり、副リポジトリ名が REPOSITORY 列に
+// 出る。作業ディレクトリ側はさらに起きやすく、チェックアウト前のプロセス起動が書く
+// `Working directory:`（順位 2）が `Update workspace to`（順位 1）より前に出ると、
+// ジョブの作業ディレクトリではないパスが確定値として `_work` 列に出る。
+type ranked struct {
+	value string
+	// rank は 0 なら未取得。1 が最優先で、数字が大きいほど優先度が低い。
+	rank int
+}
+
+// pick は 1 行に対して抽出器を優先順に試し、**今より優先度の高い一致だけ**で更新する。
+//
+// 既に順位 n で埋まっているなら、順位 n 以降の抽出器は試さない（結果が変わらない）。
+func pick(cur ranked, line string, extractors ...func(string) (string, bool)) ranked {
+	for i, extract := range extractors {
+		rank := i + 1
+		if cur.rank != 0 && cur.rank <= rank {
+			break
+		}
+		if v, ok := extract(line); ok {
+			return ranked{value: v, rank: rank}
+		}
+	}
+	return cur
 }
 
 // WorkspaceFallback は ParseWorker がジョブの作業ディレクトリを取れなかった場合の
@@ -122,17 +153,6 @@ func WorkspaceFallback(workDir, repository string) string {
 		return ""
 	}
 	return filepath.Join(workDir, repo, repo)
-}
-
-// firstMatch は extractors を優先順に試し、最初に見つかった値を返す。
-// どれも一致しなければ空文字を返す。
-func firstMatch(content string, extractors ...func(string) (string, bool)) string {
-	for _, extract := range extractors {
-		if v, ok := extract(content); ok {
-			return v
-		}
-	}
-	return ""
 }
 
 // pipelineMappingMarker は PipelineDirectoryManager が tracking config を探すときに

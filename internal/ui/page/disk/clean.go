@@ -145,8 +145,9 @@ func (m *Model) onResult(msg page.ResultMsg) tea.Cmd {
 // タブを切り替えただけで削除が止まりうる）。buffer があるので Apply は最後まで走り切り、
 // UI は自分のペースで進捗を拾える。
 //
-// 失敗件数は callback の中で数える。callback は Apply と同じ goroutine から同期的に
-// 呼ばれるので、この数え上げは競合しない。
+// **件数はここでは数えない。** 出どころは進捗の行の状態 1 つに固定してある
+// （cleanview.Counts）。実行側でも数えると、進捗と終了通知の到着順によって 2 つの
+// 数え方が違う答えを出す。
 func (m *Model) startClean(plan disk.CleanPlan) tea.Cmd {
 	total := len(plan.Paths)
 	if plan.Docker {
@@ -222,17 +223,7 @@ func (m *Model) onProgress(msg progressMsg) tea.Cmd {
 	return tea.Batch(m.waitProgress(m.clean.ch), m.updateProgress())
 }
 
-// onApplyDone は結果を報告し、選択を解いて再集計する。
-//
-// 再集計するのは使用量が変わったためである。残った表をそのまま出すと、消えた対象が
-// 容量を持ったまま並び、もう一度選んで消せてしまうように見える。選択を解くのは、
-// 消えた対象の選択が識別子ごと残って次のクリーンアップに紛れ込まないようにするため
-// である（table.SetItems は消えた行の選択を捨てるが、再集計が終わるまでの間は
-// 古い行が残っている）。
-//
-// 裏へ回った後に終わった場合もここから張り直す。裏では畳むという原則からは外れるが、
-// この集計は有限時間で必ず終わり、戻ったときに古い使用量を見せないほうが実害が
-// 小さい（畳むために「今前面か」を持つと、状態が 1 つ増えて寿命の通知と二重管理になる）。
+// onApplyDone は終了通知を控え、確定を試みる（実際の確定は finish）。
 func (m *Model) onApplyDone(msg applyDoneMsg) tea.Cmd {
 	if m.clean == nil {
 		return nil
@@ -242,13 +233,23 @@ func (m *Model) onApplyDone(msg applyDoneMsg) tea.Cmd {
 	return m.finish()
 }
 
-// finish は進捗を出し切ったことと終了通知の両方がそろった時点で結果を確定する。
+// finish は進捗を出し切ったことと終了通知の両方がそろった時点で結果を確定し、
+// 選択を解いて再集計する。
+//
+// 再集計するのは使用量が変わったためである。残った表をそのまま出すと、消えた対象が
+// 容量を持ったまま並び、もう一度選んで消せてしまうように見える。選択を解くのは、
+// 消えた対象の選択が識別子ごと残って次のクリーンアップに紛れ込まないようにするため
+// である。
+//
+// 裏へ回った後に終わった場合もここから張り直す。裏では畳むという原則からは外れるが、
+// この集計は有限時間で必ず終わり、戻ったときに古い使用量を見せないほうが実害が
+// 小さい（畳むために「今前面か」を持つと、状態が 1 つ増えて寿命の通知と二重管理になる）。
 //
 // **片方だけでは確定しない。** 2 つは別の goroutine から届き、到着順が決まっていない。
 // 終了が先に届いた時点で数えると、最後の対象がまだ未着手のまま報告に載り、
 // 進捗表示の「未実行 1 件」と状態行の「N 件を解放しました」が食い違う。
 func (m *Model) finish() tea.Cmd {
-	if !m.clean.closed || m.clean.result == nil {
+	if m.clean == nil || !m.clean.closed || m.clean.result == nil {
 		return nil
 	}
 
@@ -275,13 +276,18 @@ func (m *Model) finish() tea.Cmd {
 func cleanNotice(rows []molecule.ProgressView, bytes int64, err error) string {
 	done, failed, pending := cleanview.Counts(rows)
 	switch {
+	// **未実行が残っているかを先に見る。** disk.Apply は打ち切りでも errors.Join で
+	// エラーを返すので、err の有無で先に分岐すると「中断」が永久に出ない（そのうえ
+	// 「失敗しました: クリーンアップを中断しました: context canceled」という二重の
+	// 前置きと生の Go エラー文字列が状態行に出る）。
+	case pending > 0:
+		return "クリーンアップを中断しました: " + strconv.Itoa(done) + " 件完了 / " +
+			strconv.Itoa(failed) + " 件失敗 / " + strconv.Itoa(pending) + " 件未実行"
 	case failed > 0:
 		return "クリーンアップ完了: " + strconv.Itoa(done) + " 件成功 / " +
 			strconv.Itoa(failed) + " 件失敗"
 	case err != nil:
 		return "クリーンアップに失敗しました: " + cleanview.FirstLine(err.Error())
-	case pending > 0:
-		return "クリーンアップを中断しました: " + strconv.Itoa(done) + " 件完了"
 	default:
 		return "クリーンアップ完了: " + strconv.Itoa(done) + " 件 / " + atom.Bytes(bytes) + " を解放しました"
 	}

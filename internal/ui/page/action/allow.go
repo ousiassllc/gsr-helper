@@ -10,9 +10,7 @@ import (
 	"slices"
 
 	"github.com/ousiassllc/gsr-helper/internal/appconfig"
-	"github.com/ousiassllc/gsr-helper/internal/gh"
 	"github.com/ousiassllc/gsr-helper/internal/runner"
-	"github.com/ousiassllc/gsr-helper/internal/runner/scope"
 	"github.com/ousiassllc/gsr-helper/internal/svc"
 	"github.com/ousiassllc/gsr-helper/internal/ui/atom"
 	"github.com/ousiassllc/gsr-helper/internal/ui/keymap"
@@ -34,49 +32,6 @@ const (
 	reasonToken = "GitHub の認証が必要です（gh auth login）"
 	reasonBusy  = "ジョブ実行中です。先に d でドレイン停止してください"
 )
-
-// scopeLevelName は登録先の言い換え。理由の文言に使う（screens.md の 6 段目
-// `org レベルの操作には admin:org が必要です`）。
-func scopeLevelName(sc scope.Scope) string {
-	switch sc.Kind {
-	case scope.Repo:
-		return "repo"
-	case scope.Org:
-		return "org"
-	case scope.Enterprise:
-		return "enterprise"
-	case scope.Unknown:
-		return ""
-	default:
-		return ""
-	}
-}
-
-// missingScope は保有スコープが足りない場合に理由を返す。足りていれば空文字。
-//
-// 判定は次の 3 つがそろったときだけ行う。**塞ぐ側ではなく通す側に倒す**のがこの
-// 関数の要点である（screens.md「無効な操作の表示」の 6 段目）。
-//
-//   - 取得を終えている（ScopeState.Known）。判定前に塞ぐと、権限の足りている
-//     トークンで起動直後だけ操作できなくなる。取得に失敗した場合も Known は偽の
-//     ままなので、ここで通る
-//   - スコープという概念を持つトークンである（gh.Scopes.Classic）。fine-grained PAT と
-//     GitHub App のトークンは X-OAuth-Scopes を返さない。「スコープが無い」と扱うと、
-//     権限が十分なトークンを誤って塞ぐ
-//   - 登録先から必要なスコープが決まる。Runners タブに runner が 1 台も無い場合や
-//     Setup タブのメニューのように対象が定まらない場合は判定材料が無いので塞がない
-func missingScope(r runner.Runner, sc page.ScopeState) string {
-	if !sc.Known || !sc.Scopes.Classic {
-		return ""
-	}
-	need := gh.RequiredScope(r.Scope)
-	if need == "" || sc.Scopes.Has(need) {
-		return ""
-	}
-	level := scopeLevelName(r.Scope)
-	return level + " レベルの操作には " + need +
-		" が必要です（gh auth refresh -h github.com -s " + need + "）"
-}
 
 // Set はキー定義から 1 度だけ組んだ操作の表。
 //

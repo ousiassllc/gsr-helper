@@ -50,32 +50,13 @@ type Model struct {
 	// どちらも鍵は runner ディレクトリと Worker の PID の組（repo.go の jobKey）。
 	info  map[string]logs.JobInfo
 	asked map[string]struct{}
+	// tries はジョブごとの解析の試行回数。ログが書かれる前に引いた場合の引き直しに
+	// 上限を置くために持つ（repo.go の maxParseTries）。
+	tries map[string]int
 }
 
 // tea.Model を実装していることをコンパイル時に確かめる。
 var _ tea.Model = Model{}
-
-// New は Jobs タブを組み立てる。tab は親が持つタブ番号で、ChromeMsg に載せる。
-//
-// モーダルは画面が登録する（page.Overlay の doc）。Jobs タブが開くのは runner の
-// 詳細画面だけで、操作対象がジョブではなく runner であることと対応する（FR-47）。
-func New(tab int, st page.StateMsg) Model {
-	// ヘルプと詳細画面、どちらの登録が返した Cmd も畳み込む（runners.go と同じ理由）。
-	overlay, help := page.NewOverlay(tab, st)
-	detail := overlay.Register(runnerdetail.Kind, runnerdetail.New(st))
-	// 確認ダイアログと待機画面の登録は runnerop が行う（runners.go と同じ理由）。
-	ops, opsCmd := runnerop.New(tab, overlay, st)
-	cmd := tea.Batch(help, detail, opsCmd)
-	return Model{
-		tab:     tab,
-		st:      st,
-		tbl:     newTable(st.Keys, st.Styles),
-		overlay: overlay,
-		actions: action.NewSet(st.Keys.Runner, st.Scopes),
-		ops:     ops,
-		initCmd: cmd,
-	}
-}
 
 // Init は何も発行しない。親はタブの Init を呼ばないため、登録が返した Cmd は
 // 最初の page.StateMsg で流す（runners.go の Init と同じ理由）。

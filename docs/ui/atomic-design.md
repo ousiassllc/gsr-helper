@@ -58,7 +58,12 @@ internal/ui/
   app.go            親 Model（ページ切替・検出結果・Caps・端末サイズ・背景の明暗・Tick）
   keys.go           キーの配送（ctrl+c と、page が差し戻したグローバルキーの解釈）
   chrome.go         親 Model の値を chrome/ の入力へ写す 1 手
-  discover.go       自動更新（Tick）と検出の Cmd
+  discover.go       自動更新（Tick）と、discovery/ への薄い委譲
+  background.go     起動後に 1 度だけ走る取得の駆動（前提チェック・_work 集計・保有スコープ）
+  discovery/        検出の予算・結果 Msg・発行・間隔決定・周期の突き合わせ（UI ランタイムを知らない）
+  hostreq/          起動時のジョブ実行の前提チェック（FR-44）の発行。1 度だけ走らせる仕組みを持つ
+  workscan/         runner ごとの _work 使用量の集計と、その周期の管理。再検出サイクルには載せない
+  ghscope/          トークンの保有スコープの取得。起動後に 1 度だけ引く
   token/            色・記号・幅・余白の定数
   keymap/           キー定義とヘルプ文言（key.Binding）
   atom/             最小の表示単位（純粋関数）
@@ -73,9 +78,13 @@ internal/ui/
   template/         画面共通の枠
   page/             タブ共通の Msg と、タブ間で共有する部品（モーダルの重なり・page の寿命）
   page/action/      runner に対する操作の識別・可否の判定・一覧の組み立て
+  page/progressmodal/ ProgressList を page.Modal へ配線する汎用部分（Setup / Disk が共有）
   page/<tab>/       タブ 1 枚（tea.Model）。runners / jobs / disk / logs / doctor / config / setup
   page/runnerdetail/ runner の詳細画面（Runners / Jobs が共用するモーダル）
   page/runnerop/    runner のサービス制御（Runners / Jobs が共用する確認・実行・報告）
+  page/runners/rowview/ Runners タブの一覧の行の組み立て（純粋関数）
+  page/disk/cleanview/  クリーンアップの文面・進捗行・削除可否の判定（純粋関数）
+  page/disk/confirmmodal/ クリーンアップの確認ダイアログの包み
   page/pagetest/    page/<tab> のテスト用フィクスチャ（共有状態と Msg の記録）
 ```
 
@@ -785,7 +794,7 @@ page 側は `Update` に `case page.ResultMsg:` を**自分で持つこと**。`
 
 親は終了時、各 page が返した後始末を `tea.Sequence` で `tea.Quit` より**前**に流す。`tea.Batch` では終了と後始末が並走し、後始末が実行される前にランタイムが止まりうる。
 
-**起動時に選択されているタブも `ActivateMsg` を受け取る**（Issue #63）。親は切り替えのときに配るほか、最初に共有状態を配るときに選択中のタブへ 1 度だけ配る（`ui` の `activateInitial`）。配る場所が `Init` ではないのは、`Init` が Model を書き換えられず「配ったこと」を覚えられないためである。覚えないと、共有状態が配られるたび（端末サイズ・背景色・3 秒ごとの再検出）に前面化が届き、購読が積み上がる。したがって page は「起動時から前面に居たのか、切り替えで前面に来たのか」を区別する必要がなく、既定タブを差し替えても長寿命の処理が黙って張られないままになることはない。
+**起動時に選択されているタブも `ActivateMsg` を受け取る**（Issue #63）。親は切り替えのときに配るほか、最初に共有状態を配るときに選択中のタブへ 1 度だけ配る（`tabset.ActivateOnce` を親の `distribute` から呼ぶ）。配る場所が `Init` ではないのは、`Init` が Model を書き換えられず「配ったこと」を覚えられないためである。覚えないと、共有状態が配られるたび（端末サイズ・背景色・3 秒ごとの再検出）に前面化が届き、購読が積み上がる。したがって page は「起動時から前面に居たのか、切り替えで前面に来たのか」を区別する必要がなく、既定タブを差し替えても長寿命の処理が黙って張られないままになることはない。
 
 #### 5. 操作の可否は `action.ID` で引く
 
@@ -1056,37 +1065,37 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 
 | ディレクトリ | 行数 | 残り | 判定 |
 |------------|------|------|------|
-| `ui` | 2191 | -191 | **WARN（超過中）** |
+| `ui` | 2199 | -199 | **WARN（超過中）** |
 | `ui/organism/table` | 2157 | -157 | **WARN（超過中）** |
+| `ui/page/disk` | 2128 | -128 | **WARN（超過中）** |
 | `ui/page/config` | 2117 | -117 | **WARN（超過中）** |
-| `ui/page/disk` | 2104 | -104 | **WARN（超過中）** |
 | `ui/page/setup` | 2081 | -81 | **WARN（超過中）** |
 | `ui/molecule` | 2034 | -34 | **WARN（超過中）** |
 | `ui/page/runners` | 2018 | -18 | **WARN（超過中）** |
 | `ui/page/logs` | 1994 | 6 | pass |
 | `ui/organism/dialog` | 1994 | 6 | pass |
 | `ui/page` | 1970 | 30 | pass |
+| `ui/page/jobs` | 1684 | 316 | pass |
 | `ui/keymap` | 1666 | 334 | pass |
-| `ui/page/jobs` | 1643 | 357 | pass |
 | `ui/page/doctor` | 1580 | 420 | pass |
 | `ui/organism/pane` | 1559 | 441 | pass |
 | `ui/molecule/listrow` | 1523 | 477 | pass |
-| `ui/page/pagetest` | 1482 | 518 | pass |
+| `ui/page/pagetest` | 1483 | 517 | pass |
 | `ui/page/runnerop` | 1399 | 601 | pass |
 | `ui/atom` | 1262 | 738 | pass |
 | `ui/page/runnerdetail` | 1224 | 776 | pass |
 | `ui/token` | 1217 | 783 | pass |
-| `ui/page/action` | 1180 | 820 | pass |
+| `ui/page/action` | 1200 | 800 | pass |
 | `ui/template` | 657 | 1343 | pass |
 | `ui/tabset` | 625 | 1375 | pass |
 | `ui/organism` | 521 | 1479 | pass |
-| `ui/page/disk/cleanview` | 414 | 1586 | pass |
+| `ui/page/disk/cleanview` | 408 | 1592 | pass |
 | `ui/chrome` | 347 | 1653 | pass |
-| `ui/workscan` | 335 | 1665 | pass |
+| `ui/workscan` | 337 | 1663 | pass |
 | `ui/discovery` | 290 | 1710 | pass |
 | `ui/hostreq` | 283 | 1717 | pass |
 | `ui/page/runners/rowview` | 269 | 1731 | pass |
-| `ui/ghscope` | 260 | 1740 | pass |
+| `ui/ghscope` | 268 | 1732 | pass |
 | `ui/page/progressmodal` | 140 | 1860 | pass |
 | `ui/page/disk/confirmmodal` | 136 | 1864 | pass |
 
@@ -1096,7 +1105,7 @@ Config タブは項目の一覧・フォーム 6 種・差分の承認・反映�
 
 **行数のためだけの移動ではない。** 差分の組み立てと書き込みは端末を起動せずに検証できるのに、`tea.Model` の中に置くとファイルが正しく書けたかを確かめるのにキー入力の再現が要る。実際、切り出し先のテストは `t.TempDir()` に runner を作って `.env` を書き、退避と「変更行だけの置換」を直接見ている。
 
-**その後の研磨で 2059 行になり、警告帯に入った（残り -59 行）。** 押し上げたのは critical 7 件の回帰テストである（二重承認でバックアップが壊れる、実行中の対象切り替えで別の runner へ書く、処理中に新しい編集を始められる、など）。**安全側の検証を行数の都合で落とさない方を採った。** 同じ判断を `ui/page/disk`（2101 行）と `ui/page/runners`（2164 行）も記録している。エラー境界の 2200 まで 141 行。
+**その後の研磨で 2059 行になり、警告帯に入った（残り -59 行）。** 押し上げたのは critical 7 件の回帰テストである（二重承認でバックアップが壊れる、実行中の対象切り替えで別の runner へ書く、処理中に新しい編集を始められる、など）。**安全側の検証を行数の都合で落とさない方を採った。** 同じ判断を `ui/page/disk`（当時 2101 行、現在 2128 行）と `ui/page/runners`（当時 2164 行、現在 2018 行）も記録している。エラー境界の 2200 まで 141 行。
 
 **次にこのタブへ足す Issue は、まず行数を空けること。** 残った tea 非依存の部分（`items.go` の要約、`form.go` の検証）を `config/edit` へ出すのが最初の候補である。画面の状態遷移（`config.go` / `flow.go` / `results.go`）とモーダル（`modals.go`）は tea に依るので出せない。
 
@@ -1136,11 +1145,11 @@ Setup タブは追加・削除・バージョン更新の 3 操作と、フォ�
 
 `ui` 直下は**タブが増えても 1 行も増えない**——ただしこれは「タブを 1 枚足すだけなら」の意味である。タブを知るのは `ui/tabset` だけであり、親 Model は `[]tabset.Tab` を走査するだけだからである（「タブを 1 つ追加するときに触る箇所」）。
 
-**Setup タブ（Issue #8）で `ui` 直下は 1974 行から 2035 行へ増え、警告帯に入った。** Config タブ（Issue #12）が設定ファイルの配置先と初回起動の判定を配る `Options.ConfigPath` / `Options.FirstRun` と `page.ConfigDeps` への写し、および無効なキーの理由を出す検証を足したため、現在は 2075 行（残り -75 行）である。 増えたのは 2 箇所で、どちらもタブそのものではなく**タブが要する起動時の値とタブ間の移動**である。`app.go` は Setup タブへ配る値（`Options.Secrets` と `page.SetupDeps` への写し）で 9 行、`route_test.go` は `n` / `D` / `u` による Setup タブへの移動の検証で 48 行である。前者は「起動時に決めた値を親が配る」という既存の分担そのもの（`Host` / `Color` と同じ形）、後者は「タブをまたぐ移動は親でしか実現できない」という既に記した例外にあたり、いずれも `tabset` へは寄せられない。**次に `ui` 直下へ足す Issue は、まず既存の検証が `page/pagetest` へ出せないかを見ること**（下記）。
+**Setup タブ（Issue #8）で `ui` 直下は 1974 行から 2035 行へ増え、警告帯に入った。** Config タブ（Issue #12）が設定ファイルの配置先と初回起動の判定を配る `Options.ConfigPath` / `Options.FirstRun` と `page.ConfigDeps` への写し、および無効なキーの理由を出す検証を足したため、当時は 2075 行（残り -75 行）だった。 増えたのは 2 箇所で、どちらもタブそのものではなく**タブが要する起動時の値とタブ間の移動**である。`app.go` は Setup タブへ配る値（`Options.Secrets` と `page.SetupDeps` への写し）で 9 行、`route_test.go` は `n` / `D` / `u` による Setup タブへの移動の検証で 48 行である。前者は「起動時に決めた値を親が配る」という既存の分担そのもの（`Host` / `Color` と同じ形）、後者は「タブをまたぐ移動は親でしか実現できない」という既に記した例外にあたり、いずれも `tabset` へは寄せられない。**次に `ui` 直下へ足す Issue は、まず既存の検証が `page/pagetest` へ出せないかを見ること**（下記）。
 
 **Issue #11（Doctor タブ）で 2035 行から 2191 行へ増えた。** 増えたのは 2 箇所で、どちらも**タブそのものではない**。1 つは起動時のジョブ実行の前提チェック（FR-44）が親に持ち込む状態（`hostReq` / `hostReqDone` / `hostChecks` の 3 フィールドと `hostreq.Msg` の分岐）と、状態行・ヘッダへの写し（`chromeView`）である。もう 1 つはその検証（`hostreq_test.go`）で、ヘッダと状態行まで届くことは親を通さないと確かめられない。前者は「起動時に決めた値を親が配る」という既存の分担そのもの（Setup タブの `Options.Secrets` と同じ形）にあたる。
 
-**この Issue も本節の指示どおり、足す前に道具を出した。** 出したのは 3 つである。(1) Cmd の束から `ChromeMsg` を拾う走査を `pagetest.ChromeMsgs` へ（`applyChrome` は 5 行になった）。(2) 診断項目の差し替えを `pagetest.StubCheck` へ。(3) `sampleRunner` の写しを捨てて `pagetest.SampleRunner` を呼ぶだけにした。さらに**発行そのものを `internal/ui/hostreq` へ切り出した**（`hostreq.Start`。親の非公開な状態に触れないため出せる）。番号キーの検索も `tabset.KeyOf` へ寄せた（タブの番号を知るのは `tabset` だけ、という分担そのものである）。それでも 2191 行で、エラー境界の 2200 まで **9 行**しかない。
+**この Issue も本節の指示どおり、足す前に道具を出した。** 出したのは 3 つである。(1) Cmd の束から `ChromeMsg` を拾う走査を `pagetest.ChromeMsgs` へ（`applyChrome` は 5 行になった）。(2) 診断項目の差し替えを `pagetest.StubCheck` へ。(3) `sampleRunner` の写しを捨てて `pagetest.SampleRunner` を呼ぶだけにした。さらに**発行そのものを `internal/ui/hostreq` へ切り出した**（`hostreq.Start`。親の非公開な状態に触れないため出せる）。番号キーの検索も `tabset.KeyOf` へ寄せた（タブの番号を知るのは `tabset` だけ、という分担そのものである）。それでも 2191 行で、エラー境界の 2200 まで **9 行**しかなかった。
 
 **4 周目の空け方（Issue #63 / #71 / #72 / #73 / #75 / #79）。** 着手時点で `ui` 直下は
 **2200 行ちょうど**（エラー境界そのもの）で、共有状態を 1 行足すだけで `make check` が
@@ -1170,7 +1179,7 @@ Runners タブと Jobs タブは、同じサービス制御（確認 → 実行 
 
 依存は `page/runnerop` → `page` / `page/action` / `page/runnerdetail` / `organism/dialog` / `svc` の一方向で、タブからは `runnerop` を import するが逆は無い。**タブではないので `page/pagetest/import_test.go` の `shared` に登録してある**（登録しないと `TestOnlyTabsetImportsTabs` がタブと誤認して落ちる）。
 
-`ui/page/runners` は 1187 → 2091 行になり、**警告帯に入った**。Setup タブ（Issue #8）が `n` / `D` / `u` の引き渡し（`keys.go` の `openSetup` / `setupBlocked`）を足したことで 2164 行（残り -164 行）まで伸びている。増分の大半はサービス制御の検証（発行コマンド列・確認の経路・一括操作・可否の再判定・詳細画面からの起点）で、Logs タブ（Issue #9）が足した `l` の経路もここに乗る。**分割せず警告帯に入ることを選んだのは `ui/page/disk` と同じ判断である**（上記）。サービス制御の配線と Logs タブのマージを 1 つの差分で行っており、そこへパッケージ移動を混ぜるとレビューで「どちらが壊したか」を切り分けられなくなる。エラー境界（2200 行）までは 36 行しかなく、**次にこのタブへ足す Issue は、まず検証の道具が `page/pagetest` へ出せないかを見ること**。`runners/helper_test.go` の `chrome` / `findChrome` / `collect` は `pagetest.ChromeOf` / `pagetest.Msgs` と重複しており、そこが最初の削減候補である。
+`ui/page/runners` は 1187 → 2091 行になり、**警告帯に入った**。Setup タブ（Issue #8）が `n` / `D` / `u` の引き渡し（`keys.go` の `openSetup` / `setupBlocked`）を足したことで 2164 行（残り -164 行）まで伸びている。増分の大半はサービス制御の検証（発行コマンド列・確認の経路・一括操作・可否の再判定・詳細画面からの起点）で、Logs タブ（Issue #9）が足した `l` の経路もここに乗る。**分割せず警告帯に入ることを選んだのは `ui/page/disk` と同じ判断である**（上記）。サービス制御の配線と Logs タブのマージを 1 つの差分で行っており、そこへパッケージ移動を混ぜるとレビューで「どちらが壊したか」を切り分けられなくなる。エラー境界（2200 行）までは 36 行しかなかった（本 PR が `page/runners/rowview` を切り出して 2018 行へ戻した）、**次にこのタブへ足す Issue は、まず検証の道具が `page/pagetest` へ出せないかを見ること**。`runners/helper_test.go` の `chrome` / `findChrome` / `collect` は `pagetest.ChromeOf` / `pagetest.Msgs` と重複しており、そこが最初の削減候補である。
 
 非同期の往復（page が `Cmd` を返し、親が `page.TabMsg` を外して発行元のタブへ戻す）を回す道具 `pagetest.Advance` は、Runners / Jobs の両方が使うため `page/pagetest` に置いた。タブごとに写すと、往復の 1 段を書き忘れたテストだけが「何も起きない」を正常として緑になる。**`Pump` ではなく `Advance` という名前なのは、Logs タブ（Issue #9）が同じ階層に別の `Pump`（合否の判定関数を取る総称版）を先に置いているためである。** 2 つは役割が違う（`Advance` は既定の往復数まで Model を進めるだけ、`Pump` は条件を満たすまで辿る）ので、片方に寄せずに名前で書き分ける。
 
@@ -1260,3 +1269,4 @@ Issue #31 で `table_test.go` の空振りしていたテスト（`View() != ""`
 | 1.43 | 2026-08-23 | Config タブ（Issue #12）の実装を反映。`organism/dialog.DiffApproval`・`molecule/listrow` の `SettingRow` / `DiffLine`・`page/config` を実装済みへ反転し、organism / molecule / template / page / 画面と部品の各表と実装状況の区分をそろえた。`template.Split` を「未実装」から**作らない**へ改め、その理由（モックが項目名と現在値を同じ行に並べており、幅 80 では列で並べる方が近い。呼び出し元の無い template を置かない）を追記。runner に対する操作の節を「未実装で残るのは `e` だけ」から「11 個すべて実装済み」へ書き換え、`action.Def.Supported` が今後は「先に定義してから実装する Issue」のための仕組みとして残ることを明記 | 設定編集を実装したため。**実装状況の表は後続 Issue が「部品が有るか」を最初に引く場所**であり、`DiffApproval` と `SettingRow` を未実装のまま残すと差分表示を作る Issue がもう 1 つ部品を作りかねない。`Split` は「未実装」のままだと後続 Issue が作るべき部品と読めるが、実際には要らないと判断したものなので、判断そのものを残さないと同じ検討が繰り返される |
 | 1.44 | 2026-08-23 | Disk タブのクリーンアップ進捗を `organism/pane.ProgressList` へ接続した（Issue #75）。`ProgressList` / `ProgressRow` の状況を「Setup タブのみ」から「Setup タブ / Disk タブ」へ改め、モーダルへの配線を両タブが共有する `page/progressmodal` が持つことを明記。実装状況の「実装済みだが未接続」を「該当なし」にした。「`bubbles/progress` を使う範囲」の「クリーンアップはバーを出さない」を、分母が計画（`disk.CleanPlan` の対象数）の時点で確定するためバーを出すことと、進捗を状態行に重ねて出さない理由へ書き換え。あわせて `page/disk` から純粋関数を `page/disk/cleanview`（文面・進捗行・削除可否の判定）へ、確認ダイアログの包みを `page/disk/confirmmodal` へ切り出し、ディレクトリの行数表を実測へ更新した | Disk タブの進捗が部品を持ちながら接続されておらず、実装状況の表が「実装済みだが未接続」のまま残っていた。接続すると `page/disk` が 2354 行（ERROR 境界 2200 超）になるため、上限値を緩めるのではなく分割した。行数表は後続 Issue が読む予算の規範なので、`ui` 直下の重複行（同じ `ui` が 2 行あった）も含めて実測へ直した |
 | 1.45 | 2026-08-24 | 「起動時に選択されているタブは `ActivateMsg` を受け取らない」を、受け取る形（Issue #63）と、配る場所が `Init` ではない理由へ書き換え。実装状況の「実装済み」に本 PR が新設した 7 パッケージ（`page/progressmodal` / `page/disk/confirmmodal` / `page/disk/cleanview` / `page/runners/rowview` / `discovery` / `workscan` / `ghscope`）を追加。ディレクトリの行数表を実測へ更新し、「4 周目の空け方」を追記 | Issue #63 で既定タブへも前面化を配るようにしたのに、本書は将来形で「配る必要がある」と書いたままで `page/lifecycle.go` の doc と正反対になっていた。実装状況の表は後続 Issue が「部品が有るか」を最初に引く場所であり、新設パッケージが載っていないと同じものをもう 1 つ作りかねない。行数表は予算の規範なので、実測とずれていると次の Issue が境界に当たってから気付くことになる |
+| 1.46 | 2026-08-24 | ディレクトリ構成のツリーに本 PR の新設 7 パッケージと既存の `hostreq` を追加。`ActivateMsg` の説明の識別子を実在しない `activateInitial` から `tabset.ActivateOnce` へ訂正。行数表と散文の数値を実測へ再更新（`ui` 2199 / 境界まで 1 行、`ui/page/runners` 2018、`ui/page/disk` 2128） | ツリーは「新しい部品をどこへ置くか」を最初に引く場所で、載っていないパッケージは同じ責務が作り直される。`activateInitial` は実装のどこにも無く、同じ文書の別の行は正しく `ActivateOnce` を挙げていた。行数は「足す前に空けよ」の判断材料なので、8 行の過大表示は警告機能を殺す |

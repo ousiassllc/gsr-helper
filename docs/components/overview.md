@@ -50,6 +50,8 @@ graph TD
     UIApp --> Config
     UIApp --> Appconf
     UIApp --> Audit
+    UIApp --> Exec
+    UIApp --> RScope
 
     Svc --> Runner
     Svc --> Appconf
@@ -291,17 +293,23 @@ runner の追加・削除・バージョン更新。最も破壊的な操作を�
 
 | 要素 | 責務 |
 |------|------|
-| `Scan(ctx, Runner, out chan<- Usage)` | 対象ごとに非同期集計し、判明順に送出 |
+| `Scan(ctx, Runner, out chan<- Usage)` | 対象ごとに非同期集計し、判明順に送出。Disk タブの内訳 |
+| `WorkUsage(ctx, Runner) (int64, error)` | runner 1 台の `_work` **合計**だけを返す（Runners タブの `_WORK` 列と runner 詳細）。内訳を要さないぶんチャネルも goroutine も持たない。`_work` が無い runner は 0 とエラー無し、**それ以外の理由で読めない場合はエラー**（0 を返すと未集計が「0 バイト」という確定値として一覧に出る） |
 | `FSStats(path)` | 容量と inode の残量 |
 | `DockerUsage(ctx, ex)` | `docker system df --format {{json .}}` の解析 |
 | `PlanClean(targets) (CleanPlan, error)` | 削除計画。対象パスと解放見込み容量を確定させる（ドライラン）。保護された対象（`Target.Protected` が空でない）を 1 件でも含めば計画を作らない |
 | `PruneReclaimable(items) int64` | `docker system prune -f` が実際に回収する見込みの容量（Containers / Build Cache のみ） |
 | `ValidatePath(base, target) error` | **削除パスの検証**。基準ディレクトリ配下であること、`..` を含まないこと、許可サブツリー内であることを判定 |
 | `Apply(ctx, ex, lg, CleanPlan, progress)` | 削除の実行。シンボリックリンクは辿らず、リンク自体のみを削除 |
+| `DockerLabel` | docker の削除の進捗（`Progress.Label`）に出る表示名。**公開しているのは表示側が名前で行を突き合わせるためである**（`page/disk/cleanview.Mark`）。写しを持つと、こちらを変えた瞬間に docker の行だけ永久に未着手で残り報告の件数もずれる。コンパイルもテストも通ってしまうので、名前の一致は型で保証する |
 
 `DockerUsage` と `Apply` が `exec.Executor` を取るのは、外部プロセス実行の唯一の経路が `internal/exec` だからである（上記「依存の規則」）。`docker system prune -f` は `exec.Options.Action` に `disk.clean` を設定して発行し、破壊的操作として監査ログに全件記録される（[セキュリティ設計](../architecture/security.md#監査ログ)）。
 
 `Apply` が取る `lg *audit.Logger` は、ファイル削除（`removeTree`）を監査ログへ記録するための入口である（下記「ファイル削除の監査ログ」、[`internal/audit`](#internalaudit)）。`internal/disk` がこれを持つのはドメイン層で唯一の例外で、他のドメイン実装は `audit.Logger` を直接呼ばない。
+
+**シンボリックリンクの扱いは「読む」と「消す」で分ける。** `WorkUsage` は `_work` 自体がリンクでも`filepath.EvalSymlinks` で辿る——`_work` を別ボリュームへ寄せた構成があり、辿らないと `filepath.WalkDir` がroot を `Lstat` で見てリンク 1 件ぶんを数え、**集計できていないのに 0 バイトという確定値**を一覧に出すためである（未集計は `-` に縮退させるのが本来の扱い）。`Scan` は集計対象が `_work` の**子**なのでリンクは経路の途中にあり、明示的に辿らなくても同じ実サイズが得られる（走査の root がリンクになるのは `WorkUsage` だけ）。一方 `Apply` の削除は辿らない。リンク先の実体を消さないための約束であり（[セキュリティ設計](../architecture/security.md#シンボリックリンクの扱い)）、読むだけの集計とは要件が違う。
+
+**`internal/disk` は行数の警告帯（2000 行超）に入っている。** 本 PR で 1778 行 → 2181 行になった（`WorkUsage` とファイル削除の監査記録、およびそれぞれの検証）。エラー境界の 2200 までは 19 行しかない。**次にこのパッケージへ手を入れる Issue は、足す前に分割の是非を検討すること**（`docs/ui/atomic-design.md` の「ディレクトリの行数」と同じ規範を `internal/` 側にも適用する）。分割の候補は、削除の実行（`apply.go`）と集計（`scan.go` / `work.go`）が既に別ファイルに分かれているので、テストの重い側（`apply_test.go` / `audit_test.go`）をサブパッケージへ出す形になる。
 
 **`Scan` の `out` は閉じない。** 呼び出し側が runner ごとの `Scan` を 1 本のチャネルへ集約するため、閉じる責務は集約する側にある。`Scan` は全対象を送り終えてから返るので、呼び出し側は `WaitGroup` で待ってから閉じられる。
 
@@ -331,7 +339,9 @@ runner の追加・削除・バージョン更新。最も破壊的な操作を�
 
 **`ParseWorker` はパスを 1 本の文字列で受けず、ディレクトリとファイル名を分けて受ける。** 読み出しを `os.DirFS` で `_diag` の中に閉じ、`..` や絶対パスを含む名前を `io/fs` に弾かせるためである。exported で呼び出し側を選べない関数なので、閉じ込めをコメントの約束にしない。
 
-**先頭 1 MiB だけを読む。** Worker ログは Job message の JSON ダンプを含み数 MB に育つが、取り出し口はいずれもジョブ開始直後の数十行以内に出る。
+**抽出は 1 行ずつ行い、両方の値が見つかった時点で読むのをやめる。** マーカー以降をファイル全体から探すと、途中で切れたログで次の行のログ本文まで巻き込み、改行を含む値が列に出て表の描画が崩れる。取り出し口はいずれもジョブ開始直後に出るので、正常なログでは先頭のわずかしか読まない。
+
+**上限は 2 つ持つ。** 全体 8 MiB（取り出し口が 1 つも無いログで際限なく読まないための歯止め）と、1 行 4 MiB（Job message の JSON ダンプは 1 行で数 MB になるため、`bufio.Scanner` の既定 64 KiB ではその行で読み取りが止まり、後ろの行を一切見られない）。
 
 **取り出せなくてもエラーにしない。** 開けない・形式が想定外・まだ書かれていない、いずれも空の `JobInfo` を返し、呼び出し側が `-` に縮退する。ジョブの一覧が解析の失敗で落ちてはならない。
 
@@ -625,12 +635,13 @@ bubbletea の Model 群。**内部を Atomic Design で階層化する。** 部�
 | `ui/organism` | organism | カーソルと選択を持つ対話的な部品（`ChoiceList`）。`tea.Model` は実装せず `bubbles` 流の署名に揃える |
 | `ui/organism/table` | organism | 区画に分かれた一覧の共通実装（`bubbles/table` のラッパー） |
 | `ui/organism/pane` | organism | スクロールする領域（`Detail` / `Help` / `Log` / `ProgressList`）。`Detail` / `Help` は表示専用、`Log` は追従の ON/OFF とフィルタの入力欄を持つ（ただし一致の判定は持たず、装飾済みの行を受け取るだけである）。`ProgressList` は一括処理の逐次表示と結果報告で、行の状態を決めるのは page 側である |
-| `ui/organism/dialog` | organism | 承認・待機・入力のダイアログ（`Confirm` / `DrainWaiter` / `Form`）。`Form` は `huh.Form` のラッパーで、ドメイン層は呼ばず完了・中断を `tea.Msg` で page へ返すだけである。`DiffApproval` は未実装 |
+| `ui/organism/dialog` | organism | 承認・待機・入力のダイアログ（`Confirm` / `DiffApproval` / `DrainWaiter` / `Form`）。`Form` は `huh.Form` のラッパーで、ドメイン層は呼ばず完了・中断を `tea.Msg` で page へ返すだけである。`DiffApproval` は Config タブ（Issue #12）で実装済み |
 | `ui/molecule` | molecule | 1 区画の描画（ヘッダ・タブ行・フッタ・操作リスト・列の選択）。純粋関数 |
 | `ui/molecule/listrow` | molecule | 一覧の 1 行。セル列（`[]string`）を返す。純粋関数。一覧を持つタブが 1 つずつ足す |
 | `ui/chrome` | molecule | 本体以外の領域（ヘッダ・タブ行・状態行・フッタ）の中身の組み立て。親 Model の型も bubbletea も知らない純粋関数。import するのは `ui/molecule` / `ui/atom` / `ui/token` だけで、**ドメインの型は受け取らない**（`chrome.View` はバッジの真偽値・件数・`[]molecule.TabView` といった表示用の値のみ）。`Caps` / `Result` / `[]tabset.Tab` からの写し替えは親 Model が行う |
 | `ui/tabset` | page | タブのメタ情報と並び。`ui/page/<tab>` を import する唯一の場所 |
-| `ui/discovery` | — | 検出の予算・結果 Msg・発行・間隔決定・周期の突き合わせ（`Reconcile`）。UI ランタイムを知らない |
+| `ui/hostreq` | — | 起動時のジョブ実行の前提チェック（[FR-44](../requirements/functional.md)）の発行。「1 度だけ走らせる」仕組み（`StartOnce`）を持つ |
+| `ui/discovery` | — | 検出の予算・結果 Msg・発行・間隔決定・周期の突き合わせ（`Reconcile`）。`tea.Cmd` は返すが `tea.Model` も `tick` も持たない（親 Model の状態に触れない） |
 | `ui/workscan` | — | runner ごとの `_work` 使用量の集計と、その周期の管理。**再検出サイクルには載せない** |
 | `ui/ghscope` | — | トークンの保有スコープの取得。起動後に 1 度だけ引き、取得前・失敗時は操作を塞がない |
 | `ui/page/progressmodal` | page | `organism/pane.ProgressList` を `page.Modal` へ配線する汎用部分。Setup / Disk タブが共有 |
@@ -715,4 +726,5 @@ interface はこの 3 つに留める。ドメインごとの interface は、�
 | 1.29 | 2026-08-23 | 依存グラフに実装にあって描かれていなかった 5 本（`SetupJob --> Exec` / `SetupJob --> Runner` / `SetupJob --> RScope` / `Setup --> RScope` / `GH --> RScope`）を追加した | 1.27 で「依存グラフを実際の import と照合した」と記しながら、`setup/job` が `internal/exec` / `internal/runner` / `internal/runner/scope` を、`internal/setup` と `internal/gh` が `internal/runner/scope` を直に import している事実が落ちていた。**このグラフは §依存の規則 を突き合わせる先の一次情報である**ため、辺の欠落は「その依存は存在しない」と読まれる。とくに `setup/job → exec` は、外部コマンドを `exec` 経由に限定するという規則に**従った**正しい import であるにもかかわらず、グラフに無いことを根拠に規則違反（あるいは循環依存の持ち込み）と判定され、差し戻される側に倒れる。`GH --> RScope` も、`internal/gh` が `internal/runner` 全体ではなくスコープだけを参照するという [`internal/runner/scope`](#internalrunnerscope) の分離理由そのものが、グラフからは裏取りできない状態だった（PR #78 の 3 周目レビュー指摘） |
 | 1.30 | 2026-08-23 | doctor（Issue #11）の実装を反映。`Check` の `Run` の戻りを `[]Result` に改め、runner ごとに判定する項目が行を分ける必要があることを理由として明記。`Input` の差し替え口（`Now` / `Dial` / `Getenv` / `LookPath` / `FSRoot` / `NewClient`）を追記。分類ごとの下位パッケージへの分割（`doctor/check` を葉に置く理由・入口を `Checks()` に絞る理由・`internal/runner` を変更せず `systemctl show` を自前で発行する理由）を「パッケージの分割」として新設。`internal/gh` の `TokenScopes` を実装済みへ改め、`Scopes.Classic` による fine-grained PAT の区別と包含関係の判定を追記 | 草案の `Run(ctx, in) CheckResult`（単数）は、runner ごとに 1 行を並べる[画面仕様](../ui/screens.md#doctor-タブ)の TARGET 列と両立しない。単数のまま実装すると、レジストリが検出結果に依存するか TARGET 列を捨てるかのどちらかになる。分割の記述が無いと、次に項目を足す Issue が 1 ディレクトリ 2000 行の上限に当たってから置き場所を考えることになる |
 | 1.31 | 2026-08-23 | Issue #71 の実装を反映。依存グラフに `Disk --> Audit` を追加。`internal/audit` の節を「`exec` から呼ばれる」から「`internal/exec/command` と `internal/disk` の 2 層から呼ばれる」へ改め、`Logger.Report` / `WithErrorFunc` を責務表に追加し、契約を広げても記録漏れが増えない理由（層ごとに記録の起点を 1 関数へ固定）を追記。`internal/disk` の節の `Apply` の署名に `lg *audit.Logger` を追加し、「ファイル削除は監査ログに残らない」という記述を「ファイル削除も監査ログに残る」に書き換えて `removeTarget` が記録すること・`command` に `["(削除)", <パス>]` を載せることを明記 | ファイルの再帰削除の監査ログ記録を実装したため。1.18 以前から本節が明記していた「ファイル削除は外部コマンドではないため監査ログに残らない」という欠落が解消されたので、実装と一致するよう更新する必要があった。`internal/disk` が `internal/audit` を新たに import するため、依存グラフの辺も追加しないと § 依存の規則 と食い違う |
-| 1.32 | 2026-08-24 | 依存グラフに `UIApp --> Audit` を追加し、`internal/ui` のサブパッケージ表に本 PR が新設した 8 つ（`ui/discovery` / `ui/workscan` / `ui/ghscope` / `ui/page/progressmodal` / `ui/page/disk/confirmmodal` / `ui/page/disk/cleanview` / `ui/page/runners/rowview`）を追加 | `internal/ui` と `internal/ui/page` が新たに `internal/audit` を import した（#71 の配布経路）のにグラフには `Disk --> Audit` しか足しておらず、辺の欠落は「その依存は存在しない」と読まれて正当な import が規則違反と判定される（改訂 1.29 が同種の欠落を defect として直した前例がある）。サブパッケージ表は実在するパッケージを本書から辿れるようにするためのもので、7 つが grep 0 件だった |
+| 1.32 | 2026-08-24 | 依存グラフに `UIApp --> Audit` を追加し、`internal/ui` のサブパッケージ表に本 PR が新設した 7 つ（`ui/discovery` / `ui/workscan` / `ui/ghscope` / `ui/page/progressmodal` / `ui/page/disk/confirmmodal` / `ui/page/disk/cleanview` / `ui/page/runners/rowview`）を追加 | `internal/ui` と `internal/ui/page` が新たに `internal/audit` を import した（#71 の配布経路）のにグラフには `Disk --> Audit` しか足しておらず、辺の欠落は「その依存は存在しない」と読まれて正当な import が規則違反と判定される（改訂 1.29 が同種の欠落を defect として直した前例がある）。サブパッケージ表は実在するパッケージを本書から辿れるようにするためのもので、7 つが grep 0 件だった |
+| 1.33 | 2026-08-24 | `internal/logs` の「先頭 1 MiB だけを読む」を実装（1 行ずつ抽出・優先順の保持・両方そろったら打ち切り・全体 8 MiB）へ書き換え。`internal/disk` に `WorkUsage` / `DockerLabel` の行と、シンボリックリンクを「読む」経路だけ辿る理由、行数が警告帯に入った記録を追加。依存グラフに `UIApp --> Exec` / `--> RScope` を追加し、サブパッケージ表に `ui/hostreq` を追加。`organism/dialog` の `DiffApproval` を実装済みへ訂正 | 「先頭 1 MiB」は旧実装の説明のままで、後続 Issue が上限を戻す修正を正当と判断しうる。`DiffApproval` は `docs/ui/atomic-design.md` と正反対を述べていた。辺の欠落は「その依存は存在しない」と読まれて正当な import が規則違反と判定される |

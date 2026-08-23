@@ -184,3 +184,51 @@ func TestParseWorkerReadsPastHugeJSONLine(t *testing.T) {
 		t.Errorf("Workspace = %q, want 作業ディレクトリ", got.Workspace)
 	}
 }
+
+// **取り出し口の優先順は行をまたいでも効く。**
+//
+// 抽出は 1 行ずつ行う（行境界を越えないため）ので、順位を覚えずに「先に見つかった方を
+// 採る」と文書順が優先順に勝つ。このログでは低い優先度の行が先に出る:
+//   - `Working directory:`（順位 2、チェックアウト前の docker 起動）が
+//     `Update workspace to`（順位 1）より前
+//   - 副リポジトリの `Update repository ...`（順位 3）が `_PipelineMapping`（順位 1）より前
+func TestParseWorkerPrefersHigherRankedSourceAcrossLines(t *testing.T) {
+	got, err := logs.ParseWorker(testdataDir, "worker_priority.log")
+	if err != nil {
+		t.Fatalf("ParseWorker: %v", err)
+	}
+	if want := "ousiassllc/gsr-helper"; got.Repository != want {
+		t.Errorf("Repository = %q, want %q（先に出た副リポジトリを採っている）", got.Repository, want)
+	}
+	if want := "/opt/runners/build01-1/_work/gsr-helper/gsr-helper"; got.Workspace != want {
+		t.Errorf("Workspace = %q, want %q（先に出た起動時の作業ディレクトリを採っている）",
+			got.Workspace, want)
+	}
+}
+
+// 1 行が非常に長くても、その後ろの行を読み落とさない。
+//
+// bufio.Scanner は 1 行の上限を超えると ErrTooLong でその行以降を一切読まなくなる。
+// この関数の主目的（JSON ダンプの後ろに出る取り出し口へ届くこと）が静かに失われる。
+func TestParseWorkerReadsPastOverlongLine(t *testing.T) {
+	dir := t.TempDir()
+	var b strings.Builder
+	b.WriteString("[2026-08-21 12:05:41Z INFO WorkerRunner] Job message:\n")
+	// 5 MiB の 1 行（bufio.Scanner の実用的な上限を超える大きさ）。
+	b.WriteString(` {"jobId":"x","padding":"` + strings.Repeat("p", 5<<20) + `"}` + "\n")
+	b.WriteString("[2026-08-21 12:05:42Z INFO PipelineDirectoryManager] Loading tracking config if exists: " +
+		"/opt/runners/build01-1/_work/_PipelineMapping/ousiassllc/gsr-helper/PipelineFolder.json\n")
+
+	const name = "Worker_20260821-120541-utc.log"
+	if err := os.WriteFile(filepath.Join(dir, name), []byte(b.String()), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	got, err := logs.ParseWorker(dir, name)
+	if err != nil {
+		t.Fatalf("ParseWorker: %v", err)
+	}
+	if want := "ousiassllc/gsr-helper"; got.Repository != want {
+		t.Errorf("Repository = %q, want %q（長い行で読み取りが止まっている）", got.Repository, want)
+	}
+}
