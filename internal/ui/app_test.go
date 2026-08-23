@@ -10,6 +10,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/ousiassllc/gsr-helper/internal/appconfig"
+	"github.com/ousiassllc/gsr-helper/internal/audit"
 	"github.com/ousiassllc/gsr-helper/internal/exec"
 	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/ui/discovery"
@@ -256,5 +258,18 @@ func TestViewDeclaresAltScreen(t *testing.T) {
 		if !strings.Contains(v.Content, want) {
 			t.Errorf("%q が描かれていない", want)
 		}
+	}
+}
+
+// 監査ログの記録先が共有状態に載る（Issue #71）。
+//
+// 載らないと、外部コマンドを伴わない削除（internal/disk のファイル削除）が
+// 記録先を持てず、確認を経た破壊的操作が監査ログに 1 行も残らない。
+func TestStateCarriesAuditLogger(t *testing.T) {
+	lg := audit.Discard()
+	a := New(appconfig.Default(), appconfig.Caps{}, exec.NewFake(), Options{Audit: lg})
+
+	if got := a.state().Audit; got != lg {
+		t.Errorf("StateMsg.Audit = %v, want 渡した Logger（記録先が page へ届いていない）", got)
 	}
 }

@@ -78,8 +78,7 @@ func (a *App) applyDiscovered(msg discovery.Msg) tea.Cmd {
 	return cmd
 }
 
-// discover は runner を検出する Cmd を返す。中身は discovery.Start に委ねる
-// （discovery.go の package doc を参照）。
+// discover は runner を検出する Cmd を返す。中身は discovery.Start に委ねる（discovery.go の package doc を参照）。
 //
 // 引数に必要な値を Cmd の外で写し取るのは、Cmd が別 goroutine で走る間に親 Model の
 // 状態が書き換わっても、検出の入力が変わらないようにするためである。
@@ -96,8 +95,7 @@ func (a *App) discover() tea.Cmd {
 	return discovery.Start(seq, runner.Options{Roots: roots, Depth: depth, Exec: ex})
 }
 
-// refresh は自動更新間隔を決める。中身は discovery.Interval に委ねる
-// （discovery.go の package doc を参照）。
+// refresh は自動更新間隔を決める。中身は discovery.Interval に委ねる（discovery.go の package doc を参照）。
 func (a App) refresh() time.Duration {
 	return discovery.Interval(a.opts.Refresh, a.cfg.RefreshDuration())
 }

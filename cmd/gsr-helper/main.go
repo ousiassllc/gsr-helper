@@ -76,16 +76,19 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 	confPath := configPath(o.config, stderr)
 
-	lg := openAudit(cfg.AuditLog, stderr)
+	// 監査記録の失敗は「コマンドの失敗」と混ぜず、専用の通知先で受けて終了後に
+	// 報告する。通知先を渡さないと command と audit が stderr へ直接書き、
+	// 代替スクリーンの表示を壊す（auditSink のコメント）。
+	//
+	// **監査ログより先に作る。** 外部コマンドを伴わない破壊的操作の記録
+	// （audit.Logger.Report）も同じ受け皿へ流すため、Logger の生成時に渡す。
+	sink := &auditSink{}
+	defer func() { sink.report(stderr) }()
+
+	lg := openAudit(cfg.AuditLog, stderr, sink.add)
 	// クローズの失敗も報告する。バッファに残ったレコードが書けなかった場合が
 	// 黙って消えると、監査ログのエラーのうちこれだけが利用者に見えない。
 	defer func() { reportAuditClose(lg.Close(), stderr) }()
-
-	// 監査記録の失敗は「コマンドの失敗」と混ぜず、専用の通知先で受けて終了後に
-	// 報告する。通知先を渡さないと command が stderr へ直接書き、代替スクリーンの
-	// 表示を壊す（auditSink のコメント）。
-	sink := &auditSink{}
-	defer func() { sink.report(stderr) }()
 
 	// 秘密情報の提供元。runner の追加・削除で取得する短命トークンをここへ預け、
 	// 監査ログと ExitError の値一致マスク（exec/mask の段 2）に効かせる。
@@ -106,6 +109,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		Secrets:    secrets,
 		ConfigPath: confPath,
 		FirstRun:   !exists,
+		// 開けなかった場合も Discard が返るので nil にはならない（openAudit）。
+		Audit: lg,
 	})
 	return runProgram(app, stderr)
 }
@@ -154,9 +159,15 @@ func configPath(configured string, stderr io.Writer) string {
 // uid と sudo_user は明示して渡す。audit の既定は SUDO_USER を検証せずに読むが、
 // appconfig は文字種を検証した値を持っているためである（不正な値をそのまま
 // 記録すると、監査ログの読み手が実行者を誤って特定しうる）。
-func openAudit(path string, stderr io.Writer) *audit.Logger {
+//
+// onErr は Report（外部コマンドを伴わない破壊的操作の記録）の書き込み失敗の
+// 通知先である。**TUI では必ず渡すこと。** 渡さないと audit が os.Stderr へ
+// 直接書き、bubbletea が代替スクリーンを握っている間に画面が壊れる。外部コマンドの
+// 記録失敗（command.WithAuditErrorFunc）と同じ受け皿へ流すことで、記録の失敗が
+// どちらの経路で起きても終了後に 1 か所でまとめて報告される。
+func openAudit(path string, stderr io.Writer, onErr func(error)) *audit.Logger {
 	id := audit.WithIdentity(os.Geteuid(), appconfig.SudoUser())
-	lg, err := audit.Open(path, id)
+	lg, err := audit.Open(path, id, audit.WithErrorFunc(onErr))
 	if err != nil {
 		// 代替スクリーンへ入る前に出すため、終了後の画面にこの警告が残る。
 		_, _ = fmt.Fprintf(stderr, "警告: 監査ログを開けませんでした（記録せずに続行します）: %v\n", err)

@@ -32,6 +32,7 @@ func cleanTargets(rows []row) []disk.Target {
 		}
 		out = append(out, disk.Target{
 			Label:     u.Label,
+			Runner:    u.Runner,
 			Base:      u.Base,
 			Path:      u.Path,
 			Bytes:     u.Bytes,

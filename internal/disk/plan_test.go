@@ -29,6 +29,7 @@ func newTargetTree(t *testing.T) string {
 func pathTarget(base, rel string, bytes int64) Target {
 	return Target{
 		Label:  "build01-1 / " + rel,
+		Runner: "build01-1",
 		Base:   base,
 		Path:   filepath.Join(base, rel),
 		Bytes:  bytes,

@@ -23,6 +23,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/ousiassllc/gsr-helper/internal/appconfig"
+	"github.com/ousiassllc/gsr-helper/internal/audit"
 	"github.com/ousiassllc/gsr-helper/internal/exec"
 	"github.com/ousiassllc/gsr-helper/internal/gh"
 	"github.com/ousiassllc/gsr-helper/internal/runner"
@@ -78,6 +79,12 @@ type StateMsg struct {
 	// Config は Config タブが要る起動時の決定事項。Setup と同じ理由で 1 つに
 	// まとめてある。
 	Config ConfigDeps
+	// Audit は破壊的操作の記録先。外部コマンドを伴わない削除（internal/disk の
+	// ファイル削除など）を記録するために page 階層まで配る（Issue #71）。
+	//
+	// nil / audit.Discard() は no-op で、監査ログを開けない場合の縮退はそのまま
+	// 働く。UI から直接書き込む経路は無く、渡すだけで済む点は Exec と同じである。
+	Audit *audit.Logger
 }
 
 // ConfigDeps は Config タブ（対話型設定編集）が要る値。

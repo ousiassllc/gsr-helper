@@ -18,7 +18,7 @@ func TestOpenAuditRecordsValidatedSudoUser(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "audit.jsonl")
 
 	var errOut strings.Builder
-	lg := openAudit(path, &errOut)
+	lg := openAudit(path, &errOut, nil)
 	if errOut.Len() != 0 {
 		t.Fatalf("警告が出ている: %s", errOut.String())
 	}
@@ -44,7 +44,7 @@ func TestOpenAuditRejectsInvalidSudoUser(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "audit.jsonl")
 
 	var errOut strings.Builder
-	lg := openAudit(path, &errOut)
+	lg := openAudit(path, &errOut, nil)
 	if err := lg.Write(audit.Record{Action: "test", Command: []string{"true"}}); err != nil {
 		t.Fatalf("記録に失敗した: %v", err)
 	}
@@ -68,7 +68,7 @@ func TestOpenAuditFallsBackToDiscard(t *testing.T) {
 	}
 
 	var errOut strings.Builder
-	lg := openAudit(filepath.Join(file, "audit.jsonl"), &errOut)
+	lg := openAudit(filepath.Join(file, "audit.jsonl"), &errOut, nil)
 	if lg == nil {
 		t.Fatal("記録先が nil になっている（呼び出し側に nil 判定を書かせない）")
 	}

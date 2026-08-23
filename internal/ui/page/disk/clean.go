@@ -21,10 +21,11 @@ import (
 // dialog.DecidedMsg{Confirmed: true} を受けた onResult 1 か所だけである。c を押す
 // requestClean は確認ダイアログを開く Cmd しか返さない。
 //
-// 監査ログはここでは扱わない。docker system prune -f に
-// exec.Options{Action: "disk.clean"} を付けるのは internal/disk であり、記録の起点を
-// Executor の手前 1 か所に寄せてある（security.md の監査ログ）。page が自分で記録すると、
-// 別経路が増えたときに記録の抜けが page ごとに分かれる。
+// 監査ログはここでは扱わない。docker system prune -f の記録は Executor の手前
+// （internal/exec/command）で、ファイル削除の記録は internal/disk の removeTarget
+// 1 か所で行う（Issue #71 / security.md の監査ログ）。page がするのは記録先
+// （m.st.Audit）を disk.Apply へ運ぶことだけであり、自分では 1 行も記録しない。
+// page が自分で記録すると、別経路が増えたときに記録の抜けが page ごとに分かれる。
 
 const (
 	// noticeNoTarget は選択が空のまま c を押したときの案内。
@@ -148,10 +149,11 @@ func (m *Model) startClean(plan disk.CleanPlan) tea.Cmd {
 	ch := make(chan disk.Progress, total+1)
 	doneCh := make(chan applyDoneMsg, 1)
 	ex := m.st.Exec
+	lg := m.st.Audit
 
 	go func() {
 		failed := 0
-		err := disk.Apply(ctx, ex, plan, func(p disk.Progress) {
+		err := disk.Apply(ctx, ex, lg, plan, func(p disk.Progress) {
 			if p.Err != nil {
 				failed++
 			}

@@ -42,7 +42,7 @@ func TestApplyRemovesTree(t *testing.T) {
 	}
 
 	var rec recorder
-	if aerr := Apply(context.Background(), exec.NewFake(), plan, rec.record); aerr != nil {
+	if aerr := Apply(context.Background(), exec.NewFake(), nil, plan, rec.record); aerr != nil {
 		t.Fatalf("Apply がエラーを返した: %v", aerr)
 	}
 
@@ -80,7 +80,7 @@ func TestApplyDoesNotFollowSymlink(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PlanClean がエラーを返した: %v", err)
 	}
-	if aerr := Apply(context.Background(), exec.NewFake(), plan, nil); aerr != nil {
+	if aerr := Apply(context.Background(), exec.NewFake(), nil, plan, nil); aerr != nil {
 		t.Fatalf("Apply がエラーを返した: %v", aerr)
 	}
 
@@ -107,7 +107,7 @@ func TestApplyValidatesBeforeRemoving(t *testing.T) {
 	plan := CleanPlan{Paths: []Target{bad, good}, Docker: false, Bytes: 3, Commands: nil}
 
 	var rec recorder
-	err := Apply(context.Background(), exec.NewFake(), plan, rec.record)
+	err := Apply(context.Background(), exec.NewFake(), nil, plan, rec.record)
 	if err == nil {
 		t.Fatal("Apply がエラーを返さなかった")
 	}
@@ -140,7 +140,7 @@ func TestApplyRefusesProtectedTarget(t *testing.T) {
 	plan := CleanPlan{Paths: []Target{busy, good}, Docker: false, Bytes: 100, Commands: nil}
 
 	var rec recorder
-	err := Apply(context.Background(), exec.NewFake(), plan, rec.record)
+	err := Apply(context.Background(), exec.NewFake(), nil, plan, rec.record)
 	if err == nil {
 		t.Fatal("Apply がエラーを返さなかった")
 	}
@@ -169,7 +169,7 @@ func TestApplyPrunesDocker(t *testing.T) {
 	}
 
 	var rec recorder
-	if aerr := Apply(context.Background(), f, plan, rec.record); aerr != nil {
+	if aerr := Apply(context.Background(), f, nil, plan, rec.record); aerr != nil {
 		t.Fatalf("Apply がエラーを返した: %v", aerr)
 	}
 
@@ -197,7 +197,7 @@ func TestApplyDockerFailure(t *testing.T) {
 	f.Push(exec.Result{Stdout: nil, Stderr: []byte("daemon 不応答"), ExitCode: 1}, nil)
 
 	plan := CleanPlan{Paths: nil, Docker: true, Bytes: 0, Commands: [][]string{pruneCommand}}
-	err := Apply(context.Background(), f, plan, nil)
+	err := Apply(context.Background(), f, nil, plan, nil)
 	if err == nil {
 		t.Fatal("Apply がエラーを返さなかった")
 	}
@@ -220,7 +220,7 @@ func TestApplyCanceled(t *testing.T) {
 		Bytes:    2,
 		Commands: nil,
 	}
-	if err := Apply(ctx, exec.NewFake(), plan, nil); err == nil {
+	if err := Apply(ctx, exec.NewFake(), nil, plan, nil); err == nil {
 		t.Fatal("Apply がエラーを返さなかった")
 	}
 	if !exists(filepath.Join(dir, "_diag", "d.log")) {

@@ -14,6 +14,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/ousiassllc/gsr-helper/internal/appconfig"
+	"github.com/ousiassllc/gsr-helper/internal/audit"
 	"github.com/ousiassllc/gsr-helper/internal/doctor"
 	"github.com/ousiassllc/gsr-helper/internal/exec"
 	"github.com/ousiassllc/gsr-helper/internal/gh"
@@ -46,6 +47,11 @@ type Options struct {
 	// FirstRun は設定ファイルが無い状態で起動したか（FR-41）。判定は cmd が
 	// appconfig.Exists で行う（Load はファイルが無くても既定値を返すため）。
 	FirstRun bool
+	// Audit は破壊的操作の記録先。外部コマンドを伴わない削除を記録するために
+	// page 階層まで配る（page.StateMsg.Audit）。**開けなかった場合も nil に
+	// せず audit.Discard() を渡す**——記録先の nil 判定を page ごとに書かせない
+	// ためで、縮退（記録せずに続行）は Discard 自身が担う。
+	Audit *audit.Logger
 }
 
 // App は親 Model。
@@ -227,6 +233,7 @@ func (a App) state() page.StateMsg {
 		BodyW:  w,
 		BodyH:  h,
 		Err:    a.err,
+		Audit:  a.opts.Audit,
 		Setup: page.SetupDeps{
 			Host:     a.opts.Host,
 			Defaults: a.cfg.Defaults,

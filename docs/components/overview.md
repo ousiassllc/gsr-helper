@@ -72,6 +72,7 @@ graph TD
     Setup --> Exec
     Setup --> RScope
     Disk --> Exec
+    Disk --> Audit
     Logs --> Exec
     Doctor --> Exec
     GH --> Exec
@@ -295,9 +296,11 @@ runner の追加・削除・バージョン更新。最も破壊的な操作を�
 | `PlanClean(targets) (CleanPlan, error)` | 削除計画。対象パスと解放見込み容量を確定させる（ドライラン）。保護された対象（`Target.Protected` が空でない）を 1 件でも含めば計画を作らない |
 | `PruneReclaimable(items) int64` | `docker system prune -f` が実際に回収する見込みの容量（Containers / Build Cache のみ） |
 | `ValidatePath(base, target) error` | **削除パスの検証**。基準ディレクトリ配下であること、`..` を含まないこと、許可サブツリー内であることを判定 |
-| `Apply(ctx, ex, CleanPlan, progress)` | 削除の実行。シンボリックリンクは辿らず、リンク自体のみを削除 |
+| `Apply(ctx, ex, lg, CleanPlan, progress)` | 削除の実行。シンボリックリンクは辿らず、リンク自体のみを削除 |
 
 `DockerUsage` と `Apply` が `exec.Executor` を取るのは、外部プロセス実行の唯一の経路が `internal/exec` だからである（上記「依存の規則」）。`docker system prune -f` は `exec.Options.Action` に `disk.clean` を設定して発行し、破壊的操作として監査ログに全件記録される（[セキュリティ設計](../architecture/security.md#監査ログ)）。
+
+`Apply` が取る `lg *audit.Logger` は、ファイル削除（`removeTree`）を監査ログへ記録するための入口である（下記「ファイル削除の監査ログ」、[`internal/audit`](#internalaudit)）。`internal/disk` がこれを持つのはドメイン層で唯一の例外で、他のドメイン実装は `audit.Logger` を直接呼ばない。
 
 **`Scan` の `out` は閉じない。** 呼び出し側が runner ごとの `Scan` を 1 本のチャネルへ集約するため、閉じる責務は集約する側にある。`Scan` は全対象を送り終えてから返るので、呼び出し側は `WaitGroup` で待ってから閉じられる。
 
@@ -309,7 +312,7 @@ runner の追加・削除・バージョン更新。最も破壊的な操作を�
 
 **`docker system prune -f` の解放見込みは内訳の合計ではない。** 発行するのはこの 1 本だけで、`--volumes` が無いためボリュームは消えず、`-a` が無いため dangling 以外の未使用イメージも残る。したがって解放見込みには `PruneReclaimable` が返す種別（Containers / Build Cache）だけを載せ、イメージとボリュームの `Reclaimable` は内訳の表示（[FR-27](../requirements/functional.md)）に留める。
 
-**ファイル削除は外部コマンドではないため監査ログに残らない。** 記録の起点は `Executor` の実装 1 箇所に寄せてあり（[セキュリティ設計](../architecture/security.md#監査ログ)）、`internal/disk` から `internal/audit` を直接呼ぶことはしない。一方、この階層が発行する docker の 2 コマンドは**どちらも記録される**。`docker system df`（`Action: disk.df`）と `docker system prune -f`（`Action: disk.clean`）のいずれも `SkipAudit` を付けない。記録対象外にするのは再検出の `systemctl list-units` / `show` だけである（[外部インターフェース](../api/external-interfaces.md#systemd)）。
+**ファイル削除も監査ログに残る（Issue #71）。** ファイルの再帰削除（`removeTree`）は外部コマンドを起動しないため `Executor` を通らないが、`Apply` が呼ぶ `removeTarget`（1 対象の削除ごとに必ず通る 1 箇所）が `lg.Report` で記録する。`action` は docker と同じ `disk.clean`、`command` には実行したコマンドが無いため `["(削除)", <削除したパス>]` を載せる（`rm` のような実在するコマンド名にしないのは、実行していないコマンドを起動したと誤読させないため。[セキュリティ設計](../architecture/security.md#監査ログ)）。保護・検証で中止した対象も `exit_code: 1` と `error` 付きで記録し、「削除しなかった」事実を後から追えるようにする。この階層が発行する docker の 2 コマンドも**どちらも記録される**。`docker system df`（`Action: disk.df`）と `docker system prune -f`（`Action: disk.clean`）のいずれも `SkipAudit` を付けない。記録対象外にするのは再検出の `systemctl list-units` / `show` だけである（[外部インターフェース](../api/external-interfaces.md#systemd)）。
 
 ### `internal/logs`
 
@@ -495,13 +498,18 @@ type Executor interface {
 
 ### `internal/audit`
 
-監査ログの記録。JSON Lines で追記する。`exec` から呼ばれる。形式とフィールドは [データモデル](../architecture/data-model.md#監査ログjson-lines)。
+監査ログの記録。JSON Lines で追記する。呼ぶのは `internal/exec/command`（外部コマンドの実行実装）と `internal/disk`（外部コマンドを伴わないファイル削除。Issue #71）の 2 層に限る。形式とフィールドは [データモデル](../architecture/data-model.md#監査ログjson-lines)。
 
 | 要素 | 責務 |
 |------|------|
 | `Open(path)` | 出力先を開く。新規作成は `O_EXCL｜O_NOFOLLOW` の後に 0600、**既存ファイルはモードを変えず**、開いた fd 上で検証する（通常ファイル・`Nlink == 1`・所有者が実効 UID・内容が空か先頭が `{`）。検証に落ちたらエラーを返す |
 | `Discard()` | 記録しない書き込み先。開けなかった場合の縮退（[`cmd/gsr-helper`](#cmdgsr-helper)） |
 | `Logger` | レコードの追記。タイムスタンプは排他区間の内側で採るため、`ts` の順序と行の順序が一致する |
+| `Logger.Write(rec) error` | 1 レコードを書く。`internal/exec/command` はこれを使い、失敗を `*command.AuditError` として `WithAuditErrorFunc` へ渡す |
+| `Logger.Report(rec)` | `Write` の破壊的操作向けの入口。**戻り値を持たない**。記録の書き込み失敗を呼び出し側の操作の失敗に混ぜないためで、失敗は `WithErrorFunc` の通知先へ渡す（未設定なら標準エラー出力へ 1 行）。`internal/disk` の `removeTarget` が使う |
+| `WithErrorFunc(fn)` | `Report` の書き込み失敗の通知先。`command.WithAuditErrorFunc` と同じ役割で、TUI から呼ぶ場合は必ず設定する |
+
+**契約を「`exec` の実行実装だけ」から「外部コマンドと、それに準ずる破壊的操作」へ広げてある。** ファイルの再帰削除は `os.Remove` を直接呼ぶだけで外部コマンドを起動しないため、記録の起点を `Executor` 側の 1 箇所に寄せる形では拾えなかった。契約を広げても記録漏れが構造的に増えないのは、層ごとに記録の起点を 1 関数へ固定しているためである（`internal/exec/command` は `Run`、`internal/disk` は `removeTarget`）。[セキュリティ設計](../architecture/security.md#監査ログ)も参照。
 
 - **親ディレクトリはこのツールが作る場合のみ 0700 にする。** 既存のディレクトリのモードは変えない。`/var/log` や他の所有者のディレクトリのパーミッションを書き換えないためである。したがって「監査ログのディレクトリは 700」は**このツールが作ったディレクトリに限る**保証である（ファイル自体は常に 0600）。
 - `O_NOFOLLOW` を使うのは、出力先がシンボリックリンクに差し替えられている場合に辿らないためである。FIFO を指定されても開いたまま止まらない。
@@ -690,3 +698,4 @@ interface はこの 3 つに留める。ドメインごとの interface は、�
 | 1.28 | 2026-08-23 | `setup/tarball` の段落に、拒否対象として**保持対象へリンクで潜り込むエントリ**（`ErrPreservedLink`、`keeplink.go`）と、一時ディレクトリ（`.gsr-stage-<乱数>`）へ展開してから `rename` で移す段（`stage.go`）を追記。テストの観点表の「tarball の検証と展開」に、リンクを 1 段辿る tar と**鎖状に重ねた tar** の両方・一時ディレクトリが残らないことを追加し、「入力検証」の行に**認証情報つき URL は解析できるものと解析に失敗するものの両方**を含めることを追加 | [セキュリティ設計](../architecture/security.md) 1.11 と同じ穴が本書にもあった。本書の観点表は各パッケージの**テストが何を必ず含むか**の一次情報であり、`ErrPreservedLink` の検査を挙げないまま「1 段辿る tar」だけを求めると、`resolve()` の要素ごとの走査（鎖状のリンクを潰す部分）を単段の参照へ退化させても検証が緑のままになる。実際そのミューテーションはこの周まで検知されていなかった。同様に URL の行も、解析に失敗する経路だけが入力を echo する形の欠陥を捕まえられなかった（PR #78 の 2 周目レビュー指摘 B2 / C2） |
 | 1.29 | 2026-08-23 | 依存グラフに実装にあって描かれていなかった 5 本（`SetupJob --> Exec` / `SetupJob --> Runner` / `SetupJob --> RScope` / `Setup --> RScope` / `GH --> RScope`）を追加した | 1.27 で「依存グラフを実際の import と照合した」と記しながら、`setup/job` が `internal/exec` / `internal/runner` / `internal/runner/scope` を、`internal/setup` と `internal/gh` が `internal/runner/scope` を直に import している事実が落ちていた。**このグラフは §依存の規則 を突き合わせる先の一次情報である**ため、辺の欠落は「その依存は存在しない」と読まれる。とくに `setup/job → exec` は、外部コマンドを `exec` 経由に限定するという規則に**従った**正しい import であるにもかかわらず、グラフに無いことを根拠に規則違反（あるいは循環依存の持ち込み）と判定され、差し戻される側に倒れる。`GH --> RScope` も、`internal/gh` が `internal/runner` 全体ではなくスコープだけを参照するという [`internal/runner/scope`](#internalrunnerscope) の分離理由そのものが、グラフからは裏取りできない状態だった（PR #78 の 3 周目レビュー指摘） |
 | 1.30 | 2026-08-23 | doctor（Issue #11）の実装を反映。`Check` の `Run` の戻りを `[]Result` に改め、runner ごとに判定する項目が行を分ける必要があることを理由として明記。`Input` の差し替え口（`Now` / `Dial` / `Getenv` / `LookPath` / `FSRoot` / `NewClient`）を追記。分類ごとの下位パッケージへの分割（`doctor/check` を葉に置く理由・入口を `Checks()` に絞る理由・`internal/runner` を変更せず `systemctl show` を自前で発行する理由）を「パッケージの分割」として新設。`internal/gh` の `TokenScopes` を実装済みへ改め、`Scopes.Classic` による fine-grained PAT の区別と包含関係の判定を追記 | 草案の `Run(ctx, in) CheckResult`（単数）は、runner ごとに 1 行を並べる[画面仕様](../ui/screens.md#doctor-タブ)の TARGET 列と両立しない。単数のまま実装すると、レジストリが検出結果に依存するか TARGET 列を捨てるかのどちらかになる。分割の記述が無いと、次に項目を足す Issue が 1 ディレクトリ 2000 行の上限に当たってから置き場所を考えることになる |
+| 1.31 | 2026-08-23 | Issue #71 の実装を反映。依存グラフに `Disk --> Audit` を追加。`internal/audit` の節を「`exec` から呼ばれる」から「`internal/exec/command` と `internal/disk` の 2 層から呼ばれる」へ改め、`Logger.Report` / `WithErrorFunc` を責務表に追加し、契約を広げても記録漏れが増えない理由（層ごとに記録の起点を 1 関数へ固定）を追記。`internal/disk` の節の `Apply` の署名に `lg *audit.Logger` を追加し、「ファイル削除は監査ログに残らない」という記述を「ファイル削除も監査ログに残る」に書き換えて `removeTarget` が記録すること・`command` に `["(削除)", <パス>]` を載せることを明記 | ファイルの再帰削除の監査ログ記録を実装したため。1.18 以前から本節が明記していた「ファイル削除は外部コマンドではないため監査ログに残らない」という欠落が解消されたので、実装と一致するよう更新する必要があった。`internal/disk` が `internal/audit` を新たに import するため、依存グラフの辺も追加しないと § 依存の規則 と食い違う |
