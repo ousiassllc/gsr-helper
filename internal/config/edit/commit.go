@@ -22,15 +22,8 @@ var ErrNoRunnerID = errors.New("GitHub 側の runner が見つかりません")
 // **呼ぶのは承認を受けた 1 か所だけである。** page/setup と同じく、書き込みへ
 // 至る経路を 1 本に絞ることで、確認を経ない破壊的経路を作らない。
 func Commit(ctx context.Context, in CommitInput) error {
-	c := in.Change
-
-	if c.write != nil {
-		if c.path != "" {
-			if err := backupIfExists(c.path); err != nil {
-				return err
-			}
-		}
-		return c.write()
+	if in.Change.write != nil {
+		return in.Change.Write()
 	}
 
 	return commitAPI(ctx, in)
@@ -45,6 +38,23 @@ type CommitInput struct {
 	// Client は GitHub API のクライアントを作る。ラベル / runner group で使う。
 	// テストでは httptest のサーバへ向けたクライアントを返す。
 	Client func(ctx context.Context) (*gh.Client, error)
+}
+
+// Write は退避してからファイルへ書き込む（FR-38）。
+//
+// GitHub 側の変更（ラベル / runner group）では何もしない。呼び出し側は Commit を
+// 通すこと。これを公開しているのは、書き込みだけを端末なしで検証できるように
+// するためである。
+func (c Change) Write() error {
+	if c.write == nil {
+		return nil
+	}
+	if c.path != "" {
+		if err := backupIfExists(c.path); err != nil {
+			return err
+		}
+	}
+	return c.write()
 }
 
 // backupIfExists は書き込み前に退避する（FR-38）。
