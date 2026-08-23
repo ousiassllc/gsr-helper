@@ -73,6 +73,7 @@ internal/ui/
   tabset/           タブのメタ情報と並び。page/<tab> を import する唯一の場所
   organism/         カーソルと選択を持つ対話的な部品（ChoiceList）
   organism/table/   区画に分かれた一覧の共通実装（Model[T]）
+  organism/table/tabletest/ organism/table のテスト用フィクスチャ（tabletest → table の一方向。page/pagetest と同じ位置づけ）
   organism/pane/    スクロールする領域（Detail / Help / Log / ProgressList）。Log は入力欄を持ち表示専用ではない
   organism/dialog/  承認・待機・入力（Confirm / DiffApproval / DrainWaiter / Form）
   template/         画面共通の枠
@@ -1061,11 +1062,12 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 
 **2000 行は警告の始まりであって失敗の境界ではない。** `.linterly.yml` の `warning_threshold: 10` により、2000 行を超えると **WARN**、上限の 110% にあたる **2200 行**を超えて初めて **ERROR**（`make check` が落ちる）になる。つまり 2000〜2200 行は「超過しているが CI は通る」警告帯である。**警告帯に入ったディレクトリへ部品を足すときは、先に分割の是非を検討し、判断と理由をこの節に残すこと。**
 
+**空け方の手は 3 つある。** (1) 本番の一部をパッケージ境界で切り出す——**依存の向きを強制できる、あるいは増え方が違うまとまりがあるときだけ**である（`tabset` / `chrome` / `molecule/listrow` / `page/runners/rowview`）。(2) テストの重複を削る。(3) テスト用の道具・フィクスチャを別ディレクトリの通常パッケージへ出す（`page/pagetest` / `organism/table/tabletest`）。**(3) は本番の構造を 1 つも変えずに済む**のが利点で、本番の分割が「内部を export することになる」ため採れない場合（`ui/organism/table`）の唯一の手でもある。代償として本番からも import できてしまうので、足したら `page/pagetest/import_test.go` の `fixtures` へ登録すること（`TestNoProductionCodeImportsTestFixtures` が検査する）。
+
 現在の使用量は次のとおりである（`go tool linterly check` の実測値。**行数の多い順に並べる**）。
 
 | ディレクトリ | 行数 | 残り | 判定 |
 |------------|------|------|------|
-| `ui/organism/table` | 2157 | -157 | **WARN（超過中）** |
 | `ui/page/disk` | 2128 | -128 | **WARN（超過中）** |
 | `ui/page/config` | 2117 | -117 | **WARN（超過中）** |
 | `ui/page/setup` | 2081 | -81 | **WARN（超過中）** |
@@ -1075,9 +1077,10 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 | `ui/page/logs` | 1994 | 6 | pass |
 | `ui` | 1988 | 12 | pass |
 | `ui/page` | 1970 | 30 | pass |
+| `ui/organism/table` | 1969 | 31 | pass |
 | `ui/page/jobs` | 1684 | 316 | pass |
 | `ui/keymap` | 1666 | 334 | pass |
-| `ui/page/pagetest` | 1657 | 343 | pass |
+| `ui/page/pagetest` | 1666 | 334 | pass |
 | `ui/page/doctor` | 1580 | 420 | pass |
 | `ui/organism/pane` | 1559 | 441 | pass |
 | `ui/molecule/listrow` | 1523 | 477 | pass |
@@ -1096,6 +1099,7 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 | `ui/hostreq` | 283 | 1717 | pass |
 | `ui/page/runners/rowview` | 269 | 1731 | pass |
 | `ui/ghscope` | 268 | 1732 | pass |
+| `ui/organism/table/tabletest` | 238 | 1762 | pass |
 | `ui/page/progressmodal` | 140 | 1860 | pass |
 | `ui/page/disk/confirmmodal` | 136 | 1864 | pass |
 
@@ -1205,15 +1209,23 @@ Runners タブと Jobs タブは、同じサービス制御（確認 → 実行 
 
 依存は一方向である。`listrow` は列の選択に `molecule.Columns` を使うが（本番の経路では `organism/table` が列を決めて渡すため、実際に import するのは `listrow` のテストだけである）、`molecule` は `listrow` を参照しない。この一方向だけが「molecule 同士は参照しない」の例外であり、逆向きは作らない。
 
-#### `ui/organism/table` を分割しない判断（2157 行・WARN・エラー境界まで 43 行）
+#### `ui/organism/table` の本体を分割しない判断（1969 行・pass・残り 31 行）
 
-`ui/organism/table` は上限を超えて WARN が出ている。**それでも分割はしない。** 実体は `api.go` / `keys.go` / `rows.go` / `section.go` / `state.go` / `table.go` の 6 ファイル・1053 行で、残りの 1104 行はテストである（テストが本番をわずかに上回っている）。中身は `Model[T]` という 1 つの型に対する区画・行・列・キー・状態の内訳であり、切り出せる単位はいずれも `Model[T]` の非公開な状態に触れる。サブパッケージへ出すには内部を export して `table` から切り出し先への参照を作ることになり、**「一覧の共通実装は 1 つ」（`Table` を増やさない）という規則を構造で守れなくなる**。分割の目的は行数上限の分散であって部品同士の依存を増やすことではない、という本書の方針とも衝突する。
+**本体（`Model[T]` の実装）は分割しない。** 実体は `api.go` / `keys.go` / `rows.go` / `section.go` / `state.go` / `table.go` の 6 ファイル・1053 行である。中身は `Model[T]` という 1 つの型に対する区画・行・列・キー・状態の内訳であり、切り出せる単位はいずれも `Model[T]` の非公開な状態に触れる。サブパッケージへ出すには内部を export して `table` から切り出し先への参照を作ることになり、**「一覧の共通実装は 1 つ」（`Table` を増やさない）という規則を構造で守れなくなる**。分割の目的は行数上限の分散であって部品同士の依存を増やすことではない、という本書の方針とも衝突する。
 
-次に足すときは、まずテスト側を `helper_test.go` へ寄せて重複を削ること。それでも 2200 行に届くなら、区画の判定（`section.go` / `state.go`）だけを一方向参照の別ディレクトリへ出す。
+**超過の有無ではなく「分けられるか」で判断している。** `page` 直下（1.12）・`ui` 直下・`ui/molecule`（1.18）には、パッケージ境界で依存の向きを強制できる、あるいは増え方の違うまとまりがあった。`ui/organism/table` の本体にはそれが無い。
 
-Issue #31 で `table_test.go` の空振りしていたテスト（`View() != ""` しか見ていなかったもの）に検証を足したため 2061 → 2157 行になり、**エラー境界まで 43 行**である。内訳は `render_test.go` への切り出し（1 ファイル 300 行の警告は解いたがディレクトリの合計は変わらない）と、`fitcells_test.go` の追加である。後者は、詰め（足りないセルを空文字で埋める）が `View()` からは観測できず外側のテストでは固定できないため、`fitCells` を白箱で見る内部テストとして足した。分割の判断は変わらないが、**次にこのディレクトリへ足す Issue は上のテスト整理を先に行うこと**（残り 43 行はテスト 1 本ぶんしかない）。なお本節は 1.20 の時点で既に「先にテスト整理」を命じており、`fitcells_test.go` はそれを行わずに足している。**critical（詰めの検証が空振り）の解消に不可欠だったため今回に限り例外とした**もので、次の Issue に同じ例外は認めない。
+##### 空け方（Issue #65）
 
-**超過の有無ではなく「分けられるか」で判断している。** `page` 直下（1.12）・`ui` 直下・`ui/molecule`（1.18）には、パッケージ境界で依存の向きを強制できる、あるいは増え方の違うまとまりがあった。`ui/organism/table` にはそれが無い。
+Issue #31 で `table_test.go` の空振りしていたテスト（`View() != ""` しか見ていなかったもの）に検証を足したため 2061 → 2157 行（エラー境界まで 43 行）になり、警告帯に入っていた。**上限値は緩めず、テスト側のフィクスチャを `organism/table/tabletest` へ出して 1969 行（残り 31 行）へ戻した。**
+
+出したのは行の型（`Row`）・区画 2 種（`RunnerSection` / `OrphanSection`）・組み立て（`New` / `NewSectioned` / `NewColumned`）・打鍵（`Press` / `Send`）・取り出し（`Names` / `ColumnIDs` / `SelectedName`）・配色の見本（`PaletteSamples` / `SGRs`）である。`table` 直下の `helper_test.go` に残るのは、それらを短い名前へ束縛する 1 ブロックと、`molecule` の `*Row` 関数が `RenderRow` に渡せることの型レベルの担保だけである。
+
+**この移動は上の判断と矛盾しない。** 参照は `tabletest` → `table` の一方向だけで、使うのは `table.New` / `Model[T]` / `SectionInput[T]` / `RowInput[T]` / `RenderRow[T]` という**既存の公開 API のみ**である。`table` の非公開な状態は 1 つも export しておらず、`table` から `tabletest` を指す辺も無い。したがって「一覧の共通実装は 1 つ」は構造で守られたままである。**本体を切り出す場合との違いはここにある**——`section.go` / `state.go` を出すには `section[T]` とその中身を export し、`Model[T]` からそれを参照させることになる。
+
+`_test.go` ではなく通常のパッケージにしたのは行数上限のためである（`_test.go` に置くと `table` 直下と同じ予算を食う）。その代償として本番からも import できてしまうので、`page/pagetest` と同じく `TestNoProductionCodeImportsTestFixtures` の検査対象に登録してある（`page/pagetest/import_test.go` の `fixtures`）。**テスト用の道具を通常のパッケージとして足すときは、必ずここへ登録すること。**
+
+**残り 31 行はテスト 1 本ぶんしかない。次にこのディレクトリへ足す Issue は、まず `tabletest` へ出せるものを探すこと**（`tabletest` は 238 行で残り 1762 行ある）。出せないのは `fitcells_test.go` だけである——詰め（足りないセルを空文字で埋める）が `View()` からは観測できず、`fitCells` を白箱で見る内部テスト（`package table`）でしか固定できないためで、外へ出すには `fitCells` を export することになる。
 
 ## 部品を追加するときの手順
 
@@ -1276,3 +1288,4 @@ Issue #31 で `table_test.go` の空振りしていたテスト（`View() != ""`
 | 1.45 | 2026-08-24 | 「起動時に選択されているタブは `ActivateMsg` を受け取らない」を、受け取る形（Issue #63）と、配る場所が `Init` ではない理由へ書き換え。実装状況の「実装済み」に本 PR が新設した 7 パッケージ（`page/progressmodal` / `page/disk/confirmmodal` / `page/disk/cleanview` / `page/runners/rowview` / `discovery` / `workscan` / `ghscope`）を追加。ディレクトリの行数表を実測へ更新し、「4 周目の空け方」を追記 | Issue #63 で既定タブへも前面化を配るようにしたのに、本書は将来形で「配る必要がある」と書いたままで `page/lifecycle.go` の doc と正反対になっていた。実装状況の表は後続 Issue が「部品が有るか」を最初に引く場所であり、新設パッケージが載っていないと同じものをもう 1 つ作りかねない。行数表は予算の規範なので、実測とずれていると次の Issue が境界に当たってから気付くことになる |
 | 1.46 | 2026-08-24 | ディレクトリ構成のツリーに本 PR の新設 7 パッケージと既存の `hostreq` を追加。`ActivateMsg` の説明の識別子を実在しない `activateInitial` から `tabset.ActivateOnce` へ訂正。行数表と散文の数値を実測へ再更新（`ui` 2199 / 境界まで 1 行、`ui/page/runners` 2018、`ui/page/disk` 2128） | ツリーは「新しい部品をどこへ置くか」を最初に引く場所で、載っていないパッケージは同じ責務が作り直される。`activateInitial` は実装のどこにも無く、同じ文書の別の行は正しく `ActivateOnce` を挙げていた。行数は「足す前に空けよ」の判断材料なので、8 行の過大表示は警告機能を殺す |
 | 1.47 | 2026-08-24 | 「ディレクトリの行数」の表を実測へ更新（`ui` 2199 → 1988・pass、`ui/page/pagetest` 1483 → 1657）。`ui` 直下に「5 周目の空け方（Issue #77）」を追記し、「出せるものと出せないものの境目」を **テスト本体と道具は別** と読めるよう補正。ディレクトリ構成の `page/pagetest` の説明に親 Model の駆動を追記 | Issue #77。`ui` 直下が警告帯（2199 行）に入っていたのを、上限値を緩めず「道具を `page/pagetest` へ出す」「重複したテストを畳む」の 2 手で 1988 行へ戻した。本節は予算の規範なので、実測とずれていると次の Issue が境界に当たってから気付くことになる |
+| 1.48 | 2026-08-24 | `ui/organism/table` の節を「本体を分割しない判断」に改め、「空け方（Issue #65）」を追記。ディレクトリ構成と実装状況に `organism/table/tabletest` を追加。「ディレクトリの行数」に空け方の 3 つの手を明記。本番からの import を止める検査の名前を `TestNoProductionCodeImportsTestFixtures` へ改名（`pagetest` と `tabletest` の 2 つを見るため）。行数表を実測へ更新（`ui/organism/table` 2157 → 1969・pass、`ui/page/pagetest` 1657 → 1666） | Issue #65。`ui/organism/table` が警告帯（2157 行・エラー境界まで 43 行）にあり、次に一覧の共通実装へ手を入れる Issue が上限に当たる状態だった。`.linterly.yml` の上限は緩めず、また本体の分割（`section[T]` の export が要る）も採らずに、テスト側のフィクスチャを一方向参照の別ディレクトリへ出して解消した。判断の記述と実測がずれていると、次の Issue が境界に当たってから気付くことになる |

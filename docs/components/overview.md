@@ -634,6 +634,7 @@ bubbletea の Model 群。**内部を Atomic Design で階層化する。** 部�
 | `ui/template` | template | 画面共通の枠（ヘッダ / タブ / 本体 / 状態行 / フッタ、モーダル、2 ペイン）。中身を知らない |
 | `ui/organism` | organism | カーソルと選択を持つ対話的な部品（`ChoiceList`）。`tea.Model` は実装せず `bubbles` 流の署名に揃える |
 | `ui/organism/table` | organism | 区画に分かれた一覧の共通実装（`bubbles/table` のラッパー） |
+| `ui/organism/table/tabletest` | organism | `organism/table` の検証で使うフィクスチャ（行の型・区画 2 種・組み立て・打鍵・配色の見本）。参照は `tabletest` → `table` の一方向で、`table` の非公開な状態は 1 つも export していない。**テスト専用で本番からは import しない**（`TestNoProductionCodeImportsTestFixtures` が検査する） |
 | `ui/organism/pane` | organism | スクロールする領域（`Detail` / `Help` / `Log` / `ProgressList`）。`Detail` / `Help` は表示専用、`Log` は追従の ON/OFF とフィルタの入力欄を持つ（ただし一致の判定は持たず、装飾済みの行を受け取るだけである）。`ProgressList` は一括処理の逐次表示と結果報告で、行の状態を決めるのは page 側である |
 | `ui/organism/dialog` | organism | 承認・待機・入力のダイアログ（`Confirm` / `DiffApproval` / `DrainWaiter` / `Form`）。`Form` は `huh.Form` のラッパーで、ドメイン層は呼ばず完了・中断を `tea.Msg` で page へ返すだけである。`DiffApproval` は Config タブ（Issue #12）で実装済み |
 | `ui/molecule` | molecule | 1 区画の描画（ヘッダ・タブ行・フッタ・操作リスト・列の選択）。純粋関数 |
