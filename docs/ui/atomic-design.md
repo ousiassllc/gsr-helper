@@ -1047,28 +1047,28 @@ runner に対する操作のうち、**サービス制御の 6 つ（開始 / �
 
 | ディレクトリ | 行数 | 残り | 判定 |
 |------------|------|------|------|
+| `ui/page/setup` | 2194 | -194 | **WARN（超過中）** |
 | `ui/page/runners` | 2164 | -164 | **WARN（超過中）** |
 | `ui/organism/table` | 2157 | -157 | **WARN（超過中）** |
 | `ui/page/disk` | 2101 | -101 | **WARN（超過中）** |
-| `ui` | 2031 | -31 | **WARN（超過中）** |
+| `ui` | 2035 | -35 | **WARN（超過中）** |
 | `ui/page/logs` | 1994 | 6 | pass |
 | `ui/molecule` | 1860 | 140 | pass |
-| `ui/page` | 1823 | 177 | pass |
-| `ui/page/setup` | 1811 | 189 | pass |
+| `ui/page` | 1841 | 159 | pass |
 | `ui/organism/dialog` | 1654 | 346 | pass |
 | `ui/organism/pane` | 1559 | 441 | pass |
 | `ui/keymap` | 1547 | 453 | pass |
 | `ui/page/runnerop` | 1399 | 601 | pass |
+| `ui/page/pagetest` | 1320 | 680 | pass |
 | `ui/page/jobs` | 1282 | 718 | pass |
 | `ui/page/runnerdetail` | 1174 | 826 | pass |
 | `ui/token` | 1163 | 837 | pass |
 | `ui/atom` | 1154 | 846 | pass |
-| `ui/page/pagetest` | 1082 | 918 | pass |
 | `ui/molecule/listrow` | 1041 | 959 | pass |
 | `ui/page/action` | 988 | 1012 | pass |
 | `ui/template` | 657 | 1343 | pass |
 | `ui/organism` | 521 | 1479 | pass |
-| `ui/tabset` | 372 | 1628 | pass |
+| `ui/tabset` | 376 | 1624 | pass |
 | `ui/chrome` | 283 | 1717 | pass |
 #### `ui/page/disk` が警告帯に入った判断（Issue #13）
 
@@ -1083,6 +1083,16 @@ Disk タブは 1 ディレクトリに一覧・集計・クリーンアップ・
 **`ui/page/logs` の残りは 6 行しかない。** Logs タブ（Issue #9）は本文の組み立てと購読の 2 つを 1 つのタブに持つため、`page/<tab>` のなかで最も大きい。**次にこのディレクトリへ足す Issue は、まず道具を `page/pagetest` へ出すこと。** Issue #9 の 2 周目で回帰テストを 2 本足したときもそうして 120 行あまりを空けた（`Cmd` を回す道具 `RunCmd` / `ChromeOf` / `Pump` / `Drained` と、`_diag` のフィクスチャ `DiagRunner` / `WriteDiagLog`。`page/pagetest` が 824 行から 1003 行へ増えているのはこの移動ぶんである）。
 
 **ただし同じ手が何度も使えるとは限らない。** 残っている道具は Logs タブに固有のもの（購読を張り直すたびに最新の `Model` を追う `track`、`_diag` を持つ共有状態の組み立て）だけであり、`page/pagetest` へ出すと他のタブが使わない道具が共有の置き場に溜まる。**その次に採るのはテストの重複削減であって、本文（`content.go` / `stream.go`）の分割ではない。** ファイルを分けても 1 ディレクトリの合計は 1 行も減らない（`ui/organism/table` を分割しない判断と同じ理由）。
+
+#### `ui/page/setup` が警告帯に入った判断（Issue #8 の 2 周目）
+
+Setup タブは追加・削除・バージョン更新の 3 操作と、フォーム・確認・進捗・結果の 4 つのモーダルを 1 ディレクトリに持つ。**2194 行で警告帯（2000〜2200）に入っている。エラー境界の 2200 まで 6 行しかない。**
+
+押し上げたのは本文ではなくテストである。レビューで挙がった 2 点——(1) 承認後の実行が本物の GitHub API を叩いており、CI（self-hosted runner）の `GH_TOKEN` を拾って `remove-token` を POST しうること、(2) 追加の経路（`spec` / `planAdd` / ウィザードの入口 / `validate*`）がまったく通っていなかったこと——を塞ぐには、注入の継ぎ目（`page.SetupDeps` の `NewClient` / `Fetch`）と、フォームを `FormDoneMsg` まで駆動するテストが要る。**ネットワークへ出るテストを行数の都合で残す方は採らなかった。**
+
+行数は共有の道具を `page/pagetest` へ出して確保した（`SetupAPI` と、フォーム駆動の `Paste` / `Quick` / `SubmitHuh` / `AdvanceQuick`。`page/pagetest` が 1082 行から 1320 行へ増えているのはこの移動ぶんである）。
+
+**次にこのディレクトリへ手を入れる Issue は、1 行足す前に行数を空けること。** 残り 6 行は実質ゼロである。空け方は 2 つあり、どちらも本文の分割ではない（ファイルを分けても 1 ディレクトリの合計は 1 行も減らない。`ui/organism/table` を分割しない判断と同じ理由）。1 つは残るテストの道具を `page/pagetest` へ出すこと。もう 1 つは重複したテストの整理で、`TestDirtyFormAsksBeforeDiscarding` と `TestCleanFormClosesImmediately` を `pagetest.Quick` へ寄せると短くなり、同時にパッケージの実行時間も約 8.5 秒から 1 秒未満へ縮む（`bubbles/cursor` の点滅 `Cmd` が 1 回 530 ms 待ち、それが連なるため）。
 
 #### 一覧タブを 1 枚足せる余裕（Issue #35）
 
@@ -1192,4 +1202,4 @@ Issue #31 で `table_test.go` の空振りしていたテスト（`View() != ""`
 | 1.36 | 2026-08-23 | 「page 一覧」の表の `runners.Model` / `jobs.Model` の行を実態へ更新（organism に `Confirm` / `DrainWaiter`、ドメインに `svc`、状況にサービス制御）し、表の直後に `page/runnerop` の位置づけ（両タブが 1 つずつ持つ共有部品で、確認と実行の経路が 1 つであること）を `page/runnerdetail` と同じ形で補足 | 1.26 でサービス制御を実装済みへ反転しながら、この表の 2 行だけが「操作（`svc` / `setup`）は後続 Issue」「実装済み（一覧・詳細・可否の表示まで）」のまま残り、**同じ文書の「`Confirm` を 1 つに統一する」節・実装状況の一覧と正面から食い違っていた**。表だけを読んだ後続 Issue は、確認と実行の経路が既にある（`page/runnerop`）ことに気付かずタブ側へ書き写す。それは本節が禁じた「起点によって確認の強さが変わる」状態そのものである（PR #70 のレビュー指摘 M4） |
 | 1.37 | 2026-08-23 | ディレクトリの行数表を `linterly check -f json` の実測値へ更新し（`ui/page/runners` 1954 行・残り 46 行、`ui/page/runnerop` 1495 行、`ui/organism/dialog` 1215 行、`ui/page/jobs` 1155 行、`ui/page/action` 945 行）、行数の降順という表の体裁に合わせて並びも直した。本文の「`ui/page/runners` は 1187 → 1833 行になった（残り 167 行）」を 1954 行・残り 46 行へ、「`page/pagetest` は 809 行」を 888 行へ訂正 | 1.26 が「行数表を実測に合わせて更新」と記録していたが、**同じコミット群が追加したテストを測る前の値**のままだった。とりわけ `ui/page/runners` は残り 46 行しかないのに 167 行と読め、余裕を 3.6 倍に過大表示していた。本節は「警告帯に入ったディレクトリへ部品を足すときは先に分割の是非を検討する」という判断をこの表に依存させているため、後続 Issue はこのタブへ 100 行超のテストを足せると誤読し、検証の道具を `page/pagetest` へ出す判断を飛ばして警告帯へ突入する。1.21 / 1.24 / 1.25 が繰り返し是正してきた「改訂履歴が行っていない更新を主張する」欠陥の再発でもある（PR #70 のレビュー指摘 M5） |
 | 1.38 | 2026-08-23 | Logs タブ（Issue #9）/ Disk タブ（Issue #13）とサービス制御（Issue #5）を突き合わせた。`organism/dialog` の `Confirm` は両者が別々に作っていたため Disk 側の 1 実装に寄せ（`DecidedMsg` / `NewConfirm(keymap.Set, …)`）、サービス制御はそれを使う側に回った。`DrainWaiter` は #5 のものを残す。部品・page 一覧・実装状況の各表を両タブ分の実装済みへ統合し、ディレクトリの行数表を `linterly check -f json` の実測へ更新（`ui/page/runners` が 2091 行で警告帯に入った）。`ui` 直下の余裕の段落が 2 つに重複していたので実測の残り 26 行の側へ寄せた。`pagetest` の往復の道具は Logs 側の総称 `Pump` と名前が衝突したため #5 側を `Advance` に改名 | 3 つの Issue が同じ階層へ同時に部品を足した結果、`Confirm` が 2 実装になり（本書が「1 実装に統一する」と定めた当の部品である）、`Pump` が同名で 2 つ、実装状況の表と行数表が互いの変更を打ち消していた。マージで両方の記述を残すと、後続の Issue がどちらを使うか決められない（PR #70 のベース追従） |
-| 1.39 | 2026-08-23 | Setup タブ（Issue #8）の実装を反映。`organism/pane.ProgressList`・`organism/dialog.Form`・`molecule.ProgressRow`・`page/setup`・`token` の `huh.Theme` を実装済みへ反転し、ディレクトリ構成・依存の規則・molecule / organism / page / 画面と部品の各表・実装状況の区分をそろえた。実装状況に「実装済みだが未接続」の区分を新設し、`page/disk` が `ProgressList` へ切り替えていないことをそこへ入れた。「`bubbles/progress` を使う範囲」のクリーンアップの理由を「部品が無いから」から「まだ差し替えていないから」へ書き換え。「画面と部品の対応」の追加中の進捗を `Frame` から `Modal` へ改め、その理由（背後へキーを流さない・実行中は `esc` を握る）を追記。`ProgressRow` の置き場所が `molecule` 直下であることを明記。ディレクトリの行数表を実測へ更新し（`ui/page/runners` 2164 行・`ui` 2031 行が新たに警告帯、`ui/page/setup` 1811 行を追加）、`ui` 直下が超過した内訳（`app.go` の 9 行と `route_test.go` の 48 行）と、それが「タブを 1 枚足すだけなら親を触らない」の例外にあたる理由を追記 | runner の追加・削除・バージョン更新を実装したため。実装状況の表と各表の「状況」列は**後続 Issue が「部品が有るか」を最初に引く場所**であり、`ProgressList` を未実装のまま残すと Disk タブを触る Issue がもう 1 つ進捗部品を作りかねない。`page/disk` は部品が揃っていても経路が繋がっておらず、実装済みに丸めると「動くはず」と読まれてしまうため、区分を分けて残した。行数表は次の Issue が読む予算の規範なので、`ui` 直下の超過を記さないと親 Model へテストを足す Issue が境界に当たってから気付くことになる |
+| 1.39 | 2026-08-23 | Setup タブ（Issue #8）の実装を反映。`organism/pane.ProgressList`・`organism/dialog.Form`・`molecule.ProgressRow`・`page/setup`・`token` の `huh.Theme` を実装済みへ反転し、ディレクトリ構成・依存の規則・molecule / organism / page / 画面と部品の各表・実装状況の区分をそろえた。実装状況に「実装済みだが未接続」の区分を新設し、`page/disk` が `ProgressList` へ切り替えていないことをそこへ入れた。「`bubbles/progress` を使う範囲」のクリーンアップの理由を「部品が無いから」から「まだ差し替えていないから」へ書き換え。「画面と部品の対応」の追加中の進捗を `Frame` から `Modal` へ改め、その理由（背後へキーを流さない・実行中は `esc` を握る）を追記。`ProgressRow` の置き場所が `molecule` 直下であることを明記。ディレクトリの行数表を実測へ更新し（`ui/page/runners` 2164 行・`ui` 2035 行・`ui/page/setup` 2194 行が新たに警告帯）、`ui` 直下が超過した内訳（`app.go` の 9 行と `route_test.go` の 48 行）と、それが「タブを 1 枚足すだけなら親を触らない」の例外にあたる理由を追記。`ui/page/setup` が警告帯に入った判断（エラー境界まで 6 行、押し上げたのは本物の API を叩くテストを潰すための注入の継ぎ目と追加経路のテスト、次に触る Issue は先に行数を空けること）を節へ追加 | runner の追加・削除・バージョン更新を実装したため。実装状況の表と各表の「状況」列は**後続 Issue が「部品が有るか」を最初に引く場所**であり、`ProgressList` を未実装のまま残すと Disk タブを触る Issue がもう 1 つ進捗部品を作りかねない。`page/disk` は部品が揃っていても経路が繋がっておらず、実装済みに丸めると「動くはず」と読まれてしまうため、区分を分けて残した。行数表は次の Issue が読む予算の規範なので、`ui` 直下の超過を記さないと親 Model へテストを足す Issue が境界に当たってから気付くことになる |

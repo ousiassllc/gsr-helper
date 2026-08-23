@@ -35,12 +35,15 @@ graph TD
     Main --> UIApp
     Main --> Appconf
     Main --> Audit
+    Main --> GH
 
     UIApp --> UIParts
 
     UIApp --> Runner
     UIApp --> Svc
+    UIApp --> Setup
     UIApp --> SetupJob
+    UIApp --> GH
     UIApp --> Disk
     UIApp --> Logs
     UIApp --> Doctor
@@ -72,6 +75,8 @@ graph TD
     Appconf --> Exec
     Exec --> Audit
 ```
+
+**UI 層が `setup` と `gh` を直に参照するのは値の型のためである。** 実行前プレビュー（FR-16）は `setup.Plan` をそのまま描くので `ui/page` 以下が `setup` を import し（本番ファイル 7 本）、短命トークンの預け先 `gh.Secrets` は起動時に `cmd` が 1 つ作って UI へ配るため `cmd` と `ui` の双方が `gh` を import する。**実行そのものを呼ぶのは `setup/job` だけである**——UI は `setup.Apply` を直接叩かない。
 
 ### 依存の規則
 
@@ -258,7 +263,7 @@ runner の追加・削除・バージョン更新。最も破壊的な操作を�
 
 #### 分割したパッケージ
 
-1 ディレクトリ 2000 行（テスト込み）の上限に対する分散と、責務の切り分けを兼ねる。依存は **`setup/job` → `setup` → `setup/tarball` / `setup/valid`** の一方向で、逆向きは無い。
+1 ディレクトリ 2000 行（テスト込み）の上限に対する分散と、責務の切り分けを兼ねる。依存は **`setup/job` → `setup` → `setup/tarball` / `setup/valid`** の一方向で、逆向きは無い。**`setup/job` は `setup/tarball` も直に import する**（取得情報を `tarball.Info` に詰めて `tarball.Fetch` を呼ぶのが `setup/job` の役目のため）。`setup` を経由しなければならない決まりではなく、下位のパッケージを飛び越して参照してよい。
 
 | パッケージ | 置くもの |
 |-----------|---------|
@@ -637,4 +642,4 @@ interface はこの 3 つに留める。ドメインごとの interface は、�
 | 1.24 | 2026-08-23 | `internal/svc` の責務表で `Kill` に「PID もユニット名も無ければ 1 本も発行せず `ErrNoKillTarget` を返す」、`Drain` に「ユニット名が無ければ待機に入らず `ErrNoUnit` を返す」を追記し、理由の文言の行に `ReasonNoCommand` を追加。`CanControl` の行を判定の順（非 root → systemd 不在 → `run.sh` 直起動 → 判定不能）に書き改め、3 段目がドレイン停止も塞ぐ理由と 4 段目が塞がない理由、`ReasonNoCommand` が `CanControl` の返す理由ではなく UI 側が確認ダイアログの手前で使う文言であることを段落で追記。`organism/dialog` を「未実装」と書いていた箇条書き（`Confirm` を 1 実装に統一する規則）を、`Confirm` / `DrainWaiter` は実装済みで未実装は `DiffApproval` / `Form` だけである記述に訂正 | 同じ文書の `internal/ui` のサブパッケージ表（1.19 で更新）が `organism/dialog` を実装済みと書く一方、箇条書きは「未実装」のままで**文書が自分自身と矛盾**しており、リンク先の [TUI コンポーネント設計の実装状況](../ui/atomic-design.md#実装状況) とも食い違っていた。`Kill` / `Drain` の「対象が無ければ発行しない」は本 PR で入れた振る舞いで、書かないと 0 本の実行を成功として報告する実装へ戻りうる。`CanControl` は 3 段目でドレイン停止も塞ぐようになったのに責務表は塞ぐ範囲を挙げておらず、`ReasonNoCommand` に至っては公開定数が本書のどこからも辿れなかった（PR #70 のレビュー指摘） |
 | 1.25 | 2026-08-23 | `internal/svc` の `CanControl` の段落を、`run.sh` 直起動（3 段目）と判定不能（4 段目）が**同じ 5 操作**（強制停止以外）を塞ぎ理由の文言だけが違う、という記述に書き改め。責務表の `CanControl` の行にも同じ旨を追記 | 4 段目がドレイン停止を通す仕様は、停止（`x`）が塞がれた runner に対し確認ダイアログ無しで同じ `systemctl stop` を発行させていた（ジョブを持たない runner では `Drainer.Drain` が初回走査で即停止へ抜ける）。3 段目が enable の切替を通す仕様は、`run.sh` 直起動の runner に `systemctl enable` を発行させ [FR-09](../requirements/functional.md) に反していた。「ユニット名は `<dir>/.service` から読めるため停止は成立しうる」という 4 段目の理由付けは、同じ理屈が `x` にも当てはまるのに `x` を塞いでいる事実と矛盾するため撤回した（PR #70 のレビュー指摘） |
 | 1.26 | 2026-08-23 | `ui/organism/pane` の行に Logs タブの `Log` を、`ui/organism/dialog` の行に `Confirm` / `DrainWaiter` を併記する形へ統合し、`organism/dialog` を「未実装」と書いていた箇条書きを削除 | Logs / Disk タブとサービス制御が同じ階層へ同時に部品を足したため、両方の記述が揃っていないと`organism/dialog` に何があるのかが本書から辿れなかった（PR #70 のベース追従） |
-| 1.27 | 2026-08-23 | runner の追加・削除・バージョン更新（Issue #8）の実装を反映。`internal/setup` の責務表を実際の API（`Plan` / `Unit` / `Step` / `Apply` / `Progress` / `Result`）へ書き直し、短命トークンを計画に載せない構造と `Token` / `TokenFor` の 2 系統を明記。`setup/valid` / `setup/tarball` / `setup/job` を「分割したパッケージ」として追加し、依存グラフの `Setup --> GH` を `SetupJob --> Setup` / `SetupJob --> GH` に訂正、`GH --> Appconf` を追加。`internal/gh` の責務表に状況の列を足し、`Labels` 系と `TokenScopes` が未実装であることと `HasToken` / `APIError` / `Secrets` / `PickDownload` を追記。`hostcaps` の `HasToken` を新しい署名（1 コマンドあたりの上限を取る）と「nil はトークン無し」の規則へ更新。`cmd/gsr-helper` に `gh.Secrets` / `gh.HasToken` の配線を追記。`internal/ui` の表に `ProgressList` / `Form` / `WrapModal` / `TabSetup` / `SetupRequestMsg` を追加。テストの配置に `setup/valid` / `setup/tarball` / `setup` の行を追加 | `internal/setup` の表は `FetchTarball` のように実在しない API を挙げ、`internal/gh` は実装済みと未実装が混在したまま全件が「有る」ように読めた。**依存グラフの `Setup --> GH` は実装と逆で**、`internal/setup` は `gh` を import しない（外部資源を揃えるのは `setup/job` である）。`hostcaps.Options.HasToken` は既定の実装が消えて必須になっており、nil で渡す呼び出しが「既定の判定に落ちる」と読める記述のままだと、認証済みでも追加・削除がグレーアウトする起動を書いてしまう |
+| 1.27 | 2026-08-23 | runner の追加・削除・バージョン更新（Issue #8）の実装を反映。`internal/setup` の責務表を実際の API（`Plan` / `Unit` / `Step` / `Apply` / `Progress` / `Result`）へ書き直し、短命トークンを計画に載せない構造と `Token` / `TokenFor` の 2 系統を明記。`setup/valid` / `setup/tarball` / `setup/job` を「分割したパッケージ」として追加し、依存グラフの `Setup --> GH` を `SetupJob --> Setup` / `SetupJob --> GH` に訂正、`GH --> Appconf` を追加。UI 層が値の型として `setup.Plan` と `gh.Secrets` を参照するため `UIApp --> Setup` を残し、`Main --> GH` / `UIApp --> GH` を追加。`setup/job` が `setup/tarball` を直に import することを「分割したパッケージ」の依存の向きに追記。`internal/gh` の責務表に状況の列を足し、`Labels` 系と `TokenScopes` が未実装であることと `HasToken` / `APIError` / `Secrets` / `PickDownload` を追記。`hostcaps` の `HasToken` を新しい署名（1 コマンドあたりの上限を取る）と「nil はトークン無し」の規則へ更新。`cmd/gsr-helper` に `gh.Secrets` / `gh.HasToken` の配線を追記。`internal/ui` の表に `ProgressList` / `Form` / `WrapModal` / `TabSetup` / `SetupRequestMsg` を追加。テストの配置に `setup/valid` / `setup/tarball` / `setup` の行を追加 | `internal/setup` の表は `FetchTarball` のように実在しない API を挙げ、`internal/gh` は実装済みと未実装が混在したまま全件が「有る」ように読めた。**依存グラフの `Setup --> GH` は実装と逆で**、`internal/setup` は `gh` を import しない（外部資源を揃えるのは `setup/job` である）。`hostcaps.Options.HasToken` は既定の実装が消えて必須になっており、nil で渡す呼び出しが「既定の判定に落ちる」と読める記述のままだと、認証済みでも追加・削除がグレーアウトする起動を書いてしまう |
