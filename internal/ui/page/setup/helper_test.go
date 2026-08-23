@@ -7,7 +7,6 @@ import (
 
 	"github.com/ousiassllc/gsr-helper/internal/appconfig"
 	"github.com/ousiassllc/gsr-helper/internal/exec"
-	"github.com/ousiassllc/gsr-helper/internal/gh"
 	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
@@ -18,13 +17,23 @@ import (
 func state(t *testing.T, rs ...runner.Runner) page.StateMsg {
 	t.Helper()
 
-	st := pagetest.State(100, 30, rs...)
-	st.Setup = page.SetupDeps{
-		Host:     "build01",
-		Defaults: appconfig.Default().Defaults,
-		Secrets:  gh.NewSecrets(),
-	}
+	st, _ := stateAPI(t, rs...)
 	return st
+}
+
+// stateAPI は共有状態と、そこに載せた外部資源の差し替えを返す。
+//
+// **外部資源は必ず差し替える。** 差し替えないと internal/setup/job が gh.Token へ
+// 落ち、周囲の GH_TOKEN で本物の api.github.com へ短命トークンを発行してしまう
+// （page.SetupDeps.NewClient の doc。t.Parallel を使うので t.Setenv も使えない）。
+// **このパッケージの共有状態は必ずここを通して作ること。**
+func stateAPI(t *testing.T, rs ...runner.Runner) (page.StateMsg, *pagetest.SetupAPI) {
+	t.Helper()
+
+	api := pagetest.NewSetupAPI(t.Cleanup)
+	st := pagetest.State(100, 30, rs...)
+	st.Setup = api.Deps("build01", appconfig.Default().Defaults)
+	return st, api
 }
 
 // newModel は最初の共有状態まで流した Model を返す。

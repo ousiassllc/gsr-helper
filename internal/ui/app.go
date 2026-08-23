@@ -216,6 +216,10 @@ func (a App) state() page.StateMsg {
 			Host:     a.opts.Host,
 			Defaults: a.cfg.Defaults,
 			Secrets:  a.opts.Secrets,
+			// 本番は差し替えない。nil のまま渡すと job が gh.Token から借りた
+			// トークンで本物のクライアントを作る（page.SetupDeps.NewClient）。
+			NewClient: nil,
+			Fetch:     nil,
 		},
 	}
 }

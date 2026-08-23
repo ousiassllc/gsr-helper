@@ -45,7 +45,10 @@ type doneMsg struct {
 // Model の写しを goroutine へ持ち込まないよう、必要な値だけを取り出す。
 func (m Model) deps() job.Deps {
 	return job.Deps{
-		Exec: m.st.Exec, Secrets: m.st.Setup.Secrets, NewClient: nil, Fetch: nil,
+		Exec: m.st.Exec, Secrets: m.st.Setup.Secrets,
+		// 差し替えの口はそのまま渡す。ここで nil に潰すと、テストが挿した
+		// 偽物が効かず本物の GitHub を叩く（page.SetupDeps.NewClient）。
+		NewClient: m.st.Setup.NewClient, Fetch: m.st.Setup.Fetch,
 	}
 }
 
@@ -93,10 +96,11 @@ func (m *Model) startRun(plan setup.Plan, sc scope.Scope) tea.Cmd {
 		doneCh <- doneMsg{seq: seq, result: res, err: err}
 	}()
 
+	kind := plan.Kind.String()
 	m.run = &runState{
 		seq: seq, cancel: cancel, ch: ch,
 		rows: waitingRows(plan), done: 0, total: len(plan.Units),
-		title: runTitle(plan.Kind.String(), 0, len(plan.Units)), kind: plan.Kind.String(),
+		title: runTitle(kind, 0, len(plan.Units)), bare: bareTitle(kind), kind: kind,
 	}
 	m.report = nil
 

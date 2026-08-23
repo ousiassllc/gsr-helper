@@ -18,12 +18,16 @@
 package page
 
 import (
+	"context"
+
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/ousiassllc/gsr-helper/internal/appconfig"
 	"github.com/ousiassllc/gsr-helper/internal/exec"
 	"github.com/ousiassllc/gsr-helper/internal/gh"
 	"github.com/ousiassllc/gsr-helper/internal/runner"
+	"github.com/ousiassllc/gsr-helper/internal/setup/job"
+	"github.com/ousiassllc/gsr-helper/internal/setup/tarball"
 	"github.com/ousiassllc/gsr-helper/internal/ui/atom"
 	"github.com/ousiassllc/gsr-helper/internal/ui/keymap"
 	"github.com/ousiassllc/gsr-helper/internal/ui/token"
@@ -87,6 +91,20 @@ type SetupDeps struct {
 	// ここへ預けた値は exec の値一致マスク（段 2）に載り、監査ログと
 	// エラー文言から平文が消える（docs/architecture/security.md）。
 	Secrets *gh.Secrets
+	// NewClient は API クライアントの生成を差し替える口（job.Deps.NewClient と同じ形）。
+	//
+	// **テストが本物の GitHub へ出ないようにするための継ぎ目である。** 本番は nil を
+	// 渡し、job 側が gh.Token から借りたトークンで api.github.com 向けの
+	// クライアントを作る。nil のままではテストも同じ経路に落ち、周囲の GH_TOKEN を
+	// 拾って短命トークンの発行（remove-token）まで実際に叩いてしまう。t.Parallel を
+	// 使う以上 t.Setenv で環境を消すこともできないので、差し替えの口を共有状態に
+	// 持たせて、テストは httptest のサーバへ向ける。
+	NewClient func(ctx context.Context, d job.Deps) (*gh.Client, error)
+	// Fetch は tarball の取得を差し替える口（job.Deps.Fetch と同じ形）。
+	//
+	// NewClient と同じ理由で置く。本番は nil で tarball.Fetch を使い、テストは
+	// 外向きのダウンロードが起きない実装を挿す。
+	Fetch func(ctx context.Context, in tarball.Info, dir string) (string, error)
 }
 
 // TabMsg は page が発行した Cmd の結果を、発行元のタブへ差し戻すための包み。
