@@ -92,11 +92,12 @@ func extractTo(ctx context.Context, src, destDir string, keep []string, lim limi
 	}
 	defer func() { _ = root.Close() }()
 
-	return extractAll(ctx, tar.NewReader(gz), root, keep, lim)
+	return extractStaged(ctx, tar.NewReader(gz), root, keep, lim)
 }
 
-// extractAll は tar のエントリを順に展開する。
-func extractAll(ctx context.Context, tr *tar.Reader, root *os.Root, keep []string, lim limits) error {
+// extractAll は tar のエントリを順に展開し、あとでパーミッションを戻すディレクトリ
+// の一覧を返す。戻すのは、一時領域から最終位置へ移し終えた呼び出し側の役目（stage.go）。
+func extractAll(ctx context.Context, tr *tar.Reader, root *os.Root, keep []string, lim limits) ([]pendingDir, error) {
 	var (
 		written int64
 		dirs    []pendingDir
@@ -106,27 +107,27 @@ func extractAll(ctx context.Context, tr *tar.Reader, root *os.Root, keep []strin
 	for {
 		// 打ち切りはエントリの境界で見る。書きかけのファイルを残さずに済む。
 		if err := ctx.Err(); err != nil {
-			return err
+			return nil, err
 		}
 
 		hdr, err := tr.Next()
 		if errors.Is(err, io.EOF) {
-			return restoreDirModes(root, dirs)
+			return dirs, nil
 		}
 		if err != nil {
-			return fmt.Errorf("tar の読み取りに失敗しました: %w", err)
+			return nil, fmt.Errorf("tar の読み取りに失敗しました: %w", err)
 		}
 
 		name, err := safeName(hdr.Name)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		// 空はアーカイブの根そのもの。
 		if name == "" {
 			continue
 		}
 		if err := links.checkKeep(hdr, name, keep); err != nil {
-			return err
+			return nil, err
 		}
 		// keep は runner 自身の状態なので触らない。判定は見かけの名前ではなく、
 		// このアーカイブが作ったリンクを辿った先で行う（FR-21）。
@@ -136,7 +137,7 @@ func extractAll(ctx context.Context, tr *tar.Reader, root *os.Root, keep []strin
 
 		n, err := extractEntry(tr, root, hdr, name, min(lim.entry, lim.total-written), &dirs)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		links.remember(hdr, name)
 		written += n
