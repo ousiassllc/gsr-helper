@@ -87,7 +87,7 @@ func TestQuitRunsPageCleanupBeforeQuit(t *testing.T) {
 		t.Fatalf("終了の Cmd の Msg = %s, want tea.sequenceMsg（tea.Sequence で束ねる）", got)
 	}
 
-	steps, ok := asCmds(msg)
+	steps, ok := pagetest.Cmds(msg)
 	if !ok || len(steps) < 2 {
 		t.Fatalf("終了の Cmd = %d 本, want 後始末と終了の 2 本以上", len(steps))
 	}

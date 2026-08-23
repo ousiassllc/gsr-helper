@@ -160,3 +160,81 @@ func TestLogsHelpExcludesTabNextButKeepsOtherGlobals(t *testing.T) {
 		}
 	}
 }
+
+// Doctor タブの ? に space（選択のトグル）と ctrl+a（全選択）を出さない。
+//
+// Doctor の区画は page/doctor/rows.go が Selectable:false を宣言しており、行を選ぶ
+// 状態がそもそも無い。選択に対する一括操作も無いため、この 2 つは押しても何も起きない
+// （screens.md の設計原則 2）。一覧共通の List.Bindings には両方が含まれるため、
+// 外す側を検査で固定する。
+//
+// enter は逆に残さなければならない。Disk タブと違って Doctor タブには詳細画面があり、
+// 「効かないキーを消す」直し方が行きすぎて効くキーまで落ちる形を捕まえる。
+func TestDoctorHelpOmitsKeysWithNoEffect(t *testing.T) {
+	t.Parallel()
+
+	s := New()
+	seenDesc := make(map[string]bool)
+	seenKey := make(map[string]bool)
+	for _, g := range s.DoctorHelp() {
+		for _, b := range g {
+			seenDesc[b.Help().Desc] = true
+			for _, k := range b.Keys() {
+				seenKey[k] = true
+			}
+		}
+	}
+
+	tests := map[string]struct {
+		binding key.Binding
+		want    bool
+		why     string
+	}{
+		"選択のトグル": {
+			binding: s.List.Toggle,
+			want:    false,
+			why:     "Doctor の区画は Selectable:false で行を選べない",
+		},
+		"全選択": {
+			binding: s.List.SelectAll,
+			want:    false,
+			why:     "Doctor に選択への一括操作は無い",
+		},
+		"詳細を開く": {
+			binding: s.List.Enter,
+			want:    true,
+			why:     "Doctor タブには詳細画面がある",
+		},
+		"下へ": {
+			binding: s.List.Down,
+			want:    true,
+			why:     "一覧の移動は Doctor タブでも効く",
+		},
+		"絞り込み": {
+			binding: s.List.Filter,
+			want:    true,
+			why:     "絞り込みは Doctor タブでも効く",
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			// 説明文で見るのは、enter を Accept（絞り込みを確定）と取り違えないため。
+			if got := seenDesc[tt.binding.Help().Desc]; got != tt.want {
+				t.Errorf("Doctor タブの ? に %q が出ている = %v, want %v（%s）",
+					tt.binding.Help().Desc, got, tt.want, tt.why)
+			}
+			if tt.want {
+				return
+			}
+			// 効かないキーは、別の説明文をまとった Binding としても出てはならない。
+			for _, k := range tt.binding.Keys() {
+				if seenKey[k] {
+					t.Errorf("Doctor タブの ? に効かないキー %q が出ている（%s）", k, tt.why)
+				}
+			}
+		})
+	}
+}

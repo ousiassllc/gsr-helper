@@ -46,8 +46,8 @@ func TestTabMsgGoesBackToIssuingTab(t *testing.T) {
 func TestTabMsgForDeadTabIsDropped(t *testing.T) {
 	a, spies := withSpies(newApp(exec.NewFake()))
 
-	// タブ 4（Doctor）はこの版では Model を持たない。
-	if _, cmd := update(a, page.TabMsg{Tab: 4, Msg: domainResult{n: 1}}); cmd != nil {
+	// タブ 5（Config）はこの版では Model を持たない。
+	if _, cmd := update(a, page.TabMsg{Tab: 5, Msg: domainResult{n: 1}}); cmd != nil {
 		t.Errorf("無効タブ宛の結果で Cmd が発行された（%T）", cmd)
 	}
 	for i, s := range spies {

@@ -7,6 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/ousiassllc/gsr-helper/internal/ui/hostreq"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 )
 
@@ -55,6 +56,23 @@ func ChromeOf(cmd tea.Cmd) (page.ChromeMsg, bool) {
 		}
 	}
 	return page.ChromeMsg{}, false
+}
+
+// HostReqOf は Cmd の束に含まれる最初の起動時前提チェックの結果を返す。
+//
+// ChromeOf と同じく 1 段だけ展開して探す。この結果を運ぶのは page.ChromeMsg では
+// なく素の Msg であり（ヘッダと状態行の「ホスト前提 N 件」はタブの状態行とは別の
+// 値である）、親 Model と Doctor タブの両方がこの経路を検証する。
+func HostReqOf(cmd tea.Cmd) (hostreq.Msg, bool) {
+	for _, c := range Expand(cmd) {
+		if c == nil {
+			continue
+		}
+		if msg, ok := c().(hostreq.Msg); ok {
+			return msg, true
+		}
+	}
+	return hostreq.Msg{}, false
 }
 
 // Pump は Cmd を辿って Model を進め、cond が満たされた時点で止める。
@@ -127,4 +145,27 @@ func Drained[T any](ch <-chan T, timeout time.Duration) bool {
 			return false
 		}
 	}
+}
+
+// ChromeMsgs は Cmd の束に含まれる ChromeMsg をすべて返す。
+//
+// 束を 1 段だけ展開して探す（ChromeOf と同じ理由。ChromeMsg は page が自分で
+// 組んで返すもので、入れ子の Cmd の奥から出てくることが無い）。**中の Cmd を
+// 実行してよいのは、この段に並ぶのが ChromeMsg のような即座に返る Cmd に限られる
+// ことが前提である。** 長寿命の購読や外部コマンドを起こす Cmd が同じ段に並ぶ場合は
+// この道具を通さないこと。
+//
+// 親 Model の検証（フッタの表示は page → 親の 1 往復が要る）と page の検証の
+// どちらからも使うため、ui 直下ではなくここに置く。
+func ChromeMsgs(cmd tea.Cmd) []page.ChromeMsg {
+	var out []page.ChromeMsg
+	for _, c := range Expand(cmd) {
+		if c == nil {
+			continue
+		}
+		if msg, ok := c().(page.ChromeMsg); ok {
+			out = append(out, msg)
+		}
+	}
+	return out
 }

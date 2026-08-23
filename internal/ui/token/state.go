@@ -108,6 +108,26 @@ func Icon(t StateToken) string {
 	return icon
 }
 
+// String は状態の表記（OK / WARN / FAIL / SKIP）を返す。未定義の状態は空文字。
+//
+// 表記を token に置くのは、記号（Icon）と色（Role）と同じく「表示の定義」だから
+// である。上位で "OK" のような文字列を書き起こすと、記号と文字の対応が 2 箇所に
+// 分かれ、状態を足したときに片方だけが増える。
+func (t StateToken) String() string {
+	switch t {
+	case StateOK:
+		return "OK"
+	case StateWarn:
+		return "WARN"
+	case StateFail:
+		return "FAIL"
+	case StateSkip:
+		return "SKIP"
+	default:
+		return ""
+	}
+}
+
 // Role は状態に対応する表示上の役割を返す。未定義の状態は装飾しない。
 func (t StateToken) Role() RoleToken {
 	_, role, _ := stateDisplay(t)

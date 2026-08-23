@@ -22,6 +22,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/ui/keymap"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/disk"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/doctor"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/jobs"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/logs"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/runners"
@@ -66,7 +67,7 @@ type spec struct {
 // specs は表示するタブの並びを返す。タブを増やすときに触るのはこの関数だけ。
 //
 // タブ行に 7 枚すべてを出すのは、押しても何も起きないキーを作らないためである
-// （screens.md の共通レイアウトは 7 タブを常に出す）。5〜7 は未実装なので New を
+// （screens.md の共通レイアウトは 7 タブを常に出す）。6 は未実装なので New を
 // 持たず、無効なタブになる。無効なタブはグレーアウトし、番号キーを押したら理由を
 // 状態行に出す。無効なタブへはキーも StateMsg も配らない（ui の live）。
 // 後続 Issue は該当する 1 行に New を足すだけで有効化できる。
@@ -76,7 +77,7 @@ func specs() []spec {
 		{Title: "Jobs", New: func(i int, st page.StateMsg) tea.Model { return jobs.New(i, st) }},
 		{Title: "Disk", New: func(i int, st page.StateMsg) tea.Model { return disk.New(i, st) }},
 		{Title: page.TabLogs, New: func(i int, st page.StateMsg) tea.Model { return logs.New(i, st) }},
-		{Title: "Doctor", New: nil},
+		{Title: page.TabDoctor, New: func(i int, st page.StateMsg) tea.Model { return doctor.New(i, st) }},
 		{Title: "Config", New: nil},
 		{Title: page.TabSetup, New: func(i int, st page.StateMsg) tea.Model { return setup.New(i, st) }},
 	}
@@ -136,4 +137,22 @@ func New(caps appconfig.Caps, ex exec.Executor, keys keymap.Set, s token.Styles,
 		tabs = append(tabs, t)
 	}
 	return tabs
+}
+
+// KeyOf は名前の一致する有効なタブの番号キーを返す。無ければ空文字。
+//
+// 番号は並び順から決まる（New）ので、親 Model が「Doctor タブは 5」と書き写すと
+// 並びを変えたときに案内だけが別のタブを指す。**タブの番号を知っているのは
+// このパッケージだけ**という分担をここで保つ。
+//
+// 用途は起動時の前提チェック（FR-44）が状態行に出す誘導
+// （`⚠ ホスト前提 2 件（5 で詳細）`）である。無効なタブには誘導しない
+// （押しても開けないタブを案内することになる）。
+func KeyOf(tabs []Tab, title string) string {
+	for _, t := range tabs {
+		if t.Title == title && t.Enabled {
+			return t.Key
+		}
+	}
+	return ""
 }

@@ -1,7 +1,10 @@
 package pagetest
 
 import (
+	"context"
+
 	"fmt"
+	"github.com/ousiassllc/gsr-helper/internal/doctor/check"
 	"os"
 	"path/filepath"
 	"time"
@@ -46,4 +49,28 @@ func WriteDiagLog(dir, name, body string, mod time.Time) (string, error) {
 		return "", fmt.Errorf("%s の時刻を設定できない: %w", name, err)
 	}
 	return path, nil
+}
+
+// StubCheck は診断項目の差し替え。実ホストを見ずに固定の判定を返す。
+//
+// 起動時の前提チェック（FR-44）を通る経路を、親 Model からも page からも
+// 実行環境の構成に依存せずに検証するための道具である。本物の項目は sudo /
+// docker / /etc/group を読むため、そのままでは CI と手元で結果が変わる。
+type StubCheck struct {
+	// Status は返す判定。
+	Status check.Status
+}
+
+// ID は固定の識別子を返す。
+func (StubCheck) ID() string { return "job.stub" }
+
+// Category はジョブ実行の前提を返す（起動時の対象はこの分類に限る）。
+func (StubCheck) Category() string { return check.CatJobReq }
+
+// Startup は真を返す。起動時に走る項目を模すための道具だからである。
+func (StubCheck) Startup() bool { return true }
+
+// Run は固定の判定を 1 件返す。
+func (s StubCheck) Run(context.Context, check.Input) []check.Result {
+	return []check.Result{{ID: s.ID(), Category: s.Category(), Status: s.Status, Startup: true}}
 }
