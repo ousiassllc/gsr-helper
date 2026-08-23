@@ -47,6 +47,10 @@ func allBindings(s Set) []named {
 		{"Runner.Update", s.Runner.Update},
 		{"Runner.Edit", s.Runner.Edit},
 		{"Runner.Logs", s.Runner.Logs},
+		{"Disk.Clean", s.Disk.Clean},
+		{"Log.Pane", s.Log.Pane},
+		{"Log.Follow", s.Log.Follow},
+		{"Log.Journal", s.Log.Journal},
 		{"Confirm.Yes", s.Confirm.Yes},
 		{"Confirm.No", s.Confirm.No},
 	}
@@ -71,12 +75,18 @@ func TestEveryBindingHasKeysAndHelp(t *testing.T) {
 }
 
 // 定義の総数を固定し、Binding を追加したときにテストから漏れることを防ぐ。
+//
+// 期待値は Set のフィールドを reflect でたどって数える。キー集合の型を書き並べると、
+// Set に新しい集合（タブ固有のキー）を足したときに期待値だけが古いまま緑になり、
+// 追加したキーが 1 つも検証されない（Issue #9 で Log を足すまで、この形だった）。
 func TestAllBindingsCoversEveryField(t *testing.T) {
 	s := New()
-	want := reflect.TypeOf(s.Global).NumField() +
-		reflect.TypeOf(s.List).NumField() +
-		reflect.TypeOf(s.Runner).NumField() +
-		reflect.TypeOf(s.Confirm).NumField()
+
+	st := reflect.ValueOf(s)
+	want := 0
+	for i := range st.NumField() {
+		want += st.Field(i).NumField()
+	}
 	if got := len(allBindings(s)); got != want {
 		t.Fatalf("検証対象の件数 = %d, want %d（Binding を追加したらテストも追う）", got, want)
 	}
@@ -116,8 +126,12 @@ func TestKeyAssignmentsMatchSpec(t *testing.T) {
 		"Runner.Update":    {"u"},
 		"Runner.Edit":      {"e"},
 		"Runner.Logs":      {"l"},
+		"Disk.Clean":       {"c"},
+		"Log.Pane":         {"tab"},
+		"Log.Follow":       {"f"},
+		"Log.Journal":      {"J"},
 		"Confirm.Yes":      {"y"},
-		"Confirm.No":       {"n", "enter", "esc"},
+		"Confirm.No":       {"n"},
 	}
 	for _, b := range allBindings(New()) {
 		if !reflect.DeepEqual(b.binding.Keys(), want[b.name]) {
@@ -216,10 +230,10 @@ func TestConstructorsReturnFreshValues(t *testing.T) {
 		t.Error("NewRunnerKeys の返り値への変更が次の呼び出しに影響している")
 	}
 
-	c := NewConfirm()
-	c.Yes.SetEnabled(false)
-	if !NewConfirm().Yes.Enabled() {
-		t.Error("NewConfirm の返り値への変更が次の呼び出しに影響している")
+	lk := NewLogKeys()
+	lk.Follow.SetEnabled(false)
+	if !NewLogKeys().Follow.Enabled() {
+		t.Error("NewLogKeys の返り値への変更が次の呼び出しに影響している")
 	}
 
 	s := New()

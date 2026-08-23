@@ -102,3 +102,37 @@ func assertNoDuplicateKeys(t *testing.T, context string, bindings []key.Binding)
 		}
 	}
 }
+
+// Logs タブでは tab がペインの切り替えであり、次のタブへは移らない。
+//
+// screens.md が Logs タブの tab をペイン切替に割り当てているため、この画面だけ
+// Global.TabNext が働かない。**同時に有効なキーの集合にこの 2 つを両方入れると
+// 重複検査が落ちる**ので、どちらを取ったのかがコンテキストの定義から読めなければ
+// ならない。読めない形（両方入れて検査を緩める、tab を別キーにする）へ戻ることを
+// このテストが防ぐ。
+func TestLogsContextUsesTabForPaneNotTabNext(t *testing.T) {
+	s := New()
+
+	var logs *Context
+	for i, c := range s.Contexts() {
+		if c.Name == "Logs タブ（通常モード）" {
+			logs = &s.Contexts()[i]
+		}
+	}
+	if logs == nil {
+		t.Fatal("Logs タブのコンテキストが登録されていない")
+	}
+
+	desc := make(map[string]string)
+	for _, b := range logs.Keys {
+		for _, k := range b.Keys() {
+			desc[k] = b.Help().Desc
+		}
+	}
+	if got := desc["tab"]; got != s.Log.Pane.Help().Desc {
+		t.Errorf("Logs タブの tab = %q, want %q", got, s.Log.Pane.Help().Desc)
+	}
+	if desc["l"] != "" {
+		t.Errorf("runner の操作キー l が Logs タブで有効になっている（%q）", desc["l"])
+	}
+}

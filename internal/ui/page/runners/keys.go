@@ -27,6 +27,11 @@ func (m Model) handleKey(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		cmd = m.overlay.OpenHelp()
 	case key.Matches(press, m.st.Keys.List.Enter):
 		cmd = m.openDetail()
+	case key.Matches(press, m.st.Keys.Runner.Logs):
+		// ログは他のタブへ移る操作で、確認も実行も伴わない。サービス制御
+		// （ops.HandleKey）より前に置くのは、ListOps がログを含まないためここで
+		// 拾わないと既定の分岐へ落ちて親へ差し戻されるからである。
+		cmd = m.openLogs()
 	case key.Matches(press, m.st.Keys.Global.Back):
 		m.back()
 	default:

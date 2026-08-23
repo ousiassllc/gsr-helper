@@ -59,7 +59,7 @@ func TestConfirmCancelChromeClosesModalImmediately(t *testing.T) {
 		t.Fatal("確認ダイアログが開いていない（前提が崩れている）")
 	}
 
-	_, cmd := m.Update(page.ResultMsg{Kind: runnerop.ConfirmKind, Msg: dialog.ConfirmedMsg{OK: false}})
+	_, cmd := m.Update(page.ResultMsg{Kind: runnerop.ConfirmKind, Msg: dialog.DecidedMsg{Confirmed: false}})
 	if chrome(t, cmd).Modal {
 		t.Error("キャンセルを処理した Update の ChromeMsg が Modal=true のまま")
 	}

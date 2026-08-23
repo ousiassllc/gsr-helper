@@ -1,3 +1,14 @@
+// Package dialog は承認・待機・入力のダイアログを提供する。
+//
+// organism の部品を性質で分けた 1 つで、破壊的操作の確認（Confirm）・差分の承認
+// （DiffApproval）・ドレイン待機（DrainWaiter）・フォーム（Form）を置く。分けたのは
+// 1 ディレクトリ 2000 行の上限を分散するためであり、部品同士の依存を増やすためでは
+// ない。**organism / organism/table / organism/pane / organism/dialog は、どの向きにも
+// import しない。** 必要なものを選んで組み合わせるのは page の役割である。
+//
+// import するのは atom / molecule / token / keymap と bubbles / bubbletea / lipgloss に
+// 限り、page とドメイン層は import しない。型名に階層名を重ねない規約に従い、型は
+// Confirm と呼ぶ（ConfirmDialog とはしない）。
 package dialog
 
 import (
@@ -5,60 +16,60 @@ import (
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 
 	"github.com/ousiassllc/gsr-helper/internal/ui/atom"
 	"github.com/ousiassllc/gsr-helper/internal/ui/keymap"
+	"github.com/ousiassllc/gsr-helper/internal/ui/molecule"
 	"github.com/ousiassllc/gsr-helper/internal/ui/token"
 )
 
 const (
-	// headingTargets は対象の一覧に付ける見出し。
-	headingTargets = "対象:"
-	// headingCommand は実行するコマンドに付ける見出し。
-	headingCommand = "実行するコマンド:"
-	// itemIndent は見出しの下に並べる項目の字下げ。
-	itemIndent = "  "
-	// promptLine は最終行の問い。**既定がキャンセルであることを N の大文字で示す。**
-	promptLine = "実行しますか? [y/N]"
+	// labelTargets は対象の一覧に付ける見出し。
+	//
+	// 「削除対象」と書かないのは、このダイアログを停止・強制停止・削除・更新・
+	// クリーンアップ・設定の書き込みで共有するためである（atomic-design.md の
+	// 「Confirm を 1 つに統一する」）。操作ごとの言い換えは Title と Note が持つ。
+	labelTargets = "対象:"
+	// labelCommand は実行するコマンドに付ける見出し（screens.md の確認ダイアログ）。
+	labelCommand = "実行するコマンド:"
+	// promptText は末尾の問い。既定がキャンセルであることは [y/N] の大文字が示す。
+	promptText = "実行しますか?"
+	// indent は見出しにぶら下がる行の字下げ。
+	indent = "  "
 )
 
-// ConfirmInput は確認ダイアログの中身。
+// ConfirmInput は確認ダイアログに出す内容。
 //
 // screens.md に現れる確認（停止 / 強制停止 / 削除 / バージョン更新 / クリーンアップ /
-// 追加のプレビュー / 設定の書き込み）はすべてこの 4 ブロックで表せる。ブロックを
-// 増やしたくなったら、まず既存のどれかに収まらないかを疑うこと。確認の構造が
-// 操作ごとに分かれると、確認を経ない経路が紛れ込んでも気付けなくなる（FR-30）。
-//
-// **空のブロックは見出しごと落ちる。** 中身の無い「対象:」だけの行を出すと、
-// 対象を渡し忘れたのか、そもそも対象を持たない確認なのかを読み分けられない。
+// 追加のプレビュー / 設定の書き込み）は、すべて「対象・影響・実行するコマンド・y/N」
+// という同じ構造を持つ。**個別のダイアログを増やさずこの 1 つに集める**ことで、
+// 「確認を経ない破壊的操作の経路を設けない」（FR-30）を構造として守る。
 type ConfirmInput struct {
-	Title   string   // 「停止の確認」
+	Title   string   // 見出し（「クリーンアップの確認」）
 	Targets []string // 対象の一覧
-	Impact  []string // 影響・警告（危険色で描く）
+	Impact  []string // 影響・警告。危険色で描く
 	Command []string // 実行するコマンド全文（マスク済み）
-	Note    []string // 補足（「復元できません」など）
+	Note    []string // 補足（「削除したファイルは復元できません」など）
 }
 
-// ConfirmedMsg は確認の決定を page へ通知する。OK が偽ならキャンセルである。
+// DecidedMsg は確認の結果を page へ通知する。
 //
-// **キャンセルも必ず発行する。** ダイアログ自身は閉じず、閉じる判断は page が
-// 行う（page/overlay.go のモーダルの重なり）。決定を握り潰して黙って閉じると、
-// 「実行しない」と決めたことが page に届かず、開いた側が後始末（対象の選択解除・
-// 状態行の表示戻し）を行う機会を失う。
-//
-// organism.ChosenMsg に倣って決定は Msg で返し、ダイアログはドメイン層を呼ばない。
-// 実行するコマンドを持っていても、実行するのは page の役割である。
-type ConfirmedMsg struct {
-	OK bool
+// 実行と取消を別の Msg にしないのは、受け取る側が「どちらも来る」ことを型で
+// 意識できるようにするためである。取消の Msg を作らないと、page がダイアログを
+// 閉じる処理を esc の配送に頼ることになり、n と esc で経路が分かれる。
+type DecidedMsg struct {
+	Confirmed bool
 }
 
-// Confirm は破壊的操作の確認ダイアログ。ローカル状態を持たない（既定はキャンセル）。
+// Confirm は破壊的操作の共通の確認ダイアログ。
 //
-// 見出し（Title）はモーダルの枠が描くため、View が返すのは中身だけである。
+// ローカル状態は表示する内容・大きさ・配色だけで、カーソルも既定ボタンの強調も
+// 持たない。**既定は常にキャンセルであり、状態として保持しない。** 「どちらが
+// 選ばれているか」を持つと、開き直したときに前回の選択が残る経路ができる
+// （設計原則 5「破壊的操作は影響を表示して y/N（既定 N）」）。
 type Confirm struct {
 	in     ConfirmInput
-	keys   keymap.Confirm
+	keys   keymap.Set
 	styles token.Styles
 	width  int
 	height int
@@ -66,48 +77,42 @@ type Confirm struct {
 
 // NewConfirm は確認ダイアログを組み立てる。
 //
-// キー定義は受け取るだけで組み立てない。y / n / enter / esc の割り当てとその理由は
-// keymap.NewConfirm が持つ（キーの定義は ui/keymap に集約する）。
-func NewConfirm(keys keymap.Confirm, s token.Styles) Confirm {
-	return Confirm{
-		in:     ConfirmInput{Title: "", Targets: nil, Impact: nil, Command: nil, Note: nil},
-		keys:   keys,
-		styles: s,
-		width:  0,
-		height: 0,
-	}
+// keymap.Set をまるごと受け取るのは、キャンセルが Confirm.No だけでなく
+// Global.Back（esc）と List.Accept（enter）でも起きるためである。3 つのキーを
+// 別々に渡すと、呼び出し側が組み合わせを間違えても気付けない。
+func NewConfirm(keys keymap.Set, s token.Styles) Confirm {
+	return Confirm{in: ConfirmInput{}, keys: keys, styles: s, width: 0, height: 0}
 }
 
-// SetInput は確認の中身を差し替える。
+// SetInput は表示する内容を差し替える。
 func (c *Confirm) SetInput(in ConfirmInput) {
 	c.in = in
 }
 
-// Restyle は配色とキー定義を差し替える。中身は保つ。
+// Restyle は配色とキー定義を差し替える。内容と大きさは保つ。
 //
-// 作り直さずに差し替えるのは、共有状態が 3 秒ごとに配られるためである
-// （organism.ChoiceList.Restyle と同じ理由）。確認の最中に作り直すと、
-// 3 秒ごとに中身が空へ戻る。
-func (c *Confirm) Restyle(keys keymap.Confirm, s token.Styles) {
+// 作り直さずに差し替えるのは、背景の明暗が起動後に届き（tea.BackgroundColorMsg）、
+// 共有状態が 3 秒ごとに配られるためである。作り直すと確認の途中で内容が消える。
+func (c *Confirm) Restyle(keys keymap.Set, s token.Styles) {
 	c.keys, c.styles = keys, s
 }
 
-// SetSize はダイアログの中身に配られた領域を設定する。
-//
-// 高さも受け取るのは、収まらないときに落とす行をこちらで選ぶためである
-// （fitHeight。枠に任せると y/N の行から先に消える）。
+// SetSize はダイアログに割り当てられた領域を設定する。
 func (c *Confirm) SetSize(w, h int) {
 	c.width, c.height = w, h
 }
 
-// Title は見出しを返す。枠（template.Modal）に渡すために公開する。
+// Title は見出しを返す。枠（template.Modal）が描くため View には含めない。
 func (c Confirm) Title() string { return c.in.Title }
 
-// Update は確認のキーを処理する。
+// Update は y / n / esc / enter を処理する。
 //
-// esc をここで解釈するため、page はこのダイアログの Modal.HandlesBack に真を
-// 返させること。返さないと esc は Overlay がモーダルを 1 枚閉じる操作として消費し、
-// ConfirmedMsg{OK: false} が page へ届かない（page/modal.go の HandlesBack）。
+// **enter はキャンセルである**（設計原則 5「Enter の連打では進まない」）。一覧や
+// 詳細画面から続けて enter を打っている流れのまま破壊的操作へ到達しないよう、
+// 実行に割り当てるのは y だけにする。
+//
+// 上記以外のキーでは何も発行しない。ダイアログを開いている間は背後へキーが
+// 流れない（page/overlay.go）ため、ここで握り潰しても操作が失われることはない。
 func (c Confirm) Update(msg tea.Msg) (Confirm, tea.Cmd) {
 	press, ok := msg.(tea.KeyPressMsg)
 	if !ok {
@@ -115,106 +120,127 @@ func (c Confirm) Update(msg tea.Msg) (Confirm, tea.Cmd) {
 	}
 
 	switch {
-	case key.Matches(press, c.keys.Yes):
-		return c, confirmed(true)
-	case key.Matches(press, c.keys.No):
-		return c, confirmed(false)
-	}
-	return c, nil
-}
-
-// View は確認の中身を返す。空のブロックは見出しごと落とし、最後に y/N の行を置く。
-func (c Confirm) View() string {
-	body := c.blocks()
-	if len(body) > 0 {
-		// 空行は y/N の行と対にせず本文側の末尾に置く。高さが足りないときに
-		// 真っ先に落ちる行がこの空行になり、残す行数（tail）を 1 行に保てる。
-		body = append(body, "")
-	}
-	return strings.Join(fitHeight(body, []string{c.fit(promptLine)}, c.height), "\n")
-}
-
-// Hints はフッタに出すキーヒントを返す。
-//
-// esc と enter は n と同じキャンセルであり、keymap.Confirm.No が 1 つの Binding に
-// まとめて持つ（Help().Key は "n"）。同じ結果になるキーを 3 つ並べるとフッタ 1 行目の
-// 幅 80 に収まらず、他の画面のヒントを押し出す。
-func (c Confirm) Hints() []atom.Hint {
-	return []atom.Hint{
-		hint(c.keys.Yes, "実行"),
-		hint(c.keys.No, "キャンセル"),
+	case key.Matches(press, c.keys.Confirm.Yes):
+		return c, decided(true)
+	case key.Matches(press, c.keys.Confirm.No, c.keys.Global.Back, c.keys.List.Accept):
+		return c, decided(false)
+	default:
+		return c, nil
 	}
 }
 
-// blocks は空でないブロックを空行で区切って並べた行を返す。
-func (c Confirm) blocks() []string {
-	groups := [][]string{
-		c.listBlock(headingTargets, c.in.Targets),
-		c.styledBlock(c.in.Impact, c.styles.Danger),
-		c.listBlock(headingCommand, c.in.Command),
-		c.styledBlock(c.in.Note, c.styles.Muted),
-	}
-
-	out := make([]string, 0, len(c.in.Targets)+len(c.in.Impact)+len(c.in.Command)+len(c.in.Note)+6)
-	for _, g := range groups {
-		if len(g) == 0 {
-			continue
-		}
-		if len(out) > 0 {
-			out = append(out, "")
-		}
-		out = append(out, g...)
-	}
-	return out
-}
-
-// listBlock は見出しと字下げした項目の並びを返す。項目が無ければ見出しごと落とす。
-//
-// 見出しを Header（補足色の太字）で描くのは、対象やコマンドそのものより弱く
-// 見せるためである。読むべきはブロックの中身であり、見出しは区分の手がかりに過ぎない。
-func (c Confirm) listBlock(heading string, items []string) []string {
-	if len(items) == 0 {
-		return nil
-	}
-
-	lines := make([]string, 0, len(items)+1)
-	lines = append(lines, c.styles.Header.Render(c.fit(heading)))
-	for _, item := range items {
-		lines = append(lines, c.fit(itemIndent+item))
-	}
-	return lines
-}
-
-// styledBlock は各行を同じスタイルで描いたブロックを返す。
-func (c Confirm) styledBlock(items []string, style lipgloss.Style) []string {
-	if len(items) == 0 {
-		return nil
-	}
-
-	lines := make([]string, 0, len(items))
-	for _, item := range items {
-		lines = append(lines, style.Render(c.fit(item)))
-	}
-	return lines
-}
-
-// fit は 1 行を幅に収める。装飾する前に呼ぶこと。
-//
-// 装飾済みの文字列を切り詰めると中略記号が装飾の外側に付く（atom.Cell の契約）ため、
-// 素の文字列で中略してから装飾する。**幅を超える行は出さない。** 超えると枠の中で
-// 折り返して行数が増え、モーダルの下辺が領域の外へ押し出される（template.Modal）。
-//
-// 幅が未設定（0 以下）のときは切り詰めない。atom.Truncate に 0 を渡すと空文字が
-// 返り、大きさが配られる前の 1 フレームで中身が丸ごと消える。
-func (c Confirm) fit(line string) string {
-	if c.width <= 0 {
-		return line
-	}
-	return atom.Truncate(line, c.width)
-}
-
-// confirmed は決定を通知する Cmd を返す。
-func confirmed(ok bool) tea.Cmd {
-	msg := ConfirmedMsg{OK: ok}
+// decided は決定を通知する Cmd を返す。
+func decided(confirmed bool) tea.Cmd {
+	msg := DecidedMsg{Confirmed: confirmed}
 	return func() tea.Msg { return msg }
+}
+
+// View は対象・影響・コマンド・補足・問いを縦に並べて返す。
+//
+// 並びは screens.md の確認ダイアログのとおりで、影響を対象の直後に置く。何が
+// 起きるのかを読む前にコマンドの詳細が挟まると、判断に必要な情報が下へ流れる。
+func (c Confirm) View() string {
+	lines := make([]string, 0, len(c.in.Targets)+len(c.in.Impact)+len(c.in.Command)+len(c.in.Note)+8)
+
+	lines = c.appendSection(lines, labelTargets, c.in.Targets, token.RolePlain)
+	lines = c.appendSection(lines, "", c.in.Impact, token.RoleDanger)
+	if block := molecule.CommandBlock(c.in.Command, c.width, c.styles); block != "" {
+		lines = append(lines, blankBefore(lines)...)
+		lines = append(lines, c.fit(labelCommand))
+		lines = append(lines, strings.Split(block, "\n")...)
+	}
+	lines = c.appendSection(lines, "", c.in.Note, token.RolePlain)
+
+	lines = append(lines, blankBefore(lines)...)
+	lines = append(lines, c.fit(c.prompt()))
+
+	return strings.Join(c.clip(lines), "\n")
+}
+
+// appendSection は見出しと本文を積む。本文が無ければ何も積まない。
+//
+// 見出しが空の区画（影響・補足）は字下げせず左端から描く。対象とコマンドだけを
+// 字下げするのは、この 2 つが見出しにぶら下がる一覧だからである。
+func (c Confirm) appendSection(lines []string, label string, body []string, role token.RoleToken) []string {
+	if len(body) == 0 {
+		return lines
+	}
+
+	lines = append(lines, blankBefore(lines)...)
+	prefix := ""
+	if label != "" {
+		lines = append(lines, c.fit(label))
+		prefix = indent
+	}
+	for _, b := range body {
+		// 幅に収めてから装飾する。装飾済みの文字列を切り詰めると ANSI 列が壊れる
+		// （atom.Truncate の契約）。
+		lines = append(lines, c.styles.Style(role).Render(c.fit(prefix+b)))
+	}
+	return lines
+}
+
+// blankBefore は区画の前に入れる空行を返す。先頭の区画には入れない。
+func blankBefore(lines []string) []string {
+	if len(lines) == 0 {
+		return nil
+	}
+	return []string{""}
+}
+
+// prompt は末尾の問いを返す。キーの表記は keymap の定義から引く。
+//
+// キャンセル側を大文字で書くのは、既定がキャンセルであることを色に頼らず示すため
+// である（設計原則 4 / 5）。文字を書き換えるだけなので、押すキーは小文字のままである。
+func (c Confirm) prompt() string {
+	yes := bindingKey(c.keys.Confirm.Yes)
+	no := strings.ToUpper(bindingKey(c.keys.Confirm.No))
+	return promptText + " [" + yes + "/" + no + "]"
+}
+
+// fit は 1 行を幅に収める。幅が未設定（0 以下）なら何もしない。
+func (c Confirm) fit(s string) string {
+	if c.width <= 0 {
+		return s
+	}
+	return atom.Truncate(s, c.width)
+}
+
+// clip は高さに収まらない行を落とし、続きがあることを中略記号で示す。
+//
+// ダイアログはスクロールしない。黙って枠に切り落とさせると、実行するコマンドが
+// 画面外にあることに気付けないまま y を押す状況を作る。
+func (c Confirm) clip(lines []string) []string {
+	if c.height <= 0 || len(lines) <= c.height {
+		return lines
+	}
+
+	kept := make([]string, 0, c.height)
+	kept = append(kept, lines[:c.height-1]...)
+	return append(kept, c.styles.Muted.Render(token.IconEllipsis))
+}
+
+// Hints はフッタに出すキーヒントを返す（screens.md の確認ダイアログ）。
+//
+// 説明文は keymap の定義から引く。ここで書き直すと、キーを差し替えたときに
+// フッタだけが古い表記のまま残る。esc / enter も同じキャンセルだが、フッタには
+// 出さない。**キャンセルの入口が 3 つ並ぶより、実行が y だけであることが読み取れる
+// 方が重要**だからである（幅を使い切らない。設計原則 1）。
+func (c Confirm) Hints() []atom.Hint {
+	yes, no := c.keys.Confirm.Yes, c.keys.Confirm.No
+	return []atom.Hint{
+		{Key: bindingKey(yes), Desc: yes.Help().Desc, Enabled: true, Reason: ""},
+		{Key: bindingKey(no), Desc: no.Help().Desc, Enabled: true, Reason: ""},
+	}
+}
+
+// bindingKey は Binding が受け付ける実際のキー文字列を返す。
+//
+// page.BindingKey と同じ内容だが、organism は page を import しないため
+// ここに置く（依存の向きを保つための小さな重複である）。
+func bindingKey(b key.Binding) string {
+	if ks := b.Keys(); len(ks) > 0 {
+		return ks[0]
+	}
+	return b.Help().Key
 }

@@ -1,7 +1,6 @@
 package action
 
 import (
-	"slices"
 	"testing"
 
 	"charm.land/bubbles/v2/key"
@@ -32,7 +31,10 @@ func testActions() Set { return NewSet(testKeys().Runner) }
 // 実装済みの印が丸ごと消えても両辺が一致して落ちない。実装済みなのは internal/svc が
 // 担うサービス制御の 6 つで、追加・削除・更新・設定編集・ログは後続の Issue が担う。
 func supported() map[ID]bool {
-	return map[ID]bool{Start: true, Stop: true, Kill: true, Drain: true, Restart: true, Enable: true}
+	return map[ID]bool{
+		Start: true, Stop: true, Kill: true, Drain: true, Restart: true, Enable: true,
+		Logs: true,
+	}
 }
 
 // 操作の一覧はキー・説明・識別子のすべてを keymap から受け取る。
@@ -41,7 +43,9 @@ func supported() map[ID]bool {
 // 仕様に固定している。ここでは page がそれに従うことと、識別子がキー定義から引かれて
 // いること（キーを差し替えても操作の同一性が保たれること）を見る。
 //
-// 実装状況（Supported）はサービス制御だけが真である。
+// Supported が真なのは実装済みの操作（サービス制御の 6 つとログを開く操作）だけで
+// ある。未実装の操作に真を付けると「押せるが何も起きない」経路ができるため、
+// 実装済みの集合を supported() に固定する。
 func TestActionsFollowKeymap(t *testing.T) {
 	keys := testKeys().Runner
 	ids := testActions().byKey
@@ -190,7 +194,10 @@ func TestAllowPermitsAndAllowedAgrees(t *testing.T) {
 		"s": svc.ReasonRoot, "x": svc.ReasonRoot, "X": svc.ReasonRoot, "R": svc.ReasonRoot,
 		"u": svc.ReasonRoot, "n": svc.ReasonRoot, "D": svc.ReasonRoot,
 		"d": "", "E": "",
-		"e": page.ReasonUnsupported, "l": page.ReasonUnsupported,
+		"e": page.ReasonUnsupported,
+		// l（ログを開く）は実装済みで、管理経路にも権限にも依存しない
+		// （screens.md の「無効な操作の表示」）。非 root でも塞がらない。
+		"l": "",
 	}
 
 	// キー定義が持つ操作を 1 つ足したら、ここも足さないと落ちる（Detail は n を
@@ -209,47 +216,6 @@ func TestAllowPermitsAndAllowedAgrees(t *testing.T) {
 		if wantOK := wantReason == ""; ok != wantOK || reason != wantReason {
 			t.Errorf("Allowed(%q) = %v/%q, want %v/%q", k, ok, reason, wantOK, wantReason)
 		}
-	}
-}
-
-// 操作リストは区切り線を 1 本だけ持ち、最初の破壊的な操作の前に置く。
-func TestChoicesDivider(t *testing.T) {
-	items := testActions().Choices(sampleRunner(), fullCaps())
-	acts := testActions().List()
-	if len(items) != len(acts) {
-		t.Fatalf("項目の件数 = %d, want %d", len(items), len(acts))
-	}
-
-	dividers := 0
-	for i, c := range items {
-		if !c.DividerBefore {
-			continue
-		}
-		dividers++
-		if !acts[i].Destructive {
-			t.Errorf("区切り線が破壊的でない操作 %q の前にある", c.Key)
-		}
-		if i > 0 && acts[i-1].Destructive {
-			t.Errorf("区切り線が最初の破壊的な操作より後（%q の前）にある", c.Key)
-		}
-	}
-	if dividers != 1 {
-		t.Errorf("区切り線の本数 = %d, want 1", dividers)
-	}
-}
-
-// 影響の併記は確認ダイアログを経る 3 操作（停止・強制停止・再起動）と削除が持つ
-// （screens.md の詳細画面のモックの括弧内）。
-func TestChoicesImpact(t *testing.T) {
-	withImpact := []string{}
-	for _, c := range testActions().Choices(sampleRunner(), fullCaps()) {
-		if c.Impact != "" {
-			withImpact = append(withImpact, c.Key)
-		}
-	}
-	slices.Sort(withImpact)
-	if want := []string{"D", "R", "X", "x"}; !slices.Equal(withImpact, want) {
-		t.Errorf("影響を併記する操作 = %v, want %v", withImpact, want)
 	}
 }
 

@@ -108,11 +108,11 @@ var _ tea.Model = confirmModal{}
 // NewConfirmModal は確認ダイアログのモーダルを組み立てる。
 func NewConfirmModal(st page.StateMsg) page.Modal {
 	return page.Modal{
-		Model: confirmModal{tab: 0, dlg: dialog.NewConfirm(st.Keys.Confirm, st.Styles)},
+		Model: confirmModal{tab: 0, dlg: dialog.NewConfirm(st.Keys, st.Styles)},
 		Title: confirmTitle,
 		Hints: confirmHints,
 		// **esc はダイアログ自身がキャンセルとして解釈する。** 真を返さないと
-		// Overlay が esc を「1 枚閉じる」で消費し、dialog.ConfirmedMsg{OK: false} が
+		// Overlay が esc を「1 枚閉じる」で消費し、dialog.DecidedMsg{Confirmed: false} が
 		// page へ届かない。届かないと保留した操作（pending）が残り続け、次に
 		// 別の操作を確認したときに古い対象へ実行しうる（dialog.Confirm.Update の doc）。
 		HandlesBack: func(tea.Model) bool { return true },
@@ -128,7 +128,7 @@ func (m confirmModal) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case page.AttachMsg:
 		m.tab = msg.Tab
 		return m, nil
-	case dialog.ConfirmedMsg:
+	case dialog.DecidedMsg:
 		// 決定を page へ差し戻す。page.Do で包むことでタブを切り替えても発行元へ
 		// 戻り、page.ResultMsg で包むことで Overlay が自分自身へ配り直さない。
 		res := page.ResultMsg{Kind: ConfirmKind, Msg: msg}
@@ -137,7 +137,7 @@ func (m confirmModal) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.dlg.SetInput(msg)
 		return m, nil
 	case page.StateMsg:
-		m.dlg.Restyle(msg.Keys.Confirm, msg.Styles)
+		m.dlg.Restyle(msg.Keys, msg.Styles)
 		return m, nil
 	case page.SizeMsg:
 		m.dlg.SetSize(msg.W, msg.H)

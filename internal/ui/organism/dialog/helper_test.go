@@ -10,20 +10,15 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/ui/token"
 )
 
-// press と testStyles は organism のテストヘルパの写しである。テスト用のヘルパを共有する
-// ためだけに本番のパッケージを増やしたくないので、必要な 2 つに限って複製する
-// （organism/pane のヘルパと同じ判断）。
-
 // press はキー入力の Msg を作る。文字キーは Text、特殊キーは Code で表す
 // （bubbletea v2 の Key.String は Text があればそれを、無ければ keystroke を返す）。
 //
-// 矢印やページキーも Code で表すのは、実端末が送るキー（Text は空）と同じ形にするため
-// である。Text に "down" を入れると、入力モードでは文字入力になって検証にならない。
+// organism / organism/pane の helper_test.go と同じ実装である。テストヘルパーは
+// パッケージをまたいで共有できないため、各パッケージに置く。
 func press(k string) tea.KeyPressMsg {
 	special := map[string]rune{
 		"space": tea.KeySpace, "enter": tea.KeyEnter, "esc": tea.KeyEscape, "tab": tea.KeyTab,
 		"up": tea.KeyUp, "down": tea.KeyDown, "left": tea.KeyLeft, "right": tea.KeyRight,
-		"pgup": tea.KeyPgUp, "pgdown": tea.KeyPgDown, "home": tea.KeyHome, "end": tea.KeyEnd,
 	}
 	if code, ok := special[k]; ok {
 		return tea.KeyPressMsg{Code: code}

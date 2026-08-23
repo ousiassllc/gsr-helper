@@ -45,8 +45,8 @@ func TestTabMsgGoesBackToIssuingTab(t *testing.T) {
 func TestTabMsgForDeadTabIsDropped(t *testing.T) {
 	a, spies := withSpies(newApp(exec.NewFake()))
 
-	// タブ 2（Disk）はこの版では Model を持たない。
-	if _, cmd := update(a, page.TabMsg{Tab: 2, Msg: domainResult{n: 1}}); cmd != nil {
+	// タブ 4（Doctor）はこの版では Model を持たない。
+	if _, cmd := update(a, page.TabMsg{Tab: 4, Msg: domainResult{n: 1}}); cmd != nil {
 		t.Errorf("無効タブ宛の結果で Cmd が発行された（%T）", cmd)
 	}
 	for i, s := range spies {
@@ -90,5 +90,64 @@ func TestStateCarriesExecutorToEveryTab(t *testing.T) {
 		if got := s.States()[len(s.States())-1].Exec; got != fake {
 			t.Errorf("タブ %d が受け取った Executor = %v, want 起動時のもの", i, got)
 		}
+	}
+}
+
+// タブをまたぐ移動は親が担う。移動先へ移り、用件をそのタブへ配る（page.OpenTabMsg）。
+//
+// タブ同士は互いを import しないため、移動元は移動先の番号も型も持てない。
+// 名前とタブ番号の対応を知っているのは親だけである。
+func TestOpenTabMovesAndDelivers(t *testing.T) {
+	a, spies := withSpies(newApp(exec.NewFake()))
+	spy := spyOfTitle(t, a, spies, page.TabLogs)
+
+	a, _ = update(a, page.OpenTabMsg{Title: page.TabLogs, Msg: page.ShowLogMsg{}})
+
+	if a.tabs[a.active].Title != page.TabLogs {
+		t.Errorf("移動後のタブ = %q, want %q", a.tabs[a.active].Title, page.TabLogs)
+	}
+	if pagetest.Delivered[page.ShowLogMsg](spy) != 1 {
+		t.Error("移動先へ用件が配られていない")
+	}
+}
+
+// spyOfTitle は名前で spy を引く。spies の並びは有効なタブの順であり、タブの
+// 添字とは一致しない（未実装のタブは差し替えないため）。
+func spyOfTitle(t *testing.T, a App, spies []*pagetest.Spy, title string) *pagetest.Spy {
+	t.Helper()
+
+	for _, s := range spies {
+		if a.tabs[s.Tab].Title == title {
+			return s
+		}
+	}
+	t.Fatalf("タブ %q の spy が無い（前提が崩れている）", title)
+	return nil
+}
+
+// 既に前面に居るタブへの要求でも用件は配る（同じタブで l を押した場合）。
+func TestOpenTabDeliversToActiveTab(t *testing.T) {
+	a, spies := withSpies(newApp(exec.NewFake()))
+	title := a.tabs[a.active].Title
+	spy := spyOfTitle(t, a, spies, title)
+
+	a, _ = update(a, page.OpenTabMsg{Title: title, Msg: page.ShowLogMsg{}})
+
+	if pagetest.Delivered[page.ShowLogMsg](spy) != 1 {
+		t.Error("前面に居るタブへ用件が配られていない")
+	}
+}
+
+// 名前が一致するタブが無い要求では何も起きない（タブは動かない）。
+func TestOpenTabIgnoresUnknownTitle(t *testing.T) {
+	a, _ := withSpies(newApp(exec.NewFake()))
+	before := a.active
+
+	a, cmd := update(a, page.OpenTabMsg{Title: "存在しないタブ", Msg: nil})
+	if a.active != before {
+		t.Errorf("知らない名前でタブが移った（%d → %d）", before, a.active)
+	}
+	if cmd != nil {
+		t.Error("知らない名前で Cmd を発行している")
 	}
 }

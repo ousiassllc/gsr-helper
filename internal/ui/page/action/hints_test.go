@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/ousiassllc/gsr-helper/internal/ui/atom"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 )
 
 // フッタのキーヒント（Set.Hints）の検証を集める。可否の判定そのものは allow_test.go。
@@ -46,15 +47,21 @@ func TestHintsCarryReasons(t *testing.T) {
 	// screens.md のフッタが定める件数をリテラルで置く（TestHintsMatchSpecFooter と同じ）。
 	const want = 9
 
-	// フッタの 9 キーのうち実装済みは開始・停止・強制停止・ドレイン停止の 4 つ。
-	// 削除・追加・更新・設定・ログはこの版では未対応である。
-	enabled := map[string]bool{"s": true, "x": true, "X": true, "d": true}
+	// フッタの 9 キーのうち実装済みは、サービス制御の開始・停止・強制停止・
+	// ドレイン停止の 4 つと、Logs タブが実装したログを開く操作である。
+	// 削除・追加・更新・設定はこの版では未対応である。
+	enabled := map[string]bool{
+		"s": true, "x": true, "X": true, "d": true,
+		page.BindingKey(testKeys().Runner.Logs): true,
+	}
 
 	hints := testActions().Hints(sampleRunner(), fullCaps(), testKeys().Runner)
 	if len(hints) != want {
 		t.Fatalf("ヒントの件数 = %d, want %d", len(hints), want)
 	}
 
+	// 実装済みの操作は有効で理由を持たず、未実装の操作は無効で理由を持つ。
+	// どちらか一方だけを見ると、全件が無効／全件が有効になった日に気づけない。
 	for _, h := range hints {
 		if h.Enabled != enabled[h.Key] {
 			t.Errorf("キー %q の可否 = %v, want %v", h.Key, h.Enabled, enabled[h.Key])

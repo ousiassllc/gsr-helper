@@ -45,7 +45,7 @@
 
 - 本ツールは **root 権限（sudo での起動）を前提**とする。したがって削除系の処理は対象パスの検証を必須とし、runner ディレクトリ配下であることを確認してから実行する。
 - GitHub のトークンはファイルに保存せず、メモリ上のみで扱う。画面・ログ・監査ログのいずれにも出力しない。
-- 本ツールが実行したすべての外部コマンドを監査ログに記録する。**例外は 1 種のみで、再検出（`internal/runner/systemd` の `Scan`）が発行する読み取り専用の `systemctl list-units` / `systemctl show` は記録対象外とする**（`exec.Options.SkipAudit`。既定は記録する。理由と規則は [セキュリティ設計](../architecture/security.md#記録対象外とする再検出の読み取りコマンド)）。自動更新と手動再読み込み（`r`）のどちらで起動されたかは問わない。破壊的操作と、`Scan` を経由しない読み取りコマンドは全件記録する。
+- 本ツールが実行したすべての外部コマンドを監査ログに記録する。**例外は 2 種で、再検出（`internal/runner/systemd` の `Scan`）が発行する読み取り専用の `systemctl list-units` / `systemctl show` と、ログ追従（`internal/logs` の `Journal`）が発行する `journalctl -u <unit> -n <N>` は記録対象外とする**（`exec.Options.SkipAudit`。既定は記録する。理由と規則は [セキュリティ設計](../architecture/security.md#記録対象外とする読み取りコマンド)）。再検出は自動更新と手動再読み込み（`r`）のどちらで起動されたかを問わない。破壊的操作と、この 2 つの発行元を経由しない読み取りコマンドは全件記録する。
 
 ## 可搬性
 
@@ -68,7 +68,7 @@
 | `charm.land/lipgloss/v2` | スタイリングと表示幅の計算 | 端末のカラープロファイル判定を任せられる。全角を含む文字列の幅計算も `lipgloss.Width` に寄せる | 導入済み |
 | `huh`（Charm。v2 系） | 対話フォーム | 入力検証・条件分岐・確認ステップを備え、`tea.Model` として既存画面に組み込める。フォームを自前実装する理由がない | **未導入。** Config / Setup タブのフォーム（`organism/dialog.Form` と `huh.Theme`）を持ち込む Issue が、モジュールパスを他の 3 つと同じ体系に揃えて追加する |
 | `google/go-github` | GitHub API クライアント | トークン取得・ラベル操作・runner 情報取得。API のバージョン差分をライブラリに任せる | 未導入（GitHub API を使う機能の Issue が追加する） |
-| `fsnotify/fsnotify` | ファイル監視 | ログのライブテールでポーリングを避ける | 未導入（Logs タブの Issue が追加する） |
+| `fsnotify/fsnotify` | ファイル監視 | ログのライブテールでポーリングを避ける。`inotify` を直に扱わずに済み、Linux 以外でも同じコードが動く | 導入済み（`internal/logs` の `Tail`）。**追加ではなく直接依存への昇格である**——`golangci-lint` の推移依存として `go.mod` に既に載っていた |
 | `gopkg.in/yaml.v3` | 設定ファイルの読み書き | 自前設定を人が手編集できる形式（コメント可）にするため。監査ログは JSON Lines なので標準ライブラリで扱う | 導入済み |
 
 **Charm の 4 つ（bubbletea / bubbles / lipgloss / huh）は v2 系で揃える。** bubbletea v1 と v2 ではキー入力の `Msg` の型が異なり、周辺ライブラリの版を混ぜると `tea.Model` の実装が噛み合わない。版を上げる場合は 4 つ同時に上げる。
@@ -160,3 +160,4 @@ GitHub Actions の self-hosted runner（`runs-on: [self-hosted, linux, x64]`）�
 | 1.9 | 2026-08-22 | 例外の範囲を発行契機（自動更新）ではなく発行元（再検出の `Scan`）で定義し直し、「利用者の操作で発行するコマンドは記録する」を実装どおりの記述に置き換え | 手動再読み込み（`r`）も同じ `Scan` を通って記録されないため、記述が実装と矛盾していた |
 | 1.10 | 2026-08-22 | 自動更新間隔の記述に上限を追記し「有効範囲 1〜3600 秒」に統一 | 下限しか書いておらず、`--refresh 86400` が通ると読めた。実際は `appconfig.ValidateRefresh` が上限 3600 秒で拒否する |
 | 1.11 | 2026-08-22 | CI で実行する内容を実際のワークフローに合わせ、`linterly` / `lefthook validate` / ビルド検証を追加し、テストを競合検出付き（`go test -race ./...`）に修正 | `make test` が `-race` 付きになり CI のステップも増えたため、箇条書きが実態より少なく、競合検出の有無も食い違っていた |
+| 1.12 | 2026-08-23 | `fsnotify/fsnotify` を導入済みへ更新。監査ログの例外を 1 種から 2 種に改め、ログ追従（`internal/logs` の `Journal`）が発行する `journalctl -u <unit> -n <N>` を追加 | ログ閲覧を実装した（Issue #9）。追従中は 2 秒ごとに同じ読み取りが発行され、記録すると破壊的操作のレコードを押し流す（[セキュリティ設計](../architecture/security.md#記録対象外とする読み取りコマンド)） |

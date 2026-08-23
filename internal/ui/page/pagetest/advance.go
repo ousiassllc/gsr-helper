@@ -10,14 +10,14 @@ import (
 
 // 非同期の往復（page が Cmd を返し、親が結果を発行元のタブへ戻す）を回す道具を置く。
 
-// PumpRounds は Pump の既定の往復数。
+// AdvanceRounds は Advance の既定の往復数。
 //
 // サービス制御の最長経路（キー → 確認ダイアログ → y → 実行 → 結果の報告、
 // ドレインなら 待機 → esc → キャンセル → 結果）が 4 往復で収まる。余裕を持たせて
 // あるのは、往復が足りないと**結果が届く前に静かに打ち切られる**ためである。
-const PumpRounds = 8
+const AdvanceRounds = 8
 
-// Pump はタブが発行した Cmd の結果を、親 Model と同じ規則でタブへ配り直す。
+// Advance はタブが発行した Cmd の結果を、親 Model と同じ規則でタブへ配り直す。
 //
 // 親は page.TabMsg を外して発行元のタブへ渡す（ui/app.go の forwardTo）。この往復を
 // テストごとに手で書くと、1 段を書き忘れたテストだけが「何も起きない」を正常として
@@ -30,7 +30,7 @@ const PumpRounds = 8
 // 動きそのものの検証は organism/dialog のテストが持つ。
 //
 // ChromeMsg と GlobalKeyMsg も配らない。どちらも親が解釈するもので、タブへは戻らない。
-func Pump(m tea.Model, cmd tea.Cmd, rounds int) tea.Model {
+func Advance(m tea.Model, cmd tea.Cmd, rounds int) tea.Model {
 	for range rounds {
 		if cmd == nil {
 			return m

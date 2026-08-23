@@ -1,0 +1,192 @@
+package logs
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/ousiassllc/gsr-helper/internal/exec"
+)
+
+// systemd ユニットのログの追従（FR-26）を置く。
+
+const (
+	// JournalLines は 1 回の取得で遡る行数（`journalctl -n` の引数）。
+	//
+	// 画面に出せるのは高々数十行なので、初回に見える範囲としてはこれで足りる。
+	// 増やすほど取得のたびに読み捨てる行が増える。
+	JournalLines = 200
+	// JournalInterval は取得の間隔。
+	//
+	// 一覧の自動更新（3 秒）より短くしているのは、こちらが「追従」だからである。
+	// 1 秒より短くすると、1 回の取得が終わる前に次を発行しうる。
+	JournalInterval = 2 * time.Second
+	// journalTimeout は 1 回の取得に課す上限。
+	//
+	// Executor の既定（30 秒）より短くするのは、追従が JournalInterval ごとの
+	// 繰り返しだからである。1 回が 30 秒待たされると、その間ずっと画面が
+	// 止まったまま利用者には理由が分からない。
+	journalTimeout = 10 * time.Second
+	// journalRetries は取得の連続失敗を許す回数（この回数目の失敗で追従を終える）。
+	//
+	// 1 回の失敗で追従を畳むと、`journalctl` が一瞬混んだ・systemd の再読み込みと
+	// 重なっただけで画面が止まり、利用者は `J` を押し直す羽目になる。逆に無限に
+	// 粘ると、ユニット名が消えた（runner を削除した）ような回復しない失敗を
+	// 隠したまま空の画面を見せ続ける。3 回にしたのは、一時的な失敗はたいてい
+	// 次の 1〜2 回で収まる一方、回復しない失敗なら 2 秒足らずで理由が出るためである。
+	journalRetries = 3
+	// journalRetryWait は再試行までの待ち。
+	//
+	// JournalInterval（2 秒）を流用せず短い値を別に置いたのは、失敗直後は
+	// 「いつもの間隔」より早く試すほうが復帰が速いためである。上限が
+	// journalRetries 回と小さいので、短くしても `journalctl` を叩き過ぎることはない。
+	journalRetryWait = 500 * time.Millisecond
+	// journalAction は監査ログの action（記録する場合の名前）。
+	journalAction = "logs.journal"
+)
+
+// ErrNoUnit は systemd ユニットを持たない runner に対して追従を求められたことを表す。
+var ErrNoUnit = errors.New("systemd ユニットがありません")
+
+// Journal は unit のログを追従し、行を out へ送る（FR-26）。
+//
+// **`journalctl -f` は使わない。** Executor は 1 回の実行の出力をまとめて返す契約で
+// あり（internal/exec の Result）、`-f` を渡すとタイムアウトまで 1 行も届かないまま
+// プロセスだけが残る。外部プロセスの実行経路を Executor 1 本に保つ（監査記録と
+// タイムアウトの適用漏れを構造的に防ぐ）ほうが、追従のためだけに別経路を開けるより
+// 安全なので、`journalctl -u <unit> -n <N> --no-pager` を JournalInterval ごとに
+// 発行し、前回の出力との重なりを除いた差分だけを送る形にしている。
+//
+// **取得に失敗しても、journalRetries 回までは間隔を空けて試し直す。** これは追従で
+// あり、1 回きりの取得ではない。1 度の失敗で戻ると out が閉じて購読が終わり、
+// 利用者は一時的な失敗のたびに `J` を押し直すことになる。連続して失敗した
+// 回数だけを数え（1 度でも成功したら 0 に戻す）、上限に達して初めてエラーを
+// 返して終わる。回復しない失敗はこれで数秒のうちに理由として表に出る。
+//
+// **取得が空だったときは、覚えている末尾（prev）を捨てない。** `journalctl` は
+// ユニットの再起動やジャーナルの回転と重なると、成功（終了コード 0）のまま
+// 1 行も返さないことがある。これを「ログが空になった」と受け取って prev を
+// 空へ戻すと、次の取得で overlap が 0 になり、変わっていない同じ末尾
+// JournalLines(200) 行が丸ごと新しい行として送り直される。画面には本文が
+// 二重に積まれ、追従としては最も目立つ壊れ方になる。空が返っても直後の取得では
+// 同じ末尾が返ってくるのだから、覚えている末尾を捨てる理由が無い。
+// **prev を空にしない代わりに何を失うか** も見ておくと、失うのは「ログが本当に
+// 空になった（ジャーナルを消した）ときに、その後の 1 行目を送り直す」機会だけで
+// ある。その 1 行目は prev の末尾と一致しない限り overlap に吸われないので、
+// 実際には送られる。二重送出という確実な害を避けるほうが割に合う。
+//
+// Tail と同じく、戻るときに out を閉じる。
+//
+// 取得は監査ログに記録しない（exec.Options.SkipAudit）。変更を伴わない読み取りで
+// あり、追従している間ずっと繰り返し発行されて他のレコードを押し流すためである
+// （docs/architecture/security.md の「記録対象外とする読み取りコマンド」）。
+func Journal(ctx context.Context, ex exec.Executor, unit string, out chan<- Line) error {
+	defer close(out)
+
+	if ex == nil {
+		return errors.New("外部コマンドを実行できません")
+	}
+	if unit == "" {
+		return ErrNoUnit
+	}
+
+	var prev []string
+	fails := 0
+	for {
+		lines, err := readJournal(ctx, ex, unit)
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil
+			}
+			fails++
+			if fails >= journalRetries {
+				return err
+			}
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-time.After(journalRetryWait):
+			}
+			continue
+		}
+		fails = 0
+		for _, s := range lines[overlap(prev, lines):] {
+			select {
+			case out <- NewLine(s):
+			case <-ctx.Done():
+				return nil
+			}
+		}
+		if len(lines) > 0 {
+			prev = lines
+		}
+
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(JournalInterval):
+		}
+	}
+}
+
+// readJournal は unit の直近 JournalLines 行を取得する。
+func readJournal(ctx context.Context, ex exec.Executor, unit string) ([]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, journalTimeout)
+	defer cancel()
+	ctx = exec.WithOptions(ctx, exec.Options{
+		Action:    journalAction,
+		Runner:    "",
+		Dir:       "",
+		Env:       nil,
+		SkipAudit: true,
+	})
+	res, err := ex.Run(ctx, "journalctl", "-u", unit, "-n", strconv.Itoa(JournalLines), "--no-pager")
+	if err != nil {
+		return nil, fmt.Errorf("%s のログを取得できません: %w", unit, err)
+	}
+	if res.ExitCode != 0 {
+		return nil, fmt.Errorf("%s のログを取得できません: journalctl が終了コード %d を返しました", unit, res.ExitCode)
+	}
+	return splitLines(string(res.Stdout)), nil
+}
+
+// splitLines は出力を行へ分ける。末尾の改行が生む空行は落とす。
+func splitLines(s string) []string {
+	s = strings.TrimSuffix(strings.ReplaceAll(s, "\r\n", "\n"), "\n")
+	if s == "" {
+		return nil
+	}
+	return strings.Split(s, "\n")
+}
+
+// overlap は prev の末尾と cur の先頭が一致する最大の長さを返す。
+//
+// 取得のたびに同じ末尾 N 行が返るため、そのままでは同じ行を何度も送ることになる。
+// 一致する最大の重なりを求め、その先だけを新しい行として扱う。**行の内容だけで
+// 突き合わせるので、同じ文言が連続して出力された場合は重なりを長く取りすぎて
+// 数行を出し損ねることがある。** `journalctl` の行は時刻を含むため実際にはまれで
+// あり、取りこぼしても次の取得で末尾側は必ず届く。
+//
+// prev が空（初回）なら 0 を返し、cur の全行を新しい行として送る。
+func overlap(prev, cur []string) int {
+	n := min(len(prev), len(cur))
+	for ; n > 0; n-- {
+		if equalLines(prev[len(prev)-n:], cur[:n]) {
+			return n
+		}
+	}
+	return 0
+}
+
+// equalLines は 2 つの行の並びが等しいかを返す。
+func equalLines(a, b []string) bool {
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}

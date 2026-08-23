@@ -56,7 +56,7 @@ func TestDrainCancelIssuesNoStop(t *testing.T) {
 	// あとに待機の Cmd が終わる（svc.Drain は ctx のキャンセルで戻る）状況を作る。
 	next, drainCmd := m.Update(press("d"))
 	canceled, cmd := next.Update(press("esc"))
-	canceled = pagetest.Pump(canceled, cmd, pagetest.PumpRounds)
+	canceled = pagetest.Advance(canceled, cmd, pagetest.AdvanceRounds)
 
 	// 留めておいた待機の Cmd をここで走らせる。キャンセル済みなので停止しない。
 	pagetest.Msgs(drainCmd)

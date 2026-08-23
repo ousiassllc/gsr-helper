@@ -102,19 +102,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// case が page 側から明示する（Go の型スイッチの default は記述位置に
 		// 関わらず最後に評価されるため、並びは関係しない）。
 		//
-		// 詳細画面・確認ダイアログ・待機画面の決定はすべて runnerop が解釈する。
+		// ログを開く決定だけは Logs タブへの移動なので handleResult が拾い、残りは
+		// runnerop が解釈する（詳細画面・確認ダイアログ・待機画面のいずれの決定も）。
 		// Jobs タブと同じ経路にすることで、起点によって確認の強さが変わらない。
-		//
-		// ops の呼び出しは return より前に出す。**同じ return 文に置いてはならない。**
-		// m.chrome() と m.ops.Result(msg) を同じ tea.Batch の引数に並べると、Go は
-		// 関数呼び出しの引数を左から右へ評価するので、chrome が ops の変更**前**の
-		// 状態を読む（m.ops.Result はポインタレシーバで m.ops を書き換える）。
-		// 結果として、キャンセル時は overlay.Close() 済みなのに ChromeMsg.Modal が
-		// 真のままになり、閉じたダイアログのフッタヒントが次の共有状態（既定 3 秒後）
-		// まで残る。setState が同じ理由で登録の Cmd を先に取り出しているのと同じ規約
-		// である。
-		c := m.ops.Result(msg)
-		return m, tea.Batch(m.chrome(), c)
+		return m.handleResult(msg)
 	case runnerop.Msg:
 		return m.handleOps(msg)
 	default:

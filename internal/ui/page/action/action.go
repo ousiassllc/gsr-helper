@@ -141,8 +141,9 @@ const (
 // 文言の有無が決まる。
 //
 // Supported が真なのはサービス制御の 6 つ（internal/svc が実装した開始・停止・強制
-// 停止・ドレイン停止・再起動・enable の切替）に限る。追加・削除・更新・ログ・設定編集は
-// 後続の Issue が担うため偽のままで、「押せるが何も起きない」経路を作らない。
+// 停止・ドレイン停止・再起動・enable の切替）と、Logs タブが実装したログを開く操作である。
+// 追加・削除・更新・設定編集は後続の Issue が担うため偽のままで、「押せるが何も
+// 起きない」経路を作らない。
 func meta(id ID) (impact string, destructive, supported bool) {
 	switch id {
 	case Start, Drain, Enable:
@@ -155,6 +156,8 @@ func meta(id ID) (impact string, destructive, supported bool) {
 		return impactKill, true, true
 	case Delete:
 		return impactDelete, true, false
+	case Logs:
+		return "", false, true
 	default:
 		return "", false, false
 	}

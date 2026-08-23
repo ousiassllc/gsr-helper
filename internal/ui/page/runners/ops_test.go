@@ -51,7 +51,7 @@ func opsSend(t *testing.T, m tea.Model, keys ...string) tea.Model {
 
 	for _, k := range keys {
 		next, cmd := m.Update(press(k))
-		m = pagetest.Pump(next, cmd, pagetest.PumpRounds)
+		m = pagetest.Advance(next, cmd, pagetest.AdvanceRounds)
 	}
 	return m
 }

@@ -88,22 +88,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// page.Overlay.Handles が ResultMsg に偽を返すことと合わせた二重の守りで
 		// あり、並びは関係しない（型スイッチの default は常に最後に評価される）。
 		//
-		// 決定の解釈は runnerop に任せる。Runners タブと同じ確認フローを通すためで
-		// あり、ここに独自の分岐を書くと Jobs タブだけ確認が変わりうる（FR-45〜FR-47）。
-		//
-		// ops の呼び出しは return より前に出す（runners.go と同じ理由。同じ
-		// tea.Batch に並べると chrome が ops の変更前の状態を読み、キャンセルで
-		// 閉じたダイアログが Modal=true のまま残る）。
-		c := m.ops.Result(msg)
-		return m, tea.Batch(m.chrome(), c)
+		// ログを開く決定だけは Logs タブへの移動なので handleResult が拾い、残りは
+		// runnerop へ渡す。Runners タブと同じ確認フローを通すためであり、ここに
+		// 独自の分岐を書くと Jobs タブだけ確認が変わりうる（FR-45〜FR-47）。
+		return m.handleResult(msg)
 	case runnerop.Msg:
 		// 制御部宛の Msg はタブが受けて渡す（runners.go の handleOps と同じ理由。
 		// 包まないと待機画面に吸われる）。Jobs タブは一括選択を持たないので、
 		// 完了時に解く選択も無い。
 		//
-		// ops の呼び出しを return より前に出すのも runners.go と同じ理由である
-		// （並べると DoneMsg の結果が ChromeMsg に載らず、状態行が次の共有状態まで
-		// 空のままになる）。
+		// ops の呼び出しを return より前に出すのは、同じ tea.Batch に並べると
+		// chrome が ops の変更前の状態を読み、DoneMsg の結果が ChromeMsg に載らず
+		// 状態行が次の共有状態まで空のままになるためである。
 		c := m.ops.Update(msg)
 		return m, tea.Batch(m.chrome(), c)
 	default:
@@ -172,6 +168,8 @@ func (m Model) handleKey(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		cmd = m.overlay.OpenHelp()
 	case key.Matches(press, m.st.Keys.List.Enter):
 		cmd = m.openDetail()
+	case key.Matches(press, m.st.Keys.Runner.Logs):
+		cmd = m.openLogs()
 	case key.Matches(press, m.st.Keys.Global.Back):
 		// 直近の操作の結果も消す（runners.go の back と同じ理由）。
 		m.ops.ClearStatus()

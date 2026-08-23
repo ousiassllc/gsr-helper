@@ -116,11 +116,11 @@ func (m *Model) Result(msg page.ResultMsg) tea.Cmd {
 		}
 		return m.Start(c.Action, []runner.Runner{c.Runner})
 	case ConfirmKind:
-		c, ok := msg.Msg.(dialog.ConfirmedMsg)
+		c, ok := msg.Msg.(dialog.DecidedMsg)
 		if !ok {
 			return nil
 		}
-		return m.confirmed(c.OK)
+		return m.confirmed(c.Confirmed)
 	case DrainKind:
 		if _, ok := msg.Msg.(dialog.DrainCanceledMsg); !ok {
 			return nil
@@ -181,7 +181,7 @@ func (m *Model) Start(op action.ID, targets []runner.Runner) tea.Cmd {
 // confirmed は確認ダイアログの決定を処理する。
 //
 // **どちらの決定でもモーダルを 1 枚閉じる。** ダイアログ自身は閉じない設計であり
-// （dialog.ConfirmedMsg の doc）、閉じる判断は開いた側の責任である。
+// （dialog.DecidedMsg の doc）、閉じる判断は開いた側の責任である。
 func (m *Model) confirmed(ok bool) tea.Cmd {
 	p := m.pending
 	m.pending = pending{op: action.Unknown, targets: nil}
