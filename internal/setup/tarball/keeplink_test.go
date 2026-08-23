@@ -45,6 +45,19 @@ func TestExtractRejectsLinksIntoPreservedNames(t *testing.T) {
 			absent: "link",
 		},
 		{
+			// 途中の階層もリンクにして、保持対象までを多段で辿らせる。名前を
+			// 1 要素ずつ辿らずに引き当てるだけだと、d/link の向き先を d/.runner と
+			// 誤読して素通りし、d/link への書き込みが .runner を潰す。
+			name:  "多段のリンクを辿った先が保持対象",
+			setup: preservedFile,
+			entries: []tarEntry{
+				symEntry("./d", "."),
+				symEntry("./d/link", ".runner"),
+				regEntry("./d/link", 0o644, "pwned"),
+			},
+			absent: "link",
+		},
+		{
 			// リンク自身の名前が保持対象の場合も、置き換えさせない。
 			name:    "保持対象そのものを指すシンボリックリンク",
 			setup:   preservedFile,
