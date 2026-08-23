@@ -43,9 +43,9 @@ func tableHeight(bodyH int) int {
 // 使用率が「0%」として描かれ、枯渇しているのに潤沢に見える（FSSummaryView の doc）。
 // パスと容量の併記はゼロ値のまま molecule 側が「値なし」「空」に落とす。
 //
-// Warn は常に偽である。閾値（appconfig.DiskThresholds）を page へ運ぶ経路が
-// page.StateMsg にまだ無いためで、判定を持てるようになった時点でここだけを直す
-// （molecule.FSSummaryLine の doc）。
+// Warn は設定の警告閾値（disk_thresholds.warn）と実測の使用率から決める
+// （FR-29 / Issue #72）。判定をここで行うのは、設定と実測の両方を持つのが page
+// だからである（molecule は真偽値を受け取って描くだけ。molecule.FSSummaryLine の doc）。
 func (m Model) summaryView() molecule.FSSummaryView {
 	s := m.stats
 	failed := m.statsErr != nil
@@ -59,8 +59,27 @@ func (m Model) summaryView() molecule.FSSummaryView {
 		TotalBytes:   s.TotalBytes,
 		InodePercent: s.InodePercent(),
 		Unavailable:  failed,
-		Warn:         false,
+		Warn:         warnExceeded(failed, s.UsedPercent(), m.st.Disk.Thresholds.Warn),
 	}
+}
+
+// warnExceeded は使用率が警告閾値に達したかを返す。
+//
+// **取得に失敗した行では必ず偽を返す。** 失敗時の使用率は 0 として描かれる
+// （FSSummaryView.Unavailable）ので、そこへ警告を添えると「使用 - なのに閾値超過」
+// という読めない行になる。
+//
+// 閾値が 0 以下（設定を読めていない・未設定）のときも偽を返す。0 を閾値として
+// 扱うと、あらゆる使用率が超過になって警告が常に出る。
+//
+// 比較を >= にしているのは doctor のリソース診断（internal/doctor/hostres の band）
+// に合わせるためである。同じ 80% を一方が警告し他方がしないと、同じホストの
+// 同じ数字に対して 2 つの画面が違うことを言う。
+func warnExceeded(failed bool, used, warn int) bool {
+	if failed || warn <= 0 {
+		return false
+	}
+	return used >= warn
 }
 
 // emptyMessage は行が 1 件も無いときの文言を返す。

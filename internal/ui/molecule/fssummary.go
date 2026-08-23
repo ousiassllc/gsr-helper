@@ -39,10 +39,9 @@ type FSSummaryView struct {
 // 「何が閾値を超えたのか」を文言で示す方が読みやすく、色を使えない端末でも
 // 「警告閾値超過」の文字で判別できる（設計原則 4）。
 //
-// **この版では Warn は常に偽になる。** 閾値（appconfig.DiskThresholds）を page へ運ぶ
-// 経路（page.StateMsg）がまだ無いためである。引数を今から持たせておくのは、閾値が
-// 通るようになったときに呼び出し側だけの変更で済ませるためで、判断を molecule に
-// 持ち込まない形（真偽値を受け取るだけ）は変わらない。
+// 閾値（appconfig.DiskThresholds）は page.StateMsg.Disk.Thresholds として page へ
+// 届き、超過したかの判断は page が行う（page/disk の warnExceeded）。ここが受け取る
+// のは結果の真偽値だけで、判断を molecule に持ち込まない形は変わらない。
 //
 // マウントポイントの桁は固定しない。screens.md のモックは 16 セル取っているが、
 // 下の一覧（TARGET 列）と桁を揃える相手がいない飾りの余白であり、埋めると警告付きの
