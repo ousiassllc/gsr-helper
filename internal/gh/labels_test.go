@@ -116,3 +116,28 @@ func TestRunnerLabelsReturnsAPIError(t *testing.T) {
 		t.Error("権限不足のヒントが空（次の一手を示すこと）")
 	}
 }
+
+// 読み取り専用のラベルは種別で落とすこと。
+//
+// 自動で付くアーキテクチャ名はホストによって変わる（x64 / arm64）。名前の
+// 一覧で弾いていると、一覧に無いアーキテクチャのホストでフォームの初期値に
+// 混ざり、置換 API へ送って弾かれる。
+func TestRunnerLabelsDropsReadOnlyByType(t *testing.T) {
+	t.Parallel()
+
+	c, _ := newClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, `{"total_count":4,"labels":[`+
+			`{"id":1,"name":"self-hosted","type":"read-only"},`+
+			`{"id":2,"name":"Linux","type":"read-only"},`+
+			`{"id":3,"name":"ARM64","type":"read-only"},`+
+			`{"id":4,"name":"gpu","type":"custom"}]}`)
+	}))
+
+	got, err := c.RunnerLabels(context.Background(), orgScope(), 42)
+	if err != nil {
+		t.Fatalf("RunnerLabels() でエラー: %v", err)
+	}
+	if len(got) != 1 || got[0] != "gpu" {
+		t.Errorf("RunnerLabels() = %v, want [gpu]（ARM64 を含む読み取り専用を落とす）", got)
+	}
+}

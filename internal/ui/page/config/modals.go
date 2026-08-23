@@ -118,10 +118,12 @@ var _ tea.Model = diffModal{}
 // newDiffModal は差分の承認のモーダルを組み立てる。
 func newDiffModal(st page.StateMsg) page.Modal {
 	return page.Modal{
-		Model:       diffModal{tab: 0, dlg: dialog.NewDiffApproval(st.Keys, st.Styles)},
-		Title:       diffTitle,
-		Hints:       diffHints,
-		HandlesBack: nil,
+		Model: diffModal{tab: 0, dlg: dialog.NewDiffApproval(st.Keys, st.Styles)},
+		Title: diffTitle,
+		Hints: diffHints,
+		// esc は DiffApproval 自身に渡す。Overlay に閉じさせると
+		// DecidedMsg が出ず、承認待ちの変更が残ったままになる。
+		HandlesBack: func(tea.Model) bool { return true },
 	}
 }
 

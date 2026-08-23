@@ -57,6 +57,8 @@ var (
 	ErrNoUnit = errors.New("systemd ユニットが無いため drop-in を編集できません")
 	// ErrEmptyCopyTarget は複製先を 1 つも選ばずに確定した場合のエラー。
 	ErrEmptyCopyTarget = errors.New("複製先の runner を 1 つ以上選んでください")
+	// ErrCopyNoChange は選んだ複製先がすべて既に同じ内容だった場合のエラー。
+	ErrCopyNoChange = errors.New("選んだ runner の .env は既に同じ内容です")
 )
 
 // CopyTarget は複製先 1 台分。

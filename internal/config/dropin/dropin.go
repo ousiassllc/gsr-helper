@@ -84,6 +84,9 @@ func Parse(s string) DropIn {
 }
 
 // Get は key の値を返す。同じキーが複数あれば最初の 1 つ。
+//
+// 単一値のディレクティブで重複が残っているのは、手で書いた drop-in を読んだ
+// 直後だけである（Set が重複を畳む）。
 func (d DropIn) Get(key string) (string, bool) {
 	if i := d.index(key); i >= 0 {
 		return d.Directives[i].Value, true
@@ -92,13 +95,29 @@ func (d DropIn) Get(key string) (string, bool) {
 }
 
 // Set は key の値を差し替える。無ければ末尾に足す。
-// 同じキーが複数ある場合は最初の 1 つだけを書き換える（Get と揃える）。
+//
+// **同じキーが複数あれば最初の 1 つを書き換えて残りを落とす。** systemd は
+// Restart や MemoryMax のような単一値のディレクティブについて**最後に書かれた
+// 値**を採るため、最初だけを書き換えて後続を残すと、書き込んだ内容は承認した
+// 差分どおりなのに効く値が変わらないという食い違いが起きる。Get も最初の 1 つを
+// 返すので、残したままだとフォームの初期値も実際に効いている値とずれる。
 func (d *DropIn) Set(key, value string) {
-	if i := d.index(key); i >= 0 {
-		d.Directives[i].Value = value
+	i := d.index(key)
+	if i < 0 {
+		d.Directives = append(d.Directives, Directive{Key: key, Value: value})
 		return
 	}
-	d.Directives = append(d.Directives, Directive{Key: key, Value: value})
+
+	d.Directives[i].Value = value
+
+	out := d.Directives[:i+1]
+	for _, dir := range d.Directives[i+1:] {
+		if dir.Key == key {
+			continue
+		}
+		out = append(out, dir)
+	}
+	d.Directives = out
 }
 
 // Unset は key の行をすべて取り除く。

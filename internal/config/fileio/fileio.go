@@ -83,10 +83,18 @@ func read(path string, limit int64) ([]byte, fs.FileInfo, error) {
 //
 // 終端がシンボリックリンクなら open(2) 自身が ELOOP を返すため、リンクを辿る前に
 // 弾ける。Lstat で確かめてから開く方法だと、確認と open の間に差し替えられる
-// （TOCTOU）。os.OpenFile ではなく syscall.Open を使うのは、O_NOFOLLOW が
-// os のフラグ定数に無いためである。
+// （TOCTOU）。
+//
+// **O_NONBLOCK を必ず付ける。** O_NOFOLLOW が防ぐのはシンボリックリンクだけで、
+// 名前付きパイプ（FIFO）は防げない。runner ディレクトリは runner 実行ユーザーが
+// 書き換えられるので、.env を FIFO にすり替えられると open(2) が書き手の現れる
+// まで返らない。読み取りは 3 秒ごとの状態更新から同期的に呼ばれるため、TUI 全体が
+// 復帰不能に固まる。通常ファイルかどうかの判定は open の後にしかできない以上、
+// open 自体が返らない経路を塞ぐ必要がある。
 func openNoFollow(path string) (*os.File, error) {
-	fd, err := syscall.Open(filepath.Clean(path), syscall.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0)
+	flags := syscall.O_RDONLY | syscall.O_NOFOLLOW | syscall.O_CLOEXEC | syscall.O_NONBLOCK
+
+	fd, err := syscall.Open(filepath.Clean(path), flags, 0)
 	if err != nil {
 		if errors.Is(err, syscall.ELOOP) {
 			return nil, fmt.Errorf("%s: %w", path, ErrSymlink)

@@ -19,6 +19,14 @@ func (m *Model) openSelected() tea.Cmd {
 	if !ok || !it.enabled {
 		return nil
 	}
+	// 処理中は新しい編集を始めさせない。始められると approve が承認待ちの
+	// 変更を上書きし、書き込み中の決定は捨てられる（onApproved）ため、承認
+	// したはずの変更が黙って消える。さらに反映（onDone）は上書きされた側の
+	// 変更を見て、書き換えていない runner を再起動しうる。
+	if m.busy {
+		m.notice = "処理中です。完了までお待ちください"
+		return nil
+	}
 
 	switch it.kind {
 	case edit.KindLabels, edit.KindGroup:

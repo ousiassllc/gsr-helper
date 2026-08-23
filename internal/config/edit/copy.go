@@ -42,12 +42,24 @@ func BuildCopy(ld Loader, src runner.Runner, targets []runner.Runner, chosen []s
 			return Change{}, lerr
 		}
 
+		// 既に同じ内容の台は対象から外す。外さないと見出しの行だけで
+		// Changed() が真になり、差分に + も - も無いまま承認を求めることに
+		// なる。しかも書き込みは退避から始まるので、**適用済みの内容で
+		// <target>/.env.bak を上書きして元の控えを消してしまう**（FR-38）。
+		if cur.String() == after {
+			continue
+		}
+
 		c.copies = append(c.copies, CopyTarget{name: t.Name(), path: p})
 		lines = append(lines, config.MarkContext+"=== "+t.Name()+" ===")
 		lines = append(lines, SplitDiff(config.Diff(cur.String(), after))...)
 	}
 
 	if len(c.copies) == 0 {
+		if len(picked) > 0 {
+			// 選ばれてはいたが全台が同じ内容だった。何も書かない。
+			return Change{}, ErrCopyNoChange
+		}
 		return Change{}, ErrEmptyCopyTarget
 	}
 

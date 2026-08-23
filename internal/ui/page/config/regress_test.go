@@ -1,6 +1,7 @@
 package config
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -223,5 +224,53 @@ func TestDropInRowDisabledWithoutUnit(t *testing.T) {
 
 	if !contains(m, "systemd ユニット無し") {
 		t.Errorf("選べない理由が備考に出ていない:\n%s", view(m))
+	}
+}
+
+// 処理中は新しい編集を始めさせないこと。
+//
+// 始められると approve が承認待ちの変更を上書きし、書き込み中の決定は
+// onApproved が捨てるため、承認したはずの変更が黙って消える。
+func TestBusyBlocksNewEdit(t *testing.T) {
+	t.Parallel()
+
+	r := withTempDir(t, "build01-1", "PATH=/usr/bin\n")
+	m := newPage(t, r)
+	m, _ = send(t, m, page.EditConfigMsg{Runner: r})
+
+	m.busy = true
+	m, _ = send(t, m, pagetest.Press("enter"))
+
+	if m.overlay.Active() {
+		t.Error("処理中なのにフォームが開いた")
+	}
+	if !strings.Contains(m.status(), "処理中") {
+		t.Errorf("状態行 = %q, want 処理中である旨", m.status())
+	}
+}
+
+// 差分の承認を esc で閉じたら、承認待ちの変更を残さないこと。
+//
+// Overlay に閉じさせると DecidedMsg が出ず、pending が残ったままになる。
+func TestDiffEscapeClearsPending(t *testing.T) {
+	t.Parallel()
+
+	r := withTempDir(t, "build01-1", "PATH=/usr/bin\n")
+	m := newPage(t, r)
+	m, _ = send(t, m, page.EditConfigMsg{Runner: r})
+	m = openEnvForm(t, m)
+
+	if !m.pendingSet {
+		t.Fatal("承認待ちの変更が無い")
+	}
+
+	m, cmd := send(t, m, pagetest.Press("esc"))
+	m = pagetest.Advance(m, cmd, 4).(Model)
+
+	if m.pendingSet {
+		t.Error("esc で閉じたのに承認待ちの変更が残っている")
+	}
+	if got, err := readFile(filepath.Join(r.Dir, ".env")); err != nil || got != "PATH=/usr/bin\n" {
+		t.Errorf(".env = %q, %v, want 元のまま", got, err)
 	}
 }

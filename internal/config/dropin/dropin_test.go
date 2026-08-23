@@ -179,3 +179,28 @@ func TestLoadSaveRoundTrip(t *testing.T) {
 		t.Errorf("Load() = %+v, want %+v", got, want)
 	}
 }
+
+// 単一値のディレクティブが重複していたら、書き換えたうえで後続を落とすこと。
+//
+// systemd は最後に書かれた値を採るため、最初だけ書き換えて後続を残すと、
+// 書き込んだ内容は承認どおりなのに効く値が変わらない。
+func TestSetCollapsesDuplicateKeys(t *testing.T) {
+	t.Parallel()
+
+	d := dropin.Parse("[Service]\nMemoryMax=1G\nRestart=always\nMemoryMax=8G\n")
+	d.Set("MemoryMax", "4G")
+
+	got := d.Render()
+	if strings.Count(got, "MemoryMax=") != 1 {
+		t.Errorf("MemoryMax の行が 1 つになっていない:\n%s", got)
+	}
+	if !strings.Contains(got, "MemoryMax=4G") {
+		t.Errorf("書き換えた値が入っていない:\n%s", got)
+	}
+	if !strings.Contains(got, "Restart=always") {
+		t.Errorf("別のキーまで落ちている:\n%s", got)
+	}
+	if v, _ := d.Get("MemoryMax"); v != "4G" {
+		t.Errorf("Get() = %q, want 4G", v)
+	}
+}

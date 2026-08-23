@@ -10,11 +10,24 @@ import (
 
 // labelsResponse はラベル系エンドポイントに共通のレスポンス。
 // いずれも「操作後のラベル全量」を同じ形で返すため型は 1 つで足りる。
+//
+// type を読むのは、GitHub が付ける読み取り専用のラベルを名前ではなく種別で
+// 見分けるためである（下記 readOnlyLabel）。
 type labelsResponse struct {
 	Labels []struct {
 		Name string `json:"name"`
+		Type string `json:"type"`
 	} `json:"labels"`
 }
+
+// readOnlyLabel は GitHub が自動で付けるラベルの種別。
+//
+// **名前で判定しない。** 自動で付くのは self-hosted と OS 名だけでなく
+// アーキテクチャ名も含み、その値はホストによって X64 だったり ARM64 だったり
+// する（本ツールは arm64 も対象にしている）。名前の一覧を持つと、一覧に無い
+// アーキテクチャのホストで読み取り専用のラベルが「カスタムラベル」として
+// フォームに出てしまい、置換 API へ送って弾かれる。
+const readOnlyLabel = "read-only"
 
 // labelsRequest は置換のリクエスト本文。
 type labelsRequest struct {
@@ -23,7 +36,8 @@ type labelsRequest struct {
 
 // RunnerLabels は runner に付いているラベルの一覧を取得する。
 //
-// GET {scope}/actions/runners/{runner_id}/labels（FR-35）。予約ラベルを含む全量。
+// GET {scope}/actions/runners/{runner_id}/labels（FR-35）。GitHub が自動で付ける
+// 読み取り専用のラベルは除いたカスタムラベルだけを返す（readOnlyLabel）。
 func (c *Client) RunnerLabels(ctx context.Context, sc scope.Scope, runnerID int64) ([]string, error) {
 	return c.labelCall(ctx, sc, "runner_labels", http.MethodGet, runnerID, "", nil)
 }
@@ -66,6 +80,9 @@ func (c *Client) labelCall(
 
 	out := make([]string, 0, len(got.Labels))
 	for _, l := range got.Labels {
+		if l.Type == readOnlyLabel {
+			continue
+		}
 		out = append(out, l.Name)
 	}
 	return out, nil
