@@ -26,8 +26,8 @@ import (
 // tea.Model の Update は interface を返すため、具体型で受け直すたびに型アサーションが
 // 要る。取り違えは Model が進まないまま緑になるので、panic で止める。
 //
-// **具体型で具体化すること**（`Update[App]` / `Update[*Spy]`）。M を interface 型で
-// 具体化すると next.(M) が常に成立し、この panic は働かない。
+// **具体型で具体化すること**（`Update[App]` / `Update[*Spy]`）。M を tea.Model 自身で
+// 具体化すると next.(M) が必ず成立し、この panic は働かない。
 func Update[M tea.Model](m M, msg tea.Msg) (M, tea.Cmd) {
 	next, cmd := m.Update(msg)
 	v, ok := next.(M)

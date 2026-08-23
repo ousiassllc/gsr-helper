@@ -5,7 +5,7 @@
 // `RowInput[T]` / `RenderRow[T]` という既存の公開 API だけ）。したがって
 // 「一覧の共通実装は 1 つ」（`Table` を増やさない）という規則は構造で守られたままで
 // ある——`table` からこちらを指す辺は無く、`Model[T]` の内訳も分かれていない
-// （atomic-design.md の「`ui/organism/table` を分割しない判断」）。
+// （atomic-design.md の「`ui/organism/table` の本体を分割しない判断」）。
 //
 // **_test.go ではなく通常のパッケージに置く理由は行数上限である。** 行数チェックは
 // 1 ディレクトリ 2000 行（テストを含む）を上限に直下のファイルだけを数えるため、
@@ -37,8 +37,9 @@ const FilterPrompt = "絞り込み: "
 // （bubbletea v2 の Key.String は Text があればそれを、無ければ keystroke を返す）。
 //
 // **pagetest.Press とは共有しない。** organism 階層は page 階層を import できない
-// （atomic-design.md の依存の方向）ため、寄せると層の向きが壊れる。対応するキーが
-// 一覧側（矢印・ページ送り）とタブ側で違うのもそのためである。
+// （atomic-design.md の依存の方向）ため、寄せると層の向きが壊れる。扱うキーの集合も
+// 揃っていない——こちらは一覧が使う left / right / pgup / pgdown / home / end を持ち、
+// pagetest は親 Model が使う shift+tab を持つ。
 //
 // 矢印やページキーも Code で表すのは、実端末が送るキー（Text は空）と同じ形にするため
 // である。Text に "down" を入れると、入力モードでは文字入力になって検証にならない。

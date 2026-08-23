@@ -1099,7 +1099,7 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 | `ui/hostreq` | 283 | 1717 | pass |
 | `ui/page/runners/rowview` | 269 | 1731 | pass |
 | `ui/ghscope` | 268 | 1732 | pass |
-| `ui/organism/table/tabletest` | 242 | 1758 | pass |
+| `ui/organism/table/tabletest` | 243 | 1757 | pass |
 | `ui/page/progressmodal` | 140 | 1860 | pass |
 | `ui/page/disk/confirmmodal` | 136 | 1864 | pass |
 
@@ -1171,7 +1171,7 @@ Setup タブは追加・削除・バージョン更新の 3 操作と、フォ�
 1. **App の非公開な状態に触れない道具を `page/pagetest/parent.go` へ出した。** 親 Model を Msg で駆動するもの（`Update` / `SendKey` / `Press1` / `ApplyChrome`）、Cmd の束を解釈するもの（`IsQuit` / `OpenTabOf` / `TakeHostReq`）、周期を再現するもの（`Discovered` / `WorkScanStarts`）、spy の閉じ込め状態（`Blocked`）である。**`tea.Model` を型引数に取る**ことで、親 Model とタブの具体型のどちらからも同じ手で進められる。`ui` 直下の `helper_test.go` は `pagetest.Update[App]` のように型引数を固定して束縛するだけになり、呼び出し側の書き方は移す前と変わらない。
 2. **重複したテストを畳んだ**（表明は 1 つも落としていない）。端末サイズと runner 1 台の検出を配る 3 手が 4 箇所にあったのを `newAppWithRunner` へ、モーダル表示中と入力中で同じ 6 つの表明を並べていた 2 本を表駆動の 1 本へ、起動時の前提チェックの「失敗した周期では発行しない」「再検出のたびには走らせない」を 1 本の筋へ、`state()` に載る起動時の値を見る 3 本を 1 本へ寄せた。`withSpies` / `withStreams` が持っていた同じ走査も `replaceTabs` にまとめた。
 
-**残るのは非公開に触れる内部テストだけである。** `newApp`（`a.hostChecks` / `a.scopes`）・`replaceTabs`（`a.tabs`）・`statusLine`（`chromeView`）は `App` の内側に触るので出せない。**これらを出すために export を増やすのは採らない**（`ui/organism/table` を分割しない判断と理由を共有する）。**次に `ui` 直下へ手を入れる Issue は、1 行足す前に必ず行数を空けること**——残り 12 行は実質ゼロであり、上の 2 つの手はどちらも使い切っている。
+**残るのは非公開に触れる内部テストだけである。** `newApp` / `withHostChecks`（`a.hostChecks` / `a.scopes`）・`replaceTabs`（`a.tabs`）・`statusLine`（`chromeView`）は `App` の内側に触るので出せない。**これらを出すために export を増やすのは採らない**（`ui/organism/table` の本体を分割しない判断と理由を共有する）。**次に `ui` 直下へ手を入れる Issue は、1 行足す前に必ず行数を空けること**——残り 12 行は実質ゼロであり、上の 2 つの手はどちらも使い切っている。
 
 **残りは Issue #9 で 125 行から 27 行へ減り、Issue #8 でついに超過した。** タブをまたぐ移動（`page.OpenTabMsg`）は親でしか実現できず、`keys.go` の `openTab` とその検証（`route_test.go` の 3 本）が加わったためである。検証に使う道具のうち App の非公開な状態に触れないもの（受け取った `Msg` を型で数える `Delivered`）は `page/pagetest` へ出してある。**次に `ui` 直下へ足す Issue は、まず既存のテストで `page/pagetest` へ出せるものを探すこと。** 超過した以上、テストを足す前に道具を出すこと。
 
@@ -1225,7 +1225,7 @@ Issue #31 で `table_test.go` の空振りしていたテスト（`View() != ""`
 
 `_test.go` ではなく通常のパッケージにしたのは行数上限のためである（`_test.go` に置くと `table` 直下と同じ予算を食う）。その代償として本番からも import できてしまうので、`page/pagetest` と同じく `TestNoProductionCodeImportsTestFixtures` の検査対象に登録してある（`page/pagetest/import_test.go` の `fixtures`）。**テスト用の道具を通常のパッケージとして足すときは、必ずここへ登録すること。**
 
-**残り 31 行はテスト 1 本ぶんしかない。次にこのディレクトリへ足す Issue は、まず `tabletest` へ出せるものを探すこと**（`tabletest` は 242 行で残り 1758 行ある）。出せないのは `fitcells_test.go` だけである——詰め（足りないセルを空文字で埋める）が `View()` からは観測できず、`fitCells` を白箱で見る内部テスト（`package table`）でしか固定できないためで、外へ出すには `fitCells` を export することになる。
+**残り 31 行はテスト 1 本ぶんしかない。次にこのディレクトリへ足す Issue は、まず `tabletest` へ出せるものを探すこと**（`tabletest` は 243 行で残り 1757 行ある）。出せないのは `fitcells_test.go` だけである——詰め（足りないセルを空文字で埋める）が `View()` からは観測できず、`fitCells` を白箱で見る内部テスト（`package table`）でしか固定できないためで、外へ出すには `fitCells` を export することになる。
 
 ## 部品を追加するときの手順
 
