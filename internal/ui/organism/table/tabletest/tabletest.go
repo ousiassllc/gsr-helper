@@ -36,6 +36,10 @@ const FilterPrompt = "絞り込み: "
 // Press はキー入力の Msg を作る。文字キーは Text、特殊キーは Code で表す
 // （bubbletea v2 の Key.String は Text があればそれを、無ければ keystroke を返す）。
 //
+// **pagetest.Press とは共有しない。** organism 階層は page 階層を import できない
+// （atomic-design.md の依存の方向）ため、寄せると層の向きが壊れる。対応するキーが
+// 一覧側（矢印・ページ送り）とタブ側で違うのもそのためである。
+//
 // 矢印やページキーも Code で表すのは、実端末が送るキー（Text は空）と同じ形にするため
 // である。Text に "down" を入れると、入力モードでは文字入力になって検証にならない。
 func Press(k string) tea.KeyPressMsg {

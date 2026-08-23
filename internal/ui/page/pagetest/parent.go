@@ -25,6 +25,9 @@ import (
 //
 // tea.Model の Update は interface を返すため、具体型で受け直すたびに型アサーションが
 // 要る。取り違えは Model が進まないまま緑になるので、panic で止める。
+//
+// **具体型で具体化すること**（`Update[App]` / `Update[*Spy]`）。M を interface 型で
+// 具体化すると next.(M) が常に成立し、この panic は働かない。
 func Update[M tea.Model](m M, msg tea.Msg) (M, tea.Cmd) {
 	next, cmd := m.Update(msg)
 	v, ok := next.(M)
@@ -137,6 +140,11 @@ func OpenTabOf(cmd tea.Cmd) (page.OpenTabMsg, bool) {
 
 // Discovered は検出が 1 周期終わった Model と、そのとき返った Cmd を返す。
 // err を渡すと期限切れ・失敗した周期になる（結果は取り込まれない）。
+//
+// **通し番号は 0 のままである。** 既に番号付きの周期を取り込んだ Model へ渡すと
+// discovery.Reconcile が追い抜かれた周期（msg.Seq < applied）と見て結果を捨てるため、
+// 検出が届かないまま**静かに緑になる**。番号を進めた Model に対して使う場合は、この
+// 関数ではなく discovery.Msg を直に組んで Seq を明示すること。
 func Discovered[M tea.Model](m M, err error) (M, tea.Cmd) {
 	return Update(m, discovery.Msg{
 		Result: runner.Result{Runners: []runner.Runner{SampleRunner()}},

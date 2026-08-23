@@ -1079,8 +1079,8 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 | `ui/page` | 1970 | 30 | pass |
 | `ui/organism/table` | 1969 | 31 | pass |
 | `ui/page/jobs` | 1684 | 316 | pass |
+| `ui/page/pagetest` | 1674 | 326 | pass |
 | `ui/keymap` | 1666 | 334 | pass |
-| `ui/page/pagetest` | 1666 | 334 | pass |
 | `ui/page/doctor` | 1580 | 420 | pass |
 | `ui/organism/pane` | 1559 | 441 | pass |
 | `ui/molecule/listrow` | 1523 | 477 | pass |
@@ -1099,7 +1099,7 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 | `ui/hostreq` | 283 | 1717 | pass |
 | `ui/page/runners/rowview` | 269 | 1731 | pass |
 | `ui/ghscope` | 268 | 1732 | pass |
-| `ui/organism/table/tabletest` | 238 | 1762 | pass |
+| `ui/organism/table/tabletest` | 242 | 1758 | pass |
 | `ui/page/progressmodal` | 140 | 1860 | pass |
 | `ui/page/disk/confirmmodal` | 136 | 1864 | pass |
 
@@ -1166,7 +1166,7 @@ Setup タブは追加・削除・バージョン更新の 3 操作と、フォ�
 `hostreq.StartOnce` / `workscan.StartOnce` へ寄せた。結果は 2191 行で、境界まで 9 行の
 まま据え置きである。**次に `ui` 直下へ足す Issue は、やはり足す前に何かを出すこと。**
 
-**5 周目の空け方（Issue #77）。** Issue #8 が `route_test.go` に足した通しの検証で 2199 行（残り -199 行）まで伸び、警告帯に入っていた。上限値は緩めず、本節が命じてきた 2 つの手を順に実行して 1988 行（残り 12 行）へ戻した。
+**5 周目の空け方（Issue #77）。** Issue #8 が `route_test.go` に足した通しの検証で 2199 行（残り -199 行）まで伸び、警告帯に入っていた。上限値は緩めず、本節が命じてきた 2 つの手を順に実行して 1988 行（残り 12 行）へ戻した。**本番コードに入れた手は 1 つだけである**——`Init` の `tea.Batch` を 1 行に畳んで `app.go` を 302 行から 299 行にした（**1 ディレクトリではなく 1 ファイル 300 行の警告**を解くためで、ディレクトリの 12 行はこれが無くても収まる）。
 
 1. **App の非公開な状態に触れない道具を `page/pagetest/parent.go` へ出した。** 親 Model を Msg で駆動するもの（`Update` / `SendKey` / `Press1` / `ApplyChrome`）、Cmd の束を解釈するもの（`IsQuit` / `OpenTabOf` / `TakeHostReq`）、周期を再現するもの（`Discovered` / `WorkScanStarts`）、spy の閉じ込め状態（`Blocked`）である。**`tea.Model` を型引数に取る**ことで、親 Model とタブの具体型のどちらからも同じ手で進められる。`ui` 直下の `helper_test.go` は `pagetest.Update[App]` のように型引数を固定して束縛するだけになり、呼び出し側の書き方は移す前と変わらない。
 2. **重複したテストを畳んだ**（表明は 1 つも落としていない）。端末サイズと runner 1 台の検出を配る 3 手が 4 箇所にあったのを `newAppWithRunner` へ、モーダル表示中と入力中で同じ 6 つの表明を並べていた 2 本を表駆動の 1 本へ、起動時の前提チェックの「失敗した周期では発行しない」「再検出のたびには走らせない」を 1 本の筋へ、`state()` に載る起動時の値を見る 3 本を 1 本へ寄せた。`withSpies` / `withStreams` が持っていた同じ走査も `replaceTabs` にまとめた。
@@ -1175,7 +1175,7 @@ Setup タブは追加・削除・バージョン更新の 3 操作と、フォ�
 
 **残りは Issue #9 で 125 行から 27 行へ減り、Issue #8 でついに超過した。** タブをまたぐ移動（`page.OpenTabMsg`）は親でしか実現できず、`keys.go` の `openTab` とその検証（`route_test.go` の 3 本）が加わったためである。検証に使う道具のうち App の非公開な状態に触れないもの（受け取った `Msg` を型で数える `Delivered`）は `page/pagetest` へ出してある。**次に `ui` 直下へ足す Issue は、まず既存のテストで `page/pagetest` へ出せるものを探すこと。** 超過した以上、テストを足す前に道具を出すこと。
 
-**余裕は「重複削減」ではなく「道具を `page/pagetest` へ出す」で作る。** Issue #31 でキーの配送を検証する道具を足したとき `ui` 直下は 1967 行（残り 33 行）まで詰まったが、走査の道具（`ScanKey`）とその形の網羅テストを `page/pagetest` へ移して 1875 行（残り 125 行）に戻した。`page/pagetest` は現在 1657 行で余裕があり（残り 343 行）、**そこは元々「タブと親で共用する検証の道具」の置き場である**（`helper_test.go` 冒頭の方針）。
+**余裕は「重複削減」ではなく「道具を `page/pagetest` へ出す」で作る。** Issue #31 でキーの配送を検証する道具を足したとき `ui` 直下は 1967 行（残り 33 行）まで詰まったが、走査の道具（`ScanKey`）とその形の網羅テストを `page/pagetest` へ移して 1875 行（残り 125 行）に戻した。`page/pagetest` は現在 1674 行で余裕があり（残り 326 行）、**そこは元々「タブと親で共用する検証の道具」の置き場である**（`helper_test.go` 冒頭の方針）。
 
 出せるものと出せないものの境目は「`App` の非公開な状態に触れるか」である。`ScanKey` は `page.ChromeMsg` / `page.GlobalKeyMsg` と `pagetest.Msgs` しか使わないので `App` の非公開な状態を 1 つも export せずに出せた。一方 `gate_test.go`（`a.chrome` / `next.active` / `after.inflight` / `tickMsg`）と `app_keys_test.go`（`a.tabs` / `a.active` / `a.chrome`）の**テスト本体**は非公開に触れる内部テストなので出せない。**これらを出そうとして export を増やすのは採らない**（`ui/organism/table` の本体を分割しない判断と、非公開の export を避ける点で理由を共有する）。**ただしテストが使う道具は別である**——Issue #77 は `press1` / `isQuit` / `blocked` を `page/pagetest` へ出した（どれも `tea.Model` の口と `page` の Msg しか使わない）。次に `ui` 直下へテストを足す Issue も、まず道具が `page/pagetest` へ出せないかを見ること。
 
@@ -1225,7 +1225,7 @@ Issue #31 で `table_test.go` の空振りしていたテスト（`View() != ""`
 
 `_test.go` ではなく通常のパッケージにしたのは行数上限のためである（`_test.go` に置くと `table` 直下と同じ予算を食う）。その代償として本番からも import できてしまうので、`page/pagetest` と同じく `TestNoProductionCodeImportsTestFixtures` の検査対象に登録してある（`page/pagetest/import_test.go` の `fixtures`）。**テスト用の道具を通常のパッケージとして足すときは、必ずここへ登録すること。**
 
-**残り 31 行はテスト 1 本ぶんしかない。次にこのディレクトリへ足す Issue は、まず `tabletest` へ出せるものを探すこと**（`tabletest` は 238 行で残り 1762 行ある）。出せないのは `fitcells_test.go` だけである——詰め（足りないセルを空文字で埋める）が `View()` からは観測できず、`fitCells` を白箱で見る内部テスト（`package table`）でしか固定できないためで、外へ出すには `fitCells` を export することになる。
+**残り 31 行はテスト 1 本ぶんしかない。次にこのディレクトリへ足す Issue は、まず `tabletest` へ出せるものを探すこと**（`tabletest` は 242 行で残り 1758 行ある）。出せないのは `fitcells_test.go` だけである——詰め（足りないセルを空文字で埋める）が `View()` からは観測できず、`fitCells` を白箱で見る内部テスト（`package table`）でしか固定できないためで、外へ出すには `fitCells` を export することになる。
 
 ## 部品を追加するときの手順
 
@@ -1288,4 +1288,4 @@ Issue #31 で `table_test.go` の空振りしていたテスト（`View() != ""`
 | 1.45 | 2026-08-24 | 「起動時に選択されているタブは `ActivateMsg` を受け取らない」を、受け取る形（Issue #63）と、配る場所が `Init` ではない理由へ書き換え。実装状況の「実装済み」に本 PR が新設した 7 パッケージ（`page/progressmodal` / `page/disk/confirmmodal` / `page/disk/cleanview` / `page/runners/rowview` / `discovery` / `workscan` / `ghscope`）を追加。ディレクトリの行数表を実測へ更新し、「4 周目の空け方」を追記 | Issue #63 で既定タブへも前面化を配るようにしたのに、本書は将来形で「配る必要がある」と書いたままで `page/lifecycle.go` の doc と正反対になっていた。実装状況の表は後続 Issue が「部品が有るか」を最初に引く場所であり、新設パッケージが載っていないと同じものをもう 1 つ作りかねない。行数表は予算の規範なので、実測とずれていると次の Issue が境界に当たってから気付くことになる |
 | 1.46 | 2026-08-24 | ディレクトリ構成のツリーに本 PR の新設 7 パッケージと既存の `hostreq` を追加。`ActivateMsg` の説明の識別子を実在しない `activateInitial` から `tabset.ActivateOnce` へ訂正。行数表と散文の数値を実測へ再更新（`ui` 2199 / 境界まで 1 行、`ui/page/runners` 2018、`ui/page/disk` 2128） | ツリーは「新しい部品をどこへ置くか」を最初に引く場所で、載っていないパッケージは同じ責務が作り直される。`activateInitial` は実装のどこにも無く、同じ文書の別の行は正しく `ActivateOnce` を挙げていた。行数は「足す前に空けよ」の判断材料なので、8 行の過大表示は警告機能を殺す |
 | 1.47 | 2026-08-24 | 「ディレクトリの行数」の表を実測へ更新（`ui` 2199 → 1988・pass、`ui/page/pagetest` 1483 → 1657）。`ui` 直下に「5 周目の空け方（Issue #77）」を追記し、「出せるものと出せないものの境目」を **テスト本体と道具は別** と読めるよう補正。ディレクトリ構成の `page/pagetest` の説明に親 Model の駆動を追記 | Issue #77。`ui` 直下が警告帯（2199 行）に入っていたのを、上限値を緩めず「道具を `page/pagetest` へ出す」「重複したテストを畳む」の 2 手で 1988 行へ戻した。本節は予算の規範なので、実測とずれていると次の Issue が境界に当たってから気付くことになる |
-| 1.48 | 2026-08-24 | `ui/organism/table` の節を「本体を分割しない判断」に改め、「空け方（Issue #65）」を追記。ディレクトリ構成のツリーと[コンポーネント設計](../components/overview.md#internalui)のサブパッケージ表に `organism/table/tabletest` を追加。「ディレクトリの行数」に空け方の 3 つの手を明記。本番からの import を止める検査の名前を `TestNoProductionCodeImportsTestFixtures` へ改名（`pagetest` と `tabletest` の 2 つを見るため）。行数表を実測へ更新（`ui/organism/table` 2157 → 1969・pass、`ui/page/pagetest` 1657 → 1666） | Issue #65。`ui/organism/table` が警告帯（2157 行・エラー境界まで 43 行）にあり、次に一覧の共通実装へ手を入れる Issue が上限に当たる状態だった。`.linterly.yml` の上限は緩めず、また本体の分割（`section[T]` の export が要る）も採らずに、テスト側のフィクスチャを一方向参照の別ディレクトリへ出して解消した。判断の記述と実測がずれていると、次の Issue が境界に当たってから気付くことになる |
+| 1.48 | 2026-08-24 | `ui/organism/table` の節を「本体を分割しない判断」に改め、「空け方（Issue #65）」を追記。ディレクトリ構成のツリーと[コンポーネント設計](../components/overview.md#internalui)のサブパッケージ表に `organism/table/tabletest` を追加。「ディレクトリの行数」に空け方の 3 つの手を明記。本番からの import を止める検査の名前を `TestNoProductionCodeImportsTestFixtures` へ改名（`pagetest` と `tabletest` の 2 つを見るため）。行数表を実測へ更新（`ui/organism/table` 2157 → 1969・pass、`ui/page/pagetest` 1657 → 1674） | Issue #65。`ui/organism/table` が警告帯（2157 行・エラー境界まで 43 行）にあり、次に一覧の共通実装へ手を入れる Issue が上限に当たる状態だった。`.linterly.yml` の上限は緩めず、また本体の分割（`section[T]` の export が要る）も採らずに、テスト側のフィクスチャを一方向参照の別ディレクトリへ出して解消した。判断の記述と実測がずれていると、次の Issue が境界に当たってから気付くことになる |
