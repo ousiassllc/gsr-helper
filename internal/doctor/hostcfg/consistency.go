@@ -151,9 +151,22 @@ func (c duplicateCheck) Run(ctx context.Context, in check.Input) []check.Result 
 	return out
 }
 
+// attachedUnit は実際に紐付いたユニット名を返す。紐付きが無ければ空。
+//
+// unitName と違い .service の記録値へフォールバックしない。ここで欲しいのは
+// 「systemd 側の実態」であり、記録値で埋めると .service だけが残った残骸
+// （svc.sh uninstall 後、ユニットは LoadState=not-found で紐付かない）を
+// 「一致している」と誤って緑にする。
+func attachedUnit(r runner.Runner) string {
+	if r.Svc == nil {
+		return ""
+	}
+	return r.Svc.Unit
+}
+
 // judge は runner 1 台ぶんの判定を返す。
 func (c duplicateCheck) judge(r runner.Runner, units []systemd.State) check.Result {
-	attached := unitName(r)
+	attached := attachedUnit(r)
 
 	if extra := extraUnits(r, attached, units); len(extra) > 0 {
 		return check.Of(c, check.Result{
@@ -186,12 +199,18 @@ func (c duplicateCheck) judge(r runner.Runner, units []systemd.State) check.Resu
 	// なるが、それは「一致している」ことの根拠にならない。重複ユニットの検出は
 	// .service の有無と無関係に成立するので、上の分岐は先に通してある。
 	if r.UnitName == "" || attached == "" {
+		// attached の空は「設定されていない」ではなく「紐付きが無い」ことを
+		// 表すので、orNone の「未設定」ではなく「なし」と出す。
+		attachedText := "なし"
+		if attached != "" {
+			attachedText = attached
+		}
 		return check.Of(c, check.Result{
 			Target:  r.Name(),
 			Status:  check.Skip,
 			Summary: "ユニット名の整合",
 			Detail: ".service に記録されたユニット名は " + orNone(r.UnitName) +
-				"、紐付いているユニットは " + orNone(attached) +
+				"、紐付いているユニットは " + attachedText +
 				" で、突き合わせる材料が揃いません。",
 		})
 	}

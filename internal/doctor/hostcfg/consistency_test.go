@@ -193,11 +193,20 @@ func TestUnitNameWithoutBaselineIsSkipped(t *testing.T) {
 	withoutRecord := newRunner("build01", dir, unit)
 	withoutRecord.UnitName = "" // .service が無く記録値を持たない
 
+	// svc.sh uninstall の残骸で .service だけが残り、ユニットは
+	// LoadState=not-found で紐付かない状態。記録値へフォールバックすると
+	// 「記録値どうし」を突き合わせて緑になってしまう。
+	// ディレクトリを分けるのは重複の判定に入らないようにするためである。
+	withoutAttachment := newRunner("build02", "/opt/runners/build02",
+		"actions.runner.acme.build02.service")
+	withoutAttachment.Svc = nil
+
 	tests := map[string]struct {
 		runner runner.Runner
 		want   check.Status
 	}{
-		".service の記録が無い": {runner: withoutRecord, want: check.Skip},
+		".service の記録が無い":        {runner: withoutRecord, want: check.Skip},
+		".service の記録はあるが紐付きが無い": {runner: withoutAttachment, want: check.Skip},
 		// ディレクトリを分けるのは、同じ dir を指すユニットがあると
 		// 重複の判定（そちらが先）に入ってしまうためである。
 		"記録も紐付きも無い": {runner: newRunner("build02", "/opt/runners/build02", ""), want: check.Skip},
