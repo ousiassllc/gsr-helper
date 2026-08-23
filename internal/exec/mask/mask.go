@@ -144,14 +144,7 @@ func byKey(args []string) []string {
 
 	// パス 1: 要素単体のマスク。隣を一切見ない。
 	for i, arg := range args {
-		if key, val, ok := strings.Cut(arg, "="); ok {
-			out[i] = maskInline(key, val)
-			continue
-		}
-		// KEY=VALUE でない要素はヘッダ 1 行の可能性がある。maskHeader は
-		// ":" の前が秘密情報を示すときだけ置換するため、-H で渡された行と
-		// -HAuthorization: ... の密着形の両方をここで潰せる。
-		out[i] = maskHeader(arg)
+		out[i] = maskElement(arg)
 	}
 
 	// パス 2: オプション名の次の要素を値としてマスクする。
@@ -178,6 +171,39 @@ func byKey(args []string) []string {
 		}
 	}
 	return out
+}
+
+// maskElement は段 1 のパス 1 が要素 1 つに対して行うマスク。
+//
+// 要素は KEY=VALUE 形式かヘッダ 1 行（Name: value）のどちらかとして解釈する。
+// 判定を「= があるか」だけで行うと、値に "=" を含むヘッダ 1 行
+// （Authorization: Basic dXNlcjpwYXNz= のような base64 のパディング）が
+// KEY=VALUE と誤認され、キー名として扱われた ": " から後ろの資格情報の本体が
+// "=" の左に残る（Issue #62）。そこで最初の "=" より左に ":" があるとき、
+// つまり ":" が "=" に先行するときはヘッダ 1 行の解釈を先に試す。
+//
+// ヘッダとして解釈できなかった（maskHeader が何も置換しなかった）場合は
+// KEY=VALUE の解釈へ落とす。https://x/p?api_key=SECRET のようにスキームの ":"
+// を含むだけの要素まで KEY=VALUE から外れると、キー名で拾えていた値が
+// マスクされなくなり、段 1 が弱まるためである。
+//
+// この順序でもマスクは弱まらない。ヘッダ解釈を採るのは ":" が "=" に先行し、
+// かつ ":" の前が秘密情報らしいときだけで、そのとき maskHeader が残すのは
+// 最初の ":" より前だけであり、maskInline が残す最初の "=" より前より短い。
+func maskElement(arg string) string {
+	key, val, hasEq := strings.Cut(arg, "=")
+	if !hasEq {
+		// KEY=VALUE でない要素はヘッダ 1 行の可能性がある。maskHeader は
+		// ":" の前が秘密情報を示すときだけ置換するため、-H で渡された行と
+		// -HAuthorization: ... の密着形の両方をここで潰せる。
+		return maskHeader(arg)
+	}
+	if strings.Contains(key, ":") {
+		if masked := maskHeader(arg); masked != arg {
+			return masked
+		}
+	}
+	return maskInline(key, val)
 }
 
 // maskInline は KEY=VALUE 形式の 1 要素をマスクする。
