@@ -630,7 +630,7 @@ bubbletea の Model 群。**内部を Atomic Design で階層化する。** 部�
 | `ui/page/<tab>` | page | タブ 1 枚（`tea.Model`）。organism を構成し、キー入力をドメイン層の `tea.Cmd` に変換する。Setup タブ（`ui/page/setup`）が呼ぶのは `internal/setup` と `internal/setup/job` で、GitHub API と tarball はその内側にある |
 | `ui/page/runnerdetail` | page | runner の詳細画面。Runners / Jobs が共用するモーダルで、タブではない。依存は `page/runnerdetail` → `page` の一方向 |
 | `ui/page/runnerop` | page | runner に対するサービス制御の起点（対象の決定・確認ダイアログ・実行・結果の報告）。Runners / Jobs / 詳細画面が共用し、タブではない。依存は `page/runnerop` → `page` / `page/action` / `page/runnerdetail` / `organism/dialog` / `svc` の一方向 |
-| `ui/page/pagetest` | page | `page/<tab>` **と親 Model** が共用するテスト用の道具（共有状態・`Spy`・打鍵の組み立て・`Cmd` の展開と走査（`Msgs` / `ScanKey`）・長寿命の購読を模した `StreamPage`）。**テスト専用で本番からは import しない**（`TestNoProductionCodeImportsPagetest` が本番ファイルの import を読んで検査する） |
+| `ui/page/pagetest` | page | `page/<tab>` **と親 Model** が共用するテスト用の道具（共有状態・`Spy`・打鍵の組み立て・`Cmd` の展開と走査（`Msgs` / `ScanKey`）・長寿命の購読を模した `StreamPage`）。**テスト専用で本番からは import しない**（`TestNoProductionCodeImportsTestFixtures` が本番ファイルの import を読んで検査する） |
 | `ui/template` | template | 画面共通の枠（ヘッダ / タブ / 本体 / 状態行 / フッタ、モーダル、2 ペイン）。中身を知らない |
 | `ui/organism` | organism | カーソルと選択を持つ対話的な部品（`ChoiceList`）。`tea.Model` は実装せず `bubbles` 流の署名に揃える |
 | `ui/organism/table` | organism | 区画に分かれた一覧の共通実装（`bubbles/table` のラッパー） |

@@ -12,7 +12,7 @@
 // 2000 行）を押し上げるだけになる（atomic-design.md のディレクトリの行数）。
 //
 // **本番の経路からは import しない。** 通常のパッケージである以上 Go は止められない
-// ので、import_test.go の TestNoProductionCodeImportsPagetest が各パッケージの本番
+// ので、import_test.go の TestNoProductionCodeImportsTestFixtures が各パッケージの本番
 // ファイルの import を読んで検査する（Issue #45）。page の内部テスト（package page）
 // からも import できない（このパッケージが page を import するため循環になる）ので、
 // そちらは自分の helper_test.go を持つ。

@@ -96,7 +96,7 @@ internal/ui/
 
 `page/pagetest` は `page` 自身の内部テストからは使えない（import が循環する）。`page` のテストは自前のスタブを持つ。
 
-**`page/pagetest` は本番の経路から import しない。** `_test.go` ではなく通常のパッケージなので Go は止められず、混入すれば `exec.NewFake()` と固定フィクスチャがそのまま製品に載る。規約ではなく `TestNoProductionCodeImportsPagetest` が各パッケージの本番ファイルの import を読んで止める。
+**`page/pagetest` は本番の経路から import しない。** `_test.go` ではなく通常のパッケージなので Go は止められず、混入すれば `exec.NewFake()` と固定フィクスチャがそのまま製品に載る。規約ではなく `TestNoProductionCodeImportsTestFixtures` が各パッケージの本番ファイルの import を読んで止める（同じ検査が `organism/table/tabletest` も見る）。
 
 階層をパッケージで分けることで、**依存の方向を Go の import で機械的に強制する**。
 
