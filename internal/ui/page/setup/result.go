@@ -85,14 +85,15 @@ func reportLines(res setup.Result, err error) []string {
 	}
 	out = append(out, "  "+firstLine(err.Error()))
 
+	// 並びは screens.md の進捗のモックに合わせる（完了 → 未実行 → 残る旨）。
 	if n := len(res.Succeeded); n > 0 {
-		out = append(out,
-			"完了: "+strconv.Itoa(n)+" 台（"+strings.Join(res.Succeeded, ", ")+"）",
-			strings.Join(res.Succeeded, ", ")+" はそのまま残っています。",
-		)
+		out = append(out, "完了: "+strconv.Itoa(n)+" 台（"+strings.Join(res.Succeeded, ", ")+"）")
 	}
 	if n := len(res.Remaining); n > 0 {
 		out = append(out, "未実行: "+strconv.Itoa(n)+" 台（"+strings.Join(res.Remaining, ", ")+"）")
+	}
+	if len(res.Succeeded) > 0 {
+		out = append(out, strings.Join(res.Succeeded, ", ")+" はそのまま残っています。")
 	}
 	return out
 }

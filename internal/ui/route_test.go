@@ -6,6 +6,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/ousiassllc/gsr-helper/internal/exec"
+	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
 )
@@ -150,4 +151,51 @@ func TestOpenTabIgnoresUnknownTitle(t *testing.T) {
 	if cmd != nil {
 		t.Error("知らない名前で Cmd を発行している")
 	}
+}
+
+// Runners 一覧の n / D / u は Setup タブへ移す（screens.md の画面遷移）。
+//
+// **確認ダイアログは移動先が出す。** 移動元でも出すと同じ操作の確認が 2 箇所に
+// 分かれ、起点によって中身が食い違いうる。打鍵が page.OpenTabMsg になり、親が
+// それを解いて Setup が前面に出るまでを通しで見る。
+func TestRunnerKeysOpenSetupTab(t *testing.T) {
+	for _, k := range []string{"n", "D", "u"} {
+		t.Run(k, func(t *testing.T) {
+			f := exec.NewFake()
+			a := newApp(f)
+			a, _ = update(a, tea.WindowSizeMsg{Width: 100, Height: 30})
+			a, _ = update(a, discoveredMsg{
+				seq:    1,
+				result: runner.Result{Runners: []runner.Runner{pagetest.SampleRunner()}},
+				err:    nil,
+			})
+
+			a, cmd := update(a, press(k))
+			open := openTabOf(t, cmd)
+			if open.Title != page.TabSetup {
+				t.Errorf("移動先 = %q, want %q", open.Title, page.TabSetup)
+			}
+
+			a, _ = update(a, open)
+			if got := a.tabs[a.active].Title; got != page.TabSetup {
+				t.Errorf("%q を押した後のタブ = %q, want %q", k, got, page.TabSetup)
+			}
+			if len(f.Calls()) != 0 {
+				t.Errorf("移動元がコマンドを発行している: %v", f.Calls())
+			}
+		})
+	}
+}
+
+// openTabOf は Cmd の結果から page.OpenTabMsg を取り出す。
+func openTabOf(t *testing.T, cmd tea.Cmd) page.OpenTabMsg {
+	t.Helper()
+
+	for _, msg := range pagetest.Msgs(cmd) {
+		if open, ok := msg.(page.OpenTabMsg); ok {
+			return open
+		}
+	}
+	t.Fatal("page.OpenTabMsg が発行されていない")
+	return page.OpenTabMsg{Title: "", Msg: nil}
 }

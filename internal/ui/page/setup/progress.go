@@ -34,6 +34,10 @@ func (m Model) openProgress(plan setup.Plan) tea.Cmd {
 }
 
 // updateProgress は進捗表示へ現在の状態を送る。
+//
+// 開き直すのではなく Open を使い回すのは、Overlay の push が同じ種類を
+// 二重に積まない（既にあれば最前面へ移すだけ）ためである。進捗 1 件ごとに
+// 呼ぶので、積み上がる実装だと数百枚のモーダルが溜まる。
 func (m Model) updateProgress() tea.Cmd {
 	if m.run == nil {
 		return nil

@@ -108,6 +108,9 @@ func (m *Model) back() {
 	m.tbl.ClearFilter()
 }
 
+// noticeNoTarget は対象が 1 台も無いときの理由。
+const noticeNoTarget = "対象の runner がありません"
+
 // isSetupKey は Setup タブへ移す操作キー（n / D / u）かを返す。
 func (m Model) isSetupKey(press tea.KeyPressMsg) bool {
 	k := m.st.Keys.Runner
@@ -136,6 +139,10 @@ func (m *Model) openSetup(press tea.KeyPressMsg) tea.Cmd {
 		op, binding, targets = page.SetupUpdate, k.Update, m.targets()
 	}
 
+	if op != page.SetupAdd && len(targets) == 0 {
+		m.notice = noticeNoTarget
+		return nil
+	}
 	if reason, ok := m.setupBlocked(binding, targets); !ok {
 		m.notice = reason
 		return nil

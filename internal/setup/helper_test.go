@@ -22,6 +22,7 @@ func addSpec() setup.AddSpec {
 		NamePrefix:    "build01",
 		Count:         3,
 		StartIndex:    5,
+		Names:         nil,
 		Labels:        []string{"gpu"},
 		WorkDir:       "_work",
 		RunnerGroup:   "Default",

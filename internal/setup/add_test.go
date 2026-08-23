@@ -173,3 +173,58 @@ func TestPlanAddWarnsAboutTokenInProcessArgs(t *testing.T) {
 		t.Errorf("ジョブ実行中が無いのに警告が出ている: %v", quiet.Warnings)
 	}
 }
+
+// 1 台ずつのウィザード追加は入力した名前をそのまま使う（FR-12）。
+//
+// 連番の規則（FR-11）を通すと `gpu-box` が `gpu-box-1` になり、指定した名前で
+// 登録されない。
+func TestPlanAddUsesExplicitNamesVerbatim(t *testing.T) {
+	t.Parallel()
+
+	spec := addSpec()
+	spec.Names = []string{"gpu-box"}
+
+	p, err := setup.PlanAdd(spec)
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if want := []string{"gpu-box"}; !slices.Equal(p.Names(), want) {
+		t.Errorf("名前 = %v, want %v", p.Names(), want)
+	}
+	if want := []string{"/opt/runners/gpu-box"}; !slices.Equal(p.Dirs(), want) {
+		t.Errorf("ディレクトリ = %v, want %v", p.Dirs(), want)
+	}
+	if !strings.Contains(p.Units[0].CommandLines()[0], "--name gpu-box ") {
+		t.Errorf("config.sh に指定した名前が渡っていない: %s", p.Units[0].CommandLines()[0])
+	}
+}
+
+// 名前を明示した場合も既存との重複と文字種は検証する。
+func TestPlanAddValidatesExplicitNames(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		names    []string
+		existing []string
+		want     error
+	}{
+		"既存と重複":    {[]string{"build01-1"}, []string{"build01-1"}, valid.ErrDuplicateName},
+		"先頭が -":    {[]string{"-rf"}, nil, valid.ErrLeadingDash},
+		"使えない文字":   {[]string{"a b"}, nil, valid.ErrBadNameChar},
+		"指定どうしで重複": {[]string{"dup", "dup"}, nil, valid.ErrDuplicateName},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			spec := addSpec()
+			spec.Names = tt.names
+			spec.Existing = tt.existing
+
+			if _, err := setup.PlanAdd(spec); !errors.Is(err, tt.want) {
+				t.Errorf("err = %v, want %v", err, tt.want)
+			}
+		})
+	}
+}
