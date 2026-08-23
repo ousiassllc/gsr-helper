@@ -31,6 +31,14 @@ var ErrUnsafePath = errors.New("tar のエントリが展開先の外を指し�
 // ErrTooLarge は展開後のサイズが上限を超えた場合のエラー。
 var ErrTooLarge = errors.New("tar の展開サイズが上限を超えています")
 
+// ErrPreservedLink は保持対象へリンクで潜り込むエントリを拒否した場合のエラー（FR-21）。
+//
+// `.runner` を指すリンクとその配下のエントリを並べれば、保持対象の中身を書き換え
+// られる。展開先の外へは出ないため os.Root では止まらず、runner の登録情報
+// （.runner / .credentials）がバージョン更新のたびに壊れる。正規の tarball が
+// こうしたリンクを含むことは無いので、読み飛ばさず展開そのものを中止する。
+var ErrPreservedLink = errors.New("tar のエントリが保持対象へリンクで潜り込んでいます")
+
 // Info は取得する tarball の情報。internal/gh の Download から詰め替えて渡す。
 type Info struct {
 	// URL は tarball の取得先。

@@ -3,6 +3,7 @@ package tarball
 import (
 	"archive/tar"
 	"compress/gzip"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -54,12 +55,16 @@ type pendingDir struct {
 //
 // tar の中身は信用しない。展開先を os.Root で根に固定した上で、絶対パス・".." を
 // 含むエントリ・展開先の外を指すリンクを拒否し、展開量にも上限を設ける。
-func Extract(src, destDir string, keep []string) error {
-	return extractTo(src, destDir, keep, limits{total: MaxTotalBytes, entry: MaxEntryBytes})
+//
+// ctx はエントリの境界で見る。runner 本体は展開後で 300MB 程度あり、終了要求から
+// 完了まで待たせないために途中で打ち切れるようにしてある
+// （docs/architecture/security.md「context でキャンセルできる」）。
+func Extract(ctx context.Context, src, destDir string, keep []string) error {
+	return extractTo(ctx, src, destDir, keep, limits{total: MaxTotalBytes, entry: MaxEntryBytes})
 }
 
 // extractTo は上限を指定して展開する。Extract の実体。
-func extractTo(src, destDir string, keep []string, lim limits) error {
+func extractTo(ctx context.Context, src, destDir string, keep []string, lim limits) error {
 	if strings.TrimSpace(destDir) == "" {
 		return errors.New("展開先ディレクトリが空です")
 	}
@@ -87,17 +92,23 @@ func extractTo(src, destDir string, keep []string, lim limits) error {
 	}
 	defer func() { _ = root.Close() }()
 
-	return extractAll(tar.NewReader(gz), root, keep, lim)
+	return extractAll(ctx, tar.NewReader(gz), root, keep, lim)
 }
 
 // extractAll は tar のエントリを順に展開する。
-func extractAll(tr *tar.Reader, root *os.Root, keep []string, lim limits) error {
+func extractAll(ctx context.Context, tr *tar.Reader, root *os.Root, keep []string, lim limits) error {
 	var (
 		written int64
 		dirs    []pendingDir
 	)
+	links := linkSet{}
 
 	for {
+		// 打ち切りはエントリの境界で見る。書きかけのファイルを残さずに済む。
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
 		hdr, err := tr.Next()
 		if errors.Is(err, io.EOF) {
 			return restoreDirModes(root, dirs)
@@ -110,8 +121,16 @@ func extractAll(tr *tar.Reader, root *os.Root, keep []string, lim limits) error 
 		if err != nil {
 			return err
 		}
-		// 空はアーカイブの根そのもの。keep は runner 自身の状態なので触らない。
-		if name == "" || isPreserved(name, keep) {
+		// 空はアーカイブの根そのもの。
+		if name == "" {
+			continue
+		}
+		if err := links.checkKeep(hdr, name, keep); err != nil {
+			return err
+		}
+		// keep は runner 自身の状態なので触らない。判定は見かけの名前ではなく、
+		// このアーカイブが作ったリンクを辿った先で行う（FR-21）。
+		if isPreserved(links.resolve(name), keep) {
 			continue
 		}
 
@@ -119,6 +138,7 @@ func extractAll(tr *tar.Reader, root *os.Root, keep []string, lim limits) error 
 		if err != nil {
 			return err
 		}
+		links.remember(hdr, name)
 		written += n
 	}
 }

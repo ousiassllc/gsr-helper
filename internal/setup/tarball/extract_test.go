@@ -1,6 +1,7 @@
 package tarball
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -20,7 +21,7 @@ func TestExtractWritesFilesDirsAndLinks(t *testing.T) {
 	})
 	dest := t.TempDir()
 
-	if err := Extract(src, dest, PreservedNames()); err != nil {
+	if err := Extract(t.Context(), src, dest, PreservedNames()); err != nil {
 		t.Fatalf("Extract がエラーを返した: %v", err)
 	}
 
@@ -87,7 +88,7 @@ func TestExtractKeepsPreservedNames(t *testing.T) {
 		}
 	}
 
-	if err := Extract(src, dest, PreservedNames()); err != nil {
+	if err := Extract(t.Context(), src, dest, PreservedNames()); err != nil {
 		t.Fatalf("Extract がエラーを返した: %v", err)
 	}
 
@@ -151,7 +152,7 @@ func TestExtractRejectsPathsOutsideDest(t *testing.T) {
 				t.Fatalf("%s の作成に失敗した: %v", outside, err)
 			}
 
-			err := Extract(writeTarGz(t, tt.entries), dest, PreservedNames())
+			err := Extract(t.Context(), writeTarGz(t, tt.entries), dest, PreservedNames())
 			if err == nil {
 				t.Fatal("Extract が展開先の外を指すエントリを受け入れた")
 			}
@@ -199,7 +200,7 @@ func TestExtractRejectsOversizedEntries(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			dest := t.TempDir()
 
-			err := extractTo(writeTarGz(t, tt.entries), dest, PreservedNames(), tt.lim)
+			err := extractTo(t.Context(), writeTarGz(t, tt.entries), dest, PreservedNames(), tt.lim)
 			if err == nil {
 				t.Fatal("extractTo が上限を超える展開を受け入れた")
 			}
@@ -219,10 +220,29 @@ func TestExtractDefaultLimits(t *testing.T) {
 	}
 }
 
+// 終了要求を受けたら大きな tarball の展開でも待たせない（security.md）。
+func TestExtractStopsOnCanceledContext(t *testing.T) {
+	src := writeTarGz(t, []tarEntry{
+		regEntry("./config.sh", 0o755, "config\n"),
+		regEntry("./svc.sh", 0o755, "svc\n"),
+	})
+	dest := t.TempDir()
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	if err := Extract(ctx, src, dest, PreservedNames()); !errors.Is(err, context.Canceled) {
+		t.Fatalf("エラーが context.Canceled ではない: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(dest, "config.sh")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("キャンセル済みなのに展開している: %v", err)
+	}
+}
+
 func TestExtractRejectsBadInput(t *testing.T) {
 	dest := t.TempDir()
 
-	if err := Extract(filepath.Join(t.TempDir(), "no-such.tar.gz"), dest, nil); err == nil {
+	if err := Extract(t.Context(), filepath.Join(t.TempDir(), "no-such.tar.gz"), dest, nil); err == nil {
 		t.Error("存在しない tarball でエラーにならなかった")
 	}
 
@@ -230,11 +250,11 @@ func TestExtractRejectsBadInput(t *testing.T) {
 	if err := os.WriteFile(plain, []byte("これは gzip ではない"), 0o600); err != nil {
 		t.Fatalf("%s の作成に失敗した: %v", plain, err)
 	}
-	if err := Extract(plain, dest, nil); err == nil {
+	if err := Extract(t.Context(), plain, dest, nil); err == nil {
 		t.Error("gzip でないファイルでエラーにならなかった")
 	}
 
-	if err := Extract(writeTarGz(t, nil), "", nil); err == nil {
+	if err := Extract(t.Context(), writeTarGz(t, nil), "", nil); err == nil {
 		t.Error("展開先が空でエラーにならなかった")
 	}
 }
