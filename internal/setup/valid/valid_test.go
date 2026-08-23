@@ -190,17 +190,44 @@ func TestURL(t *testing.T) {
 }
 
 // 埋め込まれた認証情報を守るための検証が、その認証情報を文言に載せてはならない。
+//
+// URL の解析に失敗する入力（% の後ろが 16 進でない等）も同じ扱いにする。
+// 解析前に認証情報を弾かないと、解析エラーの経路が生の入力をそのまま文言に
+// 載せ、PAT を確認プレビューと監査ログへ書き出してしまう。
 func TestURLErrorDoesNotEchoCredentials(t *testing.T) {
 	t.Parallel()
 
-	const secret = "ghp_AAAABBBBCCCCDDDDEEEEFFFFGGGGHHHH"
+	const secret = "ghp_SECRETVALUEAAAABBBBCCCCDDDDEEEE"
 
-	_, err := valid.URL("https://x:" + secret + "@github.com/orgs/foo")
-	if err == nil {
-		t.Fatal("err = nil, want ErrURLUserInfo")
+	tests := map[string]struct {
+		in      string
+		wantErr error
+	}{
+		"解析できる認証情報つき URL": {
+			in:      "https://x:" + secret + "@github.com/orgs/foo",
+			wantErr: valid.ErrURLUserInfo,
+		},
+		"解析に失敗する認証情報つき URL": {
+			in:      "https://x:" + secret + "%@github.com/orgs/foo",
+			wantErr: valid.ErrURLUserInfo,
+		},
 	}
-	if strings.Contains(err.Error(), secret) {
-		t.Errorf("エラー文言に認証情報が載っている: %s", err)
+
+	for label, tt := range tests {
+		t.Run(label, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := valid.URL(tt.in)
+			if err == nil {
+				t.Fatalf("URL = %q, err = nil, want %v", got, tt.wantErr)
+			}
+			if !errors.Is(err, tt.wantErr) {
+				t.Errorf("err = %v, want %v", err, tt.wantErr)
+			}
+			if strings.Contains(err.Error(), secret) {
+				t.Errorf("エラー文言に認証情報が載っている: %s", err)
+			}
+		})
 	}
 }
 

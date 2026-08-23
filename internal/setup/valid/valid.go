@@ -139,25 +139,52 @@ func Dir(field, path string) (string, error) {
 
 // URL は登録先の URL を検証する。ホストが GitHub であることを求める。
 //
-// 認証情報を埋め込んだ URL も拒否する。エラー文言に URL そのものは載せない。
+// 認証情報を埋め込んだ URL も拒否する。エラー文言に入力の一部でも載せない。
 // 載せると、埋め込まれた認証情報を守るための検証がその認証情報を監査ログへ
 // 書き出すことになる。
+//
+// 認証情報の判定は url.Parse より前に行う。`https://x:pat%@github.com/...` の
+// ように解析自体が失敗する入力では u.User を見る機会がなく、解析エラーの側で
+// 弾くことになるためである。どちらの経路でも同じ ErrURLUserInfo を返し、
+// 利用者に「認証情報を外せば通る」と伝わるようにする。
 func URL(raw string) (string, error) {
 	s := strings.TrimSpace(raw)
 	if s == "" {
 		return "", ErrNotGitHub
 	}
+	if hasUserInfo(s) {
+		return "", fmt.Errorf("登録先の URL: %w", ErrURLUserInfo)
+	}
 	u, err := url.Parse(s)
 	if err != nil {
-		return "", fmt.Errorf("URL %q: %w", s, ErrNotGitHub)
+		return "", fmt.Errorf("登録先の URL: %w", ErrNotGitHub)
 	}
 	if u.User != nil {
 		return "", fmt.Errorf("登録先の URL: %w", ErrURLUserInfo)
 	}
 	if u.Scheme != "https" || !isGitHubHost(u.Host) {
-		return "", fmt.Errorf("URL %q: %w", s, ErrNotGitHub)
+		return "", fmt.Errorf("登録先の URL: %w", ErrNotGitHub)
 	}
 	return strings.TrimSuffix(s, "/"), nil
+}
+
+// hasUserInfo は URL の authority 部に @ があるか、つまり利用者名やパスワードが
+// 埋め込まれているかを返す。
+//
+// url.Parse に頼らないのは、解析が失敗する入力でも認証情報を検出するためである。
+// 判定対象を "://" から最初の / ? # までに限るのは、パスやクエリに含まれる @
+// （`https://github.com/orgs/a@b` など）を認証情報と誤認しないためである。
+func hasUserInfo(s string) bool {
+	const sep = "://"
+	i := strings.Index(s, sep)
+	if i < 0 {
+		return false
+	}
+	authority := s[i+len(sep):]
+	if j := strings.IndexAny(authority, "/?#"); j >= 0 {
+		authority = authority[:j]
+	}
+	return strings.Contains(authority, "@")
 }
 
 // isGitHubHost はホスト名が GitHub のものかを返す。
