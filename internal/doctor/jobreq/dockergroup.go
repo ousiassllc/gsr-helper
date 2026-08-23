@@ -64,21 +64,95 @@ func (c dockerGroupCheck) Run(_ context.Context, in check.Input) []check.Result 
 }
 
 // judge は runner 1 台ぶんの判定を返す。
+//
+// 実行ユーザーの表記で経路が分かれる。UID の 10 進表記は /etc/group のメンバー欄
+// （名前）と突き合わせられないためである。
 func (c dockerGroupCheck) judge(in check.Input, r runner.Runner, gid string, members []string) check.Result {
-	user := r.RunAsUser
+	if numericUser(r.RunAsUser) {
+		return c.judgeByProc(in, r, gid)
+	}
+	return c.judgeByName(in, r, gid, members)
+}
 
-	// UID の 10 進表記は /etc/group のメンバー欄（名前）と突き合わせられない。
-	// 突き合わせられないことを FAIL にすると、名前を解決できないだけのホストで
-	// 台数ぶんの赤が並ぶ。
-	if numericUser(user) {
+// judgeByProc は UID の 10 進表記の runner を、稼働中プロセスの補助グループだけで判定する。
+//
+// **名前が解決できなくても判定を諦めない。** /proc/<pid>/status の Groups 行は
+// GID の並びなので、docker の GID と直接比較できる。ここを一律 SKIP にすると、
+// 仕様が最も想定している環境（NSS が使えない・LDAP 上のユーザー。data-model.md）
+// でだけ FR-43 の 1 項目が常に未判定になる。
+//
+// **「未所属」と「未反映」は区別できない。** どちらも Groups 行に GID が現れない
+// という同じ形になる。区別できないことを Detail に書いたうえで、対処は usermod を
+// 含む側（groupRemedy）を出す。既に所属しているユーザーへの usermod は無害だが、
+// 逆に未所属のユーザーを再起動しても直らないためである。
+func (c dockerGroupCheck) judgeByProc(in check.Input, r runner.Runner, gid string) check.Result {
+	note := numericUserNote(r.RunAsUser)
+
+	if r.Listener == nil {
 		return check.Of(c, check.Result{
 			ID: "", Category: "", Target: r.Name(), Status: check.Skip,
 			Summary: "docker グループ所属",
-			Detail: "実行ユーザーが UID の 10 進表記（" + user + "）で、" +
-				"/etc/group のメンバー欄（ユーザー名）と突き合わせられません。",
+			Detail:  note + "稼働中の Runner.Listener も無いため、補助グループからも判定できません。",
+			Impact:  "", Remedy: "", Startup: false,
+		})
+	}
+
+	pid := r.Listener.PID
+	groups, err := procGroups(in, pid)
+	if err != nil {
+		return check.Of(c, check.Result{
+			ID: "", Category: "", Target: r.Name(), Status: check.Warn,
+			Summary: "docker グループの反映を確認できない",
+			Detail: note + "稼働中の Runner.Listener（PID " + strconv.Itoa(pid) +
+				"）の補助グループも読めませんでした: " + err.Error(),
+			Impact:  impactDockerSocket,
+			Remedy:  numericUserRemedy(r.RunAsUser),
+			Startup: false,
+		})
+	}
+
+	if contains(groups, gid) {
+		return check.Of(c, check.Result{
+			ID: "", Category: "", Target: r.Name(), Status: check.OK,
+			Summary: "docker グループに所属",
+			Detail: note + "稼働中の Runner.Listener（PID " + strconv.Itoa(pid) +
+				"）の補助グループに docker の GID " + gid + " があり、反映されています。",
 			Impact: "", Remedy: "", Startup: false,
 		})
 	}
+
+	return check.Of(c, check.Result{
+		ID: "", Category: "", Target: r.Name(), Status: check.Fail,
+		Summary: "docker グループが未反映",
+		Detail: note + "稼働中の Runner.Listener（PID " + strconv.Itoa(pid) +
+			"）の補助グループに docker の GID " + gid + " がありません。" +
+			"未所属なのか、所属済みで既存プロセスに未反映なのかはここでは区別できません。",
+		Impact:  impactDockerSocket,
+		Remedy:  numericUserRemedy(r.RunAsUser),
+		Startup: false,
+	})
+}
+
+// numericUserNote は UID の 10 進表記のときに Detail の先頭へ必ず添える但し書き。
+//
+// どの判定に転んでも「/etc/group との突き合わせはしていない」ことを残す。残さないと、
+// 補助グループだけを見た OK が「メンバー欄も確認済み」と読まれる。
+func numericUserNote(user string) string {
+	return "実行ユーザーが UID の 10 進表記（" + user + "）のため、" +
+		"/etc/group のメンバー欄（ユーザー名）との突き合わせはできません。"
+}
+
+// numericUserRemedy は UID の 10 進表記のときのグループ追加手順を返す。
+//
+// usermod はログイン名しか受け付けないので、UID をそのまま埋めた行は貼っても通らない。
+// 埋める先は <...> のまま残し、どの UID のユーザー名を書くのかだけを示す。
+func numericUserRemedy(user string) string {
+	return strings.ReplaceAll(groupRemedy, "<user>", "<UID "+user+" のユーザー名>")
+}
+
+// judgeByName は /etc/group のメンバー欄と突き合わせられる runner を判定する。
+func (c dockerGroupCheck) judgeByName(in check.Input, r runner.Runner, gid string, members []string) check.Result {
+	user := r.RunAsUser
 
 	if !contains(members, user) {
 		return check.Of(c, check.Result{

@@ -157,22 +157,98 @@ func TestDockerGroupSkips(t *testing.T) {
 	}
 }
 
-// UID の 10 進表記は /etc/group のメンバー欄と突き合わせられないので SKIP。
-// 突き合わせられないことを FAIL にすると台数ぶんの赤が並ぶ。
-func TestDockerGroupNumericUserIsSkipped(t *testing.T) {
+// UID の 10 進表記でも、稼働中プロセスがあれば補助グループで判定する。
+//
+// /proc/<pid>/status の Groups 行は GID の並びなので、ユーザー名を解決できなくても
+// docker の GID と直接比較できる。一律 SKIP にすると、仕様が最も想定している環境
+// （NSS が使えない・LDAP 上のユーザー）でだけ FR-43 の 1 項目が常に未判定になる。
+func TestDockerGroupNumericUserJudgesByProcGroups(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		listener   int
+		procGroups []string
+		want       check.Status
+		wantSum    string
+	}{
+		"補助グループに docker の GID がある": {
+			listener: 4242, procGroups: []string{"27", "998"},
+			want: check.OK, wantSum: "docker グループに所属",
+		},
+		"補助グループに docker の GID が無い": {
+			listener: 4242, procGroups: []string{"27"},
+			want: check.Fail, wantSum: "docker グループが未反映",
+		},
+		"稼働中プロセスが無いので判定できない": {
+			listener: 0, procGroups: nil,
+			want: check.Skip, wantSum: "docker グループ所属",
+		},
+		"稼働中プロセスの補助グループを読めない": {
+			listener: 4242, procGroups: nil,
+			want: check.Warn, wantSum: "docker グループの反映を確認できない",
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			status := map[int]string{}
+			if tt.listener > 0 && tt.procGroups != nil {
+				status[tt.listener] = procStatus(tt.procGroups...)
+			}
+			in := check.Input{
+				Runners: []runner.Runner{newRunner("build01", "1001", tt.listener)},
+				FSRoot:  hostFS(t, etcGroup, status),
+			}
+
+			got := only(t, run(t, "job.dockergroup", in))
+			if got.Status != tt.want {
+				t.Errorf("Status = %v, want %v（Detail: %s）", got.Status, tt.want, got.Detail)
+			}
+			if got.Summary != tt.wantSum {
+				t.Errorf("Summary = %q, want %q", got.Summary, tt.wantSum)
+			}
+			if got.Target != "build01" {
+				t.Errorf("Target = %q, want %q", got.Target, "build01")
+			}
+			// どの判定に転んでも、名前での突き合わせをしていないことを残す。
+			// 残さないと、補助グループだけを見た OK が「メンバー欄も確認済み」と読まれる。
+			if !strings.Contains(got.Detail, "/etc/group のメンバー欄") {
+				t.Errorf("Detail に /etc/group との突き合わせができない旨が無い: %s", got.Detail)
+			}
+		})
+	}
+}
+
+// UID 表記の FAIL は「未所属」と「未反映」を区別できない。
+//
+// どちらも Groups 行に GID が現れないという同じ形になる。区別できないことを Detail に
+// 書いたうえで、対処は usermod を含む側を出す。既に所属しているユーザーへの usermod は
+// 無害だが、未所属のユーザーを再起動しても直らないためである。usermod はログイン名しか
+// 受け付けないので、UID をそのまま埋めた行は出さない。
+func TestDockerGroupNumericUserFailRemedyDoesNotEmbedUID(t *testing.T) {
 	t.Parallel()
 
 	in := check.Input{
-		Runners: []runner.Runner{newRunner("build01", "1001", 0)},
-		FSRoot:  hostFS(t, etcGroup, nil),
+		Runners: []runner.Runner{newRunner("build01", "1001", 4242)},
+		FSRoot:  hostFS(t, etcGroup, map[int]string{4242: procStatus("27")}),
 	}
 
 	got := only(t, run(t, "job.dockergroup", in))
-	if got.Status != check.Skip {
-		t.Errorf("Status = %v, want %v（Detail: %s）", got.Status, check.Skip, got.Detail)
+	if got.Status != check.Fail {
+		t.Fatalf("Status = %v, want %v（Detail: %s）", got.Status, check.Fail, got.Detail)
 	}
-	if got.Target != "build01" {
-		t.Errorf("Target = %q, want %q", got.Target, "build01")
+	if !strings.Contains(got.Detail, "区別できません") {
+		t.Errorf("Detail に未所属と未反映を区別できない旨が無い: %s", got.Detail)
+	}
+	for _, want := range []string{"usermod -aG docker", "systemctl restart"} {
+		if !strings.Contains(got.Remedy, want) {
+			t.Errorf("Remedy に %q が無い: %s", want, got.Remedy)
+		}
+	}
+	if strings.Contains(got.Remedy, "usermod -aG docker 1001") {
+		t.Errorf("Remedy が UID をそのまま埋めている（usermod はログイン名しか受け付けない）: %s", got.Remedy)
 	}
 }
 

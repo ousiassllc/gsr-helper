@@ -55,13 +55,32 @@ func (c sudoCheck) judge(ctx context.Context, in check.Input, r runner.Runner) c
 	// 終了コードだけである（check.Input.Probe の doc、security.md の
 	// 「パスワード不要 sudo の要求への対応」の末尾）。権限情報を含む
 	// `sudo -l -U` の出力をここへ通せるのはその保証があるからである。
-	res, err := in.Probe(ctx, "doctor.sudo", "sudo", "-l", "-U", sudoUser(r.RunAsUser))
+	//
+	// **`-n`（非対話）を必ず付ける。** 付けないと、パスワードを要求する設定の
+	// ホストで sudo が /dev/tty を直接開いてプロンプトを書き込む。この項目は
+	// 起動時に自動実行される（FR-44）ため、TUI の alternate screen へ
+	// プロンプトが割り込んで画面が壊れ、さらに runner ごとに入力待ちの分だけ
+	// 起動が止まる。`-n` ならプロンプトの代わりに即座に失敗する。
+	res, err := in.Probe(ctx, "doctor.sudo", "sudo", "-n", "-l", "-U", sudoUser(r.RunAsUser))
 	if noExecutor(err) {
 		return check.Of(c, check.Result{
 			Target:  r.Name(),
 			Status:  check.Skip,
 			Summary: "コマンドを実行できないため未判定",
 			Detail:  "外部コマンドの実行経路が配られていないため `sudo -l -U` を発行していません。",
+		})
+	}
+	// **予算切れは WARN にしない。** 起動時の判定には全体で 10 秒の上限があり
+	// （internal/ui/hostreq）、遅いホストではそこで打ち切られる。これはホストの
+	// 不備ではなく「判定を諦めた」であり、WARN にすると起動直後の要注意件数が
+	// 偽の警告で膨らむ（hostreq が定める「警告が出ないだけで起動は妨げない」）。
+	if ctx.Err() != nil {
+		return check.Of(c, check.Result{
+			Target:  r.Name(),
+			Status:  check.Skip,
+			Summary: "時間切れのため未判定",
+			Detail: "`sudo -l -U` の完了前に診断の期限が切れました（" + ctx.Err().Error() +
+				"）。パスワード不要 sudo の有無は判定していません。",
 		})
 	}
 	if err != nil || res.ExitCode != 0 {
@@ -92,7 +111,9 @@ func (c sudoCheck) judge(ctx context.Context, in check.Input, r runner.Runner) c
 		Detail: "ユーザー " + r.RunAsUser + " の sudo 設定に " + nopasswd +
 			" の指定がありません。",
 		Impact: impactSudo,
-		Remedy: sudoRemedy(r.RunAsUser),
+		// sudoers の行も `sudo -l -U` と同じく UID には `#` が要る。生値を出すと
+		// `1001 ALL=(ALL) NOPASSWD: ALL` という、貼っても効かない行を提示する。
+		Remedy: sudoRemedy(sudoUser(r.RunAsUser)),
 	})
 }
 
@@ -101,7 +122,7 @@ func (c sudoCheck) judge(ctx context.Context, in check.Input, r runner.Runner) c
 const impactSudo = "`sudo install` を使うアクション（setup-atlas など）が " +
 	"`sudo: パスワードが必要です`（`sudo: a password is required`）で失敗します。"
 
-// sudoUser は `sudo -l -U` に渡すユーザーの表記を返す。
+// sudoUser は `sudo -l -U` と sudoers に渡すユーザーの表記を返す。
 //
 // **RunAsUser はユーザー名とは限らない。** 名前を解決できない環境（静的リンクで
 // NSS が使えない、LDAP 上のユーザー）では UID の 10 進表記になる
@@ -122,6 +143,10 @@ func sudoUser(runAsUser string) string {
 // だから `visudo -c` による検証を手順に含め、書き換えは運用者の手に委ねる
 // （security.md「対処」、docs/operations/runner-host-setup.md の手順 1）。
 // user は表示専用の文字列であり、ここから外部コマンドを起動する経路は無い。
+//
+// **user には sudoUser を通した表記を渡すこと。** sudoers はユーザー名を書く
+// 欄に UID を書く場合 `#1001` の形式しか解さない。生の UID を埋めた行は貼っても
+// 効かず、しかも `visudo -c` は通ってしまうため気付けない。
 func sudoRemedy(user string) string {
 	return "echo '" + user + " ALL=(ALL) NOPASSWD: ALL' | sudo tee /etc/sudoers.d/github-runner\n" +
 		"sudo chmod 0440 /etc/sudoers.d/github-runner\n" +
