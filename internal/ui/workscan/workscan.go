@@ -100,3 +100,52 @@ func Start(seq int, runners []runner.Runner) tea.Cmd {
 		return Msg{Seq: seq, Usage: usage}
 	}
 }
+
+// State は集計の進行状況。親 Model はこれを 1 つ持ち、周期の通し番号と実行中かの
+// 管理をこちらへ預ける。
+//
+// **親に int と bool を並べさせない。** 「古い周期を捨てる」「実行中は重ねない」は
+// 集計の側の不変条件であり、持ち主が離れると片方だけを更新する経路ができる。
+type State struct {
+	seq   int
+	busy  bool
+	usage map[string]page.WorkUsage
+}
+
+// Usage は runner ディレクトリごとの使用量を返す。**キーが無いことが未集計を表す**
+// （page.DiskState.Work の doc）。
+func (s *State) Usage() map[string]page.WorkUsage { return s.usage }
+
+// Start は集計を始める Cmd を返す。始めなかった場合は nil を返す。
+//
+// **実行中は重ねない。** 手動の再読み込み（r）を連打すると、巨大な _work を走査する
+// goroutine が押した回数だけ積み上がる。次の契機で始め直せるので重ねない側に倒す。
+//
+// 未着手かどうかは Started で見る。runner が 0 台のときは周期を進めず、次の契機へ譲る。
+func (s *State) Start(runners []runner.Runner) tea.Cmd {
+	if s.busy {
+		return nil
+	}
+	cmd := Start(s.seq+1, runners)
+	if cmd == nil {
+		return nil
+	}
+	s.seq++
+	s.busy = true
+	return cmd
+}
+
+// Started は 1 度でも集計を始めたかを返す。
+func (s *State) Started() bool { return s.seq > 0 }
+
+// Apply は集計 1 周期分の結果を取り込む。
+//
+// 古い周期の結果は捨てる。再読み込みで新しい周期が始まったあとに前の周期が返ると、
+// 消えた対象の使用量が新しい一覧へ混ざる。
+func (s *State) Apply(msg Msg) {
+	if msg.Seq != s.seq {
+		return
+	}
+	s.busy = false
+	s.usage = msg.Usage
+}

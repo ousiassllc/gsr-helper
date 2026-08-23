@@ -9,6 +9,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/doctor"
 	"github.com/ousiassllc/gsr-helper/internal/exec"
 	"github.com/ousiassllc/gsr-helper/internal/ui/chrome"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
 )
 
@@ -67,9 +68,16 @@ func withSpies(a App) (App, []*pagetest.Spy) {
 //
 // フッタは page が ChromeMsg で報告したものを親が描くため、フッタの表示を検証するには
 // page → 親の 1 往復が必要である。取り出しは pagetest.ChromeMsgs が持つ。
+// **入れ子の tea.Batch まで辿る。** 親は共有状態の配布と、起動後に 1 度だけ走る取得
+// （前提チェック・_work 集計・保有スコープ）を 1 つの Batch にまとめて返すため、
+// 1 段だけ展開すると配布ぶんが Batch のまま残り ChromeMsg を取り出せない。
 func applyChrome(a App, cmd tea.Cmd) App {
-	for _, msg := range pagetest.ChromeMsgs(cmd) {
-		a, _ = update(a, msg)
+	for _, msg := range pagetest.Msgs(cmd) {
+		c, ok := msg.(page.ChromeMsg)
+		if !ok {
+			continue
+		}
+		a, _ = update(a, c)
 	}
 	return a
 }

@@ -21,12 +21,14 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/ui/chrome"
 	"github.com/ousiassllc/gsr-helper/internal/ui/discovery"
+	"github.com/ousiassllc/gsr-helper/internal/ui/ghscope"
 	"github.com/ousiassllc/gsr-helper/internal/ui/hostreq"
 	"github.com/ousiassllc/gsr-helper/internal/ui/keymap"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 	"github.com/ousiassllc/gsr-helper/internal/ui/tabset"
 	"github.com/ousiassllc/gsr-helper/internal/ui/template"
 	"github.com/ousiassllc/gsr-helper/internal/ui/token"
+	"github.com/ousiassllc/gsr-helper/internal/ui/workscan"
 )
 
 // Options は cmd から受け取る起動時の決定事項。
@@ -96,6 +98,13 @@ type App struct {
 	// hostChecks は起動時に走らせる診断項目。空なら走らせない。**テストの
 	// 差し替え口でもある**（本物は実ホストの sudo / docker / /etc/group を読む）。
 	hostChecks []doctor.Check
+
+	// work は runner ごとの _work 使用量とその集計の進行状況（Issue #73）。
+	// scopes はトークンの保有スコープと取得の進行状況（Issue #79）。
+	// どちらも駆動の契機だけを親が決め、周期の管理はサブパッケージが持つ
+	// （background.go）。
+	work   workscan.State
+	scopes ghscope.State
 }
 
 // tea.Model を実装していることをコンパイル時に確かめる。
@@ -169,6 +178,16 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case hostreq.Msg:
 		a.hostReq = msg.Bad
 		return a, nil
+	case workscan.Msg:
+		// _work 使用量が確定した。共有状態として全タブへ配り直す（Issue #73）。
+		a.work.Apply(msg)
+		cmd := a.distribute()
+		return a, cmd
+	case ghscope.Msg:
+		// 保有スコープが確定した。操作の可否の判定に効く（Issue #79）。
+		a.scopes.Apply(msg)
+		cmd := a.distribute()
+		return a, cmd
 	case page.ChromeMsg:
 		if msg.Tab == a.active {
 			a.chrome = msg
@@ -234,6 +253,11 @@ func (a App) state() page.StateMsg {
 		BodyH:  h,
 		Err:    a.err,
 		Audit:  a.opts.Audit,
+		Disk: page.DiskState{
+			Thresholds: a.cfg.DiskThresholds,
+			Work:       a.work.Usage(),
+		},
+		Scopes: a.scopes.Scopes(),
 		Setup: page.SetupDeps{
 			Host:     a.opts.Host,
 			Defaults: a.cfg.Defaults,

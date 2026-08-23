@@ -294,7 +294,7 @@
 - 選択できる docker の行は `docker / 未使用リソース` の 1 行だけである。この行の容量は `prune -f` が実際に回収する種別（Containers / Build Cache）の `Reclaimable` の合計であり、内訳の合計とは一致しない。
 - `docker` が無い、**または daemon が応答しない**場合は docker の行が 1 行の SKIP（`docker が無く集計不可`）に縮退し、`docker` コマンドは 1 本も発行しない。daemon の応答まで含めて起動時の能力判定（`Caps.Docker`）が決めるためである（[外部インターフェース](../api/external-interfaces.md#docker)の「`docker` が無い、または daemon が応答しない場合は docker 関連の項目を除外する」）。`docker の集計に失敗` を出すのは、**能力判定を通過した後に** `docker system df` が失敗した場合（起動後に daemon が落ちた・出力を解析できない）だけである。理由は PATH 列に載るため、いずれも 22 セル以内に収める（同列の実効幅は 24 セル）。
 
-> **閾値超過の表示（`⚠ 警告閾値超過`）は未実装。** `disk_thresholds`（[データモデル](../architecture/data-model.md)）は `page.StateMsg` に載っておらず page から参照できない。載せるには親 Model の変更が要るため別 Issue で扱う。部品（`molecule.FSSummaryLine`）は引数を持っており、配れるようになった時点で出せる。
+- 使用率が設定の警告閾値（`disk_thresholds.warn`。[データモデル](../architecture/data-model.md)。既定 80）**に達すると**要約行の末尾に `⚠ 警告閾値超過` が出る。閾値は `page.StateMsg.Disk.Thresholds` として親 Model が配り、超過したかの判断は page が行う（部品 `molecule.FSSummaryLine` は結果の真偽値だけを受け取る）。比較を「以上」にしているのは doctor のリソース診断（`internal/doctor/hostres`）に合わせるためで、同じ使用率に対して 2 つの画面が違うことを言わないようにしている。**ファイルシステム情報そのものを取得できなかった行には出さない**（使用率が「値なし」として描かれるため、警告だけが残ると読めない行になる）。色を使えない端末でも `警告閾値超過` の文字で判別できる。
 
 `c` を押すとドライラン（削除計画）を確認する画面へ進む。**選択 → ドライラン → 確認 → 実行の順以外に削除へ至る経路は無い。**
 

@@ -273,3 +273,31 @@ func TestStateCarriesAuditLogger(t *testing.T) {
 		t.Errorf("StateMsg.Audit = %v, want 渡した Logger（記録先が page へ届いていない）", got)
 	}
 }
+
+// 設定のディスク閾値が共有状態に載る（Issue #72）。
+//
+// 載らないと Disk タブの要約行が閾値を判定できず、既定値を表示側に埋め込むことになる。
+func TestStateCarriesDiskThresholds(t *testing.T) {
+	cfg := appconfig.Default()
+	cfg.DiskThresholds = appconfig.DiskThresholds{Warn: 55, Critical: 77}
+	a := New(cfg, appconfig.Caps{}, exec.NewFake(), Options{})
+
+	if got := a.state().Disk.Thresholds; got != cfg.DiskThresholds {
+		t.Errorf("StateMsg.Disk.Thresholds = %+v, want %+v", got, cfg.DiskThresholds)
+	}
+}
+
+// _work 使用量と保有スコープは、確定するまで共有状態に載らない（Issue #73 / #79）。
+//
+// 未集計を 0 バイトとして、判定前を「スコープ無し」として配ると、
+// 一覧が誤った使用量を出し、権限のあるトークンの操作が塞がれる。
+func TestStateStartsWithoutWorkUsageOrScopes(t *testing.T) {
+	a := New(appconfig.Default(), appconfig.Caps{}, exec.NewFake(), Options{})
+
+	if got := a.state().Disk.Work; len(got) != 0 {
+		t.Errorf("StateMsg.Disk.Work = %v, want 空（未集計はキーを持たない）", got)
+	}
+	if a.state().Scopes.Known {
+		t.Error("StateMsg.Scopes.Known = true, want false（まだ引いていない）")
+	}
+}

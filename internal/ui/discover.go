@@ -59,12 +59,21 @@ func (a *App) applyDiscovered(msg discovery.Msg) tea.Cmd {
 	a.applied, a.result, a.err = out.Applied, out.Result, out.Err
 
 	cmd := a.distribute()
-	if out.StartHostReq {
-		if hr := a.startHostReq(); hr != nil {
-			return tea.Batch(cmd, hr)
-		}
+	if !out.StartHostReq {
+		return cmd
 	}
-	return cmd
+	// 一覧を採れた最初の周期で、起動シーケンスの外へ回した取得を始める
+	// （前提チェック = FR-44、_work 使用量 = Issue #73、保有スコープ = Issue #79）。
+	// **失敗した周期では発行しない。** 空の一覧で 1 度きりの実行を使い切ると、
+	// runner ごとに判定するものがセッション中一度も走らない。
+	//
+	// 発行するものが無いときは束ねない。**共有状態の配布だけの Cmd の形を変えない**
+	// ためである（親の検証は 1 段展開で ChromeMsg を拾う）。
+	extra := a.startBackground()
+	if len(extra) == 0 {
+		return cmd
+	}
+	return tea.Batch(append([]tea.Cmd{cmd}, extra...)...)
 }
 
 // discover は runner を検出する Cmd を返す。中身は discovery.Start に委ねる（discovery.go の package doc を参照）。

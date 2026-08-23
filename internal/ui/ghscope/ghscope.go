@@ -81,3 +81,32 @@ func build(ctx context.Context, ex exec.Executor, newClient func(context.Context
 	}
 	return gh.New(token)
 }
+
+// State は取得の進行状況。親 Model はこれを 1 つ持つ。
+type State struct {
+	scopes page.ScopeState
+	done   bool
+}
+
+// Scopes は共有状態へ載せる値を返す。取得前・失敗時は Known が偽のままである。
+func (s *State) Scopes() page.ScopeState { return s.scopes }
+
+// Start は取得を 1 度だけ始める Cmd を返す。始めなかった場合は nil を返す。
+//
+// **トークンを取得できない環境では発行しない。** 能力判定（Caps.GitHubToken）が偽なら
+// 引く相手が無く、失敗を 1 往復ぶん待つだけになる。判定は塞がない側に倒れる
+// （page.ScopeState.Known が偽のまま）ので、発行しないことによる不利は無い。
+func (s *State) Start(ex exec.Executor, hasToken bool) tea.Cmd {
+	if s.done || !hasToken {
+		return nil
+	}
+	s.done = true
+	// 本番は差し替えない。nil のまま渡すと gh.Token から借りたトークンで本物の
+	// クライアントを作る（Start の doc）。
+	return Start(ex, nil)
+}
+
+// Apply は取得結果を取り込む。
+//
+// 失敗しても Known は偽のまま返るので、ここで成否を見分ける必要は無い（Start の doc）。
+func (s *State) Apply(msg Msg) { s.scopes = msg.State }
