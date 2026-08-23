@@ -258,7 +258,17 @@
   build01-7     -                   22m03s       291044    /opt/runners/build01-7/_work
 ```
 
-**`REPOSITORY` がすべて `-` で、`_work` がリポジトリ配下ではなく runner の work ディレクトリなのは、どちらもジョブのリポジトリ名が分からないためである。** `Runner.Worker` は `/proc` から検出したプロセスであり、そこにリポジトリの情報は無い。名前は Worker ログの解析から得るものだが、**Logs タブ（[FR-23〜FR-26](../requirements/functional.md)）はログを表示するだけで本文を解析しない**ため、両方の列は引き続き空である。列を埋めるのは、Worker ログからリポジトリ名を取り出す解析を持ち込む別の Issue である。
+`REPOSITORY` と `_work` は **Worker ログ（`_diag/Worker_*.log`）の解析**で埋める。`Runner.Worker` は `/proc` から検出したプロセスであり、そこにリポジトリの情報が無いためである。解析は `internal/logs.ParseWorker` が持ち、取り出し口は次の優先順で試す。
+
+1. `PipelineDirectoryManager` が tracking config を探す行のパス（`_PipelineMapping/<owner>/<repo>/PipelineFolder.json`）
+2. Job message の JSON ダンプに含まれる `{"k":"repository","v":"owner/repo"}`
+3. multi-repo チェックアウト時の `Update repository <owner/repo>'s path to '<path>'`
+
+`_work` はログから作業ディレクトリが取れればそれを、取れなければ `<_work>/<repo>/<repo>` を組み立てて出す（`actions/runner` の `TrackingConfig` は owner を含めない）。
+
+**1 台の runner で 2 本以上のジョブが走っている間は、その runner の行を埋めない。** Worker ログの名前にはタイムスタンプしか無く PID が無いため、どのログがどのジョブのものかを決められない。**取り違えた表示は、無い表示より悪い。**
+
+読めない・形式が想定外・まだ書かれていない場合は `REPOSITORY` が `-` に、`_work` が runner の work ディレクトリに縮退し、一覧そのものは失敗しない。解析は一度引いたら覚えておき、再検出（3 秒ごと）のたびには読み直さない（同じ runner で次のジョブが始まれば引き直す）。
 
 実行中ジョブが無い場合はその旨を表示する。`l` で該当ジョブの Worker ログへ直接移動する（上記「Logs タブ」の `l` でログを開く）。
 

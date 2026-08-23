@@ -12,6 +12,7 @@ import (
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/ousiassllc/gsr-helper/internal/logs"
 	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/ui/atom"
 	"github.com/ousiassllc/gsr-helper/internal/ui/organism/table"
@@ -45,6 +46,10 @@ type Model struct {
 	ops runnerop.Model
 	// initCmd はモーダルを登録したときに返った Cmd。最初の共有状態で流し、nil に落とす。
 	initCmd tea.Cmd
+	// info は Worker ログの解析結果、asked は解析を発行済みのジョブ（Issue #68）。
+	// どちらも鍵は runner ディレクトリと Worker の PID の組（repo.go の jobKey）。
+	info  map[string]logs.JobInfo
+	asked map[string]struct{}
 }
 
 // tea.Model を実装していることをコンパイル時に確かめる。
@@ -83,6 +88,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.setState(msg)
 	case tea.KeyPressMsg:
 		return m.handleKey(msg)
+	case jobInfoMsg:
+		// Worker ログの解析結果（Issue #68）。REPOSITORY / `_work` 列に反映する。
+		m.onJobInfo(msg)
+		return m, m.chrome()
 	case page.ResultMsg:
 		// モーダルが返した決定は page が受ける（runners.go と同じ理由）。
 		// page.Overlay.Handles が ResultMsg に偽を返すことと合わせた二重の守りで
@@ -126,14 +135,16 @@ func (m Model) setState(st page.StateMsg) (tea.Model, tea.Cmd) {
 	// 配色を配り直すのは runners.go と同じ理由（table.Model.Restyle の doc）。
 	m.tbl.Restyle(st.Keys.List, st.Styles)
 	m.tbl.SetSize(st.BodyW, st.BodyH)
-	m.tbl.SetItems(sectionJobs, jobRows(st.Result.Runners))
+	m.tbl.SetItems(sectionJobs, jobRows(st.Result.Runners, m.info))
+	// まだ引いていないジョブの Worker ログを解析する（Issue #68）。
+	parse := m.resolveInfo(st.Result.Runners)
 	m.ops.SetState(st, m.actions)
 	// 登録の Cmd は return より前に取り出す（runners.go と同じ理由。同じ return 文に
 	// 置くと、返り値 m の読み取りと m.initCmd の破棄の評価順が未規定になる）。
 	init := m.flushInit()
 	// モーダルが返す Cmd も親へ渡す（runners.go と同じ理由）。
 	cmd := m.overlay.SetState(st)
-	return m, tea.Batch(m.chrome(), init, cmd)
+	return m, tea.Batch(m.chrome(), init, cmd, parse)
 }
 
 // flushInit は登録が返した Cmd を 1 度だけ返す（runners.go と同じ理由）。

@@ -316,7 +316,7 @@ runner の追加・削除・バージョン更新。最も破壊的な操作を�
 
 ### `internal/logs`
 
-ログの一覧と追従。
+ログの一覧・追従と、Worker ログ本文の解析。
 
 | 要素 | 責務 |
 |------|------|
@@ -325,6 +325,14 @@ runner の追加・削除・バージョン更新。最も破壊的な操作を�
 | `Tail(ctx, path, out chan<- Line) error` | `fsnotify` による追記の検知と送出 |
 | `Journal(ctx, Executor, unit, out chan<- Line) error` | systemd ユニットのログを一定間隔で取得し、増えた分を送出 |
 | `Classify(text) Level` | 行の重大度（`ERROR` / `WARN`）の判定。強調表示（FR-25）の入力 |
+| `ParseWorker(dir, name) (JobInfo, error)` | Worker ログからジョブのリポジトリ名と作業ディレクトリを取り出す（Jobs タブの `REPOSITORY` / `_work`） |
+| `WorkspaceFallback(workDir, repository) string` | 作業ディレクトリがログから取れない場合の `<_work>/<repo>/<repo>` |
+
+**`ParseWorker` はパスを 1 本の文字列で受けず、ディレクトリとファイル名を分けて受ける。** 読み出しを `os.DirFS` で `_diag` の中に閉じ、`..` や絶対パスを含む名前を `io/fs` に弾かせるためである。exported で呼び出し側を選べない関数なので、閉じ込めをコメントの約束にしない。
+
+**先頭 1 MiB だけを読む。** Worker ログは Job message の JSON ダンプを含み数 MB に育つが、取り出し口はいずれもジョブ開始直後の数十行以内に出る。
+
+**取り出せなくてもエラーにしない。** 開けない・形式が想定外・まだ書かれていない、いずれも空の `JobInfo` を返し、呼び出し側が `-` に縮退する。ジョブの一覧が解析の失敗で落ちてはならない。
 
 型名にパッケージ名を重ねない規約に従い、ログファイル 1 件は `File` と呼ぶ（`logs.LogFile` とはしない）。
 
