@@ -38,6 +38,16 @@ type Options struct {
 	Host string
 	// Secrets は短命トークンの預け先。Setup タブが取得したトークンを載せる。
 	Secrets *gh.Secrets
+	// ConfigPath は設定ファイルの配置先。Config タブの書き込み先になる。
+	//
+	// UI 側で決め直さないのは、配置先の決定（SUDO_USER の扱いを含む）が
+	// appconfig/confpath の責務だからである。
+	ConfigPath string
+	// FirstRun は設定ファイルが無い状態で起動したか（FR-41）。
+	//
+	// appconfig.Load はファイルが無くても既定値を返すため、cfg からは初回起動を
+	// 判別できない。判定は cmd が appconfig.Exists で行う。
+	FirstRun bool
 }
 
 // App は親 Model。
@@ -220,6 +230,11 @@ func (a App) state() page.StateMsg {
 			// トークンで本物のクライアントを作る（page.SetupDeps.NewClient）。
 			NewClient: nil,
 			Fetch:     nil,
+		},
+		Config: page.ConfigDeps{
+			Conf:     a.cfg,
+			Path:     a.opts.ConfigPath,
+			FirstRun: a.opts.FirstRun,
 		},
 	}
 }

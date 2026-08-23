@@ -202,6 +202,15 @@ func (s Set) DiskHelp() [][]key.Binding {
 	return s.Help(s.listBindingsWithoutEnter(), s.List.FilterBindings(), s.Disk.Bindings())
 }
 
+// ConfigHelp は Config タブが ? に出すグループを返す。
+//
+// 一覧のキー（項目の上下と決定）だけを載せる。Config タブは runner の追加や
+// サービス制御を持たず、編集の起点は決定（enter）1 つだけだからである。
+// 反映方法の選択とフォームはモーダルであり、キーはそちらのフッタが出す。
+func (s Set) ConfigHelp() [][]key.Binding {
+	return s.Help(s.List.Bindings())
+}
+
 // SetupHelp は Setup タブが ? に出すグループを返す。
 //
 // 一覧のキー（メニューの上下と決定）と、runner に対する追加・削除・バージョン更新の

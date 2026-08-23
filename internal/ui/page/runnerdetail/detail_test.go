@@ -9,7 +9,6 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/appconfig"
 	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/ui/organism"
-	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
 	"github.com/ousiassllc/gsr-helper/internal/ui/token"
 )
@@ -130,11 +129,21 @@ func TestRunnerDetailRoutesKeysToChoiceList(t *testing.T) {
 	}
 }
 
-// この版では操作リストの全項目が実行できず、理由が添えられる。
+// 実行できない操作には理由が添えられる。
+//
+// 能力の揃ったホストでは 11 個すべてが有効なので（Config タブが設定編集を
+// 実装した）、塞がる場面を作って検証する。非 root ではサービス制御と削除が
+// 塞がり、キーを消さずに理由を出すこと（設計原則 4）を確かめられる。
 func TestRunnerDetailShowsReasons(t *testing.T) {
-	got := newDetail().View()
-	if !strings.Contains(got, page.ReasonUnsupported) {
-		t.Errorf("実行できない理由が出ていない")
+	caps := pagetest.Caps()
+	caps.Root = false
+
+	d := newModel(pagetest.Keys(), pagetest.Styles())
+	d.SetSize(72, 24)
+	d.Open(pagetest.SampleRunner(), caps)
+
+	if got := d.View(); !strings.Contains(got, "root 権限が必要です") {
+		t.Errorf("実行できない理由が出ていない: %q", got)
 	}
 }
 

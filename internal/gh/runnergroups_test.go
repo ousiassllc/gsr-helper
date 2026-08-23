@@ -77,3 +77,39 @@ func TestListRunnerGroupsRejectsRepoScope(t *testing.T) {
 		t.Error("repo スコープなのにリクエストを送っている")
 	}
 }
+
+// AddRunnerToGroup が PUT で group と runner の両方の ID をパスに載せること。
+// 取り違えると別の runner を別の group へ移す事故になる。
+func TestAddRunnerToGroup(t *testing.T) {
+	t.Parallel()
+
+	var gotMethod, gotPath string
+	c, _ := newClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod, gotPath = r.Method, r.URL.Path
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	if err := c.AddRunnerToGroup(context.Background(), orgScope(), 7, 42); err != nil {
+		t.Fatalf("AddRunnerToGroup() でエラー: %v", err)
+	}
+	if gotMethod != http.MethodPut {
+		t.Errorf("メソッド = %s, want PUT", gotMethod)
+	}
+	if want := "/orgs/foo/actions/runner-groups/7/runners/42"; gotPath != want {
+		t.Errorf("パス = %s, want %s", gotPath, want)
+	}
+}
+
+// repo スコープでは要求を送らずに ErrNoRunnerGroups を返すこと。
+func TestAddRunnerToGroupRejectsRepoScope(t *testing.T) {
+	t.Parallel()
+
+	c, _ := newClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Error("repo スコープで要求が送られた")
+	}))
+
+	err := c.AddRunnerToGroup(context.Background(), repoScope(), 7, 42)
+	if !errors.Is(err, gh.ErrNoRunnerGroups) {
+		t.Fatalf("エラー = %v, want ErrNoRunnerGroups", err)
+	}
+}

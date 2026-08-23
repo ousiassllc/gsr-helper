@@ -60,11 +60,36 @@ func TestFooterShowsEverySpecKeyAtWidth80(t *testing.T) {
 		t.Errorf("フッタ 1 行目の幅 = %d, want 80 以下（%q）", w, line)
 	}
 
-	// 無効なキーはフッタ 2 行目で丸括弧付きに並べ、理由を添える（設計原則 4）。
-	// 能力の揃ったホストで無効なのは、この版で未実装の操作（設定編集など）だけである。
-	reason := strings.Split(chrome.Footer(a.chromeView()), "\n")[1]
-	if !strings.Contains(reason, "(e)") || !strings.Contains(reason, "この版では未対応です") {
-		t.Errorf("フッタ 2 行目 = %q, 無効なキーと理由が出ていない", reason)
+	// 能力の揃ったホストで稼働中・ジョブ無しの runner なら、11 個すべてが有効に
+	// なる（Config タブが設定編集を実装したので未対応の操作はもう無い）。
+	if got := chrome.Footer(a.chromeView()); strings.Contains(got, "この版では未対応です") {
+		t.Errorf("未対応の操作が残っている: %q", got)
+	}
+}
+
+// 無効なキーはフッタ 2 行目で丸括弧付きに並べ、理由を添える（設計原則 4）。
+//
+// 能力の揃ったホストでも、ジョブ実行中の runner では削除が塞がる。キーを消さずに
+// 理由を出すことが不変条件なので、塞がる場面を 1 つ固定して検証する。
+func TestFooterShowsReasonForDisabledKey(t *testing.T) {
+	busy := sampleRunner()
+	busy.Workers = []runner.Process{
+		{PID: 200, Kind: runner.ProcWorker, Dir: busy.Dir, UID: 1000},
+	}
+
+	a, _ := update(newApp(exec.NewFake()), tea.WindowSizeMsg{Width: 80, Height: 24})
+	a, cmd := update(a, discoveredMsg{
+		result: runner.Result{Runners: []runner.Runner{busy}},
+		err:    nil,
+	})
+	a = applyChrome(a, cmd)
+
+	lines := strings.Split(chrome.Footer(a.chromeView()), "\n")
+	if len(lines) < 2 {
+		t.Fatalf("フッタが 2 行に足りない: %q", lines)
+	}
+	if !strings.Contains(lines[1], "(D)") || !strings.Contains(lines[1], "ジョブ実行中") {
+		t.Errorf("フッタ 2 行目 = %q, 無効なキーと理由が出ていない", lines[1])
 	}
 }
 

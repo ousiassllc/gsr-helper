@@ -85,3 +85,27 @@ func convertRunnerGroups(p runnerGroupsPage) []RunnerGroup {
 	}
 	return out
 }
+
+// AddRunnerToGroup は登録済みの runner を runner group へ移す（FR-35）。
+//
+// PUT {scope}/actions/runner-groups/{runner_group_id}/runners/{runner_id}。
+// GitHub 側では「group に runner を足す」操作だが、runner が属せる group は
+// 1 つなので、結果として付け替えになる。
+//
+// 一覧（ListRunnerGroups）と同じく org / enterprise 専用で、repo スコープでは
+// 要求を送らずに ErrNoRunnerGroups を返す。
+func (c *Client) AddRunnerToGroup(ctx context.Context, sc scope.Scope, groupID, runnerID int64) error {
+	base, err := runnerGroupsPath(sc)
+	if err != nil {
+		return wrap("add_runner_to_group", sc, nil, err)
+	}
+
+	u := base + "/actions/runner-groups/" + strconv.FormatInt(groupID, 10) +
+		"/runners/" + strconv.FormatInt(runnerID, 10)
+
+	resp, err := c.do(ctx, http.MethodPut, u, nil)
+	if err != nil {
+		return wrap("add_runner_to_group", sc, resp, err)
+	}
+	return nil
+}
