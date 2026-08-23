@@ -150,25 +150,9 @@ func minutesUntil(reset time.Time) int {
 //
 // docs/api/external-interfaces.md の「必要なトークンスコープ」の表に対応する。
 func refreshHint(sc scope.Scope) string {
-	need := requiredScope(sc)
+	need := RequiredScope(sc)
 	if need == "" {
 		return "必要な権限は docs/api/external-interfaces.md を参照してください"
 	}
 	return "必要なスコープは " + need + " です（例: gh auth refresh -h github.com -s " + need + "）"
-}
-
-// requiredScope は対象スコープの runner を管理するのに必要な classic PAT のスコープを返す。
-func requiredScope(sc scope.Scope) string {
-	switch sc.Kind {
-	case scope.Repo:
-		return "repo"
-	case scope.Org:
-		return "admin:org"
-	case scope.Enterprise:
-		return "admin:enterprise"
-	case scope.Unknown:
-		return ""
-	default:
-		return ""
-	}
 }

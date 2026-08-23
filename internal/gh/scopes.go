@@ -112,9 +112,35 @@ func splitScopes(raw string) []string {
 	return out
 }
 
+// scopeRequirement は 1 つの登録先について「理由の文言に使う言い換え」と
+// 「必要な classic PAT のスコープ」を対にしたもの。
+type scopeRequirement struct {
+	level string
+	need  string
+}
+
+// scopeRequirements は登録先ごとの必要スコープの表。
+//
+// **1 行にまとめてあるのは、片方だけを足せない形にするためである。** 言い換えは
+// 理由の文言の先頭に出る（ui/page/action の missingScope が組む
+// `org レベルの操作には admin:org が必要です`）ので、表を 2 つに分けると新しい
+// Kind をこちらにだけ足したとき理由が先頭を欠く。載っていない Kind は両方とも
+// 空になり、塞ぐ側（RequiredScope が空なら塞がない）にも倒れない。
+var scopeRequirements = map[scope.Kind]scopeRequirement{
+	scope.Repo:       {level: "repo", need: "repo"},
+	scope.Org:        {level: "org", need: "admin:org"},
+	scope.Enterprise: {level: "enterprise", need: "admin:enterprise"},
+}
+
 // RequiredScope は対象スコープの runner を管理するのに必要な classic PAT の
 // スコープを返す。判定できない場合は空を返す。
 //
 // doctor が同じ表を持たずに済むよう公開する（表が 2 箇所にあると、必要な
 // スコープを変えたときに API の 403 と診断の判定が食い違う）。
-func RequiredScope(sc scope.Scope) string { return requiredScope(sc) }
+func RequiredScope(sc scope.Scope) string { return scopeRequirements[sc.Kind].need }
+
+// ScopeLevelName は登録先の言い換えを返す。判定できない場合は空を返す。
+//
+// 表示層（ui/page/action）が同じ分岐を写しで持たずに済むよう、RequiredScope と
+// 同じ表から引けるかたちで公開している。
+func ScopeLevelName(sc scope.Scope) string { return scopeRequirements[sc.Kind].level }

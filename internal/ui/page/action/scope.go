@@ -3,7 +3,6 @@ package action
 import (
 	"github.com/ousiassllc/gsr-helper/internal/gh"
 	"github.com/ousiassllc/gsr-helper/internal/runner"
-	"github.com/ousiassllc/gsr-helper/internal/runner/scope"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 )
 
@@ -12,23 +11,6 @@ import (
 // allow.go から分けているのは、1 ファイル 300 行の上限に収めるためと、判定の入力が
 // 他の段（root / systemd / 認証 / ジョブ実行中）と違って**共有状態から届く非同期の値**
 // だからである。
-
-// scopeLevelName は登録先の言い換え。理由の文言に使う（screens.md の 6 段目
-// `org レベルの操作には admin:org が必要です`）。
-func scopeLevelName(sc scope.Scope) string {
-	switch sc.Kind {
-	case scope.Repo:
-		return "repo"
-	case scope.Org:
-		return "org"
-	case scope.Enterprise:
-		return "enterprise"
-	case scope.Unknown:
-		return ""
-	default:
-		return ""
-	}
-}
 
 // missingScope は保有スコープが足りない場合に理由を返す。足りていれば空文字。
 //
@@ -51,7 +33,9 @@ func missingScope(r runner.Runner, sc page.ScopeState) string {
 	if need == "" || sc.Scopes.Has(need) {
 		return ""
 	}
-	level := scopeLevelName(r.Scope)
+	// 言い換えも必要スコープと同じ表（internal/gh）から引く。ここに写しの分岐を
+	// 持つと、新しい Kind を gh にだけ足したとき理由が先頭を欠いた形になる。
+	level := gh.ScopeLevelName(r.Scope)
 	return level + " レベルの操作には " + need +
 		" が必要です（gh auth refresh -h github.com -s " + need + "）"
 }
