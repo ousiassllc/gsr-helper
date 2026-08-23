@@ -86,6 +86,10 @@ func findExtract(t *testing.T, u setup.Unit) []string {
 }
 
 // makeTarball は runner 本体を模した最小の tar.gz を作り、そのパスを返す。
+//
+// tarball 側にも .runner / .env を入れてある。これが無いと FR-21（保持対象を
+// 上書きしない）の検証が、そもそも衝突しないだけの空振りになる。中身は既存の
+// ファイルと必ず食い違う値にして、上書きが起きれば読み取りで分かるようにする。
 func makeTarball(t *testing.T) string {
 	t.Helper()
 
@@ -105,6 +109,8 @@ func makeTarball(t *testing.T) string {
 		{"config.sh", "#!/bin/sh\n"},
 		{"svc.sh", "#!/bin/sh\n"},
 		{"bin/runnerversion", "2.311.0\n"},
+		{".runner", `{"agentId":9999}`},
+		{".env", "TARBALL_ENV=1\n"},
 	} {
 		hdr := &tar.Header{
 			Name: e.name, Mode: 0o755, Size: int64(len(e.body)), Typeflag: tar.TypeReg,

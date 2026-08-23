@@ -90,8 +90,15 @@ func TestApplyUsesDrainHookForUpdate(t *testing.T) {
 	}
 
 	// 更新後も残ることを確かめるため、保持対象のファイルを置いておく。
-	if werr := os.WriteFile(filepath.Join(dir, ".runner"), []byte(`{"agentName":"build01-1"}`), 0o600); werr != nil {
-		t.Fatalf("準備に失敗: %v", werr)
+	// makeTarball は同名のエントリを別の中身で持っているので、上書きされれば分かる。
+	kept := map[string]string{
+		".runner": `{"agentName":"build01-1"}`,
+		".env":    "HOST_ENV=1\n",
+	}
+	for name, body := range kept {
+		if werr := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); werr != nil {
+			t.Fatalf("準備に失敗: %v", werr)
+		}
 	}
 
 	f := exec.NewFake()
@@ -121,8 +128,10 @@ func TestApplyUsesDrainHookForUpdate(t *testing.T) {
 		t.Errorf("発行コマンド = %v, want %v", issued(f), want)
 	}
 
-	body, rerr := os.ReadFile(filepath.Join(dir, ".runner"))
-	if rerr != nil || string(body) != `{"agentName":"build01-1"}` {
-		t.Errorf(".runner が上書きされている（FR-21）: %q, %v", string(body), rerr)
+	for name, want := range kept {
+		body, rerr := os.ReadFile(filepath.Join(dir, name))
+		if rerr != nil || string(body) != want {
+			t.Errorf("%s が上書きされている（FR-21）: %q, %v", name, string(body), rerr)
+		}
 	}
 }

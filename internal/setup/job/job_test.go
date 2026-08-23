@@ -36,8 +36,8 @@ func TestRunReusesOneRegistrationTokenForBulkAdd(t *testing.T) {
 
 	f := exec.NewFake()
 	d, paths := api(t, f)
-	var fetched int32
-	d.Fetch = fakeFetch(t, &fetched)
+	log := new(fetchLog)
+	d.Fetch = log.fetch(t)
 
 	base := t.TempDir()
 	plan, err := setup.PlanAdd(setup.AddSpec{
@@ -70,8 +70,8 @@ func TestRunReusesOneRegistrationTokenForBulkAdd(t *testing.T) {
 		t.Errorf("registration token の取得回数 = %d, want 1（台数分で使い回す）: %v", n, *paths)
 	}
 	// FR-13: 1 回の取得を各ディレクトリへ展開して使い回す。
-	if fetched != 1 {
-		t.Errorf("tarball の取得回数 = %d, want 1", fetched)
+	if n := log.count(); n != 1 {
+		t.Errorf("tarball の取得回数 = %d, want 1", n)
 	}
 
 	// 3 台とも同じトークンで登録している。
@@ -150,8 +150,8 @@ func TestRunReportsPreparationBeforeUnits(t *testing.T) {
 
 	f := exec.NewFake()
 	d, _ := api(t, f)
-	var fetched int32
-	d.Fetch = fakeFetch(t, &fetched)
+	log := new(fetchLog)
+	d.Fetch = log.fetch(t)
 
 	sc := scope.Scope{Kind: scope.Org, Owner: "foo", Repo: ""}
 	plan, err := setup.PlanAdd(setup.AddSpec{
@@ -175,6 +175,44 @@ func TestRunReportsPreparationBeforeUnits(t *testing.T) {
 
 	if len(phases) == 0 || phases[0] != job.PrepPhase {
 		t.Errorf("最初の進捗 = %v, want %q が先頭", phases, job.PrepPhase)
+	}
+}
+
+// AC-3: 展開に使う SHA-256 は downloads エンドポイントが返した値をそのまま渡す。
+//
+// 取得先とファイル名も同じ 1 件から取る。別の系統から拾うと、検証したハッシュと
+// 実際に落としたファイルが食い違いうる。
+func TestRunPassesDownloadInfoToFetch(t *testing.T) {
+	t.Parallel()
+
+	f := exec.NewFake()
+	d, _ := api(t, f)
+	log := new(fetchLog)
+	d.Fetch = log.fetch(t)
+
+	sc := scope.Scope{Kind: scope.Org, Owner: "foo", Repo: ""}
+	plan, err := setup.PlanAdd(setup.AddSpec{
+		URL: "https://github.com/orgs/foo", Scope: sc,
+		NamePrefix: "build01", Count: 1, StartIndex: 1, Names: nil,
+		Labels: nil, WorkDir: "_work", RunnerGroup: "", Ephemeral: false,
+		DisableUpdate: false, InstallBase: t.TempDir(), RunAsUser: "", Version: "2.311.0",
+		Existing: nil, Busy: nil,
+	})
+	if err != nil {
+		t.Fatalf("PlanAdd: %v", err)
+	}
+
+	if _, err = job.Run(context.Background(), job.Input{
+		Deps: d, Plan: plan, Scope: sc, Drain: nil, Progress: nil,
+	}); err != nil {
+		t.Fatalf("err = %v", err)
+	}
+
+	want := tarball.Info{
+		URL: "https://example.test/x", Filename: "runner.tar.gz", SHA256: wantSHA256,
+	}
+	if got := log.info(); got != want {
+		t.Errorf("Fetch に渡った Info:\n got: %+v\nwant: %+v", got, want)
 	}
 }
 

@@ -105,6 +105,40 @@ func TestPlanAddOptionalFlags(t *testing.T) {
 	}
 }
 
+// config.sh --work には利用者が指定した値がそのまま渡る。
+//
+// 既定値と同じ値で確かめると「常に既定値を使う」実装でも通ってしまうため、
+// 既定とは違う値で検証する。
+func TestPlanAddPassesWorkDir(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		in   string
+		want string
+	}{
+		"指定した値をそのまま渡す": {"_scratch", "--work _scratch "},
+		"空なら既定の _work": {"", "--work _work "},
+	}
+
+	for label, tt := range tests {
+		t.Run(label, func(t *testing.T) {
+			t.Parallel()
+
+			spec := addSpec()
+			spec.Count = 1
+			spec.WorkDir = tt.in
+
+			p, err := setup.PlanAdd(spec)
+			if err != nil {
+				t.Fatalf("err = %v", err)
+			}
+			if got := p.Units[0].CommandLines()[0]; !strings.Contains(got, tt.want) {
+				t.Errorf("config.sh に %q が無い: %s", tt.want, got)
+			}
+		})
+	}
+}
+
 func TestPlanAddRejectsBadInput(t *testing.T) {
 	t.Parallel()
 

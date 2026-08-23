@@ -11,7 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync/atomic"
+	"sync"
 	"testing"
 
 	"github.com/ousiassllc/gsr-helper/internal/exec"
@@ -22,6 +22,13 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/setup/job"
 	"github.com/ousiassllc/gsr-helper/internal/setup/tarball"
 )
+
+// wantSHA256 は downloads エンドポイントが返す tarball のチェックサム。
+//
+// 実物と同じ 64 桁の 16 進にしてあるのは、job.Run がこの値を素通しで
+// tarball.Fetch へ渡していること（AC-3）を、取り違えようのない形で確かめる
+// ためである。短い目印だと別の値と偶然一致しうる。
+const wantSHA256 = "3b1f8c2d4e6a70b95c13d82f4a6e0c7b19d35f8a2c4e60b7d91f3a5c7e9b0d24"
 
 // api は GitHub API を模したサーバを立て、そこへ向いた Deps を返す。
 //
@@ -37,8 +44,8 @@ func api(t *testing.T, ex exec.Executor) (job.Deps, *[]string) {
 			strings.HasSuffix(r.URL.Path, "/remove-token"):
 			fmt.Fprintf(w, `{"token":%q,"expires_at":"2099-01-01T00:00:00Z"}`, "TOK"+r.URL.Path)
 		case strings.HasSuffix(r.URL.Path, "/runners/downloads"):
-			fmt.Fprint(w, `[{"os":"linux","architecture":"x64","download_url":"https://example.test/x",`+
-				`"filename":"runner.tar.gz","sha256_checksum":"AA"}]`)
+			fmt.Fprintf(w, `[{"os":"linux","architecture":"x64","download_url":"https://example.test/x",`+
+				`"filename":"runner.tar.gz","sha256_checksum":%q}]`, wantSHA256)
 		case strings.HasSuffix(r.URL.Path, "/releases/latest"):
 			fmt.Fprint(w, `{"tag_name":"v2.311.0"}`)
 		default:
@@ -58,15 +65,44 @@ func api(t *testing.T, ex exec.Executor) (job.Deps, *[]string) {
 	return d, paths
 }
 
-// fakeFetch は tarball を取得したことにして、空のファイルを置く。
-func fakeFetch(t *testing.T, calls *int32) func(context.Context, tarball.Info, string) (string, error) {
+// fetchLog は fake の Fetch が受け取った内容の記録。
+//
+// AC-3（展開に使う SHA-256 は downloads エンドポイントの値）は、Fetch へ実際に
+// 渡った tarball.Info でしか確かめられない。捨ててしまうと job.go の詰め替えを
+// 壊してもテストが通る。-race で読み書きするためロックで守る。
+type fetchLog struct {
+	mu    sync.Mutex
+	calls int
+	last  tarball.Info
+}
+
+// fetch は tarball を取得したことにして最小の tar.gz を置き、受け取った Info を記録する。
+func (l *fetchLog) fetch(t *testing.T) func(context.Context, tarball.Info, string) (string, error) {
 	t.Helper()
 
-	return func(_ context.Context, _ tarball.Info, dir string) (string, error) {
-		atomic.AddInt32(calls, 1)
+	return func(_ context.Context, in tarball.Info, dir string) (string, error) {
+		l.mu.Lock()
+		l.calls++
+		l.last = in
+		l.mu.Unlock()
+
 		p := filepath.Join(dir, "runner.tar.gz")
 		return p, os.WriteFile(p, miniTarball(t), 0o600)
 	}
+}
+
+// count は Fetch が呼ばれた回数を返す。
+func (l *fetchLog) count() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.calls
+}
+
+// info は最後に Fetch が受け取った tarball.Info を返す。
+func (l *fetchLog) info() tarball.Info {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.last
 }
 
 // miniTarball は runner 本体を模した最小の tar.gz を返す。
