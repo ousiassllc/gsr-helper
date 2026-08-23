@@ -3,6 +3,7 @@ package setup_test
 import (
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
@@ -108,7 +109,7 @@ func TestAddFormShowsDirsAndCommandsBeforeApproval(t *testing.T) {
 			// 実際に呼ばれることを確かめる唯一の経路である。** ここを通らないと、Fetch を
 			// 渡し忘れた実装が本物のダウンロードを始めても気付けない（ErrNoFetchInTests）。
 			pagetest.Quick(m, pagetest.Press("y"))
-			if api.Fetches() == 0 {
+			if api.WaitFetches(3*time.Second) == 0 {
 				t.Error("差し替えた Fetch が使われていない（本物の取得経路へ落ちた疑い）")
 			}
 		})
