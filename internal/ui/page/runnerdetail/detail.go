@@ -60,6 +60,9 @@ type Model struct {
 
 	target runner.Runner
 	caps   appconfig.Caps
+	// disk は _work 使用量を引くための共有状態（Issue #73）。未集計なら work 行は
+	// パスだけになる。
+	disk page.DiskState
 
 	info    pane.Detail
 	list    organism.ChoiceList
@@ -74,7 +77,7 @@ func newModel(keys keymap.Set, s token.Styles) Model {
 	return Model{
 		keys:    keys,
 		styles:  s,
-		actions: action.NewSet(keys.Runner),
+		actions: action.NewSet(keys.Runner, page.ScopeState{}),
 		target:  runner.Runner{},
 		caps:    appconfig.Caps{},
 		info:    pane.NewDetail(),
@@ -127,9 +130,10 @@ func (d *Model) SetSize(w, h int) {
 // 差し替える Open は逆に先頭へ戻す（FR-46）。
 func (d *Model) SetState(st page.StateMsg) {
 	d.keys, d.styles = st.Keys, st.Styles
-	d.actions = action.NewSet(st.Keys.Runner)
+	d.actions = action.NewSet(st.Keys.Runner, st.Scopes)
 	d.list.Restyle(st.Keys.List, st.Styles)
 	d.caps = st.Caps
+	d.disk = st.Disk
 	if r, ok := findRunner(st.Result.Runners, d.target.Dir); ok {
 		d.target = r
 	}

@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"context"
+	"errors"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -8,9 +10,10 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/appconfig"
 	"github.com/ousiassllc/gsr-helper/internal/doctor"
 	"github.com/ousiassllc/gsr-helper/internal/exec"
+	"github.com/ousiassllc/gsr-helper/internal/gh"
 	"github.com/ousiassllc/gsr-helper/internal/ui/chrome"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
-	"github.com/ousiassllc/gsr-helper/internal/ui/tabset"
 )
 
 // 内部テスト（package ui）にしてある。タブのメタ情報・tickMsg・chrome が非公開で、
@@ -36,6 +39,11 @@ func newApp(ex exec.Executor) App {
 	// sudo / docker / /etc/group を読むため、親 Model の検証が実行環境の構成で
 	// 揺れる。FR-44 そのものを見るテストは withHostChecks で差し替える。
 	a.hostChecks = nil
+	// **保有スコープも本物の GitHub へ出させない。** 束の Cmd をすべて実行する検証
+	// （applyChrome）があるため、塞がないと api.github.com を叩いて Budget ぶん止まる。
+	a.scopes.NewClient = func(context.Context) (*gh.Client, error) {
+		return nil, errors.New("テストでは GitHub へ出ない")
+	}
 	return a
 }
 
@@ -64,25 +72,20 @@ func withSpies(a App) (App, []*pagetest.Spy) {
 	return a, spies
 }
 
-// lastEnabledTab は最後の有効なタブの添字を返す。無ければ -1。
-func lastEnabledTab(tabs []tabset.Tab) int {
-	last := -1
-	for i := range tabs {
-		if tabs[i].Enabled {
-			last = i
-		}
-	}
-
-	return last
-}
-
 // applyChrome は Cmd に含まれる ChromeMsg を親へ渡し、フッタを反映した App を返す。
 //
 // フッタは page が ChromeMsg で報告したものを親が描くため、フッタの表示を検証するには
 // page → 親の 1 往復が必要である。取り出しは pagetest.ChromeMsgs が持つ。
+// **入れ子の tea.Batch まで辿る。** 親は共有状態の配布と、起動後に 1 度だけ走る取得
+// （前提チェック・_work 集計・保有スコープ）を 1 つの Batch にまとめて返すため、
+// 1 段だけ展開すると配布ぶんが Batch のまま残り ChromeMsg を取り出せない。
 func applyChrome(a App, cmd tea.Cmd) App {
-	for _, msg := range pagetest.ChromeMsgs(cmd) {
-		a, _ = update(a, msg)
+	for _, msg := range pagetest.Msgs(cmd) {
+		c, ok := msg.(page.ChromeMsg)
+		if !ok {
+			continue
+		}
+		a, _ = update(a, c)
 	}
 	return a
 }

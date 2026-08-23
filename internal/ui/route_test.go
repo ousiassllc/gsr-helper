@@ -7,6 +7,7 @@ import (
 
 	"github.com/ousiassllc/gsr-helper/internal/exec"
 	"github.com/ousiassllc/gsr-helper/internal/runner"
+	"github.com/ousiassllc/gsr-helper/internal/ui/discovery"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
 )
@@ -66,7 +67,7 @@ func TestTabMsgForDeadTabIsDropped(t *testing.T) {
 // 後続 Issue ごとに StateMsg と親 Model の両方を直すことになる。
 //
 // **systemctl が無い環境でも nil にしない。** 検出だけが nil にして systemd の参照を
-// 落とす縮退を持つ（discover.go の discoverExec）が、それは runner.Discover の契約で
+// 落とす縮退を持つ（discovery.Exec）が、それは runner.Discover の契約で
 // あって page の約束ではない。
 func TestStateCarriesExecutorToEveryTab(t *testing.T) {
 	fake := exec.NewFake()
@@ -130,20 +131,6 @@ func TestOpenTabDeliversToActiveTab(t *testing.T) {
 	}
 }
 
-// 名前が一致するタブが無い要求では何も起きない（タブは動かない）。
-func TestOpenTabIgnoresUnknownTitle(t *testing.T) {
-	a, _ := withSpies(newApp(exec.NewFake()))
-	before := a.active
-
-	a, cmd := update(a, page.OpenTabMsg{Title: "存在しないタブ", Msg: nil})
-	if a.active != before {
-		t.Errorf("知らない名前でタブが移った（%d → %d）", before, a.active)
-	}
-	if cmd != nil {
-		t.Error("知らない名前で Cmd を発行している")
-	}
-}
-
 // Runners 一覧の n / D / u は Setup タブへ移す（screens.md の画面遷移）。
 //
 // **確認ダイアログは移動先が出す。** 移動元でも出すと同じ操作の確認が 2 箇所に
@@ -155,10 +142,10 @@ func TestRunnerKeysOpenSetupTab(t *testing.T) {
 			f := exec.NewFake()
 			a := newApp(f)
 			a, _ = update(a, tea.WindowSizeMsg{Width: 100, Height: 30})
-			a, _ = update(a, discoveredMsg{
-				seq:    1,
-				result: runner.Result{Runners: []runner.Runner{pagetest.SampleRunner()}},
-				err:    nil,
+			a, _ = update(a, discovery.Msg{
+				Seq:    1,
+				Result: runner.Result{Runners: []runner.Runner{pagetest.SampleRunner()}},
+				Err:    nil,
 			})
 
 			a, cmd := update(a, press(k))

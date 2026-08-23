@@ -5,6 +5,7 @@ import (
 
 	"github.com/ousiassllc/gsr-helper/internal/exec"
 	"github.com/ousiassllc/gsr-helper/internal/runner"
+	"github.com/ousiassllc/gsr-helper/internal/ui/discovery"
 )
 
 // 実行中の検出があるうちは、Tick が来ても新しい検出を始めない。
@@ -32,7 +33,7 @@ func TestTickSkipsDiscoverWhileOneIsRunning(t *testing.T) {
 	}
 
 	// 結果が返れば次の周期から検出を再開する。
-	a, _ = update(a, discoveredMsg{seq: 1, result: runner.Result{}, err: nil})
+	a, _ = update(a, discovery.Msg{Seq: 1, Result: runner.Result{}, Err: nil})
 	if a.inflight != 0 {
 		t.Fatalf("結果を受けた後の実行中の本数 = %d, want 0", a.inflight)
 	}
@@ -53,19 +54,19 @@ func TestRefreshKeySkipsDiscoverWhileOneIsRunning(t *testing.T) {
 }
 
 // 追い抜かれた周期の結果は捨てる。番号が無いと遅い検出が後から返って一覧が
-// 古い内容へ巻き戻る（discoveredMsg.seq）。
+// 古い内容へ巻き戻る（discovery.Msg.Seq）。
 func TestStaleDiscoverResultDoesNotOverwrite(t *testing.T) {
 	a := newApp(exec.NewFake())
 	newer := runner.Result{Warnings: []error{errStale}}
 
 	// 2 周期ぶんを発行し、新しい方（seq 2）の結果を先に取り込む。
-	a, _ = update(a, discoveredMsg{seq: 2, result: newer, err: nil})
+	a, _ = update(a, discovery.Msg{Seq: 2, Result: newer, Err: nil})
 	if len(a.result.Warnings) != 1 {
 		t.Fatalf("新しい結果が取り込まれていない（警告 %d 件）", len(a.result.Warnings))
 	}
 
 	// 遅れて返った古い周期（seq 1）の結果では上書きしない。
-	a, cmd := update(a, discoveredMsg{seq: 1, result: runner.Result{}, err: nil})
+	a, cmd := update(a, discovery.Msg{Seq: 1, Result: runner.Result{}, Err: nil})
 	if len(a.result.Warnings) != 1 {
 		t.Errorf("古い周期の結果で上書きされた（警告 %d 件, want 1）", len(a.result.Warnings))
 	}

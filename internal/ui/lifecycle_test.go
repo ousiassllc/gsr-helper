@@ -7,7 +7,10 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/ousiassllc/gsr-helper/internal/exec"
+	"github.com/ousiassllc/gsr-helper/internal/runner"
+	"github.com/ousiassllc/gsr-helper/internal/ui/discovery"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
+	"github.com/ousiassllc/gsr-helper/internal/ui/workscan"
 )
 
 // page の寿命の通知（Issue #41）を検証する。裏へ回ったこと・前面に戻ったこと・
@@ -113,5 +116,87 @@ func TestQuitRunsPageCleanupBeforeQuit(t *testing.T) {
 	}
 	if pages[1].Stops != 1 {
 		t.Errorf("前面のタブの後始末 = %d 回, want 1", pages[1].Stops)
+	}
+}
+
+// 起動時に選択されているタブが page.ActivateMsg を 1 度だけ受け取る（Issue #63）。
+//
+// 受け取らないと、既定タブに長寿命の処理を持つ page を置いた瞬間に、その処理が
+// 黙って張られないままになる。逆に共有状態のたびに配ると購読が積み上がる。
+func TestInitialTabIsActivatedExactlyOnce(t *testing.T) {
+	a, pages := withStreams(newApp(exec.NewFake()))
+
+	// 共有状態は起動直後に何度も配られる（端末サイズ・背景色・再検出）。
+	a, _ = update(a, tea.WindowSizeMsg{Width: 80, Height: 24})
+	a, _ = update(a, tea.BackgroundColorMsg{})
+	a, _ = update(a, tea.WindowSizeMsg{Width: 100, Height: 30})
+
+	if got := pages[a.active].Open; got != 1 {
+		t.Errorf("既定タブの購読 = %d 本, want 1（起動時の前面化が 1 度だけ届く）", got)
+	}
+	if got := pages[a.active].Peak; got != 1 {
+		t.Errorf("既定タブの同時購読の最大 = %d 本, want 1（配るたびに積み上がっている）", got)
+	}
+	for i, p := range pages {
+		if i == a.active {
+			continue
+		}
+		if p.Open != 0 {
+			t.Errorf("裏のタブ %d に前面化が届いている（購読 %d 本）", i, p.Open)
+		}
+	}
+}
+
+// 起動時に前面化を受け取ったタブから離れて戻っても、購読は積み上がらない。
+//
+// tabset.ActivateOnce が「1 度だけ」を覚えることと、activate が配る往復ぶんの
+// 前面化・非活性化が対になっていることの両方を見る。
+func TestInitialActivationDoesNotDoubleCountOnReturn(t *testing.T) {
+	a, pages := withStreams(newApp(exec.NewFake()))
+	a, _ = update(a, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	home := a.active
+	a, _ = sendKey(a, "2")
+	a, _ = sendKey(a, "1")
+
+	if got := pages[home].Open; got != 1 {
+		t.Errorf("往復後の購読 = %d 本, want 1", got)
+	}
+	if got := pages[home].Peak; got != 1 {
+		t.Errorf("同時購読の最大 = %d 本, want 1（起動時と復帰で二重に張っている）", got)
+	}
+}
+
+// 起動シーケンスの外へ回した取得の駆動（Issue #73 / #79）を検証する。
+
+// cycles は検出成功を n 周期分流し、その間に発行された集計の回数を返す。
+func cycles(t *testing.T, a App, n int) int {
+	t.Helper()
+
+	res := runner.Result{Runners: []runner.Runner{{Dir: t.TempDir()}}}
+	starts := 0
+	for seq := 1; seq <= n; seq++ {
+		var cmd tea.Cmd
+		a, cmd = update(a, discovery.Msg{Seq: seq, Result: res, Err: nil})
+		for _, msg := range pagetest.Msgs(cmd) {
+			if _, ok := msg.(workscan.Msg); ok {
+				starts++
+			}
+			a, _ = update(a, msg)
+		}
+	}
+	return starts
+}
+
+// _work の集計は再検出のたびに走らない。
+//
+// 駆動の契機は「最初の検出成功」と手動の再読み込みだけである。検出が成功するたびに
+// 走らせると、runner 1 台で秒〜分かかる走査が 3 秒ごとに始まり、既定タブの応答を壊す。
+// **実行中でないときに次の周期が来る**のは普通に起こるので、重複防止だけでは足りない。
+func TestWorkScanRunsOnceAcrossDiscoveryCycles(t *testing.T) {
+	a, _ := update(newApp(exec.NewFake()), tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	if got := cycles(t, a, 3); got != 1 {
+		t.Errorf("集計の発行 = %d 回, want 1（再検出のたびに走っている）", got)
 	}
 }

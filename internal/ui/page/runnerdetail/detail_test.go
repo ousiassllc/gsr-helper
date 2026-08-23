@@ -255,3 +255,27 @@ func TestRunnerDetailAdoptsCapsFromState(t *testing.T) {
 		t.Errorf("Caps = %+v, want %+v", d.caps, pagetest.Caps())
 	}
 }
+
+// 詳細画面の work 行に使用量が併記される（Issue #73）。
+//
+// 未集計・集計失敗のときはパスだけを出す。**「0 バイト」とは書かない**——空の
+// _work と未集計を同じ表示にすると読み分けられない。
+func TestWorkText(t *testing.T) {
+	const dir = "/opt/runners/build01-1/_work"
+
+	tests := []struct {
+		name  string
+		usage string
+		want  string
+	}{
+		{name: "集計できていれば併記する", usage: "2.0K", want: dir + "  2.0K"},
+		{name: "未集計ならパスだけ", usage: "", want: dir},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := workText(dir, tt.usage); got != tt.want {
+				t.Errorf("workText(%q, %q) = %q, want %q", dir, tt.usage, got, tt.want)
+			}
+		})
+	}
+}

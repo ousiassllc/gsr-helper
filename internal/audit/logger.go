@@ -20,6 +20,8 @@ type Logger struct {
 	now      func() time.Time
 	uid      int
 	sudoUser string
+	// errFunc は Report の書き込み失敗を通知する先。WithErrorFunc で設定する。
+	errFunc func(error)
 }
 
 // Option は Logger の生成時の設定。
@@ -44,6 +46,17 @@ func WithIdentity(uid int, sudoUser string) Option {
 	return func(l *Logger) {
 		l.uid = uid
 		l.sudoUser = sudoUser
+	}
+}
+
+// WithErrorFunc は Report の書き込み失敗を通知する先を設定する。
+//
+// TUI から呼ぶ場合は必ず設定すること。代替スクリーン（alternate screen）を
+// 握っている間に未設定の代替経路（os.Stderr への直接出力）へ書くと画面が壊れる
+// （internal/exec/command.WithAuditErrorFunc と同じ理由）。
+func WithErrorFunc(fn func(error)) Option {
+	return func(l *Logger) {
+		l.errFunc = fn
 	}
 }
 
@@ -105,6 +118,37 @@ func (l *Logger) Write(rec Record) error {
 		return fmt.Errorf("監査ログの書き込みに失敗しました: %w", err)
 	}
 	return nil
+}
+
+// reportErrorSink は WithErrorFunc が未設定のときの Report の書き出し先。
+//
+// os.Stderr を直接書くとテストから検証できないため変数にしている。
+// 差し替えるのはテストだけで、通常の経路では os.Stderr のまま使う。
+var reportErrorSink io.Writer = os.Stderr
+
+// Report は rec を Write で追記する、外部コマンドを伴わない破壊的操作向けの入口。
+//
+// Write と違って戻り値を持たない。記録の書き込み失敗を呼び出し側の操作の失敗に
+// 混ぜないためである。ファイルの削除などドメイン層の破壊的操作は、監査ログを
+// 書けなかったというだけの理由で「操作自体が失敗した」と報告してはならない。
+//
+// 失敗は WithErrorFunc の通知先へ渡す。**TUI から呼ぶ場合は必ず WithErrorFunc を
+// 設定すること。** 代替スクリーンを握っている間に stderr へ書くと描画が壊れる
+// （internal/exec/command の既存の流儀と同じ）。未設定なら黙って握りつぶさず
+// os.Stderr へ 1 行だけ出す。
+//
+// nil レシーバと Discard() では Write が no-op（err == nil）を返すため、
+// この関数自体も自然に no-op になる。
+func (l *Logger) Report(rec Record) {
+	err := l.Write(rec)
+	if err == nil {
+		return
+	}
+	if l.errFunc != nil {
+		l.errFunc(err)
+		return
+	}
+	_, _ = fmt.Fprintln(reportErrorSink, err.Error())
 }
 
 // Close は Open が開いたファイルを閉じる。New に渡した Writer は所有者が

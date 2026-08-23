@@ -153,7 +153,8 @@ func TestUpdateHasResultMsgCase(t *testing.T) {
 // ソースで見る理由は runners/wiring_test.go と同じである（本番で登録するモーダルは
 // 登録時に Cmd を返さないため、取り落としても今日は症状が出ない）。
 func TestNewKeepsRegisterCmd(t *testing.T) {
-	src, err := os.ReadFile("jobs.go")
+	// New は new.go にある（jobs.go を 1 ファイル 300 行の上限に収めるため分けた）。
+	src, err := os.ReadFile("new.go")
 	if err != nil {
 		t.Fatalf("実装を読めない: %v", err)
 	}

@@ -43,9 +43,9 @@ func tableHeight(bodyH int) int {
 // 使用率が「0%」として描かれ、枯渇しているのに潤沢に見える（FSSummaryView の doc）。
 // パスと容量の併記はゼロ値のまま molecule 側が「値なし」「空」に落とす。
 //
-// Warn は常に偽である。閾値（appconfig.DiskThresholds）を page へ運ぶ経路が
-// page.StateMsg にまだ無いためで、判定を持てるようになった時点でここだけを直す
-// （molecule.FSSummaryLine の doc）。
+// Warn は設定の警告閾値（disk_thresholds.warn）と実測の使用率から決める
+// （FR-29 / Issue #72）。判定をここで行うのは、設定と実測の両方を持つのが page
+// だからである（molecule は真偽値を受け取って描くだけ。molecule.FSSummaryLine の doc）。
 func (m Model) summaryView() molecule.FSSummaryView {
 	s := m.stats
 	failed := m.statsErr != nil
@@ -59,8 +59,27 @@ func (m Model) summaryView() molecule.FSSummaryView {
 		TotalBytes:   s.TotalBytes,
 		InodePercent: s.InodePercent(),
 		Unavailable:  failed,
-		Warn:         false,
+		Warn:         warnExceeded(failed, s.UsedPercent(), m.st.Disk.Thresholds.Warn),
 	}
+}
+
+// warnExceeded は使用率が警告閾値に達したかを返す。
+//
+// **取得に失敗した行では必ず偽を返す。** 失敗時の使用率は 0 として描かれる
+// （FSSummaryView.Unavailable）ので、そこへ警告を添えると「使用 - なのに閾値超過」
+// という読めない行になる。
+//
+// 閾値が 0 以下（設定を読めていない・未設定）のときも偽を返す。0 を閾値として
+// 扱うと、あらゆる使用率が超過になって警告が常に出る。
+//
+// 比較を >= にしているのは doctor のリソース診断（internal/doctor/hostres の band）
+// に合わせるためである。同じ 80% を一方が警告し他方がしないと、同じホストの
+// 同じ数字に対して 2 つの画面が違うことを言う。
+func warnExceeded(failed bool, used, warn int) bool {
+	if failed || warn <= 0 {
+		return false
+	}
+	return used >= warn
 }
 
 // emptyMessage は行が 1 件も無いときの文言を返す。
@@ -93,15 +112,16 @@ func (m Model) input() string {
 
 // status は状態行に出す page 側の文を返す。
 //
-// 優先順は「入力中 > クリーンアップ中 > 結果報告 > 選択件数」である。進行中の破壊的
-// 操作を選択件数で隠さないことと、その報告を次の打鍵まで読めることを優先する。
+// 優先順は「入力中 > 結果報告 > 選択件数」である。報告を選択件数で隠さず、
+// 次の打鍵まで読めることを優先する。
+//
+// **実行中の件数はここに出さない。** 逐次表示と分母は進捗表示
+// （organism/pane.ProgressList。Issue #75）が持つ。同じ進捗を 2 か所に出すと、
+// 片方だけが古い値になったときにどちらが正しいのか読み手に判断できない。
 func (m Model) status() string {
 	switch {
 	case m.input() != "":
 		return "入力中: " + m.input()
-	case m.clean != nil:
-		return "クリーンアップ中 (" + strconv.Itoa(m.clean.done) + "/" +
-			strconv.Itoa(m.clean.total) + ")"
 	case m.notice != "":
 		return m.notice
 	}

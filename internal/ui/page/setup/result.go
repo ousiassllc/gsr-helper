@@ -8,6 +8,7 @@ import (
 
 	"github.com/ousiassllc/gsr-helper/internal/setup"
 	"github.com/ousiassllc/gsr-helper/internal/ui/organism/dialog"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/progressmodal"
 )
 
 // onFormResult は追加フォームの完了・中断を処理する。
@@ -66,7 +67,7 @@ func (m *Model) onDone(msg doneMsg) tea.Cmd {
 	m.run = nil
 
 	// スピナを止める。止め忘れると処理を終えた後も Msg が流れ続ける。
-	stop := m.overlay.Open(progressKind, progressStopMsg{})
+	stop := progressmodal.Stop(&m.overlay)
 	return tea.Batch(cmd, stop)
 }
 

@@ -18,7 +18,7 @@ func TestOpenAuditRecordsValidatedSudoUser(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "audit.jsonl")
 
 	var errOut strings.Builder
-	lg := openAudit(path, &errOut)
+	lg := openAudit(path, &errOut, nil)
 	if errOut.Len() != 0 {
 		t.Fatalf("警告が出ている: %s", errOut.String())
 	}
@@ -44,7 +44,7 @@ func TestOpenAuditRejectsInvalidSudoUser(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "audit.jsonl")
 
 	var errOut strings.Builder
-	lg := openAudit(path, &errOut)
+	lg := openAudit(path, &errOut, nil)
 	if err := lg.Write(audit.Record{Action: "test", Command: []string{"true"}}); err != nil {
 		t.Fatalf("記録に失敗した: %v", err)
 	}
@@ -68,7 +68,7 @@ func TestOpenAuditFallsBackToDiscard(t *testing.T) {
 	}
 
 	var errOut strings.Builder
-	lg := openAudit(filepath.Join(file, "audit.jsonl"), &errOut)
+	lg := openAudit(filepath.Join(file, "audit.jsonl"), &errOut, nil)
 	if lg == nil {
 		t.Fatal("記録先が nil になっている（呼び出し側に nil 判定を書かせない）")
 	}
@@ -91,5 +91,32 @@ func TestHostname(t *testing.T) {
 func TestVersionString(t *testing.T) {
 	if got := versionString(); !strings.HasPrefix(got, appName+" ") {
 		t.Errorf("バージョン表記 = %q, ツール名で始まっていない", got)
+	}
+}
+
+// 監査記録の失敗が auditSink へ届く（Issue #71 の配布経路）。
+//
+// **run() が使うのと同じ組み立て（newAudit）を通す。** Logger と sink を別々に作って
+// 手で繋ぐ形の検証では、run() 側の配線を外しても緑のままになる（実際にそうなっていた）。
+// 通知先を渡さないと audit が os.Stderr へ直接書き、bubbletea が代替スクリーンを
+// 握っている間に画面が壊れる。
+func TestNewAuditRoutesReportFailuresToSink(t *testing.T) {
+	var errOut strings.Builder
+
+	lg, sink := newAudit(filepath.Join(t.TempDir(), "audit.jsonl"), &errOut)
+	// 閉じたあとの Report は書き込みに失敗する。**戻り値を持たない**ので、
+	// 通知先が繋がっていなければ失敗は誰にも見えない。
+	if err := lg.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	lg.Report(audit.Record{Action: "disk.clean", Command: []string{"(削除)", "/tmp/x"}})
+
+	var report strings.Builder
+	sink.report(&report)
+	if report.Len() == 0 {
+		t.Fatal("記録の失敗が auditSink へ届いていない（newAudit の配線が切れている）")
+	}
+	if got := report.String(); !strings.Contains(got, "監査ログの記録に") {
+		t.Errorf("報告の文言 = %q, want 監査ログの記録に…を含む", got)
 	}
 }

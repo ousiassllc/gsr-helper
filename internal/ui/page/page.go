@@ -23,6 +23,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/ousiassllc/gsr-helper/internal/appconfig"
+	"github.com/ousiassllc/gsr-helper/internal/audit"
 	"github.com/ousiassllc/gsr-helper/internal/exec"
 	"github.com/ousiassllc/gsr-helper/internal/gh"
 	"github.com/ousiassllc/gsr-helper/internal/runner"
@@ -78,6 +79,83 @@ type StateMsg struct {
 	// Config は Config タブが要る起動時の決定事項。Setup と同じ理由で 1 つに
 	// まとめてある。
 	Config ConfigDeps
+	// Audit は破壊的操作の記録先。外部コマンドを伴わない削除（internal/disk の
+	// ファイル削除など）を記録するために page 階層まで配る（Issue #71）。
+	//
+	// nil / audit.Discard() は no-op で、監査ログを開けない場合の縮退はそのまま
+	// 働く。UI から直接書き込む経路は無く、渡すだけで済む点は Exec と同じである。
+	Audit *audit.Logger
+	// Disk はディスク関連の共有状態（閾値と _work 使用量）。Issue #72 / #73。
+	Disk DiskState
+	// Scopes はトークンの保有スコープ。操作の可否の判定に使う。Issue #79。
+	Scopes ScopeState
+}
+
+// DiskState はタブをまたいで共有するディスク関連の状態。
+//
+// 閾値（設定由来の静的な値）と使用量（親が駆動する集計の結果）を 1 つにまとめて
+// あるのは、Setup / Config と同じく「タブ 1 枚のために StateMsg のフィールドを
+// いくつも増やさない」ためである。どちらも Disk タブ専用ではなく、閾値は doctor の
+// リソース診断が、使用量は Runners タブと runner 詳細画面が読む。
+type DiskState struct {
+	// Thresholds はディスク使用率の警告閾値（設定ファイルの disk_thresholds）。
+	//
+	// 既定値（80 / 90）を表示側に埋め込まないために配る。埋め込むと、設定を
+	// 変えても表示だけが既定のまま残る。
+	Thresholds appconfig.DiskThresholds
+	// Work は runner ごとの _work 使用量。キーは runner.Runner.Dir。
+	//
+	// **キーが無いことが「まだ集計していない」を表す。** 0 バイトは空の _work と
+	// いう有効値なので、ゼロ値と兼用しない。未集計の runner は `-` に縮退する。
+	//
+	// runner 名ではなくディレクトリで引くのは、名前が .runner の AgentName 由来で
+	// 重複しうるのに対し、ディレクトリは検出結果の中で一意だからである（Runners
+	// タブの一覧も行の識別子に Dir を使っている）。
+	Work map[string]WorkUsage
+}
+
+// WorkUsage は runner 1 台の _work 使用量。
+//
+// 失敗を戻り値ではなく値として持つのは、1 台の集計失敗で他の runner の表示を
+// 落とさないためである（disk.Usage.Err と同じ考え方）。
+type WorkUsage struct {
+	// Bytes は使用量。Err が非 nil のときの値は意味を持たない。
+	Bytes int64
+	// Err は集計に失敗した理由。nil なら成功。失敗した runner は `-` に縮退する。
+	Err error
+}
+
+// WorkText は runner の _work 使用量を表示用の文字列で返す（Issue #73）。
+//
+// **未集計と集計失敗はどちらも空文字を返す。** 呼び出し側はそれを "-" に縮退させる
+// （listrow の dashCell）。書き分けないのは、利用者にとってどちらも「今は分からない」で
+// あり、一覧の 1 セルに理由を書く余地が無いためである。集計は起動直後には終わって
+// いないので、未集計は異常ではない。
+//
+// 0 バイトは有効な値としてそのまま出す（空の _work を持つ runner がある）。
+func (d DiskState) WorkText(dir string) string {
+	u, ok := d.Work[dir]
+	if !ok || u.Err != nil {
+		return ""
+	}
+	return atom.Bytes(u.Bytes)
+}
+
+// ScopeState は起動時に 1 度だけ引いたトークンの保有スコープ（Issue #79）。
+//
+// **Caps に載せていない。** 能力判定（appconfig/hostcaps.Detect）は起動シーケンス上で
+// 同期的に走り 800ms の予算を持つが、保有スコープの確認は GitHub API への往復を
+// 要する。Caps に混ぜると「起動から一覧表示まで 1 秒以内」（non-functional.md）を
+// 壊すため、親が非同期に引いて確定した時点でこの値として配る。
+type ScopeState struct {
+	// Scopes は保有スコープ。Known が偽の間は意味を持たない。
+	Scopes gh.Scopes
+	// Known は取得を終えたか。
+	//
+	// **偽の間は操作を塞がない。** 判定が済む前に塞ぐと、権限の足りている
+	// トークンで起動直後だけ操作できなくなる。取得に失敗した場合も偽のままにして、
+	// 塞がない側へ倒す（screens.md「無効な操作の表示」の 6 段目）。
+	Known bool
 }
 
 // ConfigDeps は Config タブ（対話型設定編集）が要る値。

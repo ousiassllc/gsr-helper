@@ -12,6 +12,7 @@ import (
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/ousiassllc/gsr-helper/internal/logs"
 	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/ui/atom"
 	"github.com/ousiassllc/gsr-helper/internal/ui/organism/table"
@@ -45,32 +46,17 @@ type Model struct {
 	ops runnerop.Model
 	// initCmd はモーダルを登録したときに返った Cmd。最初の共有状態で流し、nil に落とす。
 	initCmd tea.Cmd
+	// info は Worker ログの解析結果、asked は解析を発行済みのジョブ（Issue #68）。
+	// どちらも鍵は runner ディレクトリと Worker の PID の組（repo.go の jobKey）。
+	info  map[string]logs.JobInfo
+	asked map[string]struct{}
+	// tries はジョブごとの解析の試行回数。ログが書かれる前に引いた場合の引き直しに
+	// 上限を置くために持つ（repo.go の maxParseTries）。
+	tries map[string]int
 }
 
 // tea.Model を実装していることをコンパイル時に確かめる。
 var _ tea.Model = Model{}
-
-// New は Jobs タブを組み立てる。tab は親が持つタブ番号で、ChromeMsg に載せる。
-//
-// モーダルは画面が登録する（page.Overlay の doc）。Jobs タブが開くのは runner の
-// 詳細画面だけで、操作対象がジョブではなく runner であることと対応する（FR-47）。
-func New(tab int, st page.StateMsg) Model {
-	// ヘルプと詳細画面、どちらの登録が返した Cmd も畳み込む（runners.go と同じ理由）。
-	overlay, help := page.NewOverlay(tab, st)
-	detail := overlay.Register(runnerdetail.Kind, runnerdetail.New(st))
-	// 確認ダイアログと待機画面の登録は runnerop が行う（runners.go と同じ理由）。
-	ops, opsCmd := runnerop.New(tab, overlay, st)
-	cmd := tea.Batch(help, detail, opsCmd)
-	return Model{
-		tab:     tab,
-		st:      st,
-		tbl:     newTable(st.Keys, st.Styles),
-		overlay: overlay,
-		actions: action.NewSet(st.Keys.Runner),
-		ops:     ops,
-		initCmd: cmd,
-	}
-}
 
 // Init は何も発行しない。親はタブの Init を呼ばないため、登録が返した Cmd は
 // 最初の page.StateMsg で流す（runners.go の Init と同じ理由）。
@@ -83,6 +69,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.setState(msg)
 	case tea.KeyPressMsg:
 		return m.handleKey(msg)
+	case jobInfoMsg:
+		// Worker ログの解析結果（Issue #68）。REPOSITORY / `_work` 列に反映する。
+		m.onJobInfo(msg)
+		return m, m.chrome()
 	case page.ResultMsg:
 		// モーダルが返した決定は page が受ける（runners.go と同じ理由）。
 		// page.Overlay.Handles が ResultMsg に偽を返すことと合わせた二重の守りで
@@ -122,18 +112,20 @@ func (m Model) View() tea.View {
 // setState は共有状態のスナップショットを反映する。ドメイン層は呼ばない。
 func (m Model) setState(st page.StateMsg) (tea.Model, tea.Cmd) {
 	m.st = st
-	m.actions = action.NewSet(st.Keys.Runner)
+	m.actions = action.NewSet(st.Keys.Runner, st.Scopes)
 	// 配色を配り直すのは runners.go と同じ理由（table.Model.Restyle の doc）。
 	m.tbl.Restyle(st.Keys.List, st.Styles)
 	m.tbl.SetSize(st.BodyW, st.BodyH)
-	m.tbl.SetItems(sectionJobs, jobRows(st.Result.Runners))
+	m.tbl.SetItems(sectionJobs, jobRows(st.Result.Runners, m.info))
+	// まだ引いていないジョブの Worker ログを解析する（Issue #68）。
+	parse := m.resolveInfo(st.Result.Runners)
 	m.ops.SetState(st, m.actions)
 	// 登録の Cmd は return より前に取り出す（runners.go と同じ理由。同じ return 文に
 	// 置くと、返り値 m の読み取りと m.initCmd の破棄の評価順が未規定になる）。
 	init := m.flushInit()
 	// モーダルが返す Cmd も親へ渡す（runners.go と同じ理由）。
 	cmd := m.overlay.SetState(st)
-	return m, tea.Batch(m.chrome(), init, cmd)
+	return m, tea.Batch(m.chrome(), init, cmd, parse)
 }
 
 // flushInit は登録が返した Cmd を 1 度だけ返す（runners.go と同じ理由）。

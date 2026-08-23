@@ -18,10 +18,10 @@ import (
 // 持たないためである（openDetail と同じ理由）。
 func (m Model) openLogs() tea.Cmd {
 	cur, ok := m.tbl.Selected()
-	if !ok || cur.isOrphan {
+	if !ok || cur.IsOrphan {
 		return nil
 	}
-	return showLog(cur.runner)
+	return showLog(cur.Runner)
 }
 
 // handleResult は詳細画面・確認ダイアログ・待機画面が返した決定を処理する。

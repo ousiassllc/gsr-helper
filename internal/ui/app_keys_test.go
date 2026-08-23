@@ -1,13 +1,13 @@
 package ui
 
 import (
-	"strconv"
 	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/ousiassllc/gsr-helper/internal/exec"
+	"github.com/ousiassllc/gsr-helper/internal/ui/discovery"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
 )
@@ -115,29 +115,11 @@ func TestGlobalKeys(t *testing.T) {
 	}
 }
 
-// タブの移動は端で折り返し、実装されていない番号は無視する。
-//
-// 期待値をタブの枚数から計算するのは、タブを 1 枚足したときにこのテストを
-// 書き換えずに済むようにするためである。
-func TestTabNavigation(t *testing.T) {
-	a, _ := withSpies(newApp(exec.NewFake()))
-	last := lastEnabledTab(a.tabs)
-	if last < 1 {
-		t.Fatal("有効なタブが 1 枚しかないため移動を検証できない")
-	}
-
-	if next, _ := sendKey(a, "tab"); next.active != 1 {
-		t.Errorf("tab の後の有効タブ = %d, want 1", next.active)
-	}
-	if next, _ := sendKey(a, "shift+tab"); next.active != last {
-		t.Errorf("shift+tab の後の有効タブ = %d, want %d（末尾へ折り返す）", next.active, last)
-	}
-
-	missing := strconv.Itoa(len(a.tabs) + 1)
-	if next, _ := sendKey(a, missing); next.active != 0 {
-		t.Errorf("番号 %s で有効タブが %d に変わっている", missing, next.active)
-	}
-}
+// タブの移動が端で折り返す解決そのもの（Next）と、存在しない番号キーの解決
+// （IndexOfKey が ok を偽で返す）は tabset.TestNextWrapsAtEnds が []Tab に対して
+// 直接検証する。ここに残すのは、その解決が実際に打鍵から呼ばれ、page への配送
+// （gate_test / route_test）やタブ切り替えの副作用（TestSwitchTabRefreshesChrome）と
+// つながっていることを見るテストだけである。
 
 // 無効なタブの番号キーは「効かないキー」にせず、無効である理由を状態行に出す。
 func TestDisabledTabNumberShowsReason(t *testing.T) {
@@ -189,32 +171,17 @@ func TestRefreshKeyEmitsDiscover(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("r で Cmd が発行されない")
 	}
-	if _, ok := cmd().(discoveredMsg); !ok {
-		t.Errorf("r の Msg = %T, want discoveredMsg", cmd())
+	if _, ok := cmd().(discovery.Msg); !ok {
+		t.Errorf("r の Msg = %T, want discovery.Msg", cmd())
 	}
 	if len(spies[0].Keys()) != 1 {
 		t.Errorf("r が page へ渡っていない（%d 件）", len(spies[0].Keys()))
 	}
 }
 
-// 無効なタブは tab で飛ばし、番号キーでも選べない。
-func TestDisabledTabIsSkipped(t *testing.T) {
-	a, _ := withSpies(newApp(exec.NewFake()))
-	for i := range a.tabs {
-		if i == 0 {
-			continue
-		}
-		a.tabs[i].Enabled = false
-		a.tabs[i].Reason = "テストのため無効"
-	}
-
-	if next, _ := sendKey(a, "tab"); next.active != 0 {
-		t.Errorf("tab で無効なタブへ移っている（active = %d）", next.active)
-	}
-	if next, _ := sendKey(a, a.tabs[1].Key); next.active != 0 {
-		t.Errorf("番号キーで無効なタブへ移っている（active = %d）", next.active)
-	}
-}
+// 無効なタブを tab で飛ばす解決そのもの（Next が無効なタブを飛ばす）と、番号キーが
+// 無効なタブでも添字を引ける（IndexOfKey は有効・無効を見ない）ことは
+// tabset.TestNextSkipsDisabledTabs が []Tab に対して直接検証する。
 
 // タブを切り替えたら、新しいタブへ共有状態を配って ChromeMsg を促す。
 func TestSwitchTabRefreshesChrome(t *testing.T) {

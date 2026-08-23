@@ -50,6 +50,29 @@ func Start(in doctor.Input, checks []doctor.Check) tea.Cmd {
 	}
 }
 
+// StartOnce は起動時の前提チェック（FR-44）を発行する Cmd を返す。
+//
+// **runner を検出したあとに 1 度だけ走らせる。** パスワード不要 sudo と docker
+// グループ所属は実行ユーザーごとに判定するので runner 一覧が要り、判定対象は
+// ホストの構成なので秒単位では変わらない。3 秒ごとに走らせると、監査ログへ記録
+// される `sudo -l -U` が他のレコードを押し流す。
+//
+// 「1 度だけ」の状態は呼び出し側（親 Model）が持つ 1 個の bool フィールドを
+// *done として渡す。すでに発行済みなら nil を返し、発行できたときだけ *done を
+// 真にする（Start が nil を返す——checks が空——ときは、まだ発行していない
+// 扱いのままにする。runner の検出が続けば、次の周期でまた試せるようにするため）。
+func StartOnce(done *bool, in doctor.Input, checks []doctor.Check) tea.Cmd {
+	if *done {
+		return nil
+	}
+	cmd := Start(in, checks)
+	if cmd == nil {
+		return nil
+	}
+	*done = true
+	return cmd
+}
+
 // CountStartup は起動時の前提チェック（FR-44）に当たる結果だけを数えて Msg を返す。
 //
 // Doctor タブが再実行した結果を親へ届ける入口である。**全項目の結果をそのまま

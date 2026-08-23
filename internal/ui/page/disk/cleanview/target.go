@@ -1,4 +1,4 @@
-package disk
+package cleanview
 
 import (
 	"path/filepath"
@@ -10,19 +10,23 @@ import (
 
 // 削除してよい対象かの判定を集める。
 //
-// clean.go（実行の一本道）から分けているのは、**保護の判定が削除経路とは別の理由で
-// 変わる**ためである。ジョブ実行中のガード（FR-31）は security.md の
+// 実行の一本道（page/disk の clean.go）から分けているのは、**保護の判定が削除経路とは
+// 別の理由で変わる**ためである。ジョブ実行中のガード（FR-31）は security.md の
 // 「ジョブ実行中の操作をガードする」に、対象の絞り込みは FR-30 に紐づく。
-// 1 ファイル 300 行の上限に対して clean.go を薄く保つ狙いも兼ねる。
 
-// cleanTargets は選択された行を削除計画の入力に変換する。
+// workDirName は削除の可否がジョブの有無で変わるサブツリー。
+//
+// internal/disk と同じ名前を持つのは、保護の判定をどちらの層でも同じサブツリーに
+// 対して行うためである。
+const workDirName = "_work"
+
+// Targets は選択された行の集計結果を削除計画の入力に変換する。
 //
 // disk.Usage をそのまま渡さず disk.Target に落とすのは、「集計しただけの行」が
 // 削除計画に紛れ込まないようにするためである（disk.Target の doc）。
-func cleanTargets(rows []row) []disk.Target {
-	out := make([]disk.Target, 0, len(rows))
-	for _, r := range rows {
-		u := r.usage
+func Targets(usages []disk.Usage) []disk.Target {
+	out := make([]disk.Target, 0, len(usages))
+	for _, u := range usages {
 		// 選べない理由はドメインまで運ぶ。表（organism/table）が選択を阻むだけに
 		// すると、ジョブ実行中の保護（FR-31）が表示層だけの約束になる
 		// （disk.Target.Protected の doc）。
@@ -32,6 +36,7 @@ func cleanTargets(rows []row) []disk.Target {
 		}
 		out = append(out, disk.Target{
 			Label:     u.Label,
+			Runner:    u.Runner,
 			Base:      u.Base,
 			Path:      u.Path,
 			Bytes:     u.Bytes,
@@ -43,7 +48,7 @@ func cleanTargets(rows []row) []disk.Target {
 	return out
 }
 
-// reprotected は計画を立ててから承認するまでの間に保護へ転じた対象の表示名を返す。
+// Reprotected は計画を立ててから承認するまでの間に保護へ転じた対象の表示名を返す。
 // 保護へ転じた対象が無ければ空文字を返す。
 //
 // **Target.Protected だけでは足りない。** あれは disk.Scan がジョブの有無を見た
@@ -55,7 +60,7 @@ func cleanTargets(rows []row) []disk.Target {
 //
 // **_diag は対象にしない。** security.md の「ジョブ実行中の操作をガードする」が
 // ブロックするのは _work 配下だけであり、_diag はジョブ実行中でも削除してよい。
-func reprotected(plan disk.CleanPlan, runners []runner.Runner) string {
+func Reprotected(plan disk.CleanPlan, runners []runner.Runner) string {
 	for _, t := range plan.Paths {
 		for _, r := range runners {
 			if !r.Busy() || r.Dir != t.Base {

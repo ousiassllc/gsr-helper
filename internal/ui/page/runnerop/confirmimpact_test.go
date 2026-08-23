@@ -36,7 +36,7 @@ func confirmView(t *testing.T, id action.ID, targets []runner.Runner) string {
 func defOf(t *testing.T, id action.ID) action.Def {
 	t.Helper()
 
-	for _, d := range action.NewSet(keymap.NewRunnerKeys()).List() {
+	for _, d := range action.NewSet(keymap.NewRunnerKeys(), page.ScopeState{}).List() {
 		if d.ID == id {
 			return d
 		}

@@ -10,6 +10,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/ui/atom"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/disk/cleanview"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
 )
 
@@ -51,7 +52,7 @@ func TestCleanKeyOnlyOpensConfirm(t *testing.T) {
 
 	// 何が起きるかは確認画面が示す（実行するコマンドと解放見込み）。
 	body := m.View().Content
-	for _, want := range []string{"prune", "解放見込み", noteDockerScope, noteIrreversible} {
+	for _, want := range []string{"prune", "解放見込み", "prune -f では削除されません", "復元できません"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("確認画面に %q が出ていない:\n%s", want, body)
 		}
@@ -106,8 +107,12 @@ func TestConfirmYesRunsCleanup(t *testing.T) {
 		t.Errorf("監査の action = %q, want %q", call.Options.Action, "disk.clean")
 	}
 
-	if m.overlay.Active() {
-		t.Error("実行後も確認モーダルが開いたままになっている")
+	// 確認は閉じ、代わりに進捗表示が前面に出る（Issue #75）。
+	if !m.overlay.Active() {
+		t.Error("実行後に進捗表示が出ていない")
+	}
+	if body := m.View().Content; !strings.Contains(body, "クリーンアップ中") {
+		t.Errorf("進捗表示の見出しが出ていない:\n%s", body)
 	}
 	if !strings.Contains(m.status(), "クリーンアップ完了") {
 		t.Errorf("結果が報告されていない（status = %q）", m.status())
@@ -202,10 +207,10 @@ func hintDisabled(footer []atom.Hint, key, reason string) bool {
 //
 // 表が選択を阻むだけにすると保護が表示層の約束で終わり、Target を直接組む呼び出しが
 // 1 つ増えた時点で黙って外れる（disk.Target.Protected の doc）。
-func TestCleanTargetsCarriesProtectedReason(t *testing.T) {
+func TestCleanviewTargetsCarriesProtectedReason(t *testing.T) {
 	u := fakeUsage("build01-1 / _work/bar", 100)
 	u.Removable, u.Reason = false, busyReasonPrefix
-	if got := cleanTargets([]row{{usage: u}})[0].Protected; got != busyReasonPrefix {
+	if got := cleanview.Targets(checkedUsage([]row{{usage: u}}))[0].Protected; got != busyReasonPrefix {
 		t.Errorf("Protected = %q, want %q", got, busyReasonPrefix)
 	}
 }

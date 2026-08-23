@@ -9,7 +9,9 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/runner/scope"
 	"github.com/ousiassllc/gsr-helper/internal/setup"
 	"github.com/ousiassllc/gsr-helper/internal/setup/job"
+	"github.com/ousiassllc/gsr-helper/internal/ui/organism/pane"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/progressmodal"
 )
 
 // apiTimeout は計画を組むための API 呼び出しの上限。
@@ -118,4 +120,31 @@ func (m Model) waitProgress(seq int, ch <-chan setup.Progress) tea.Cmd {
 // waitDone は完了を受け取る Cmd を返す。
 func (m Model) waitDone(ch <-chan doneMsg) tea.Cmd {
 	return page.Do(m.tab, func() tea.Msg { return <-ch })
+}
+
+// openProgress は進捗表示を開く。見出しに件数を含めないのは、pane.ProgressList
+// が Done/Total から自分で添えるためである（chrome.go の bareTitle）。
+func (m Model) openProgress(plan setup.Plan) tea.Cmd {
+	return progressmodal.Open(&m.overlay, pane.ProgressInput{
+		Title:  bareTitle(plan.Kind.String()),
+		Rows:   waitingRows(plan),
+		Done:   0,
+		Total:  len(plan.Units),
+		Report: nil,
+	})
+}
+
+// updateProgress は進捗表示へ現在の状態を送る。
+func (m Model) updateProgress() tea.Cmd {
+	if m.run == nil {
+		return nil
+	}
+
+	return progressmodal.Set(&m.overlay, pane.ProgressInput{
+		Title:  m.run.bare,
+		Rows:   m.run.rows,
+		Done:   m.run.done,
+		Total:  m.run.total,
+		Report: m.report,
+	})
 }

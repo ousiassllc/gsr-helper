@@ -1,0 +1,11 @@
+[2026-08-21 12:05:40Z INFO Worker] Starting Worker
+[2026-08-21 12:05:40Z INFO HostContext] Well known directory 'Bin': '/opt/runners/build01-1/bin'
+[2026-08-21 12:05:41Z INFO WorkerRunner] Job message length: 4218
+[2026-08-21 12:05:41Z INFO PipelineDirectoryManager] Loading tracking config if exists: /opt/runners/build01-1/_work/_PipelineMapping/ousiassllc/gsr-helper/PipelineFolder.json
+[2026-08-21 12:05:41Z INFO PipelineDirectoryManager] Tracking config file not found: /opt/runners/build01-1/_work/_PipelineMapping/ousiassllc/gsr-helper/PipelineFolder.json
+[2026-08-21 12:05:41Z INFO PipelineDirectoryManager] Creating tracking config.
+[2026-08-21 12:05:42Z INFO PipelineDirectoryManager] Update workspace to '/opt/runners/build01-1/_work/gsr-helper/gsr-helper'
+[2026-08-21 12:05:42Z WARN JobRunner] Falling back to default docker registry.
+[2026-08-21 12:05:44Z ERR  StepsRunner] Step preparation failed, retrying.
+[2026-08-21 12:05:45Z INFO StepsRunner] Retry succeeded.
+[2026-08-21 12:05:46Z INFO JobRunner] Job succeeded.

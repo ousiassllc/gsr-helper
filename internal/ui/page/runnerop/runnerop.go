@@ -70,7 +70,7 @@ func New(tab int, o page.Overlay, st page.StateMsg) (Model, tea.Cmd) {
 		tab:     tab,
 		overlay: o,
 		st:      st,
-		actions: action.NewSet(st.Keys.Runner),
+		actions: action.NewSet(st.Keys.Runner, st.Scopes),
 		pending: pending{op: action.Unknown, targets: nil},
 		drain:   nil,
 		note:    note{skipped: 0, canceled: false},
@@ -219,7 +219,7 @@ func (m Model) filter(def action.Def, targets []runner.Runner) ([]runner.Runner,
 	out := make([]runner.Runner, 0, len(targets))
 	reason := ""
 	for _, r := range targets {
-		ok, why := action.Allow(def, r, m.st.Caps)
+		ok, why := action.Allow(def, r, m.st.Caps, m.st.Scopes)
 		if ok && !hasNoCommand(def.ID, r) {
 			out = append(out, r)
 			continue

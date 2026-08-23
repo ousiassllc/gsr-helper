@@ -9,6 +9,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/doctor/check"
 	"github.com/ousiassllc/gsr-helper/internal/exec"
 	"github.com/ousiassllc/gsr-helper/internal/runner"
+	"github.com/ousiassllc/gsr-helper/internal/ui/discovery"
 	"github.com/ousiassllc/gsr-helper/internal/ui/hostreq"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
 )
@@ -20,9 +21,9 @@ import (
 // discovered は検出が 1 周期終わった App と、そのとき返った Cmd を返す。
 // err を渡すと期限切れ・失敗した周期になる（結果は取り込まれない）。
 func discovered(a App, err error) (App, tea.Cmd) {
-	return update(a, discoveredMsg{
-		result: runner.Result{Runners: []runner.Runner{sampleRunner()}},
-		err:    err,
+	return update(a, discovery.Msg{
+		Result: runner.Result{Runners: []runner.Runner{sampleRunner()}},
+		Err:    err,
 	})
 }
 

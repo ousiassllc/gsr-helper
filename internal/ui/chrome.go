@@ -2,8 +2,8 @@ package ui
 
 import (
 	"github.com/ousiassllc/gsr-helper/internal/ui/chrome"
-	"github.com/ousiassllc/gsr-helper/internal/ui/molecule"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
+	"github.com/ousiassllc/gsr-helper/internal/ui/tabset"
 )
 
 // 本体以外の領域（ヘッダ・タブ行・状態行・フッタ）の中身は chrome が組み立てる。
@@ -27,7 +27,7 @@ func (a App) chromeView() chrome.View {
 		Root:        a.caps.Root,
 		Systemd:     a.caps.Systemd,
 		HasToken:    a.caps.GitHubToken,
-		Tabs:        a.tabViews(),
+		Tabs:        tabset.Views(a.tabs, a.active),
 		OrphanUnits: len(a.result.OrphanUnits),
 		Warnings:    len(a.result.Warnings),
 		HostReq:     a.hostReq,
@@ -39,21 +39,4 @@ func (a App) chromeView() chrome.View {
 		Width:       a.width,
 		Styles:      a.styles,
 	}
-}
-
-// tabViews はタブのメタ情報を表示用の値へ落とす。
-//
-// 選択中かどうかは添字と active の比較でここで解決し、chrome へは真偽値だけを
-// 渡す（chrome が tabset を import しないための境界）。
-func (a App) tabViews() []molecule.TabView {
-	views := make([]molecule.TabView, 0, len(a.tabs))
-	for i := range a.tabs {
-		views = append(views, molecule.TabView{
-			Key:     a.tabs[i].Key,
-			Title:   a.tabs[i].Title,
-			Active:  i == a.active,
-			Enabled: a.tabs[i].Enabled,
-		})
-	}
-	return views
 }

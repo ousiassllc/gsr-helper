@@ -29,6 +29,7 @@ func newTargetTree(t *testing.T) string {
 func pathTarget(base, rel string, bytes int64) Target {
 	return Target{
 		Label:  "build01-1 / " + rel,
+		Runner: "build01-1",
 		Base:   base,
 		Path:   filepath.Join(base, rel),
 		Bytes:  bytes,
@@ -42,7 +43,7 @@ func pathTarget(base, rel string, bytes int64) Target {
 // dockerTarget は docker の未使用リソースの対象を組み立てる。
 func dockerTarget(bytes int64) Target {
 	return Target{
-		Label: dockerCleanLabel, Base: "", Path: "", Bytes: bytes, Files: -1,
+		Label: DockerLabel, Base: "", Path: "", Bytes: bytes, Files: -1,
 		Docker: true, Protected: "",
 	}
 }

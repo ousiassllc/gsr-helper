@@ -24,6 +24,8 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/ui/molecule"
 	"github.com/ousiassllc/gsr-helper/internal/ui/organism/table"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/disk/confirmmodal"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/progressmodal"
 )
 
 // Model は Disk タブ。
@@ -67,7 +69,11 @@ var _ tea.Model = Model{}
 // （page.Overlay.Register の doc）。
 func New(tab int, st page.StateMsg) Model {
 	overlay, help := page.NewOverlay(tab, st)
-	cf := overlay.Register(confirmKind, newConfirm(st))
+	cf := overlay.Register(confirmmodal.Kind, confirmmodal.New(st))
+	// クリーンアップの逐次表示と結果報告（FR-15 / Issue #75）。確認と別のモーダルに
+	// するのは、承認のあとに開くもので、実行中は esc を握って閉じさせないためである
+	// （progressmodal.handlesBack）。
+	pr := overlay.Register(progressmodal.Kind, progressmodal.New(st))
 	// ? に出すキーの範囲は自分で宣言する（atomic-design.md の約束 6）。既定は
 	// runner を並べる一覧向けであり、このタブでは効かない runner 操作キーが並ぶ。
 	scope := overlay.SetHelpScope(keymap.Set.DiskHelp)
@@ -76,7 +82,7 @@ func New(tab int, st page.StateMsg) Model {
 		st:       st,
 		tbl:      newTable(st.Keys, st.Styles),
 		overlay:  overlay,
-		initCmd:  tea.Batch(help, cf, scope),
+		initCmd:  tea.Batch(help, cf, pr, scope),
 		stats:    disk.Stats{},
 		statsErr: nil,
 		gen:      0,

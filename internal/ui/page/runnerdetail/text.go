@@ -30,7 +30,7 @@ func (d Model) infoLines() []string {
 		{"ジョブ", job, jobRole},
 		{"バージョン", version, versionRole},
 		{"ディレクトリ", r.Dir, token.RolePlain},
-		{"work", r.WorkDir, token.RolePlain},
+		{"work", workText(r.WorkDir, d.disk.WorkText(r.Dir)), token.RolePlain},
 	}
 
 	out := make([]string, 0, len(items))
@@ -120,4 +120,17 @@ func versionText(r runner.Runner) (string, token.RoleToken) {
 		text += "（disableUpdate=true）"
 	}
 	return text, role
+}
+
+// workText は work 行の値を返す。使用量が分かっていればパスに併記する。
+//
+// 未集計・集計失敗のときはパスだけを出す（Issue #73）。集計は親が別周期で駆動する
+// ため（3 秒ごとの再検出には載せない）、開いた直後はまだ分かっていないことがある。
+// **「0 バイト」とは書かない。** 空の _work と未集計を同じ表示にすると、消せるものが
+// 無いのか、まだ数えていないのかを読み分けられない。
+func workText(dir, usage string) string {
+	if usage == "" {
+		return dir
+	}
+	return dir + "  " + usage
 }

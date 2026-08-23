@@ -24,6 +24,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/ui/organism"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/action"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/progressmodal"
 )
 
 // runState は実行中の 1 件。
@@ -85,13 +86,13 @@ func New(tab int, st page.StateMsg) Model {
 	form := overlay.Register(formKind, newFormModal(st))
 	confirm := overlay.Register(confirmKind, newConfirmModal(st, confirmKind))
 	discard := overlay.Register(discardKind, newConfirmModal(st, discardKind))
-	progress := overlay.Register(progressKind, newProgressModal(st))
+	progress := overlay.Register(progressmodal.Kind, progressmodal.New(st))
 	scopeCmd := overlay.SetHelpScope(keymap.Set.SetupHelp)
 
 	m := Model{
 		tab: tab, st: st,
 		menu:    organism.NewChoiceList(st.Keys.List, st.Styles),
-		actions: action.NewSet(st.Keys.Runner),
+		actions: action.NewSet(st.Keys.Runner, st.Scopes),
 		overlay: overlay,
 		initCmd: tea.Batch(help, form, confirm, discard, progress, scopeCmd),
 		vals:    newValues(st),
@@ -148,7 +149,7 @@ func (m Model) setState(st page.StateMsg) (tea.Model, tea.Cmd) {
 	m.st = st
 	m.menu.Restyle(st.Keys.List, st.Styles)
 	m.menu.SetWidth(st.BodyW)
-	m.actions = action.NewSet(st.Keys.Runner)
+	m.actions = action.NewSet(st.Keys.Runner, st.Scopes)
 	m.vals.applyDefaults(st)
 	m.setMenu(organism.KeepCursor)
 

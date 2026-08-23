@@ -1,0 +1,9 @@
+[2026-08-21 13:10:02Z INFO Worker] Starting Worker
+[2026-08-21 13:10:02Z INFO WorkerRunner] Job message:
+ {"jobId":"a1b2c3","jobDisplayName":"build","resources":{"endpoints":[]},"contextData":{"github":{"t":2,"d":[{"k":"repository","v":"ousiassllc/gsr-helper"},{"k":"ref","v":"refs/heads/main"}]}}}
+[2026-08-21 13:10:03Z INFO JobRunner] Preparing job
+[2026-08-21 13:10:03Z INFO ProcessInvokerWrapper] Starting process:
+  File name: '/usr/bin/git'
+  Arguments: '-c protocol.version=2 fetch --no-tags'
+  Working directory: '/opt/runners/build01-1/_work/gsr-helper/gsr-helper'
+[2026-08-21 13:10:05Z INFO StepsRunner] Step 1 finished.

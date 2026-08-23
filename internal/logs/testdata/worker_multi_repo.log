@@ -1,0 +1,3 @@
+[2026-08-21 16:00:01Z INFO Worker] Starting Worker
+[2026-08-21 16:00:02Z INFO JobExtensionRunner] Update repository ousiassllc/gsr-helper's path to '/opt/runners/build01-1/_work/gsr-helper/gsr-helper'
+[2026-08-21 16:00:03Z INFO JobExtensionRunner] Update repository ousiassllc/other-repo's path to '/opt/runners/build01-1/_work/gsr-helper/other-repo'

@@ -1,0 +1,5 @@
+[2026-08-21 14:00:01Z INFO Worker] Starting Worker
+[2026-08-21 14:00:01Z INFO HostContext] Well known directory 'Root': '/opt/runners/build01-1'
+[2026-08-21 14:00:02Z INFO JobRunner] Preparing to run job
+[2026-08-21 14:00:03Z WARN JobRunner] No proxy configuration found.
+[2026-08-21 14:00:04Z INFO JobRunner] Job canceled before checkout started.

@@ -102,6 +102,13 @@ type DockerItem struct {
 // 「集計しただけの行」が削除計画に紛れ込まないようにするためである。
 type Target struct {
 	Label string
+	// Runner は runner 名。監査ログの runner に載せる。Docker が真なら空。
+	//
+	// Base（runner ディレクトリ）から filepath.Base で導出しない。runner 名は
+	// Runner.Name()（.runner の AgentName 優先）であり、ディレクトリ名と一致する
+	// 保証が無いためである。値として別に運ぶことで、ディレクトリ命名規則が
+	// 変わっても監査ログの runner が黙って崩れないようにする。
+	Runner string
 	// Base は runner ディレクトリ。Docker が真なら空。
 	Base string
 	// Path は削除するパス。Docker が真なら空。
