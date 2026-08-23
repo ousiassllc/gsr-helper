@@ -12,15 +12,16 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/runner/scope"
 	"github.com/ousiassllc/gsr-helper/internal/setup"
+	"github.com/ousiassllc/gsr-helper/internal/setup/setuptest"
 )
 
 func TestApplyUsesPerUnitTokenForMixedScopes(t *testing.T) {
 	t.Parallel()
 
 	// 削除の対象が repo と org にまたがる場合、remove token はスコープごとに違う。
-	repoRunner := testRunner("build01-3", "/opt/runners/build01-3", "u3.service", false, false)
+	repoRunner := setuptest.Runner("build01-3", "/opt/runners/build01-3", "u3.service", false, false)
 	repoRunner.Scope = scope.Scope{Kind: scope.Repo, Owner: "foo", Repo: "bar"}
-	orgRunner := testRunner("build01-4", "/opt/runners/build01-4", "u4.service", false, false)
+	orgRunner := setuptest.Runner("build01-4", "/opt/runners/build01-4", "u4.service", false, false)
 	orgRunner.Scope = scope.Scope{Kind: scope.Org, Owner: "foo", Repo: ""}
 
 	p, err := setup.PlanRemove(setup.RemoveSpec{Runners: []runner.Runner{repoRunner, orgRunner}})
@@ -51,7 +52,7 @@ func TestApplyUsesPerUnitTokenForMixedScopes(t *testing.T) {
 		"./svc.sh stop", "./svc.sh uninstall", "./config.sh remove --token TOKEN-foo/bar",
 		"./svc.sh stop", "./svc.sh uninstall", "./config.sh remove --token TOKEN-org:foo",
 	}
-	if got := issued(f); !slices.Equal(got, want) {
+	if got := setuptest.Issued(f); !slices.Equal(got, want) {
 		t.Errorf("発行コマンド:\n got: %v\nwant: %v", got, want)
 	}
 }
@@ -59,7 +60,7 @@ func TestApplyUsesPerUnitTokenForMixedScopes(t *testing.T) {
 func TestApplyFailsWhenPerUnitTokenIsEmpty(t *testing.T) {
 	t.Parallel()
 
-	r := testRunner("build01-3", "/opt/runners/build01-3", "", false, false)
+	r := setuptest.Runner("build01-3", "/opt/runners/build01-3", "", false, false)
 	p, err := setup.PlanRemove(setup.RemoveSpec{Runners: []runner.Runner{r}})
 	if err != nil {
 		t.Fatalf("PlanRemove: %v", err)
@@ -83,7 +84,7 @@ func TestApplyUsesDrainHookForUpdate(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
-	r := testRunner("build01-1", dir, "u1.service", true, false)
+	r := setuptest.Runner("build01-1", dir, "u1.service", true, false)
 	p, err := setup.PlanUpdate(setup.UpdateSpec{Runners: []runner.Runner{r}, Version: "2.311.0"})
 	if err != nil {
 		t.Fatalf("PlanUpdate: %v", err)
@@ -108,7 +109,7 @@ func TestApplyUsesDrainHookForUpdate(t *testing.T) {
 		Plan:     p,
 		Token:    "",
 		TokenFor: nil,
-		Tarball:  makeTarball(t),
+		Tarball:  setuptest.MakeTarball(t),
 		Drain: func(context.Context, exec.Executor, runner.Runner) error {
 			drained++
 			return nil
@@ -124,8 +125,8 @@ func TestApplyUsesDrainHookForUpdate(t *testing.T) {
 	if drained != 1 {
 		t.Errorf("ドレイン停止の回数 = %d, want 1", drained)
 	}
-	if want := []string{"./svc.sh start"}; !slices.Equal(issued(f), want) {
-		t.Errorf("発行コマンド = %v, want %v", issued(f), want)
+	if want := []string{"./svc.sh start"}; !slices.Equal(setuptest.Issued(f), want) {
+		t.Errorf("発行コマンド = %v, want %v", setuptest.Issued(f), want)
 	}
 
 	for name, want := range kept {

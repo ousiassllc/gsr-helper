@@ -1110,9 +1110,10 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 
 | ディレクトリ | 行数 | 残り | 判定 |
 |------------|------|------|------|
-| `internal/setup` | 2123 | -123 | **WARN（超過中）** |
+| `internal/setup` | 1970 | 30 | pass |
 | `internal/disk` | 1927 | 73 | pass |
 | `internal/disk/pathguard` | 288 | 1712 | pass |
+| `internal/setup/setuptest` | 170 | 1830 | pass |
 
 ##### `internal/disk` から `pathguard` を切り出した判断（Issue #101）
 
@@ -1128,6 +1129,18 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 **併せて許可サブツリー名の写しを消した。** `scan.go` の `workDirName` / `diagDirName` は `"_work"` / `"_diag"` をリテラルで持ち、コメントで「`ValidatePath` が許可するサブツリーと同じもの」と断っていただけだった。いまは `pathguard.WorkDir` / `pathguard.DiagDir` を参照する。写しのままだと、許可サブツリーを変えたときに「集計には出るが検証で必ず落ちる行」が生まれる。
 
 結果は 1927 行（残り 73 行）である。
+
+##### `internal/setup` のフィクスチャを `setuptest` へ出した判断（Issue #103）
+
+着手時点で 2123 行（残り -123 行）だった。3 つの手のうち **(3) テスト用の道具・フィクスチャを別ディレクトリの通常パッケージへ出す**を採った。
+
+**(3) を採れたのは、`internal/setup` のテストが外部テスト（`package setup_test`）だからである。** 非公開に触れていないので、フィクスチャを別パッケージへ出しても import の循環にならない（`internal/disk` が (3) を採れなかったのとちょうど逆の事情である。あちらは内部テストで `busyReason` などに触る）。**この手の利点は本番の構造を 1 つも変えずに済むことで**、削除・追加・更新の計画を組み立てる本番コードには 1 行も手を入れていない。
+
+出したのは `helper_test.go` の全体（`AddSpec` / `Runner` / `Phases` / `FindExtract` / `MakeTarball` / `Issued` / `AddPlanIn`）である。どれも `setup` の公開型を組み立てるか tar.gz を作るだけで、判定を 1 つも持たない。代償として本番からも import できてしまうので、`page/pagetest/import_test.go` の `fixtures` へ `internal/setup/setuptest` を登録してある（`TestNoProductionCodeImportsTestFixtures` が検査する）。
+
+**(1) を採らなかった理由。** 本番で切れる境界は「計画の組み立て（`add.go` / `remove.go` / `update.go`）」と「計画の実行（`apply.go`）」だが、実行は組み立てた `Plan` / `Unit` / `Step` を受け取るので依存は片方向に決まるものの、**増え方は同じ**である（どちらも FR-19〜FR-23 の手順が増えれば一緒に増える）。本節の (1) が求める「依存の向きを強制できる、あるいは増え方が違うまとまり」に当たらない。
+
+結果は 1970 行（残り 30 行）である。**残り 30 行は実質ゼロなので、次にこのディレクトリへ手を入れる Issue は 1 行足す前に空けること。** (3) はこの 1 周で使い切った（残る道具は無い）ので、次に採るのはテストの重複削減か、上記の (1)——`apply.go` とその 4 つのテストファイル（`apply_test.go` / `applycancel_test.go` / `applyscope_test.go`）を `internal/setup/setupapply` へ出すこと——である。
 
 #### `ui/page/config` を警告帯に入れない判断（Issue #12）
 
@@ -1319,3 +1332,4 @@ Issue #31 で `table_test.go` の空振りしていたテスト（`View() != ""`
 | 1.48 | 2026-08-24 | `ui/organism/table` の節を「本体を分割しない判断」に改め、「空け方（Issue #65）」を追記。ディレクトリ構成のツリーと[コンポーネント設計](../components/overview.md#internalui)のサブパッケージ表に `organism/table/tabletest` を追加。「ディレクトリの行数」に空け方の 3 つの手を明記。本番からの import を止める検査の名前を `TestNoProductionCodeImportsTestFixtures` へ改名（`pagetest` と `tabletest` の 2 つを見るため）。行数表を実測へ更新（`ui/organism/table` 2157 → 1969・pass、`ui/page/pagetest` 1657 → 1674） | Issue #65。`ui/organism/table` が警告帯（2157 行・エラー境界まで 43 行）にあり、次に一覧の共通実装へ手を入れる Issue が上限に当たる状態だった。`.linterly.yml` の上限は緩めず、また本体の分割（`section[T]` の export が要る）も採らずに、テスト側のフィクスチャを一方向参照の別ディレクトリへ出して解消した。判断の記述と実測がずれていると、次の Issue が境界に当たってから気付くことになる |
 | 1.49 | 2026-08-24 | 「ディレクトリの行数」に「UI 層の外のディレクトリ」を新設し、`internal/setup` / `internal/disk` / `internal/disk/pathguard` の実測値と、`internal/disk` から削除パスの検証を `pathguard` へ切り出した判断（Issue #101）を記録 | 行数チェックはリポジトリ全体を見るのに、空け方の判断は本書にしか無かった。UI 層の外で超過したディレクトリの判断を別の場所に書くと、同じ 3 つの手の使い分けが 2 か所に分かれて片方だけが古くなる |
 | 1.50 | 2026-08-24 | 行数表を実測へ更新（`ui/page/disk` 2128 → 1940・pass、`ui/page/diskclean` 312 を追加）。`ui/page/disk` の節を「警告帯に入った判断」から「`page/diskclean` へ分けた判断」へ改め、Issue #102 で実施した分割の境界（実行は出し、承認の義務はタブに残す）とテストの分け方を追記。`ui/page/config` の節が参照する `ui/page/disk` の現在値も更新 | 本節が「次に手を入れる Issue は先に分割すること」と指示していた分割を Issue #102 が実施したため、指示のまま残すと実施済みの作業を次の Issue がもう一度探すことになる |
+| 1.51 | 2026-08-24 | 「UI 層の外のディレクトリ」の表を実測へ更新（`internal/setup` 2123 → 1970・pass、`internal/setup/setuptest` 170 を追加）し、フィクスチャを `setuptest` へ出した判断（Issue #103）と、(1) を採らなかった理由・残り 30 行に対する次の手を追記 | 本節は「警告帯に入ったディレクトリへ部品を足すときは判断と理由を残すこと」を求めており、UI 層の外も同じ扱いにすると 1.49 で決めたため |

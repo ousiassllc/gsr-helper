@@ -7,13 +7,14 @@ import (
 	"testing"
 
 	"github.com/ousiassllc/gsr-helper/internal/setup"
+	"github.com/ousiassllc/gsr-helper/internal/setup/setuptest"
 	"github.com/ousiassllc/gsr-helper/internal/setup/valid"
 )
 
 func TestPlanAddNamesAndDirs(t *testing.T) {
 	t.Parallel()
 
-	p, err := setup.PlanAdd(addSpec())
+	p, err := setup.PlanAdd(setuptest.AddSpec())
 	if err != nil {
 		t.Fatalf("err = %v", err)
 	}
@@ -35,7 +36,7 @@ func TestPlanAddNamesAndDirs(t *testing.T) {
 func TestPlanAddBuildsFullCommandLines(t *testing.T) {
 	t.Parallel()
 
-	p, err := setup.PlanAdd(addSpec())
+	p, err := setup.PlanAdd(setuptest.AddSpec())
 	if err != nil {
 		t.Fatalf("err = %v", err)
 	}
@@ -55,7 +56,7 @@ func TestPlanAddBuildsFullCommandLines(t *testing.T) {
 func TestPlanAddNeverCarriesTokenInPlan(t *testing.T) {
 	t.Parallel()
 
-	p, err := setup.PlanAdd(addSpec())
+	p, err := setup.PlanAdd(setuptest.AddSpec())
 	if err != nil {
 		t.Fatalf("err = %v", err)
 	}
@@ -74,7 +75,7 @@ func TestPlanAddNeverCarriesTokenInPlan(t *testing.T) {
 func TestPlanAddOptionalFlags(t *testing.T) {
 	t.Parallel()
 
-	spec := addSpec()
+	spec := setuptest.AddSpec()
 	spec.Count = 1
 	spec.Ephemeral = true
 	spec.DisableUpdate = true
@@ -124,7 +125,7 @@ func TestPlanAddPassesWorkDir(t *testing.T) {
 		t.Run(label, func(t *testing.T) {
 			t.Parallel()
 
-			spec := addSpec()
+			spec := setuptest.AddSpec()
 			spec.Count = 1
 			spec.WorkDir = tt.in
 
@@ -170,7 +171,7 @@ func TestPlanAddRejectsBadInput(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			spec := addSpec()
+			spec := setuptest.AddSpec()
 			tt.mutate(&spec)
 			_, err := setup.PlanAdd(spec)
 			if !errors.Is(err, tt.want) {
@@ -183,7 +184,7 @@ func TestPlanAddRejectsBadInput(t *testing.T) {
 func TestPlanAddWarnsAboutTokenInProcessArgs(t *testing.T) {
 	t.Parallel()
 
-	spec := addSpec()
+	spec := setuptest.AddSpec()
 	spec.Busy = []string{"build01-1"}
 
 	p, err := setup.PlanAdd(spec)
@@ -199,7 +200,7 @@ func TestPlanAddWarnsAboutTokenInProcessArgs(t *testing.T) {
 		t.Errorf("ジョブ実行中の runner 名が警告に無い:\n%s", joined)
 	}
 
-	quiet, err := setup.PlanAdd(addSpec())
+	quiet, err := setup.PlanAdd(setuptest.AddSpec())
 	if err != nil {
 		t.Fatalf("err = %v", err)
 	}
@@ -215,7 +216,7 @@ func TestPlanAddWarnsAboutTokenInProcessArgs(t *testing.T) {
 func TestPlanAddUsesExplicitNamesVerbatim(t *testing.T) {
 	t.Parallel()
 
-	spec := addSpec()
+	spec := setuptest.AddSpec()
 	spec.Names = []string{"gpu-box"}
 
 	p, err := setup.PlanAdd(spec)
@@ -252,7 +253,7 @@ func TestPlanAddValidatesExplicitNames(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			spec := addSpec()
+			spec := setuptest.AddSpec()
 			spec.Names = tt.names
 			spec.Existing = tt.existing
 

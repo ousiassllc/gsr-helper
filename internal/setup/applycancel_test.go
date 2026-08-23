@@ -10,6 +10,7 @@ import (
 
 	"github.com/ousiassllc/gsr-helper/internal/exec"
 	"github.com/ousiassllc/gsr-helper/internal/setup"
+	"github.com/ousiassllc/gsr-helper/internal/setup/setuptest"
 )
 
 // 台と台の境目で終了要求を受けた場合、着手済みの台は成功のまま残し、次の台は
@@ -27,10 +28,10 @@ func TestApplyStopsBetweenUnitsAndReportsNextAsRemaining(t *testing.T) {
 	f := exec.NewFake()
 	res, err := setup.Apply(ctx, setup.ApplyInput{
 		Exec:     f,
-		Plan:     addPlanIn(t, base, 2),
+		Plan:     setuptest.AddPlanIn(t, base, 2),
 		Token:    "TOKENTOKENTOKEN",
 		TokenFor: nil,
-		Tarball:  makeTarball(t),
+		Tarball:  setuptest.MakeTarball(t),
 		Drain:    nil,
 		// 1 台目が最後まで終わった直後（Done かつ失敗なし）に終了要求が来た状況。
 		Progress: func(p setup.Progress) {

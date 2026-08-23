@@ -25,6 +25,7 @@ const (
 var fixtures = map[string]bool{
 	selfPath: true,
 	modulePath + "/internal/ui/organism/table/tabletest": true,
+	modulePath + "/internal/setup/setuptest":             true,
 }
 
 // shared は page/ 直下にあってタブではないパッケージ。
