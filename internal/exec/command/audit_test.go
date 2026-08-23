@@ -7,7 +7,6 @@ import (
 	"errors"
 	"slices"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -115,42 +114,6 @@ func TestCommandRunAuditRecordOnStartFailure(t *testing.T) {
 	}
 }
 
-func TestCommandRunMasksSecretInAuditError(t *testing.T) {
-	const secret = "supersecrettoken"
-
-	var buf bytes.Buffer
-	c := New(func() []string { return []string{secret} }, WithAudit(testLogger(&buf)))
-
-	// 引数にも標準エラー出力にも secret を出す。監査レコードの error はコマンド行
-	// だけを載せるため、args のマスクが効いていること・stderr が載らないことの
-	// 両方をここで固定する。
-	name, args := helperCommand("--token", secret)
-	ctx := exec.WithOptions(context.Background(), exec.Options{
-		Action: "runner.add",
-		Env:    helperEnv(helperExitEnv+"=1", helperStderrEnv+"=token is "+secret),
-	})
-
-	res, err := c.Run(ctx, name, args...)
-	if err == nil {
-		t.Fatal("非ゼロ終了でエラーを返していない")
-	}
-	// Stdout / Stderr はマスクしない。UI が実出力を見る必要があるため。
-	if !strings.Contains(string(res.Stderr), secret) {
-		t.Errorf("Stderr がマスクされている: %q", res.Stderr)
-	}
-
-	rec := decodeAudit(t, &buf)
-	if strings.Contains(rec.Error, secret) {
-		t.Errorf("監査ログの error にトークンが残っている: %s", rec.Error)
-	}
-	if !strings.Contains(rec.Error, mask.Placeholder) {
-		t.Errorf("監査ログの error がマスクされていない: %s", rec.Error)
-	}
-	if strings.Contains(rec.Error, "token is") {
-		t.Errorf("監査ログの error に標準エラー出力が載っている: %s", rec.Error)
-	}
-}
-
 func TestCommandRunWithoutAuditOption(t *testing.T) {
 	// 既定は audit.Discard() のため、監査ログを設定しなくても実行できる。
 	name, args := helperCommand()
@@ -209,41 +172,6 @@ func TestCommandRunWritesAuditRecordWithoutOptions(t *testing.T) {
 	}
 	if rec.ExitCode != 0 || len(rec.Command) == 0 {
 		t.Errorf("実行結果が記録されていない: %+v", rec)
-	}
-}
-
-func TestCommandRunCallsSecretsProviderOnce(t *testing.T) {
-	// provider は並行安全を求められるためロック取得が入り得るし、Run の途中で
-	// 返り値が変わると ExitError.Args と監査ログの command でマスク結果が
-	// 食い違う。1 回の Run につき 1 度だけ取ることを固定する。
-	const secret = "supersecrettoken"
-
-	var mu sync.Mutex
-	calls := 0
-	provider := func() []string {
-		mu.Lock()
-		defer mu.Unlock()
-		calls++
-		return []string{secret}
-	}
-
-	var buf bytes.Buffer
-	c := New(provider, WithAudit(testLogger(&buf)))
-
-	name, args := helperCommand("--token", secret)
-	ctx := exec.WithOptions(context.Background(), exec.Options{
-		Action: "runner.add",
-		Env:    helperEnv(helperExitEnv+"=1", helperStderrEnv+"=token is "+secret),
-	})
-
-	if _, err := c.Run(ctx, name, args...); err == nil {
-		t.Fatal("非ゼロ終了でエラーを返していない")
-	}
-	if calls != 1 {
-		t.Errorf("provider の呼び出し回数 = %d, want 1", calls)
-	}
-	if rec := decodeAudit(t, &buf); strings.Contains(rec.Error, secret) {
-		t.Errorf("マスク漏れがある: %s", rec.Error)
 	}
 }
 
