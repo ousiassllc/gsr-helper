@@ -196,7 +196,7 @@ check: fmt-check vet lint linterly test ## すべてのチェックを実行す�
 | ランナー | self-hosted（`runs-on: [self-hosted, linux, x64]`） |
 | トリガー | `main` への push、および PR |
 | ジョブ | fork ガードの `guard`（GitHub ホストランナー）と、それに依存する `lint` / `test` / `build` の 3 本を並列実行 |
-| 設定の不変条件 | `internal/buildconfig` のテストが `ci.yml` / `Makefile` / `lefthook.yml` / lint 設定の不変条件を検証する。`test` ジョブで実行されるため、CI で機械的に守られる |
+| 設定の不変条件 | `internal/buildconfig` のテストが `ci.yml` / `Makefile` / `lefthook.yml` / lint 設定に加え、`docs/` 配下のドキュメントの不変条件を検証する。`test` ジョブで実行されるため、CI で機械的に守られる |
 | デプロイ | なし（配布は `go install`。[非機能要件 / 可搬性](../requirements/non-functional.md#可搬性)） |
 
 `lint` / `test` / `build` を並列にするのは、lint が落ちてもテスト結果が同時に得られるようにするためである。この 3 つの間に依存はなく、いずれも fork ガードの `guard` ジョブだけに依存する（[fork からの PR で self-hosted ジョブを起動しない](#fork-からの-pr-で-self-hosted-ジョブを起動しない)）。
@@ -340,7 +340,9 @@ updates:
 
 `.github/workflows/ci.yml` / `Makefile` / `lefthook.yml` / `.golangci.yml` / `.linterly.yml` は、取り決めを破ってもコンパイルエラーにならず、通常のテストでも検知できない。とくに **self-hosted runner を使うジョブを 1 本追加した人が `needs: guard` を書き忘れると、fork ガードを迂回する退行が静かに入る**。`actionlint` はカスタムルールを持てないため、この種の不変条件は検出できない。
 
-そこで `internal/buildconfig` に設定ファイルの回帰テストを置く。実行時のコードを持たないテスト専用のパッケージで、一時ディレクトリに最小のモジュールを作って `make` を実際に走らせるものと、設定ファイルを読んで内容を検証するものからなる。**`make test` の一部として CI（`test` ジョブ）と pre-push フックの双方で実行される**ため、CI 専用の step を足すより検知が早い。
+同じことが `docs/` 配下のドキュメントにも当てはまる。仕様書のコードブロックが設定ファイルの実体から乖離しても、改訂履歴の版番号が重複・逆順になっても、コンパイルエラーにも通常のテストの失敗にもならない。
+
+そこで `internal/buildconfig` に**設定ファイルとドキュメントの不変条件を守る回帰テスト**を置く。実行時のコードを持たないテスト専用のパッケージで、一時ディレクトリに最小のモジュールを作って `make` を実際に走らせるもの、設定ファイルを読んで内容を検証するもの、`docs/` 配下の Markdown を読んで内容を検証するものからなる。**`make test` の一部として CI（`test` ジョブ）と pre-push フックの双方で実行される**ため、CI 専用の step を足すより検知が早い。
 
 | 守っている不変条件 | 破ったときに落ちるテスト |
 |---|---|
@@ -351,8 +353,9 @@ updates:
 | `make fmt-check` が入れ子 worktree と `testdata/` を対象にしない | `TestFmtCheckSkipsNestedWorktree` / `TestFmtCheckSkipsTestdata` |
 | `make test` が競合を検出する | `TestMakeTestDetectsDataRace` |
 | 仕様書のコードブロックが設定ファイルの実体と一致する | `TestSetupDocEmbedsConfigFilesVerbatim` |
+| ドキュメントの改訂履歴の版番号が重複せず昇順である | `TestDocRevisionHistoryVersionsUniqueAndAscending` |
 
-この表は網羅ではない。設定に新しい取り決めを入れたときは、同じ場所にテストを足す。
+この表は網羅ではない。設定やドキュメントに新しい取り決めを入れたときは、同じ場所にテストを足す。
 
 ### self-hosted runner を使う前提
 
@@ -720,5 +723,6 @@ pre-push:
 | 1.21 | 2026-08-23 | 「タスクランナー」節のターゲット一覧表と Makefile のコードブロックに `make run`（`build` 後に生成したバイナリを `ARGS` 付きで起動する）を反映 | Makefile に `run` ターゲットと `ARGS` 変数が追加されたのに仕様書へ反映されておらず、`internal/buildconfig` の同期テスト（`TestSetupDocEmbedsConfigFilesVerbatim`）が失敗したまま既定ブランチに入っていた |
 | 1.22 | 2026-08-22 | 「fork からの PR で self-hosted ジョブを起動しない」節を private 前提に更新。public から private へ切り替えた経緯と理由（org runner group が既定で public リポジトリへ runner を提供せず CI が `queued` で止まった）を明記し、脅威モデルの対象をアクセス権を持つ範囲に限定。runner group の層に public 既定の制約を追記 | org レベルに 12 台の runner が登録・1 台稼働している状態でも CI run が 15 分以上 `queued` のまま引き取られず、private 化した直後に同じ run が実行されたことで原因を確定したため。1.5 / 1.7 の記述は public 前提のままで実態と食い違っていた |
 | 1.23 | 2026-08-23 | 改訂履歴表の重複した版番号 `1.8` のうち「fork からの PR で self-hosted ジョブを起動しない」節を private 前提に更新した行を `1.22` へ振り直して表の末尾へ移し、`1.7` の行を `1.8`（`make build`）の前へ戻した。あわせて採番の規則（版番号は変更が入った時点で採番するため、日付が版番号の順と一致しないことがある）を表の直後に明記し、`internal/buildconfig` に改訂履歴の版番号が重複せず昇順であることの回帰テストを追加 | 別々の変更に同じ `1.8` が付き、`1.7` が `1.8` の後ろに並んでいたため、表を版番号で引けなかった（Issue #59）。振り直し先に `1.9` 以降を使わず末尾の `1.22` を割り当てたのは、既存行を繰り下げると他の行の変更理由が版番号で参照している箇所（`1.12` / `1.13`）まで書き換えることになり、「変更内容・変更理由は書き換えない」という前提を満たせないためである |
+| 1.24 | 2026-08-23 | `internal/buildconfig` の責務を「設定ファイルとドキュメントの不変条件を守る回帰テスト」へ広げ、「設定ファイルの不変条件をテストで守る」節の本文と CI 構成表の「設定の不変条件」行を実態に合わせた。不変条件テスト一覧表に `TestDocRevisionHistoryVersionsUniqueAndAscending` の行を追加 | 1.23 で追加した改訂履歴の回帰テストは `docs/` 配下の Markdown を読むテストであり、「ビルド設定ファイルの回帰テストだけを置く」というパッケージの定義（`internal/buildconfig/doc.go`）と本節の記述の範囲外だった。同パッケージには既に仕様書のコードブロックを検査する `TestSetupDocEmbedsConfigFilesVerbatim` があり、ドキュメントを読むテストは既存の性格の延長であるため、パッケージを分けずに定義側を実態へ追随させた |
 
 **版番号は表への追加順ではなく、その変更が入った時点で採番している。** 1.22 の日付が直前の 1.21 より古いのはこのためである。1.22 の行はもともと重複した `1.8` として記録されており（`feat/#1` の取り込み時に 2 つの `1.8` を両方残したまま解消した）、重複を解消する際に、既に使われている 1.9〜1.21 と衝突しない番号として 1.22 を割り当てた。既存行の版番号を繰り下げないのは、他の行の変更理由が版番号で参照している箇所（1.12 / 1.13）まで書き換えることになるためである。
