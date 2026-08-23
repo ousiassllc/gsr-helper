@@ -31,6 +31,9 @@ const (
 	ColPath       = "PATH"
 	ColLog        = "LOG"
 	ColUpdated    = "UPDATED"
+	ColStatus     = "STATUS"
+	ColCategory   = "CATEGORY"
+	ColCheck      = "CHECK"
 )
 
 // Column は一覧の列 1 つ分の定義。organism.Table が table.Column に変換する。
@@ -199,5 +202,36 @@ func LogColumnRules() ColumnRules {
 	return ColumnRules{
 		Drop: []string{ColUpdated, ColRunner},
 		Keep: []string{ColLog, ColSize},
+	}
+}
+
+// DoctorColumns は Doctor タブの診断結果一覧の列を返す（screens.md の Doctor タブ）。
+//
+// 幅は WidthTarget（80）に全列が収まるように定めてある。必要幅は
+// 行頭 6（カーソル 1 + 間隔 1 + チェックボックス 3 + 間隔 1）+ 列幅合計 68 +
+// 列間 3 = 77 セルで、80 に収まる。行頭の内訳は molecule の columnPrefix と揃える。
+//
+// STATUS を 7 にしてあるのは、記号 1 + 空白 1 + 最長の表記（WARN / FAIL / SKIP は 4）
+// で 6 セル、余白 1 を足した値である。CHECK を最も広く取るのは、そこに出る要約
+// （「docker グループが未反映」）だけが行の意味を決めるからである。
+func DoctorColumns() []Column {
+	return []Column{
+		{ID: ColStatus, Title: "STATUS", Width: 7, Right: false},
+		{ID: ColCategory, Title: "CATEGORY", Width: 16, Right: false},
+		{ID: ColCheck, Title: "CHECK", Width: 33, Right: false},
+		{ID: ColTarget, Title: "TARGET", Width: 12, Right: false},
+	}
+}
+
+// DoctorColumnRules は Doctor タブの一覧の落とし方を返す。
+//
+// 最初に落とすのは CATEGORY である。分類は CHECK の要約から読み取れることが
+// 多く、4 列のなかで最も情報が重複しているためである。次が TARGET で、runner 名は
+// 詳細画面（enter）でも確認できる。**STATUS と CHECK は落とさない。** どちらかが
+// 欠けると、行が「何の項目がどうなっているか」を伝えられなくなる。
+func DoctorColumnRules() ColumnRules {
+	return ColumnRules{
+		Drop: []string{ColCategory, ColTarget},
+		Keep: []string{ColStatus, ColCheck},
 	}
 }
