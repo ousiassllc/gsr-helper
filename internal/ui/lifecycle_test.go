@@ -115,3 +115,51 @@ func TestQuitRunsPageCleanupBeforeQuit(t *testing.T) {
 		t.Errorf("前面のタブの後始末 = %d 回, want 1", pages[1].Stops)
 	}
 }
+
+// 起動時に選択されているタブが page.ActivateMsg を 1 度だけ受け取る（Issue #63）。
+//
+// 受け取らないと、既定タブに長寿命の処理を持つ page を置いた瞬間に、その処理が
+// 黙って張られないままになる。逆に共有状態のたびに配ると購読が積み上がる。
+func TestInitialTabIsActivatedExactlyOnce(t *testing.T) {
+	a, pages := withStreams(newApp(exec.NewFake()))
+
+	// 共有状態は起動直後に何度も配られる（端末サイズ・背景色・再検出）。
+	a, _ = update(a, tea.WindowSizeMsg{Width: 80, Height: 24})
+	a, _ = update(a, tea.BackgroundColorMsg{})
+	a, _ = update(a, tea.WindowSizeMsg{Width: 100, Height: 30})
+
+	if got := pages[a.active].Open; got != 1 {
+		t.Errorf("既定タブの購読 = %d 本, want 1（起動時の前面化が 1 度だけ届く）", got)
+	}
+	if got := pages[a.active].Peak; got != 1 {
+		t.Errorf("既定タブの同時購読の最大 = %d 本, want 1（配るたびに積み上がっている）", got)
+	}
+	for i, p := range pages {
+		if i == a.active {
+			continue
+		}
+		if p.Open != 0 {
+			t.Errorf("裏のタブ %d に前面化が届いている（購読 %d 本）", i, p.Open)
+		}
+	}
+}
+
+// 起動時に前面化を受け取ったタブから離れて戻っても、購読は積み上がらない。
+//
+// activateInitial が「1 度だけ」を覚えることと、activate が配る往復ぶんの
+// 前面化・非活性化が対になっていることの両方を見る。
+func TestInitialActivationDoesNotDoubleCountOnReturn(t *testing.T) {
+	a, pages := withStreams(newApp(exec.NewFake()))
+	a, _ = update(a, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	home := a.active
+	a, _ = sendKey(a, "2")
+	a, _ = sendKey(a, "1")
+
+	if got := pages[home].Open; got != 1 {
+		t.Errorf("往復後の購読 = %d 本, want 1", got)
+	}
+	if got := pages[home].Peak; got != 1 {
+		t.Errorf("同時購読の最大 = %d 本, want 1（起動時と復帰で二重に張っている）", got)
+	}
+}
