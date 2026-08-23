@@ -5,8 +5,10 @@
 // エンドポイントの一覧は docs/api/external-interfaces.md に定める。
 //
 // トークンはメモリ上でのみ扱う。ファイルにも画面にも監査ログにも出さない
-// （docs/architecture/security.md）。値を持つ型（Token）は String() を
-// マスク済みにしてあり、書式指定子で誤って出力しても平文にならない。
+// （docs/architecture/security.md）。Token() と Source.Token は生の文字列を
+// そのまま返すため、書式指定子に渡せば平文で出る。呼び出し側はログ・エラー文言へ
+// 流さず、Secrets へ登録して以後のマスクを効かせること。表示してよいのは
+// ShortToken であり、この型だけが String() をマスク済みにしてある。
 package gh
 
 import (
