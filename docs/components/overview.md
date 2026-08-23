@@ -198,7 +198,7 @@ runner の検出とモデル定義。**最下層**であり、他のドメイン
 
 `internal/runner` の下位に置くのは 2 つの理由による。`Scope` は GitHub API のパス生成にも使うため（[データモデル](../architecture/data-model.md#scope)）、`internal/gh` が `internal/runner` 全体を import せずにスコープだけを参照できる。また `internal/runner` の行数上限（1 ディレクトリ 2000 行）に対する余裕を確保する。
 
-行数チェック（`linterly`）の集計は直下のファイルのみを対象とする。現在の使用量は `internal/runner` 1558 / `runner/systemd` 544 / `runner/procs` 317 / `runner/scope` 165 行である。**`internal/runner` は残り 400 行強しか無い。** サービス制御や追加・削除の Issue が `runner` へ機能を足す場合は、先に切り出し先を決めること。
+行数チェック（`linterly`）の集計は直下のファイルのみを対象とする。現在の使用量は `internal/runner` 1656 / `runner/systemd` 552 / `runner/procs` 426 / `runner/scope` 165 行である。**`internal/runner` は残り 344 行しか無い。** サービス制御や追加・削除の Issue が `runner` へ機能を足す場合は、先に切り出し先を決めること。
 
 `Parse` は判定できない入力を必ず error にする。**Unknown を error 無しで返すことはない**（[データモデル](../architecture/data-model.md#scope)）。
 
@@ -237,12 +237,25 @@ runner の追加・削除・バージョン更新。最も破壊的な操作を�
 |------|------|
 | `Scan(ctx, Runner, out chan<- Usage)` | 対象ごとに非同期集計し、判明順に送出 |
 | `FSStats(path)` | 容量と inode の残量 |
-| `DockerUsage(ctx)` | `docker system df` の解析 |
-| `PlanClean(targets) (CleanPlan, error)` | 削除計画。対象パスと解放見込み容量を確定させる（ドライラン） |
+| `DockerUsage(ctx, ex)` | `docker system df --format {{json .}}` の解析 |
+| `PlanClean(targets) (CleanPlan, error)` | 削除計画。対象パスと解放見込み容量を確定させる（ドライラン）。保護された対象（`Target.Protected` が空でない）を 1 件でも含めば計画を作らない |
+| `PruneReclaimable(items) int64` | `docker system prune -f` が実際に回収する見込みの容量（Containers / Build Cache のみ） |
 | `ValidatePath(base, target) error` | **削除パスの検証**。基準ディレクトリ配下であること、`..` を含まないこと、許可サブツリー内であることを判定 |
-| `Apply(ctx, CleanPlan, progress)` | 削除の実行。シンボリックリンクは辿らず、リンク自体のみを削除 |
+| `Apply(ctx, ex, CleanPlan, progress)` | 削除の実行。シンボリックリンクは辿らず、リンク自体のみを削除 |
 
-`ValidatePath` は `Apply` から必ず呼ばれる構造にし、検証を通らないパスを削除できないようにする。異常系のテストを必須とする（[セキュリティ設計](../architecture/security.md#1-削除パスの検証を必須にする)）。
+`DockerUsage` と `Apply` が `exec.Executor` を取るのは、外部プロセス実行の唯一の経路が `internal/exec` だからである（上記「依存の規則」）。`docker system prune -f` は `exec.Options.Action` に `disk.clean` を設定して発行し、破壊的操作として監査ログに全件記録される（[セキュリティ設計](../architecture/security.md#監査ログ)）。
+
+**`Scan` の `out` は閉じない。** 呼び出し側が runner ごとの `Scan` を 1 本のチャネルへ集約するため、閉じる責務は集約する側にある。`Scan` は全対象を送り終えてから返るので、呼び出し側は `WaitGroup` で待ってから閉じられる。
+
+集計と削除の対象は runner ディレクトリ直下の `_work` / `_diag` に固定する。`ValidatePath` が許可するサブツリーと同じものだけを見ることで、集計に出た対象が計画の段階で弾かれる食い違いを防ぐ。
+
+`ValidatePath` は `PlanClean` と `Apply` の**両方**から呼ばれる構造にし、検証を通らないパスを削除できないようにする。`Apply` が削除直前にもう一度呼ぶのは、計画を組み立てずに `Apply` を呼ぶ経路が将来できても検証を迂回できないようにするためである。異常系のテストを必須とする（[セキュリティ設計](../architecture/security.md#1-削除パスの検証を必須にする)）。
+
+**ジョブ実行中の保護（[FR-31](../requirements/functional.md)）も同じ形で二重にする。** `Scan` が判定した理由は `Usage.Reason` から `Target.Protected` へ引き継ぎ、`PlanClean` と `Apply` の両方が空でない `Protected` を拒否する。可否を UI（選択できない行）にだけ持たせると、`Target` を直接組む呼び出しが 1 つ増えた時点で保護が外れる（[セキュリティ設計](../architecture/security.md#3-ジョブ実行中の操作をガードする)）。
+
+**`docker system prune -f` の解放見込みは内訳の合計ではない。** 発行するのはこの 1 本だけで、`--volumes` が無いためボリュームは消えず、`-a` が無いため dangling 以外の未使用イメージも残る。したがって解放見込みには `PruneReclaimable` が返す種別（Containers / Build Cache）だけを載せ、イメージとボリュームの `Reclaimable` は内訳の表示（[FR-27](../requirements/functional.md)）に留める。
+
+**ファイル削除は外部コマンドではないため監査ログに残らない。** 記録の起点は `Executor` の実装 1 箇所に寄せてあり（[セキュリティ設計](../architecture/security.md#監査ログ)）、`internal/disk` から `internal/audit` を直接呼ぶことはしない。一方、この階層が発行する docker の 2 コマンドは**どちらも記録される**。`docker system df`（`Action: disk.df`）と `docker system prune -f`（`Action: disk.clean`）のいずれも `SkipAudit` を付けない。記録対象外にするのは再検出の `systemctl list-units` / `show` だけである（[外部インターフェース](../api/external-interfaces.md#systemd)）。
 
 ### `internal/logs`
 
@@ -501,7 +514,7 @@ bubbletea の Model 群。**内部を Atomic Design で階層化する。** 部�
 | `ui/token` | token | 色・記号・幅。色は背景の明暗で解決し、色を使わない場合の縮退をここに閉じる。`huh.Theme` もここで組み立てる |
 
 - タブ間で共有する状態は親のみが持つ。これを実際に守らせているのは `page/pagetest/import_test.go` の `TestOnlyTabsetImportsTabs` で、`ui/page/<tab>` を import してよいのは `ui/tabset` だけであることを本番ファイルの import から検査する（Go が禁じるのは `page` → `page/<tab>` の循環だけで、タブ同士の参照は止まらない）。**検出（`runner.Discover`）を呼ぶのは親 Model だけで、page は呼ばない。** page は親から配られたスナップショット（`page.StateMsg`）を描画に使う。端末サイズも親が持ち、`template.BodySize` で算出した領域を配る。
-- 一覧と確認ダイアログはそれぞれ `organism/table.Model` / `organism/dialog.Confirm` の 1 実装に統一する。個別のダイアログを追加しないことで「確認を経ない破壊的操作の経路を作らない」を構造として守る（`organism/dialog` は未実装。[TUI コンポーネント設計の実装状況](../ui/atomic-design.md#実装状況)）。
+- 一覧と確認ダイアログはそれぞれ `organism/table.Model` / `organism/dialog.Confirm` の 1 実装に統一する。個別のダイアログを追加しないことで「確認を経ない破壊的操作の経路を作らない」を構造として守る。
 - 操作の起点は複数あるが（一覧の直接キー / 詳細画面の操作リスト / Jobs タブ、[FR-45〜FR-47](../requirements/functional.md)）、いずれも同じ確認ダイアログを経る。選択肢を並べる UI は `organism.ChoiceList` の 1 実装に統一する。
 - **タブをまたぐ移動も親が担う。** Runners / Jobs の `l`（選択中 runner の直近ジョブの Worker ログを開く）は Logs タブへ移って対象を渡すが、タブ同士は互いを import しないため（上記の `TestOnlyTabsetImportsTabs`）、移動元は移動先の型もタブ番号も持てない。そこで移動元は `page.OpenTabMsg{Title: page.TabLogs, Msg: page.ShowLogMsg{...}}` を親へ投げ、親が `[]tabset.Tab` を**名前で**走査して移り、移動先へ用件を配る。この 3 つを `ui/page` に置くのは、**移動元と移動先の双方から見える場所がここしか無い**ためである（`ShowLogMsg` は Logs タブ固有の用件だが、同じ理由でここに置く）。名前は文字列で突き合わせるので、タブ名を変えると移動だけが静かに効かなくなる。`tabset` の `TestOpenTabTitlesMatchTabs` が `page.TabLogs` に対応する有効なタブの実在を検査してこれを防ぐ。一致するタブが無い・無効な場合、親は移動せず理由を状態行に出す（押しても何も起きないキーを作らないため）。
 - **page の寿命は親が知らせる。** タブを切り替えるときは離れるタブへ `page.DeactivateMsg`、移動先へ `page.ActivateMsg` を配る（長寿命の購読を張り直させるため）。終了時は有効な全タブへ `page.ShutdownMsg` を配り、各 page が返した後始末の `tea.Cmd` を `tea.Sequence` で `tea.Quit` より**前**に流す（`tea.Batch` では並走して後始末の前に止まりうる）。この契約は `q` / `ctrl+c` の終了でのみ働き、シグナル終了では `Update` を通らないため走らない。
@@ -557,5 +570,7 @@ interface はこの 3 つに留める。ドメインごとの interface は、�
 | 1.15 | 2026-08-22 | `ui/page/action` を階層表に追加し、`ui/page` の責務から可否の判定を外す。タブ共通の `Msg` の列挙に `AttachMsg` / `ModalMsg` / `ResultMsg` / `ActivateMsg` / `DeactivateMsg` / `ShutdownMsg` を追加。親 Model の責務に page の寿命管理（切替時の `Deactivate` / `Activate`、終了時の `Shutdown` と `tea.Sequence` での後始末）を追加。可否の判断が `action.Allow` にある暫定である旨と、`svc` を持ち込む Issue が置き換える範囲を明記 | 可否の判定は Issue #34 で `ui/page/action` へ分離済みだったが、表は `ui/page` の責務のままで新しいパッケージの行も無かった。Issue #26 / #41 が足した 6 つの `Msg` と、親が担うようになった page の寿命管理が本書に反映されていなかった。「page がドメイン層（`svc.CanControl` など）に問い合わせ」は `svc` が存在しない以上そのまま読むと実装できず、暫定であることが読み取れなかった |
 | 1.16 | 2026-08-23 | `internal/ui` のサブパッケージ表に `ui/page/runnerdetail`（Runners / Jobs が共用する詳細モーダル）と `ui/page/pagetest`（テスト専用のフィクスチャ）の行を追加。「タブ間で共有する状態は親のみが持つ」の箇条書きに、それを守らせている検査（`TestOnlyTabsetImportsTabs`）を明記 | 表が `ui/page` → `ui/page/action` → `ui/page/<tab>` の 3 行だけで、`page/` 階層が「page + 共通部品 + タブ 1 枚ずつ」だと読めた。[TUI コンポーネント設計](../ui/atomic-design.md)（1.20）が明記した「`page/` は 1 ディレクトリ 1 タブではない」と食い違い、実在する 2 パッケージが本書からは辿れなかった。共有状態の規則も規約としてしか書かれておらず、それを機械的に守らせている検査が本書からは読み取れなかった（PR #67 のレビュー指摘） |
 | 1.17 | 2026-08-23 | `ui/page/pagetest` の行を「`page/<tab>` と親 Model が共用するテスト用の道具」に改め、`Msgs` / `ScanKey` / `StreamPage` を挙げた | 表は同パッケージを `page/<tab>` 用のフィクスチャに限定して書いていたが、親 Model 専用の道具（寿命テストの `StreamPage`、Issue #31 で移した打鍵の走査 `ScanKey`）も置かれており、[TUI コンポーネント設計](../ui/atomic-design.md) 側は「タブと親で共用する検証の道具の置き場」と記して親側からの利用を推奨している。2 文書が同じパッケージの守備範囲について別のことを述べていた（Issue #31 の最終ゲート指摘） |
-| 1.18 | 2026-08-23 | `internal/logs` の要素表を実装に合わせて更新（`LogFile` → `File`、`List` / `Tail` / `Journal` の戻り値、`Journal` が `Executor` を取ること、`Classify` の追加）。`journalctl -f` を使わず一定間隔の再発行と差分の送出で追従する理由を新設。依存グラフに `Logs --> Exec` を追加。`SkipAudit` を使ってよい範囲にログ追従の `journalctl` を追加 | ログ閲覧を実装した（Issue #9）。`Executor` は 1 回の実行の出力をまとめて返す契約で、`-f` を渡すとタイムアウトまで 1 行も届かない。追従のためだけにストリームの経路を開けると外部プロセスの実行が `Executor` 1 本でなくなり、タイムアウト・監査記録・マスクの適用漏れを構造的に防ぐという `internal/exec` の目的が崩れる。表が `Journal(ctx, unit, out)` としていたのは `Executor` を渡す道が無く実装できない署名だった |
-| 1.19 | 2026-08-23 | `internal/ui` のサブパッケージ表を Logs タブ（Issue #9）の実装に合わせた。`ui/organism/pane` の責務に `Log` を追加し、`Detail` / `Help` が表示専用なのに対し `Log` は追従の ON/OFF とフィルタの入力欄を持つ（ただし一致の判定は持たない）ことを明記。`ui/page` の責務のタブ共通 `Msg` の列挙に `OpenTabMsg` / `TabLogs` / `ShowLogMsg` を追加し、タブをまたぐ移動を親が担う仕組み（移動先を名前で指し、親が `[]tabset.Tab` を走査して用件を配る）と、その 3 つを `ui/page` に置く理由・タブ名の不一致を防ぐ検査（`TestOpenTabTitlesMatchTabs`）を箇条書きで新設 | 表は `pane` を「（`Detail` / `Help`）」、`ui/page` の `Msg` を `ShutdownMsg` までと書いており、実装済みの `pane.Log` と `page.OpenTabMsg` / `page.ShowLogMsg` が両方とも漏れていた。[TUI コンポーネント設計](../ui/atomic-design.md)は同じ内容を更新済みで、**同じ事実について 2 文書が食い違う**状態だった。本書はパッケージの責務境界の一覧であり、ここに無い型は「その層に置くと決まっていないもの」と読まれる。とくにタブをまたぐ移動は「タブ同士は互いを import しない」という規約の唯一の抜け道になりうる箇所で、**なぜ `page` に置くのか**が本書に無いと、次のタブが移動を実装するときに移動元へ移動先を直接 import する形を選びかねない |
+| 1.18 | 2026-08-23 | `internal/disk` の節から「この版で監査ログに残るのは `docker system prune -f` だけである」を削除し、`docker system df`（`disk.df`）も記録されること・記録対象外は再検出の `list-units` / `show` だけであることに訂正。`PruneReclaimable` を関数表に追加し、`prune -f` の解放見込みが内訳の合計ではない理由を追記。`PlanClean` の行と本文に、ジョブ実行中の保護を `Target.Protected` で運び `PlanClean` と `Apply` の両方で弾く構造を追記 | 監査ログの記述が誤っており、[外部インターフェース](../api/external-interfaces.md)の「例外は再検出の `list-units` / `show` のみ」とも正面から矛盾していた。実装は `DockerUsage` が `exec.Options{Action: "disk.df", SkipAudit: false}` で発行しており、`disk.df` も全件記録される。解放見込みは `docker system df` の `Reclaimable` をそのまま使っており、`prune -f` では 1 バイトも消えないボリュームを含んでいた。ジョブ実行中の保護は `Usage` の段階にしか無く、境界の型に可否が無かった |
+| 1.19 | 2026-08-23 | `internal/runner` 系の行数を実測へ更新した（1656 / 552 / 426 / 165、残り 344） | 記載値（1558 / 544 / 317、残り 400 行強）は測り直す前のもので、`runner/procs` が 109 行、残余が約 60 行ぶん**多く（危険側に甘く）**表示されていた。この段落は読者に「先に切り出し先を決める」判断を求める箇所であり、余裕の過大表示は分割の判断を誤らせる |
+| 1.20 | 2026-08-23 | `internal/logs` の要素表を実装に合わせて更新（`LogFile` → `File`、`List` / `Tail` / `Journal` の戻り値、`Journal` が `Executor` を取ること、`Classify` の追加）。`journalctl -f` を使わず一定間隔の再発行と差分の送出で追従する理由を新設。依存グラフに `Logs --> Exec` を追加。`SkipAudit` を使ってよい範囲にログ追従の `journalctl` を追加 | ログ閲覧を実装した（Issue #9）。`Executor` は 1 回の実行の出力をまとめて返す契約で、`-f` を渡すとタイムアウトまで 1 行も届かない。追従のためだけにストリームの経路を開けると外部プロセスの実行が `Executor` 1 本でなくなり、タイムアウト・監査記録・マスクの適用漏れを構造的に防ぐという `internal/exec` の目的が崩れる。表が `Journal(ctx, unit, out)` としていたのは `Executor` を渡す道が無く実装できない署名だった |
+| 1.21 | 2026-08-23 | `internal/ui` のサブパッケージ表を Logs タブ（Issue #9）の実装に合わせた。`ui/organism/pane` の責務に `Log` を追加し、`Detail` / `Help` が表示専用なのに対し `Log` は追従の ON/OFF とフィルタの入力欄を持つ（ただし一致の判定は持たない）ことを明記。`ui/page` の責務のタブ共通 `Msg` の列挙に `OpenTabMsg` / `TabLogs` / `ShowLogMsg` を追加し、タブをまたぐ移動を親が担う仕組み（移動先を名前で指し、親が `[]tabset.Tab` を走査して用件を配る）と、その 3 つを `ui/page` に置く理由・タブ名の不一致を防ぐ検査（`TestOpenTabTitlesMatchTabs`）を箇条書きで新設 | 表は `pane` を「（`Detail` / `Help`）」、`ui/page` の `Msg` を `ShutdownMsg` までと書いており、実装済みの `pane.Log` と `page.OpenTabMsg` / `page.ShowLogMsg` が両方とも漏れていた。[TUI コンポーネント設計](../ui/atomic-design.md)は同じ内容を更新済みで、**同じ事実について 2 文書が食い違う**状態だった。本書はパッケージの責務境界の一覧であり、ここに無い型は「その層に置くと決まっていないもの」と読まれる。とくにタブをまたぐ移動は「タブ同士は互いを import しない」という規約の唯一の抜け道になりうる箇所で、**なぜ `page` に置くのか**が本書に無いと、次のタブが移動を実装するときに移動元へ移動先を直接 import する形を選びかねない |

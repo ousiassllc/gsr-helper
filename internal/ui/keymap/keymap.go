@@ -8,19 +8,23 @@ import (
 
 // Set は 1 つの画面で参照するキー定義の集約。
 type Set struct {
-	Global Global
-	List   List
-	Runner RunnerKeys
-	Log    LogKeys
+	Global  Global
+	List    List
+	Runner  RunnerKeys
+	Disk    DiskKeys
+	Log     LogKeys
+	Confirm ConfirmKeys
 }
 
 // New はキー定義の集約を返す。
 func New() Set {
 	return Set{
-		Global: NewGlobal(),
-		List:   NewList(),
-		Runner: NewRunnerKeys(),
-		Log:    NewLogKeys(),
+		Global:  NewGlobal(),
+		List:    NewList(),
+		Runner:  NewRunnerKeys(),
+		Disk:    NewDiskKeys(),
+		Log:     NewLogKeys(),
+		Confirm: NewConfirmKeys(),
 	}
 }
 
@@ -62,6 +66,12 @@ func (s Set) Contexts() []Context {
 	normal = append(normal, s.List.Bindings()...)
 	normal = append(normal, s.Runner.Bindings()...)
 
+	// Disk タブの通常モード。runner の操作キーは効かず、代わりに Disk 固有の
+	// キーが有効になる（選択と再集計は List.Toggle / Global.Refresh を使い回す）。
+	disk := s.Global.Bindings()
+	disk = append(disk, s.List.Bindings()...)
+	disk = append(disk, s.Disk.Bindings()...)
+
 	// Logs タブの通常モード。runner の操作キーは効かず、代わりに Logs タブ固有の
 	// 3 つが有効になる。**Global.TabNext（tab）を含めない**のは、この画面では tab が
 	// ペインの切り替えだからである（LogKeys.Pane の doc）。含めると重複検査が落ちるが、
@@ -81,6 +91,11 @@ func (s Set) Contexts() []Context {
 			Keys:   normal,
 		},
 		{
+			Name:   "Disk タブ（通常モード）",
+			Fields: []string{"Global", "List", "Disk"},
+			Keys:   disk,
+		},
+		{
 			Name:   "Logs タブ（通常モード）",
 			Fields: []string{"Global", "List", "Log"},
 			Keys:   logs,
@@ -90,6 +105,19 @@ func (s Set) Contexts() []Context {
 			Name:   "入力中",
 			Fields: []string{"Global", "List"},
 			Keys:   []key.Binding{s.List.Accept, s.List.Cancel, s.Global.Interrupt},
+		},
+		{
+			// 確認ダイアログ表示中はモーダルの背後へキーが流れないため、
+			// y / n と、キャンセルを兼ねる esc / enter、中断の ctrl+c だけが効く
+			// （page/overlay.go のキー配送）。List と Global から由来するキーを
+			// 混ぜているのは、esc と enter を ConfirmKeys で再定義せず
+			// Global.Back / List.Accept を使い回すためである（ConfirmKeys の doc）。
+			Name:   "確認ダイアログ",
+			Fields: []string{"Global", "List", "Confirm"},
+			Keys: []key.Binding{
+				s.Confirm.Yes, s.Confirm.No,
+				s.Global.Back, s.List.Accept, s.Global.Interrupt,
+			},
 		},
 	}
 }
@@ -158,6 +186,42 @@ func help(global []key.Binding, groups ...[]key.Binding) [][]key.Binding {
 // 使わず Help に自分のグループを渡す。
 func (s Set) RunnerListHelp() [][]key.Binding {
 	return s.Help(s.List.Bindings(), s.List.FilterBindings(), s.Runner.Order())
+}
+
+// DiskHelp は Disk タブが ? に出すグループを返す。
+//
+// 一覧のキー・絞り込み中のキー・Disk 固有のキーを持つ画面のための組み合わせである
+// （RunnerListHelp と同じ形。載せる操作キーの集合だけが違う）。runner の操作キーは
+// この画面では効かないので渡さない。
+//
+// 一覧のキーからは **enter を外す**。Disk タブに詳細画面は無く、page/disk の
+// handleKey は enter に何もしない。List.Bindings をそのまま渡すと `enter 詳細を開く`
+// が並び、押しても何も起きないキーをヘルプが案内することになる
+// （screens.md の設計原則 2）。
+func (s Set) DiskHelp() [][]key.Binding {
+	return s.Help(s.listBindingsWithoutEnter(), s.List.FilterBindings(), s.Disk.Bindings())
+}
+
+// listBindingsWithoutEnter は enter を除いた通常モードの一覧のキーを返す。
+//
+// **List 側ではなくここに置く。** enter を外す理由は「このタブに詳細画面が無い」と
+// いう画面側の事情であり、一覧のキー定義そのものの性質ではない。List に専用の
+// メソッドを生やすと、一覧のキーが「enter 付き」と「enter 無し」の 2 系統あるように
+// 読める。
+//
+// 落とす相手は Enter と同じキーを持つ Binding として選ぶ。添字や説明文で選ぶと、
+// List.Bindings の並びや文言を変えたときに黙って別のキーが落ちる。入力中にのみ
+// 有効な Accept も enter だが、List.Bindings には含まれない（FilterBindings が返す）。
+func (s Set) listBindingsWithoutEnter() []key.Binding {
+	all := s.List.Bindings()
+	out := make([]key.Binding, 0, len(all))
+	for _, b := range all {
+		if slices.Equal(b.Keys(), s.List.Enter.Keys()) {
+			continue
+		}
+		out = append(out, b)
+	}
+	return out
 }
 
 // LogsHelp は Logs タブが ? に出すグループを返す。

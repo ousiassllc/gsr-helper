@@ -47,9 +47,12 @@ func allBindings(s Set) []named {
 		{"Runner.Update", s.Runner.Update},
 		{"Runner.Edit", s.Runner.Edit},
 		{"Runner.Logs", s.Runner.Logs},
+		{"Disk.Clean", s.Disk.Clean},
 		{"Log.Pane", s.Log.Pane},
 		{"Log.Follow", s.Log.Follow},
 		{"Log.Journal", s.Log.Journal},
+		{"Confirm.Yes", s.Confirm.Yes},
+		{"Confirm.No", s.Confirm.No},
 	}
 }
 
@@ -123,9 +126,12 @@ func TestKeyAssignmentsMatchSpec(t *testing.T) {
 		"Runner.Update":    {"u"},
 		"Runner.Edit":      {"e"},
 		"Runner.Logs":      {"l"},
+		"Disk.Clean":       {"c"},
 		"Log.Pane":         {"tab"},
 		"Log.Follow":       {"f"},
 		"Log.Journal":      {"J"},
+		"Confirm.Yes":      {"y"},
+		"Confirm.No":       {"n"},
 	}
 	for _, b := range allBindings(New()) {
 		if !reflect.DeepEqual(b.binding.Keys(), want[b.name]) {
