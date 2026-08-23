@@ -91,11 +91,13 @@ doctor が検査するのは [FR-43](../requirements/functional.md) が定める
 | 項目 | 判定方法 | Status |
 |------|---------|--------|
 | パスワード不要 sudo | `sudo -l -U <runner-user>` の `NOPASSWD` | WARN（必要性はワークフローによるため FAIL にしない） |
-| `docker` | コマンドの存在と `docker info` | FAIL |
+| `docker` | コマンドの存在（`PATH` の探索のみ。コマンドは発行しない） | FAIL |
 | `docker buildx` | `docker buildx version` | WARN |
 | docker グループ所属 | `/etc/group` と、稼働中 `Runner.Listener` の `/proc/<pid>/status` の `Groups` | FAIL（未反映の場合は「要 runner 再起動」として区別） |
 
-これらは起動時にも自動判定し、不備があれば状態行に警告を出す（[FR-44](../requirements/functional.md)、[画面仕様](../ui/screens.md#共通レイアウト)）。
+**この 4 点がそのまま起動時の自動判定の対象である。** 起動時に走るのはレジストリのうち「ジョブ実行の前提」に属する 4 項目（`job.sudo` / `job.docker` / `job.buildx` / `job.dockergroup`）だけで、不備があれば状態行とヘッダに件数を出す（[FR-44](../requirements/functional.md)、[画面仕様](../ui/screens.md#共通レイアウト)）。
+
+**daemon の稼働（`docker info`）は起動時には判定しない。** これは分類「docker」の別項目（`docker.daemon`）で、FR-43 の 4 点には含まれない。`docker info` は daemon が応答しないときに待たされることがあり、起動経路に載せると起動時間の予算（[非機能要件](../requirements/non-functional.md)）を食うためである。Doctor タブを開いたときに走る。
 
 ## 出典
 
@@ -109,3 +111,4 @@ doctor が検査するのは [FR-43](../requirements/functional.md) が定める
 | 1.1 | 2026-08-22 | 「runner group の対象リポジトリ」節を追加し、対象リポジトリの限定と public リポジトリへ提供しない既定を維持する運用を明記 | self-hosted runner を掴めるリポジトリを絞ることが fork PR ガードの一次防御の 1 層であるにもかかわらず、手順として記録されていなかったため（Issue #17）。設定の確認には `admin:org` スコープが必要で CI から機械的に検証できないため、手動確認のタイミングもあわせて明記した |
 | 1.2 | 2026-08-22 | 「C コンパイラ」節を追加し、冒頭の「手順」ブロックに `build-essential` の導入（手順 5）と `gcc --version` の確認を追加、「各手順の注意」と「欠けているものと症状」にも対応する行を追記 | CI の `test` ジョブが `make test`（= `go test -race ./...`）を実行するようになり、競合検出は cgo を必要とするため C コンパイラがホストの前提に加わった。`actions/setup-go` は C コンパイラを導入しないため、欠けているとジョブが `-race requires cgo` で失敗する（Issue #21） |
 | 1.3 | 2026-08-22 | 冒頭の「ここに挙げた項目は doctor が検査する」という包括的な宣言を FR-43 / FR-44 の定める範囲に限定し、「C コンパイラ」節と「doctor での検出」節に C コンパイラが doctor の検査対象外である旨を明記 | 1.2 で C コンパイラを番号付きの手順 5 へ昇格させた一方、[FR-43](../requirements/functional.md) の検査対象はパスワード不要 sudo / `docker` / `docker buildx` / docker グループ所属の 4 点のままであり、冒頭の包括宣言と食い違っていた。FR-43 を 5 点へ拡張するのは製品要件の変更であり、開発環境・CI の土台整備を範囲とする本変更のスコープ外と判断したため、要件側ではなく本書の記述を限定する形で切り分けた |
+| 1.4 | 2026-08-23 | 「doctor での検出」の表の `docker` 行の判定方法を「コマンドの存在と `docker info`」から「コマンドの存在（`PATH` の探索のみ）」へ訂正し、表の直後の「これらは起動時にも自動判定し」を、起動時に走るのが `job.sudo` / `job.docker` / `job.buildx` / `job.dockergroup` の 4 項目であることと、daemon の稼働（`docker info` = `docker.daemon`）は FR-43 に含まれず起動時には走らないことに分けて記述 | doctor（Issue #11）の実装では `docker info` を発行するのは分類「docker」の `docker.daemon` で、`Startup()` は偽である。表の 4 行すべてが起動時に走ると読める書き方だったため、**起動時間の予算（[非機能要件](../requirements/non-functional.md)）を守るために意図的に起動経路から外した項目**が、要件どおりに走っていないだけの欠落に見えていた |
