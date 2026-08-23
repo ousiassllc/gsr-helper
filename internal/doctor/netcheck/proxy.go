@@ -36,7 +36,10 @@ var localBypass = []string{"localhost", "127.0.0.1"}
 // 尊重し、doctor で設定の整合性を確認する」）。
 //
 // **値そのものは資格情報を含みうる。** http://user:pass@proxy:3128 の形が使われる
-// ため、画面に出す値は必ず url.URL.Redacted() を通す。
+// ため、画面に出す URL は必ず redact() を通す。パースできない値やホストを取り出せ
+// ない値は伏せる位置を特定できないので、値ごと maskedValue へ潰して一切出さない。
+// エラー文言も出さない。*url.Error は生の URL を埋め込むため、そのまま連結すると
+// パスワードが画面へ写る。
 type proxyCheck struct{}
 
 func (proxyCheck) ID() string       { return "net.proxy" }
@@ -75,9 +78,12 @@ func (c proxyCheck) Run(_ context.Context, in check.Input) []check.Result {
 //
 // 読めない値は「プロキシが効いていない」ではなく「全ての通信が失敗する」に
 // 直結するので、整合の乱れ（WARN）より重い。
+//
+// 文言には変数名しか出さない。値が URL として壊れている時点で userinfo の位置を
+// 特定できず、値も url.Parse のエラー文言も生のパスワードを含みうるためである。
 func (c proxyCheck) invalid(set map[string]string) (check.Result, bool) {
 	for _, name := range sortedNames(set) {
-		if name == "no_proxy" || name == "NO_PROXY" {
+		if isNoProxy(name) {
 			continue // 宛先の並びであって URL ではない。
 		}
 		u, err := url.Parse(set[name])
@@ -85,7 +91,7 @@ func (c proxyCheck) invalid(set map[string]string) (check.Result, bool) {
 			return check.Of(c, check.Result{
 				Status:  check.Fail,
 				Summary: name + " が URL として読めない",
-				Detail:  name + " の値を解釈できません: " + err.Error(),
+				Detail:  name + " の値を URL として解釈できません。値は資格情報を含みうるため伏せています。",
 				Impact:  "プロキシを経由する通信がすべて失敗します。",
 				Remedy:  "http://host:port の形式で設定し直してください。",
 			}), true
@@ -94,7 +100,7 @@ func (c proxyCheck) invalid(set map[string]string) (check.Result, bool) {
 			return check.Of(c, check.Result{
 				Status:  check.Fail,
 				Summary: name + " にスキームかホストが無い",
-				Detail:  name + " = " + u.Redacted() + " にはスキームまたはホストがありません。",
+				Detail:  name + " = " + redact(set[name]) + " にはスキームまたはホストがありません。",
 				Impact:  "プロキシを経由する通信がすべて失敗します。",
 				Remedy:  "http://host:port の形式で設定し直してください。",
 			}), true
@@ -113,7 +119,7 @@ func (c proxyCheck) conflicting(in check.Input) (check.Result, bool) {
 		return check.Of(c, check.Result{
 			Status:  check.Warn,
 			Summary: v.lower + " と " + v.upper + " の値が違う",
-			Detail: v.lower + " = " + redact(lo) + " / " + v.upper + " = " + redact(up) +
+			Detail: v.lower + " = " + display(v.lower, lo) + " / " + v.upper + " = " + display(v.upper, up) +
 				"。どちらが使われるかは道具ごとに異なります。",
 			Impact: "runner 本体とジョブが起動する道具で別のプロキシを使い、片方だけ通る状態になります。",
 			Remedy: "小文字と大文字に同じ値を設定してください。",
@@ -176,13 +182,31 @@ func proxyConfigured(in check.Input) bool {
 	return false
 }
 
-// describe は画面に出す設定値の一覧を返す。値は必ずマスクを通す。
+// describe は画面に出す設定値の一覧を返す。値は必ず display() を通す。
 func describe(set map[string]string) []string {
 	out := make([]string, 0, len(set))
 	for _, name := range sortedNames(set) {
-		out = append(out, name+"="+redact(set[name]))
+		out = append(out, name+"="+display(name, set[name]))
 	}
 	return out
+}
+
+// display は環境変数 name の値のうち、画面に出してよい表記を返す。
+//
+// no_proxy / NO_PROXY はホスト名の並びであって URL ではなく、資格情報を含まない。
+// これまで url.Parse がホストを取り出せないことに頼って素通ししていたが、redact()
+// が伏せるようになった以上、伏せると宛先の一覧という判断材料が丸ごと消えてしまう。
+// URL として扱う変数だけを redact() へ通す。
+func display(name, value string) string {
+	if isNoProxy(name) {
+		return value
+	}
+	return redact(value)
+}
+
+// isNoProxy は変数名が no_proxy 系かを返す。
+func isNoProxy(name string) bool {
+	return name == "no_proxy" || name == "NO_PROXY"
 }
 
 // sortedNames は proxyVars の宣言順に、設定されている名前だけを返す。
@@ -200,14 +224,25 @@ func sortedNames(set map[string]string) []string {
 	return out
 }
 
+// maskedValue は値を安全に出せないときの固定表記。
+//
+// 「設定はされているが中身は見せられない」ことが伝わるよう、空文字ではなく
+// 目に見える印を出す。
+const maskedValue = "(表示できない値)"
+
 // redact は URL の userinfo を伏せた表記を返す。
 //
 // プロキシの認証情報は http://user:pass@host の形で環境変数に入る。診断の画面は
 // スクリーンショットで共有されることがあるので、値をそのまま出さない。
+//
+// パースできない値やホストを取り出せない値は生のまま返さない。url.Parse が
+// 失敗する値（例: パスワードに % を含む）や、スキームを書き忘れて
+// user:pass@host:3128 が Opaque になった値は userinfo の位置を特定できず、
+// 素通しするとパスワードごと画面へ写るためである。
 func redact(v string) string {
 	u, err := url.Parse(v)
 	if err != nil || u.Host == "" {
-		return v
+		return maskedValue
 	}
 	return u.Redacted()
 }

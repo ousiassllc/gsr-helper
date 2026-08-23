@@ -96,10 +96,12 @@ func (c unitCheck) judge(ctx context.Context, in check.Input, r runner.Runner) c
 
 // environmentNote はユニットの Environment を Detail へ添える文を返す。
 //
-// **中身の是非は判定しない。** プロキシ設定が runner の .env と噛み合っているか
-// は .env を読まないと分からないが、その読み取りは internal/config の責務で
-// あり、本 Issue の担当ではない（設定編集の Issue が持ち込む）。判定できない
-// ものを判定した風に出さず、値を見せて運用者に委ねる。
+// **Environment を理由に WARN / FAIL へ倒す経路は意図的に持たない。** 値の是非
+// （プロキシ設定や PATH が runner の想定と噛み合っているか）は runner の .env と
+// 突き合わせないと決まらず、.env の読み取りと解釈は internal/config の責務で
+// 本パッケージのスコープ外である。突合の材料を持たないまま判定を出すと誤報に
+// なるので、ここは値を提示するだけに留め、是非は運用者に委ねる。
+// 判定を足すのは .env を読む側（設定編集）に材料が揃ってからである。
 func environmentNote(props map[string]string) string {
 	env := strings.TrimSpace(props["Environment"])
 	if env == "" {

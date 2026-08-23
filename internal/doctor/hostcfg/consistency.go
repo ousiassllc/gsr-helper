@@ -30,9 +30,9 @@ func (c orphanCheck) Run(ctx context.Context, in check.Input) []check.Result {
 		return one(check.Skipped(c, "孤児ユニット", "systemctl がありません。"))
 	}
 
-	units, warns := systemd.Scan(ctx, in.Exec)
-	if len(units) == 0 && len(warns) > 0 {
-		return one(check.Skipped(c, "孤児ユニット", "systemd のユニット一覧を取得できませんでした。"))
+	units, skip := scanUnits(ctx, c, in, "孤児ユニット")
+	if skip != nil {
+		return one(*skip)
 	}
 
 	dirs := runnerDirs(in.Runners)
@@ -63,6 +63,32 @@ func (c orphanCheck) Run(ctx context.Context, in check.Input) []check.Result {
 	return out
 }
 
+// scanUnits は判定に使う systemd のユニット一覧を引く。一覧が得られない場合は
+// 第 2 戻り値に SKIP の結果を返す（呼び出し側はそれをそのまま返すこと）。
+//
+// **「一覧が 0 件」と「一覧が取れていない」を混同しない。** systemctl が在っても
+// list-units は失敗しうる（コンテナ内・dbus 停止）。取れなかったものを 0 件として
+// 扱うと、検査していないのに「問題なし」の緑が全 runner ぶん並ぶ。
+//
+// Exec の有無を別に見るのは、systemd.Scan が ex == nil のとき警告を出さずに
+// nil を返すためである（internal/runner/systemd.Scan の doc）。Caps.Systemd は
+// LookPath 由来で Exec とは独立に真になりうるので、警告の有無だけでは
+// Exec 未配布を取りこぼす。
+func scanUnits(ctx context.Context, c check.Check, in check.Input, summary string) ([]systemd.State, *check.Result) {
+	if in.Exec == nil {
+		r := check.Skipped(c, summary,
+			"外部コマンドの実行経路が配られていないため systemctl を発行していません。")
+		return nil, &r
+	}
+
+	units, warns := systemd.Scan(ctx, in.Exec)
+	if len(units) == 0 && len(warns) > 0 {
+		r := check.Skipped(c, summary, "systemd のユニット一覧を取得できませんでした。")
+		return nil, &r
+	}
+	return units, nil
+}
+
 // isOrphan はユニットが孤児かを返す。
 //
 // 2 つを除外する。**LoadState=not-found** は FR-05 の孤児の定義から外れる
@@ -80,8 +106,12 @@ func isOrphan(u systemd.State, dirs map[string]bool) bool {
 	return !dirs[u.WorkingDir]
 }
 
-// duplicateCheck は .runner とユニット名の不一致、および同一 runner に複数の
-// ユニットが対応する状態を判定する。
+// duplicateCheck は .service に記録されたユニット名と実際に紐付いたユニットの
+// 食い違い、および同一 runner に複数のユニットが対応する状態を判定する。
+//
+// 突き合わせる 2 つは **`<runner ディレクトリ>/.service` の記録値**（svc.sh が
+// install 時に書く）と **検出が実際に紐付けたユニット**である。.runner は
+// 見ていない（記録しているのは runner の登録情報でユニット名ではない）。
 //
 // **後者は internal/runner が意図的に捨てている情報である。** discover.go の
 // attachUnits は 2 パス目で「WorkingDirectory は一致するが既に別のユニットが
@@ -109,7 +139,10 @@ func (c duplicateCheck) Run(ctx context.Context, in check.Input) []check.Result 
 	// list-units は 2 本発行される。項目どうしが結果を共有しない代わりに、
 	// 項目を足しても既存の項目に触れずに済む（レジストリが加算的であることの
 	// 対価であり、読み取りのみなので副作用は無い）。
-	units, _ := systemd.Scan(ctx, in.Exec)
+	units, skip := scanUnits(ctx, c, in, "ユニット名の整合")
+	if skip != nil {
+		return one(*skip)
+	}
 
 	out := make([]check.Result, 0, len(in.Runners))
 	for _, r := range in.Runners {
@@ -140,7 +173,7 @@ func (c duplicateCheck) judge(r runner.Runner, units []systemd.State) check.Resu
 		return check.Of(c, check.Result{
 			Target:  r.Name(),
 			Status:  check.Warn,
-			Summary: ".runner とユニット名が一致しない",
+			Summary: ".service とユニット名が一致しない",
 			Detail: ".service に記録されたユニット名は " + r.UnitName +
 				" ですが、実際に紐付いているのは " + attached + " です。",
 			Impact: "svc.sh が .service の名前で操作するため、意図した runner を止められないことがあります。",
@@ -148,11 +181,27 @@ func (c duplicateCheck) judge(r runner.Runner, units []systemd.State) check.Resu
 		})
 	}
 
+	// 突き合わせる材料が片方でも欠けていれば判定していない。**OK にしない。**
+	// .service を持たない runner（svc.sh を使わず登録したもの）は記録値が空に
+	// なるが、それは「一致している」ことの根拠にならない。重複ユニットの検出は
+	// .service の有無と無関係に成立するので、上の分岐は先に通してある。
+	if r.UnitName == "" || attached == "" {
+		return check.Of(c, check.Result{
+			Target:  r.Name(),
+			Status:  check.Skip,
+			Summary: "ユニット名の整合",
+			Detail: ".service に記録されたユニット名は " + orNone(r.UnitName) +
+				"、紐付いているユニットは " + orNone(attached) +
+				" で、突き合わせる材料が揃いません。",
+		})
+	}
+
 	return check.Of(c, check.Result{
 		Target:  r.Name(),
 		Status:  check.OK,
 		Summary: "ユニット名は整合している",
-		Detail:  "紐付いているユニット: " + orNone(attached) + "。",
+		Detail: ".service に記録されたユニット名（" + r.UnitName +
+			"）と実際に紐付いているユニットが一致しています。",
 	})
 }
 

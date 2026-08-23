@@ -122,3 +122,23 @@ func newRunner(name, dir, unit string) runner.Runner {
 	}
 	return r
 }
+
+// systemctlListUnitsFails は list-units だけが失敗する Executor を返す。
+//
+// systemctl は在るのに一覧が取れない状態（コンテナ内・dbus 停止）を再現する。
+// 実運用で到達する状態であり、ここで 0 件と区別できないと「検査していないのに
+// OK」を返してしまう。
+func systemctlListUnitsFails() *exec.Fake {
+	f := exec.NewFake()
+	f.SetFunc(func(_ string, args []string) (exec.Result, error) {
+		if len(args) > 0 && args[0] == "list-units" {
+			return exec.Result{
+				Stdout:   nil,
+				Stderr:   []byte("Failed to connect to bus: No such file or directory"),
+				ExitCode: 1,
+			}, nil
+		}
+		return okResult(""), nil
+	})
+	return f
+}

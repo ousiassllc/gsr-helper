@@ -2,6 +2,7 @@ package hostcfg
 
 import (
 	"context"
+	"errors"
 	"strings"
 
 	"github.com/ousiassllc/gsr-helper/internal/doctor/check"
@@ -75,6 +76,11 @@ func (c depsCheck) judge(ctx context.Context, in check.Input, d dependency) chec
 	}
 
 	res, perr := in.Probe(ctx, "doctor.deps", d.name, "--version")
+	if noExecutor(perr) {
+		return check.Skipped(c, d.name+" のバージョンを判定していない",
+			d.name+" は "+path+" にありますが、外部コマンドの実行経路が配られていないため "+
+				d.name+" --version を発行していません。")
+	}
 	if perr != nil || res.ExitCode != 0 {
 		return check.Of(c, check.Result{
 			Status:  check.Warn,
@@ -91,6 +97,13 @@ func (c depsCheck) judge(ctx context.Context, in check.Input, d dependency) chec
 		Detail:  firstLine(res.Stdout) + "（" + path + "）",
 	})
 }
+
+// noExecutor は Executor が配られていないことによる失敗かを返す。
+//
+// 能力不足で実行できなかっただけであり、ホストの不備ではない。WARN に倒すと
+// 「コマンドは在るが壊れている」と読めてしまうので SKIP と区別する
+// （check.ErrNoExecutor の doc。internal/doctor/jobreq も同じ判定を使う）。
+func noExecutor(err error) bool { return errors.Is(err, check.ErrNoExecutor) }
 
 // firstLine は出力の 1 行目を前後の空白を落として返す。
 //

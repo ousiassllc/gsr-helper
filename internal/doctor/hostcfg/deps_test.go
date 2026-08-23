@@ -93,3 +93,24 @@ func TestDepsDoesNotCheckCCompiler(t *testing.T) {
 		}
 	}
 }
+
+// Executor が配られていないときは WARN ではなく SKIP。
+//
+// 能力不足で実行できなかっただけであり、「--version が失敗した」（コマンドは
+// 在るが壊れている）とは別物である。
+func TestDepsSkipsWhenNoExecutor(t *testing.T) {
+	t.Parallel()
+
+	in := check.Input{Exec: nil, LookPath: lookOnly("git", "docker", "node")}
+
+	got := run(t, "deps.commands", in)
+	if len(got) != 3 {
+		t.Fatalf("件数 = %d, want 3", len(got))
+	}
+	for _, r := range got {
+		if r.Status != check.Skip {
+			t.Errorf("%q の Status = %v, want %v（能力不足を失敗として出している）",
+				r.Summary, r.Status, check.Skip)
+		}
+	}
+}
