@@ -100,13 +100,19 @@ func (a *App) applyDiscovered(msg discoveredMsg) tea.Cmd {
 		a.result = msg.result
 	}
 	cmd := a.distribute()
-	// 最初に runner 一覧が揃った時点で起動時の前提チェックを 1 度だけ始める
+	// runner 一覧を取り込めた最初の周期で起動時の前提チェックを 1 度だけ始める
 	// （FR-44）。判定は非同期なので、確定した時点でヘッダと状態行に現れる。
+	//
+	// **失敗した周期では発行しない。** 一覧を採らないまま発行すると、1 度きりの
+	// 実行を空の Runners で使い切り、runner ごとに判定する 2 項目（NOPASSWD sudo /
+	// docker グループ所属）がセッション中一度も走らず警告も出ない。
 	//
 	// 発行しないときは束ねない。**共有状態の配布だけの Cmd の形を変えない**ため
 	// である（親の検証は 1 段展開で ChromeMsg を拾う）。
-	if hr := a.startHostReq(); hr != nil {
-		return tea.Batch(cmd, hr)
+	if msg.err == nil {
+		if hr := a.startHostReq(); hr != nil {
+			return tea.Batch(cmd, hr)
+		}
 	}
 	return cmd
 }

@@ -46,6 +46,21 @@ func openDetail(o *page.Overlay, r doctor.CheckResult) tea.Cmd {
 	return o.Open(Kind, OpenMsg{Result: r})
 }
 
+// detailKey は詳細画面が出している結果の指し先。
+//
+// **識別子だけでは足りない。** runner ごとに判定する項目（docker グループ所属）は
+// 1 つの識別子で runner の数だけ行を返すため、対象まで見ないと別の runner の結果へ
+// 差し替わる。
+type detailKey struct {
+	id     string
+	target string
+}
+
+// keyOf は結果の指し先を返す。
+func keyOf(r doctor.CheckResult) detailKey {
+	return detailKey{id: r.ID, target: r.Target}
+}
+
 // modal は診断結果の詳細画面。
 //
 // **対処コマンドは表示するだけで実行しない。** 診断の責務を超えるためであり、

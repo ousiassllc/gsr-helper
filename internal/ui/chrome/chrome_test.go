@@ -163,3 +163,44 @@ func TestFooterShowsHintsAndHelp(t *testing.T) {
 		}
 	}
 }
+
+// 起動時のジョブ実行の前提チェック（FR-44）の不備はヘッダと状態行の両方に出し、
+// Doctor タブへ誘導する。
+//
+// 件数を出すだけで行き先を示さないと、内訳と対処を出せるのが Doctor タブだけで
+// あることが分からず、利用者は 7 枚のタブを順に開くことになる。
+//
+// **数え方はここでは決めない。** 何を不備と数えるか（SKIP を含めないなど）は
+// internal/ui/hostreq が持ち、chrome は受け取った件数を描くだけである。
+func TestHostRequirementWarningReachesHeaderAndStatus(t *testing.T) {
+	tests := map[string]struct {
+		bad  int
+		key  string
+		warn bool
+		hint bool
+	}{
+		"不備があれば警告して誘導する":      {bad: 2, key: "5", warn: true, hint: true},
+		"不備が無ければ警告しない":        {bad: 0, key: "5", warn: false, hint: false},
+		"Doctor タブが無ければ誘導しない": {bad: 2, key: "", warn: true, hint: false},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			v := testView()
+			v.HostReq, v.DoctorKey = tt.bad, tt.key
+			status, header := Status(v), Header(v)
+
+			want := "ホスト前提 " + strconv.Itoa(tt.bad) + " 件"
+			for label, line := range map[string]string{"状態行": status, "ヘッダ": header} {
+				if got := strings.Contains(line, want); got != tt.warn {
+					t.Errorf("%sの警告 = %v, want %v（%q）", label, got, tt.warn, line)
+				}
+			}
+			if got := strings.Contains(status, "（"+tt.key+" で詳細）"); got != tt.hint {
+				t.Errorf("状態行の誘導 = %v, want %v（%q）", got, tt.hint, status)
+			}
+		})
+	}
+}

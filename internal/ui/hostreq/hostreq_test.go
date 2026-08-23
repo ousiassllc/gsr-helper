@@ -122,3 +122,56 @@ func TestRegistryStartupSetIsSafeForStartup(t *testing.T) {
 		}
 	}
 }
+
+// 数えるのは起動時に見た項目に当たる結果だけである（FR-44）。
+//
+// Doctor タブは登録されている項目をすべて走らせるので、全体の件数を渡すと
+// ヘッダと状態行の「ホスト前提 N 件」が別のものを数えた値になる。
+func TestCountStartupCountsOnlyStartupChecks(t *testing.T) {
+	t.Parallel()
+
+	startup := doctor.Startup(doctor.Default())
+	if len(startup) < 2 {
+		t.Fatalf("起動時の項目 = %d 件, want 2 件以上（この検証が成り立たない）", len(startup))
+	}
+	first, second := startup[0].ID(), startup[1].ID()
+
+	tests := map[string]struct {
+		results []doctor.CheckResult
+		want    int
+	}{
+		"起動時の項目の不備を数える": {
+			results: []doctor.CheckResult{{ID: first, Status: check.Fail}},
+			want:    1,
+		},
+		"起動時以外の不備は数えない": {
+			results: []doctor.CheckResult{{ID: "net.reach", Status: check.Fail}},
+			want:    0,
+		},
+		"起動時の項目が直れば 0 件になる": {
+			results: []doctor.CheckResult{
+				{ID: first, Status: check.OK},
+				{ID: second, Status: check.Skip},
+				{ID: "net.reach", Status: check.Warn},
+			},
+			want: 0,
+		},
+		"対象ごとの行をそれぞれ数える": {
+			results: []doctor.CheckResult{
+				{ID: first, Target: "build01-1", Status: check.Fail},
+				{ID: first, Target: "build01-2", Status: check.Warn},
+			},
+			want: 2,
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := hostreq.CountStartup(tt.results).Bad; got != tt.want {
+				t.Errorf("Bad = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}

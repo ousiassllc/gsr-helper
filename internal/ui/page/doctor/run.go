@@ -7,6 +7,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/ousiassllc/gsr-helper/internal/doctor"
+	"github.com/ousiassllc/gsr-helper/internal/ui/hostreq"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 )
 
@@ -72,8 +73,8 @@ func (m Model) checkInput() doctor.Input {
 	}
 }
 
-// applyDone は診断の結果を取り込む。
-func (m *Model) applyDone(msg doneMsg) {
+// applyDone は診断の結果を取り込み、詳細画面と親へ知らせる Cmd を返す。
+func (m *Model) applyDone(msg doneMsg) tea.Cmd {
 	if msg.id == "" {
 		m.results = msg.results
 	} else {
@@ -83,4 +84,44 @@ func (m *Model) applyDone(msg doneMsg) {
 	m.lastRun = msg.at
 	m.running = false
 	m.tbl.SetItems(sectionResults, resultRows(m.results))
+	return tea.Batch(m.refreshDetail(), m.reportHostReq())
+}
+
+// refreshDetail は開いたままの詳細画面を新しい結果で描き直す Cmd を返す。
+//
+// 個別再実行（FR-34）の唯一の入口はこの画面である。描き直さないと、対処を終えて
+// r を押した運用者が古い 検出内容 / 影響 / 推奨する対処 を見続けることになり、
+// 「対処後に再実行できる」という受け入れ条件が実効を失う。
+//
+// **開き直さず宛先を明示して差し替える**（page.ModalMsg）。開き直すとモーダルの
+// 重なりの最上位がこの画面へ動くため、詳細の上でヘルプを開いていた場合に、
+// 読んでいたヘルプが黙って裏へ回る。
+func (m *Model) refreshDetail() tea.Cmd {
+	if !m.overlay.Active() || m.detail.id == "" {
+		return nil
+	}
+	for _, r := range m.results {
+		if keyOf(r) != m.detail {
+			continue
+		}
+		var cmd tea.Cmd
+		m.overlay, cmd = m.overlay.Update(page.ModalMsg{Kind: Kind, Msg: OpenMsg{Result: r}})
+		return cmd
+	}
+	return nil
+}
+
+// reportHostReq は起動時の前提チェック（FR-44）の件数を親へ届ける Cmd を返す。
+//
+// **page.Do では包まない。** 包みは page が発行した Cmd の結果を発行元のタブへ
+// 戻すためのものであり、この件数の宛先は親 Model である（親の Update は
+// hostreq.Msg を受ける分岐を持つ）。page.ChromeMsg にも載せられない。ヘッダと
+// 状態行の「ホスト前提 N 件」は起動時に見た項目の話であって、タブが報告する
+// 状態行の右側とは別の値だからである。
+//
+// **数え直すのは個別再実行のときも同じである。** 取り込み済みの結果（doctor.Replace
+// でマージ後の m.results）全体から数えるので、1 項目だけを直したときも件数が動く。
+func (m Model) reportHostReq() tea.Cmd {
+	msg := hostreq.CountStartup(m.results)
+	return func() tea.Msg { return msg }
 }

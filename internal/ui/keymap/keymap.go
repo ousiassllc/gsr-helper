@@ -211,8 +211,14 @@ func (s Set) DiskHelp() [][]key.Binding {
 //
 // enter を残すのは Disk タブと違って詳細画面があるためである（screens.md の
 // Doctor タブのキーマップ）。runner の操作キーはこの画面で効かないので渡さない。
+//
+// 一覧のキーからは **space（選択のトグル）と ctrl+a（全選択）を外す**。Doctor の
+// 区画は page/doctor/rows.go が Selectable:false を宣言しており、行を選ぶという
+// 状態がそもそも無い。選んだ行に対する一括操作も無く（再実行の対象は全項目の r か
+// カーソル位置の 1 項目だけ）、押しても何も起きないキーをヘルプが案内することに
+// なる（screens.md の設計原則 2。DiskHelp が enter を外すのと同じ理由）。
 func (s Set) DoctorHelp() [][]key.Binding {
-	return s.Help(s.List.Bindings(), s.List.FilterBindings())
+	return s.Help(s.listBindingsWithout(s.List.Toggle, s.List.SelectAll), s.List.FilterBindings())
 }
 
 // SetupHelp は Setup タブが ? に出すグループを返す。
@@ -238,19 +244,32 @@ func (s Set) Setup() []key.Binding {
 
 // listBindingsWithoutEnter は enter を除いた通常モードの一覧のキーを返す。
 //
-// **List 側ではなくここに置く。** enter を外す理由は「このタブに詳細画面が無い」と
-// いう画面側の事情であり、一覧のキー定義そのものの性質ではない。List に専用の
-// メソッドを生やすと、一覧のキーが「enter 付き」と「enter 無し」の 2 系統あるように
-// 読める。
-//
-// 落とす相手は Enter と同じキーを持つ Binding として選ぶ。添字や説明文で選ぶと、
-// List.Bindings の並びや文言を変えたときに黙って別のキーが落ちる。入力中にのみ
-// 有効な Accept も enter だが、List.Bindings には含まれない（FilterBindings が返す）。
+// 入力中にのみ有効な Accept も enter だが、List.Bindings には含まれないので落ちない
+// （FilterBindings が返す）。
 func (s Set) listBindingsWithoutEnter() []key.Binding {
+	return s.listBindingsWithout(s.List.Enter)
+}
+
+// listBindingsWithout は drop と同じキーを持つものを除いた通常モードの一覧のキーを返す。
+//
+// **List 側ではなくここに置く。** キーを外す理由は「このタブに詳細画面が無い」
+// 「この一覧は行を選べない」といった画面側の事情であり、一覧のキー定義そのものの
+// 性質ではない。List に専用のメソッドを生やすと、一覧のキーが画面の数だけ系統が
+// あるように読める。
+//
+// 落とす相手は **同じキーを持つ Binding** として選ぶ。添字や説明文で選ぶと、
+// List.Bindings の並びや文言を変えたときに黙って別のキーが落ちる。
+func (s Set) listBindingsWithout(drop ...key.Binding) []key.Binding {
+	dropped := func(b key.Binding) bool {
+		return slices.ContainsFunc(drop, func(d key.Binding) bool {
+			return slices.Equal(b.Keys(), d.Keys())
+		})
+	}
+
 	all := s.List.Bindings()
 	out := make([]key.Binding, 0, len(all))
 	for _, b := range all {
-		if slices.Equal(b.Keys(), s.List.Enter.Keys()) {
+		if dropped(b) {
 			continue
 		}
 		out = append(out, b)

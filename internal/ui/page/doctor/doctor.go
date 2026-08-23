@@ -61,6 +61,10 @@ type Model struct {
 	initCmd tea.Cmd
 	// started は最初の診断を発行したか。タブを行き来するたびに走らせないために持つ。
 	started bool
+	// detail は詳細画面が今出している結果の指し先。個別再実行のあとに同じ行の
+	// 新しい結果へ差し替えるために覚えておく（モーダルが抱えている結果を page から
+	// 読む手段は無い。detail.go の detailKey）。
+	detail detailKey
 }
 
 // tea.Model を実装していることをコンパイル時に確かめる。
@@ -84,6 +88,7 @@ func New(tab int, st page.StateMsg) Model {
 		running: false,
 		initCmd: tea.Batch(help, detail, scope),
 		started: false,
+		detail:  detailKey{},
 	}
 }
 
@@ -105,8 +110,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// 起動時に要る前提チェック（FR-43 の 4 点）は親が別に走らせる（FR-44）。
 		return m.activate()
 	case doneMsg:
-		m.applyDone(msg)
-		return m, m.chrome()
+		cmd := m.applyDone(msg)
+		return m, tea.Batch(m.chrome(), cmd)
 	case page.ResultMsg:
 		// モーダルが返した決定は page が受ける（page.Overlay.Handles が
 		// ResultMsg に偽を返すことと合わせた二重の守り）。
@@ -241,6 +246,7 @@ func (m *Model) openDetail() tea.Cmd {
 	if !ok {
 		return nil
 	}
+	m.detail = keyOf(cur.result)
 	return openDetail(&m.overlay, cur.result)
 }
 

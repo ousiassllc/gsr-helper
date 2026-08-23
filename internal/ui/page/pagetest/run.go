@@ -7,6 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/ousiassllc/gsr-helper/internal/ui/hostreq"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 )
 
@@ -55,6 +56,23 @@ func ChromeOf(cmd tea.Cmd) (page.ChromeMsg, bool) {
 		}
 	}
 	return page.ChromeMsg{}, false
+}
+
+// HostReqOf は Cmd の束に含まれる最初の起動時前提チェックの結果を返す。
+//
+// ChromeOf と同じく 1 段だけ展開して探す。この結果を運ぶのは page.ChromeMsg では
+// なく素の Msg であり（ヘッダと状態行の「ホスト前提 N 件」はタブの状態行とは別の
+// 値である）、親 Model と Doctor タブの両方がこの経路を検証する。
+func HostReqOf(cmd tea.Cmd) (hostreq.Msg, bool) {
+	for _, c := range Expand(cmd) {
+		if c == nil {
+			continue
+		}
+		if msg, ok := c().(hostreq.Msg); ok {
+			return msg, true
+		}
+	}
+	return hostreq.Msg{}, false
 }
 
 // Pump は Cmd を辿って Model を進め、cond が満たされた時点で止める。

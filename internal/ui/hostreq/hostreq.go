@@ -49,3 +49,35 @@ func Start(in doctor.Input, checks []doctor.Check) tea.Cmd {
 		return Msg{Bad: doctor.Count(doctor.Run(ctx, in, checks)).Bad()}
 	}
 }
+
+// CountStartup は起動時の前提チェック（FR-44）に当たる結果だけを数えて Msg を返す。
+//
+// Doctor タブが再実行した結果を親へ届ける入口である。**全項目の結果をそのまま
+// 渡してよい。** タブは登録されている項目をすべて走らせるが、ヘッダと状態行の
+// 「ホスト前提 N 件」が指すのは起動時に見る項目だけであり、全体の件数を渡すと
+// 別のものを数えた値がその場所に出る。
+//
+// **絞り込みに CheckResult.Startup は使わない。** 現状どの項目もその印を結果へ
+// 写しておらず（各 Check は Startup を偽のまま返す）、印で絞ると不備が残って
+// いても常に 0 件——つまり再実行するたびに警告が消える——ことになる。起動時の
+// 顔ぶれを決めるのはレジストリなので、そこから識別子を引く。
+func CountStartup(results []doctor.CheckResult) Msg {
+	ids := startupIDs()
+	startup := make([]doctor.CheckResult, 0, len(results))
+	for _, r := range results {
+		if _, ok := ids[r.ID]; ok {
+			startup = append(startup, r)
+		}
+	}
+	return Msg{Bad: doctor.Count(startup).Bad()}
+}
+
+// startupIDs は起動時に走らせる項目の識別子を返す。
+func startupIDs() map[string]struct{} {
+	checks := doctor.Startup(doctor.Default())
+	ids := make(map[string]struct{}, len(checks))
+	for _, c := range checks {
+		ids[c.ID()] = struct{}{}
+	}
+	return ids
+}
