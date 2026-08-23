@@ -92,3 +92,65 @@ func TestOOMWithoutJournal(t *testing.T) {
 		t.Errorf("Status = %v, want %v", got, check.Skip)
 	}
 }
+
+// 帰属の手掛かりは runner 名と runner のディレクトリだけである。
+//
+// カーネルが OOM 行に出すプロセス名は TASK_COMM_LEN に合わせて 15 文字で
+// 切られた実行ファイル名（"Runner.Worker"）なので、そこに runner 名は現れない。
+// プロセス名で runner を名指しする実装へ戻ると、無関係な OOM まで特定の runner の
+// 行に見えてしまうため、ホスト全体へ倒すことを固定する。
+func TestOOMAttribution(t *testing.T) {
+	t.Parallel()
+
+	runners := []runner.Runner{
+		{Dir: "/opt/runners/build01", Config: runner.Config{AgentName: "build01"}},
+	}
+
+	tests := map[string]struct {
+		line       string
+		wantTarget string
+		wantDetail string
+	}{
+		"runner 名が行に現れる": {
+			line:       "Aug 23 10:00:00 h kernel: Out of memory: Killed process 111 (build01-worker)",
+			wantTarget: "build01",
+			wantDetail: "build01 に関係する",
+		},
+		"runner のディレクトリが行に現れる": {
+			line: "Aug 23 10:00:00 h kernel: oom-kill: constraint=CONSTRAINT_NONE,oom_memcg=/," +
+				"task=Runner.Worker,pid=111,cwd=/opt/runners/build01/_work",
+			wantTarget: "build01",
+			wantDetail: "build01 に関係する",
+		},
+		"切り詰められたプロセス名だけではホスト全体": {
+			line:       "Aug 23 10:00:00 h kernel: Out of memory: Killed process 111 (Runner.Worker)",
+			wantTarget: "",
+			wantDetail: "どの runner のものか特定できない",
+		},
+		"runner と無関係なプロセスもホスト全体": {
+			line:       "Aug 23 10:00:00 h kernel: Out of memory: Killed process 222 (postgres)",
+			wantTarget: "",
+			wantDetail: "どの runner のものか特定できない",
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			in := check.Input{
+				Exec:     fakeExec(func(string, []string) (exec.Result, error) { return okResult(tt.line + "\n"), nil }),
+				LookPath: lookOnly("journalctl"),
+				Caps:     appconfig.Caps{Journal: true},
+				Runners:  runners,
+			}
+			got := only(t, run(t, "history.oom", in))
+			if got.Target != tt.wantTarget {
+				t.Errorf("Target = %q, want %q", got.Target, tt.wantTarget)
+			}
+			if !strings.Contains(got.Detail, tt.wantDetail) {
+				t.Errorf("Detail に %q が無い: %s", tt.wantDetail, got.Detail)
+			}
+		})
+	}
+}

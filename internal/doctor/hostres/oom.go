@@ -74,21 +74,30 @@ func (c oomCheck) report(hits map[string]*oomHit, runners []runner.Runner) []che
 	out := make([]check.Result, 0, len(hits))
 	for _, name := range hitOrder(hits, runners) {
 		h := hits[name]
-		where := "ホスト全体"
-		if name != "" {
-			where = name
-		}
 		out = append(out, check.Of(c, check.Result{
 			Target:  name,
 			Status:  check.Warn,
 			Summary: "OOM による停止履歴あり",
-			Detail: where + " に関係する OOM Killer の記録が直近 24 時間で " +
-				strconv.Itoa(h.count) + " 件あります。最新: " + truncate(h.last, detailLineLimit),
-			Impact: impactOOM,
-			Remedy: "メモリの増設、ジョブの並列度の削減、swap の追加のいずれかを検討してください。",
+			Detail:  hitDetail(name, h),
+			Impact:  impactOOM,
+			Remedy:  "メモリの増設、ジョブの並列度の削減、swap の追加のいずれかを検討してください。",
 		}))
 	}
 	return out
+}
+
+// hitDetail は 1 行分の詳細を組み立てる。
+//
+// ホスト全体の行だけ文言を変えるのは、そこに落ちた記録が「runner と無関係だと
+// 分かった」ものではなく「どのプロセスか特定できなかった」ものだからである
+// （attribute の doc コメント参照）。同じ「〜に関係する」で括ると、特定できた
+// 行と区別が付かず、読み手に誤った確度を与える。
+func hitDetail(name string, h *oomHit) string {
+	head := name + " に関係する OOM Killer の記録が直近 24 時間で "
+	if name == "" {
+		head = "どの runner のものか特定できない OOM Killer の記録が直近 24 時間で "
+	}
+	return head + strconv.Itoa(h.count) + " 件あります。最新: " + truncate(h.last, detailLineLimit)
 }
 
 // oomHit は 1 つの対象に紐付いた痕跡。
@@ -99,9 +108,10 @@ type oomHit struct {
 
 // collectOOM はカーネルログから OOM の行を拾い、対象ごとにまとめる。
 //
-// 対象の推定は runner 名と runner プロセスの名前で行う。どれにも当たらない行は
-// 空のキー（ホスト全体）へ入れる。**取りこぼしても件数から消さない**——他の
-// プロセスが落ちていることもメモリ不足の証拠だからである。
+// 対象の推定は attribute に任せ、**当たらない行は空のキー（ホスト全体）へ入れる。
+// 実環境では大半がこちらへ落ちる**（理由は attribute の doc コメント）。それでも
+// 件数から消さないのは、他のプロセスが落ちていることもホストのメモリ不足の
+// 証拠であり、runner に結び付かないことは「無関係」を意味しないからである。
 func collectOOM(stdout []byte, runners []runner.Runner) map[string]*oomHit {
 	hits := make(map[string]*oomHit)
 	for line := range strings.SplitSeq(string(stdout), "\n") {
@@ -130,16 +140,27 @@ func hasMarker(line string) bool {
 	return false
 }
 
-// attribute は行を runner に結び付ける。結び付かなければ空を返す。
+// attribute は行を runner に結び付ける。結び付かなければ空（ホスト全体）を返す。
+//
+// **結び付かないのが常態である。** OOM Killer が出す `Killed process 111 (comm)`
+// の comm はカーネルの TASK_COMM_LEN に合わせて 15 文字で切られた実行ファイル名
+// なので、そこに出るのは "Runner.Worker" のようなプロセス名だけであり、runner 名
+// （.runner の agentName、既定ではホスト名）は現れない。したがって comm を見ても
+// どの runner かは決められない。
+//
+// 手掛かりになるのは、行に runner 名そのものか runner のディレクトリが現れた場合
+// だけである。cgroup 付きの oom-kill 行（`oom-kill: ... task=...,cgroup=...`）や
+// 同時に出るユーザー空間側のログには runner のパスが載ることがあるので、
+// r.Dir も突き合わせる。当たらなければ推測せずホスト全体へ倒す。
 func attribute(line string, runners []runner.Runner) string {
 	for _, r := range runners {
-		if name := r.Name(); name != "" && strings.Contains(line, name) {
+		name := r.Name()
+		if name != "" && strings.Contains(line, name) {
 			return name
 		}
-	}
-	if strings.Contains(line, "Runner.Listener") || strings.Contains(line, "Runner.Worker") {
-		// runner のプロセスだと分かるが、どの runner かまでは分からない。
-		return ""
+		if r.Dir != "" && strings.Contains(line, r.Dir) {
+			return name
+		}
 	}
 	return ""
 }
