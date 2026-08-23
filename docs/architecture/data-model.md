@@ -359,7 +359,11 @@ defaults:
 | `defaults.name_prefix` | 前後の空白を除いた上で、先頭が `-` のもの・空白を含むものを拒否 | 空（ホスト名を使う） |
 | `defaults.labels` | 各要素を trim・重複除去し、先頭が `-` のものを拒否 | 空 |
 
-**`disk_thresholds` を読むのは 2 か所である。** Disk タブの要約行（`⚠ 警告閾値超過`。[画面仕様](../ui/screens.md)）が `warn` を、doctor のリソース診断（`internal/doctor/hostres`）が `warn`（WARN）と `critical`（FAIL）の両方を使う。どちらも比較は「以上」で、同じ値を見る。**とくに `critical` は doctor の FAIL 判定でだけ使う。** 診断が独立の閾値を持っていた間、`critical` は検証されるだけでどの画面も読んでおらず、設定を変えても Disk タブの表示しか動かなかった（Issue #89）。設定を配るのは `page.StateMsg.Disk.Thresholds` と `check.Input.DiskThresholds` で、未指定（0）を既定へ埋めるのは `appconfig.DiskThresholds.OrDefault` の 1 か所に閉じる。
+**`disk_thresholds` を判定に使うのは 2 か所である。** Disk タブの要約行（`⚠ 警告閾値超過`。[画面仕様](../ui/screens.md)）が `warn` を、doctor のリソース診断（`internal/doctor/hostres`）が `warn`（WARN）と `critical`（FAIL）の両方を使う。どちらも比較は「以上」である。**判定に限れば `critical` を読むのは doctor の FAIL だけである。** 診断が独立の閾値を持っていた間、`critical` はどの判定にも使われず、設定を変えても Disk タブの表示しか動かなかった（Issue #89）。なお設定編集の画面（`internal/config/edit`）は `warn` / `critical` の両方をフォームの初期値と差分行へ写すが、これは値を見せるだけで判定はしない。
+
+**2 つの画面が同じ値を見るのは、設定が読み込みの時点で正規化されているためである。** 未指定（0）を既定（80 / 90）で埋めるのは `appconfig` の `normalizeThresholds` であり、`Load` と `Save` が必ずここを通す。その後の値を `page.StateMsg.Disk.Thresholds` と `check.Input.DiskThresholds` が配るので、両者の手元に 0 は届かない。
+
+**ゼロ値のときの縮退は読み手ごとに違う。** doctor は `in.DiskThresholds.OrDefault()` を通すため 0 は既定へ戻り、85% は WARN になる。Disk タブの `warnExceeded` は `OrDefault` を通さず、`warn <= 0` なら偽を返して印を出さない（0 を閾値として扱うとあらゆる使用率が超過になり、警告が常に出るため）。つまり閾値が 0 のまま配られれば、同じ 85% に対して doctor は WARN を出し Disk タブは何も言わない。**この食い違いが本番で起きないのは、正規化を通らない設定が配られないからであって、ゼロ埋めが 1 か所に閉じているからではない。** `Load` を経ずに `StateMsg` や `Input` を組み立てる経路（テストなど）では、この差はそのまま出る。
 
 `..` を `Clean` の前に判定するのは、`/var/log/../../etc/passwd` のような指定が `Clean` 後には正当な絶対パスに見えてしまうためである。`-` 始まりを拒むのは、`config.sh` の引数として渡ったときにオプションと解釈されるためである。
 
@@ -438,4 +442,4 @@ defaults:
 | 1.10 | 2026-08-22 | `Started` に mtime を採る根拠から「差は表示単位（分）に出ない」という説明を削除し、差の出どころが `btime` の逆算側であることに置き換え | 経過時間の表示は 1 分未満が秒・1 時間未満が分秒であり、同じ節が記録している最大 +157 秒の差は `2m37s` として表示に出る。根拠が実際の表示形式と矛盾していた |
 | 1.11 | 2026-08-23 | `CheckResult` に `Summary`（一覧の CHECK 列）と `Impact`（詳細画面の「影響」）を追加し、1 つの `Check` が複数の `CheckResult` を返しうることを明記。`Remedy` が表示専用であることを追記 | doctor（Issue #11）を実装したため。[画面仕様](../ui/screens.md#doctor-タブ)の一覧は 1 行の要約を、詳細画面は 検出内容 / 影響 / 推奨する対処 の 3 節を要求しており、`Detail` と `Remedy` の 2 つでは足りない。**「何が起きているか」と「放置するとどうなるか」を 1 つの欄に混ぜると、対処の要否を判断できない。** 複数行を返す点も、runner ごとに判定する項目が TARGET 列に runner 名を出す以上、モデル側に書かれていないと単数で実装される |
 | 1.12 | 2026-08-23 | `Result` の警告表の `.runner` 読み取り失敗の行に、前置するのが `<dir>/.runner` ではなく runner ディレクトリであることを明記 | 表の `<dir>` がディレクトリともファイルパスとも読め、`LoadConfig` が `<dir>/.runner` を前置する実装になっていた。同じ行のスコープ判定失敗はディレクトリを前置しており、1 つの行に 2 つの形が混在していた |
-| 1.13 | 2026-08-24 | `disk_thresholds` を読むのが Disk タブの要約行と doctor のリソース診断の 2 か所であることを検証と既定値の節に明記し、`critical` が doctor の FAIL 判定で使われること・ゼロ埋めが `appconfig.DiskThresholds.OrDefault` に閉じることを追記。YAML サンプルのコメントにも読み手を添えた | doctor が設定を読まず独立の定数（80 / 90）で判定していたため、`critical` は検証されるだけで誰も読まない値だった。本書は範囲と既定値しか書いておらず、この値を変えると何が動くのかが読み取れなかった（Issue #89） |
+| 1.13 | 2026-08-24 | `disk_thresholds` を**判定に**使うのが Disk タブの要約行と doctor のリソース診断の 2 か所であることを検証と既定値の節に明記し、`critical` を判定で読むのが doctor の FAIL だけであること・設定編集の画面は両方を表示するだけであることを追記。2 つの画面が同じ値を見る根拠を読み込み時の正規化（`appconfig` の `normalizeThresholds`）に置き、閾値が 0 のときの縮退が読み手ごとに違うこと（doctor は `OrDefault` で既定へ戻し、Disk タブは印を出さない）とそれが本番で起きない理由を明記。YAML サンプルのコメントにも読み手を添えた | doctor が設定を読まず独立の定数（80 / 90）で判定していたため、`critical` は検証されるだけでどの判定にも使われない値だった。本書は範囲と既定値しか書いておらず、この値を変えると何が動くのかが読み取れなかった（Issue #89）。一方で「ゼロ埋めは `OrDefault` の 1 か所に閉じる」は事実でない——Disk タブの `warnExceeded` は `OrDefault` を通さず 0 を「印を出さない」として扱うため、0 が配られれば同じ使用率に 2 つの画面が違うことを言う。保証の出どころを正規化に言い直さないと、後続 Issue が `Load` を経ない経路でも一致すると読んで組み立ててしまう |
