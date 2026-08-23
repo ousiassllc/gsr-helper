@@ -24,20 +24,22 @@ func (m Model) openLogs() tea.Cmd {
 	return showLog(cur.runner)
 }
 
-// handleResult は詳細画面が返した決定を処理する。
+// handleResult は詳細画面・確認ダイアログ・待機画面が返した決定を処理する。
 //
-// この版で実行できるのは `l`（ログを開く）だけである。残る操作は
-// action.Def.Supported が偽なので ChoiceList が決定を発行しない。操作を実装する
-// Issue はここに分岐を足す。
+// ログを開く決定だけをここで処理し、残りはサービス制御（runnerop）へ渡す。ログは
+// 他のタブへ移る操作で、実行も確認も伴わないためこのタブの関心事である。
 func (m Model) handleResult(msg page.ResultMsg) (tea.Model, tea.Cmd) {
-	chosen, ok := msg.Msg.(runnerdetail.ChosenMsg)
-	if !ok || chosen.Action != action.Logs {
-		return m, m.chrome()
+	if chosen, ok := msg.Msg.(runnerdetail.ChosenMsg); ok && chosen.Action == action.Logs {
+		// 詳細画面は閉じる。Logs タブへ移ったあとも開いたままだと、戻ってきたときに
+		// 別の runner の詳細が残る。
+		m.overlay.Close()
+		return m, tea.Batch(m.chrome(), showLog(chosen.Runner))
 	}
-	// 詳細画面は閉じる。Logs タブへ移ったあとも開いたままだと、戻ってきたときに
-	// 別の runner の詳細が残る。
-	m.overlay.Close()
-	return m, tea.Batch(m.chrome(), showLog(chosen.Runner))
+	// ops の呼び出しを return より前に出すのは、同じ tea.Batch に並べると chrome が
+	// ops の変更前の状態を読み、キャンセルで閉じたダイアログが Modal=true のまま
+	// 残るためである（runners.go の handleOps と同じ規約）。
+	c := m.ops.Result(msg)
+	return m, tea.Batch(m.chrome(), c)
 }
 
 // showLog は Logs タブへ移り、直近ジョブの Worker ログを開くよう親へ求める Cmd を返す。

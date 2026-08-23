@@ -81,9 +81,10 @@ func Of(id string) (ID, bool) {
 
 // Def は詳細画面の操作リスト 1 項目の定義。
 //
-// Supported は「この版で実装済みか」を表す。操作の実装は後続の Issue が担うため、
-// 現時点ではすべて false である。Def の定義にこのフィールドを置くことで、
-// 後続 Issue は meta の 1 箇所を true にするだけで操作を有効化でき、
+// Supported は「この版で実装済みか」を表す。真なのはサービス制御の 6 つ
+// （開始・停止・強制停止・ドレイン停止・再起動・enable の切替）で、追加・削除・更新・
+// 設定編集・ログは後続の Issue が担うため偽である。Def の定義にこのフィールドを
+// 置くことで、後続 Issue は meta の 1 箇所を真にするだけで操作を有効化でき、
 // 可否の判定（Allow）とフッタ・操作リストの描画には手を入れずに済む。
 type Def struct {
 	ID          ID // どの操作か（判定はキーではなくこれで引く）
@@ -107,22 +108,54 @@ func newDef(id ID, k, desc string) Def {
 	}
 }
 
+// 影響の文言。screens.md の**詳細画面（`enter`）のモック**の括弧内（`x` / `X` /
+// `R` / `D` の行）と一致させる。
+//
+// 出どころをモックに採るのは、モックだけが表示文字列そのものを書いているためである。
+// 同じ節の「Runners タブの操作」の表にも影響の列があるが、そこは「安全」「—」
+// 「ドレイン停止を伴う」「反映方法を選択」まで含む**記述的な要約**で、`X` の
+// `⚠ 実行中ジョブを中断` のようにモックとも実装とも字面が違う。要約を典拠にすると、
+// 表の言い回しを整えただけで実装が食い違ったと読めてしまう。
+//
+// **停止・再起動に ⚠ を付けないのは、モックが強さを書き分けているためである。**
+// `X`（強制停止）と `D`（削除）は ⚠ 付きで「中断」「登録解除」と断定するが、
+// `x`（停止）と `R`（再起動）は記号を付けずに「影響する可能性」と書く。詳細画面の
+// 操作リストでも同じ差が出て、⚠ の行だけが確実に起こる被害だと読める。
+const (
+	impactAffectsJob = "実行中ジョブに影響する可能性"
+	impactKill       = token.IconWarn + " 実行中のジョブは中断されます"
+	impactDelete     = token.IconWarn + " 登録解除 + サービス削除"
+)
+
 // meta は操作ごとの影響・破壊性・実装状況を返す。
 //
-// 影響の文言は screens.md の詳細画面のモックに従う。破壊的な操作（区切り線の下に
-// 置くもの）は停止・強制停止・削除の 3 つである。
+// 影響の文言は screens.md の詳細画面のモックに従う（上記 impactAffectsJob ほか）。
+// 影響を持つのは停止・強制停止・再起動・削除の 4 つである。
 //
-// Supported が真なのは Logs（ログを開く）だけである。残る操作の実装は後続の Issue
-// （サービス制御・追加削除更新・設定編集）が担うため、この版では「押せるが何も
+// **再起動は破壊的でない（区切り線の上に置く）が影響の文言を持つ。** Destructive は
+// 詳細画面の操作リストで区切り線の下に置くかどうかだけを決める値であり、確認
+// ダイアログを経るかどうかとは別である。停止・強制停止・再起動の 3 つは
+// functional.md の確認フロー図が必須段とする「対象と影響の提示」を経るため
+// （Issue #5）、影響が空だと dialog.Confirm の「空のブロックは見出しごと落とす」
+// 規則で影響のブロックがまるごと消える。破壊性ではなく確認を経るかどうかで
+// 文言の有無が決まる。
+//
+// Supported が真なのはサービス制御の 6 つ（internal/svc が実装した開始・停止・強制
+// 停止・ドレイン停止・再起動・enable の切替）と、Logs タブが実装したログを開く操作である。
+// 追加・削除・更新・設定編集は後続の Issue が担うため偽のままで、「押せるが何も
 // 起きない」経路を作らない。
 func meta(id ID) (impact string, destructive, supported bool) {
 	switch id {
+	case Start, Drain, Enable:
+		return "", false, true
+	case Restart:
+		return impactAffectsJob, false, true
 	case Stop:
-		return "", true, false
+		return impactAffectsJob, true, true
 	case Kill:
-		return token.IconWarn + " 実行中のジョブは中断されます", true, false
+		return impactKill, true, true
 	case Delete:
-		return token.IconWarn + " 登録解除 + サービス削除", true, false
+		return impactDelete, true, false
 	case Logs:
 		return "", false, true
 	default:

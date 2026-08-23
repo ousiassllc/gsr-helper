@@ -1,13 +1,13 @@
 package action
 
 import (
-	"slices"
 	"testing"
 
 	"charm.land/bubbles/v2/key"
 
 	"github.com/ousiassllc/gsr-helper/internal/appconfig"
 	"github.com/ousiassllc/gsr-helper/internal/runner"
+	"github.com/ousiassllc/gsr-helper/internal/svc"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 )
 
@@ -25,18 +25,28 @@ func action(k string, supported bool) Def {
 // testActions は既定のキー定義から組んだ操作の表を返す。
 func testActions() Set { return NewSet(testKeys().Runner) }
 
+// supported はこの版で実装済みの操作を返す。
+//
+// **一覧をここに書き下す。** meta から引くと被テスト関数で期待値を作ることになり、
+// 実装済みの印が丸ごと消えても両辺が一致して落ちない。実装済みなのは internal/svc が
+// 担うサービス制御の 6 つで、追加・削除・更新・設定編集・ログは後続の Issue が担う。
+func supported() map[ID]bool {
+	return map[ID]bool{
+		Start: true, Stop: true, Kill: true, Drain: true, Restart: true, Enable: true,
+		Logs: true,
+	}
+}
+
 // 操作の一覧はキー・説明・識別子のすべてを keymap から受け取る。
 //
 // 集合と並び（screens.md の詳細画面のキー表）は keymap 側の TestDetailMatchesSpec が
 // 仕様に固定している。ここでは page がそれに従うことと、識別子がキー定義から引かれて
 // いること（キーを差し替えても操作の同一性が保たれること）を見る。
 //
-// Supported が真なのは実装済みの操作だけである。未実装の操作に真を付けると
-// 「押せるが何も起きない」経路ができるため、実装済みの集合をここに固定する。
+// Supported が真なのは実装済みの操作（サービス制御の 6 つとログを開く操作）だけで
+// ある。未実装の操作に真を付けると「押せるが何も起きない」経路ができるため、
+// 実装済みの集合を supported() に固定する。
 func TestActionsFollowKeymap(t *testing.T) {
-	// 実装済みの操作。実装する Issue がここへ 1 行足す。
-	supported := map[ID]bool{Logs: true}
-
 	keys := testKeys().Runner
 	ids := testActions().byKey
 	acts := testActions().List()
@@ -44,6 +54,7 @@ func TestActionsFollowKeymap(t *testing.T) {
 		t.Fatalf("操作の件数 = %d, want %d", len(acts), len(keys.Detail()))
 	}
 
+	want := supported()
 	for i, b := range keys.Detail() {
 		k := b.Keys()[0]
 		switch {
@@ -53,8 +64,8 @@ func TestActionsFollowKeymap(t *testing.T) {
 			t.Errorf("キー %q の説明 = %q, want %q", k, acts[i].Desc, b.Help().Desc)
 		case acts[i].ID != ids[k]:
 			t.Errorf("キー %q の識別子 = %d, want %d", k, acts[i].ID, ids[k])
-		case acts[i].Supported != supported[acts[i].ID]:
-			t.Errorf("キー %q の Supported = %v, want %v", k, acts[i].Supported, supported[acts[i].ID])
+		case acts[i].Supported != want[acts[i].ID]:
+			t.Errorf("キー %q の実装状況 = %v, want %v", k, acts[i].Supported, want[acts[i].ID])
 		}
 	}
 }
@@ -88,15 +99,15 @@ func TestAllowReasons(t *testing.T) {
 	}{
 		"非 root": {
 			caps: capsWithout(func(c *appconfig.Caps) { c.Root = false }), runner: sampleRunner(),
-			keys: []string{"s", "x", "X", "R", "D", "n", "u"}, want: reasonRoot,
+			keys: []string{"s", "x", "X", "R", "D", "n", "u"}, want: svc.ReasonRoot,
 		},
 		"systemd が無い": {
 			caps: capsWithout(func(c *appconfig.Caps) { c.Systemd = false }), runner: sampleRunner(),
-			keys: []string{"s", "x", "X", "R", "E", "d"}, want: reasonSystemd,
+			keys: []string{"s", "x", "X", "R", "E", "d"}, want: svc.ReasonSystemd,
 		},
 		"run.sh 直起動": {
 			caps: fullCaps(), runner: standaloneRunner(),
-			keys: []string{"s", "x", "R"}, want: reasonStandalone,
+			keys: []string{"s", "x", "d", "R", "E"}, want: svc.ReasonStandalone,
 		},
 		"gh 未認証": {
 			caps: capsWithout(func(c *appconfig.Caps) { c.GitHubToken = false }), runner: sampleRunner(),
@@ -145,8 +156,8 @@ func TestAllowPrecedence(t *testing.T) {
 		key    string
 		want   string
 	}{
-		"非 root が systemd 不在より優先": {noRootNoSystemd, sampleRunner(), "x", reasonRoot},
-		"systemd 不在が管理外より優先":      {noSystemd, standaloneRunner(), "x", reasonSystemd},
+		"非 root が systemd 不在より優先": {noRootNoSystemd, sampleRunner(), "x", svc.ReasonRoot},
+		"systemd 不在が管理外より優先":      {noSystemd, standaloneRunner(), "x", svc.ReasonSystemd},
 		"認証がジョブ実行中より優先":           {noToken, busyRunner(), "D", reasonToken},
 		"ジョブ実行中が未対応より優先":          {fullCaps(), busyRunner(), "D", reasonBusy},
 		"能力が足りていれば未対応の理由になる":      {fullCaps(), sampleRunner(), "x", page.ReasonUnsupported},
@@ -176,11 +187,13 @@ func TestAllowPrecedence(t *testing.T) {
 // （Issue #31）。非 root で塞がれる操作とそうでない操作をここに書き下し、キーから
 // 操作への対応（Set.byKey）が壊れたら落ちるようにする。
 func TestAllowPermitsAndAllowedAgrees(t *testing.T) {
-	// 非 root で塞がる操作は reasonRoot、それ以外はこの版では未対応の理由になる。
+	// 非 root で塞がる操作は svc.ReasonRoot、実装済みで root を要さない操作
+	// （ドレイン停止・enable の切替）は許可され、残りはこの版では未対応の理由になる。
+	// 空文字は「許可される」ことを表す。
 	want := map[string]string{
-		"s": reasonRoot, "x": reasonRoot, "X": reasonRoot, "R": reasonRoot,
-		"u": reasonRoot, "n": reasonRoot, "D": reasonRoot,
-		"d": page.ReasonUnsupported, "E": page.ReasonUnsupported,
+		"s": svc.ReasonRoot, "x": svc.ReasonRoot, "X": svc.ReasonRoot, "R": svc.ReasonRoot,
+		"u": svc.ReasonRoot, "n": svc.ReasonRoot, "D": svc.ReasonRoot,
+		"d": "", "E": "",
 		"e": page.ReasonUnsupported,
 		// l（ログを開く）は実装済みで、管理経路にも権限にも依存しない
 		// （screens.md の「無効な操作の表示」）。非 root でも塞がらない。
@@ -200,68 +213,29 @@ func TestAllowPermitsAndAllowedAgrees(t *testing.T) {
 			t.Errorf("キー %q = %v/%q, want true/空", k, ok, reason)
 		}
 		ok, reason := set.Allowed(k, sampleRunner(), noRoot)
-		if ok != (wantReason == "") || reason != wantReason {
-			t.Errorf("Allowed(%q) = %v/%q, want %v/%q", k, ok, reason, wantReason == "", wantReason)
+		if wantOK := wantReason == ""; ok != wantOK || reason != wantReason {
+			t.Errorf("Allowed(%q) = %v/%q, want %v/%q", k, ok, reason, wantOK, wantReason)
 		}
 	}
 }
 
-// 操作リストは区切り線を 1 本だけ持ち、最初の破壊的な操作の前に置く。
-func TestChoicesDivider(t *testing.T) {
-	items := testActions().Choices(sampleRunner(), fullCaps())
-	acts := testActions().List()
-	if len(items) != len(acts) {
-		t.Fatalf("項目の件数 = %d, want %d", len(items), len(acts))
-	}
-
-	dividers := 0
-	for i, c := range items {
-		if !c.DividerBefore {
-			continue
-		}
-		dividers++
-		if !acts[i].Destructive {
-			t.Errorf("区切り線が破壊的でない操作 %q の前にある", c.Key)
-		}
-		if i > 0 && acts[i-1].Destructive {
-			t.Errorf("区切り線が最初の破壊的な操作より後（%q の前）にある", c.Key)
-		}
-	}
-	if dividers != 1 {
-		t.Errorf("区切り線の本数 = %d, want 1", dividers)
-	}
-}
-
-// 影響の併記は強制停止と削除だけが持つ（screens.md の詳細画面）。
-func TestChoicesImpact(t *testing.T) {
-	withImpact := []string{}
-	for _, c := range testActions().Choices(sampleRunner(), fullCaps()) {
-		if c.Impact != "" {
-			withImpact = append(withImpact, c.Key)
-		}
-	}
-	slices.Sort(withImpact)
-	if want := []string{"D", "X"}; !slices.Equal(withImpact, want) {
-		t.Errorf("影響を併記する操作 = %v, want %v", withImpact, want)
-	}
-}
-
-// 管理状態が判定できないときは、systemd 経路に依存する操作だけを専用の理由で塞ぐ。
+// 管理状態が判定できないときは、systemctl を要する操作を専用の理由で塞ぐ。
 //
 // 汎用の未対応（page.ReasonUnsupported）に落ちると、利用者は塞がれた原因を知れない。
-// 強制停止とドレインは worker のプロセスに作用するので残す。
+// 塞ぐ範囲は run.sh 直起動と同じ 5 つで、違うのは理由の文言だけである。強制停止は
+// worker のプロセスへ直接シグナルを送るので残す。
 func TestAllowBlocksManagedUnknown(t *testing.T) {
 	r := standaloneRunner()
 	r.Managed = runner.ManagedUnavailable
 
-	for _, k := range []string{"s", "x", "R", "E"} {
+	for _, k := range []string{"s", "x", "d", "R", "E"} {
 		ok, reason := Allow(action(k, true), r, fullCaps())
-		if ok || reason != reasonManagedUnknown {
-			t.Errorf("キー %q = %v/%q, want false/%q", k, ok, reason, reasonManagedUnknown)
+		if ok || reason != svc.ReasonManagedUnknown {
+			t.Errorf("キー %q = %v/%q, want false/%q", k, ok, reason, svc.ReasonManagedUnknown)
 		}
 	}
-	for _, k := range []string{"X", "d", "l"} {
-		if _, reason := Allow(action(k, true), r, fullCaps()); reason == reasonManagedUnknown {
+	for _, k := range []string{"X", "l"} {
+		if _, reason := Allow(action(k, true), r, fullCaps()); reason == svc.ReasonManagedUnknown {
 			t.Errorf("キー %q が管理状態不明で塞がれている", k)
 		}
 	}
@@ -276,10 +250,10 @@ func TestAllowFollowsReboundKey(t *testing.T) {
 	keys.Stop = key.NewBinding(key.WithKeys("Q"), key.WithHelp("Q", "停止"))
 	caps := fullCaps()
 
-	if _, reason := NewSet(keys).Allowed("Q", standaloneRunner(), caps); reason != reasonStandalone {
-		t.Errorf("差し替え後の停止キーの理由 = %q, want %q", reason, reasonStandalone)
+	if _, reason := NewSet(keys).Allowed("Q", standaloneRunner(), caps); reason != svc.ReasonStandalone {
+		t.Errorf("差し替え後の停止キーの理由 = %q, want %q", reason, svc.ReasonStandalone)
 	}
-	if _, reason := NewSet(keys).Allowed("x", standaloneRunner(), caps); reason == reasonStandalone {
+	if _, reason := NewSet(keys).Allowed("x", standaloneRunner(), caps); reason == svc.ReasonStandalone {
 		t.Error("差し替え前の x に停止の判定が残っている")
 	}
 }

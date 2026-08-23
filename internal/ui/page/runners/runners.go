@@ -8,7 +8,6 @@ package runners
 import (
 	"strconv"
 
-	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/ousiassllc/gsr-helper/internal/ui/atom"
@@ -16,6 +15,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/action"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/runnerdetail"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/runnerop"
 )
 
 const (
@@ -34,6 +34,11 @@ type Model struct {
 	// actions はキー定義から 1 度だけ組んだ操作の表。描画のたびに組み直さない
 	// （action.Set の doc）。
 	actions action.Set
+	// ops は runner のサービス制御の制御部。確認・実行・結果の報告を持つ。
+	//
+	// Jobs タブと同じものを持つ（page/runnerop）。起点が違っても確認と実行の
+	// 経路を 1 つに保つためである（screens.md の設計原則 6）。
+	ops runnerop.Model
 	// initCmd はモーダルを登録したときに返った Cmd。最初の共有状態で流し、nil に落とす。
 	initCmd tea.Cmd
 }
@@ -52,13 +57,17 @@ func New(tab int, st page.StateMsg) Model {
 	// （page.Overlay.Register の doc）。
 	overlay, help := page.NewOverlay(tab, st)
 	detail := overlay.Register(runnerdetail.Kind, runnerdetail.New(st))
-	cmd := tea.Batch(help, detail)
+	// 確認ダイアログと待機画面の登録は runnerop が行う（種類の綴りをタブ側が
+	// 知らずに済む）。ここでもその Cmd を畳み込む。
+	ops, opsCmd := runnerop.New(tab, overlay, st)
+	cmd := tea.Batch(help, detail, opsCmd)
 	return Model{
 		tab:     tab,
 		st:      st,
 		tbl:     newTable(st.Keys, st.Styles),
 		overlay: overlay,
 		actions: action.NewSet(st.Keys.Runner),
+		ops:     ops,
 		initCmd: cmd,
 	}
 }
@@ -92,10 +101,38 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// である。** 決定を解釈するのは Overlay ではなく page だという分担を、この
 		// case が page 側から明示する（Go の型スイッチの default は記述位置に
 		// 関わらず最後に評価されるため、並びは関係しない）。
+		//
+		// ログを開く決定だけは Logs タブへの移動なので handleResult が拾い、残りは
+		// runnerop が解釈する（詳細画面・確認ダイアログ・待機画面のいずれの決定も）。
+		// Jobs タブと同じ経路にすることで、起点によって確認の強さが変わらない。
 		return m.handleResult(msg)
+	case runnerop.Msg:
+		return m.handleOps(msg)
 	default:
 		return m.forward(msg)
 	}
+}
+
+// handleOps は runner 操作の制御部が自分宛に発行した Msg を処理する。
+//
+// **タブが自分の case で受ける。** 包まれていない Msg は forward で Overlay へ渡り
+// （page.Overlay.Handles はモーダルを開いている間の既定で真を返す）、待機画面に
+// 吸われて制御部へ届かない。ドレイン停止は待機画面を開いたまま結果を待つので、
+// 受け損ねると待機が永久に終わらない。
+func (m Model) handleOps(msg runnerop.Msg) (tea.Model, tea.Cmd) {
+	if _, done := msg.Payload.(runnerop.DoneMsg); done {
+		// 実行し終えた対象の選択は解く。残したままだと、同じ集合へ二度目の
+		// 一括操作を打ててしまう（メンテナンス前の全停止の直後に別のキーを
+		// 打つ経路で起きる）。選び直させるほうが安全側である。
+		m.tbl.ClearSelection()
+	}
+	// ops の呼び出しは return より前に出す（case page.ResultMsg と同じ理由）。
+	// **同じ return 文に置いてはならない。** 並べると chrome が m.ops.Update より
+	// 先に評価され、DoneMsg の結果文字列（m.ops.Status()）が ChromeMsg に載らない。
+	// 直前に選択を解いているので「選択: N 件」も消えており、状態行は次の共有状態
+	// （既定 3 秒後）まで丸ごと空白になる。一括操作の成否を読む手がかりが消える。
+	c := m.ops.Update(msg)
+	return m, tea.Batch(m.chrome(), c)
 }
 
 // View はモーダルが開いていればそれを、無ければ一覧を返す。
@@ -125,6 +162,7 @@ func (m Model) setState(st page.StateMsg) (tea.Model, tea.Cmd) {
 	m.tbl.SetSize(st.BodyW, st.BodyH)
 	m.tbl.SetItems(sectionRunners, runnerRows(st.Result.Runners))
 	m.tbl.SetItems(sectionOrphans, orphanRows(st.Result.OrphanUnits))
+	m.ops.SetState(st, m.actions)
 	// 登録の Cmd は return より前に取り出す。**同じ return 文に置いてはならない。**
 	// 返り値の m（非関数オペランド）の読み取りと m.flushInit() による m.initCmd の
 	// 破棄は、Go 仕様では評価順が未規定であり、「2 度目からは nil」という flushInit の
@@ -163,61 +201,6 @@ func (m Model) forward(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(m.chrome(), cmd)
 }
 
-// handleKey はキー入力を解釈する。
-//
-// 入力中とモーダル表示中は**親へ差し戻さない**。グローバルキーを閉じ込められるのは
-// この判定を持つ page だけであり（page.GlobalKeyMsg の doc）、ここで差し戻すと
-// 確認中に打った q でアプリが終わる。
-func (m Model) handleKey(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	var cmd tea.Cmd
-	switch {
-	case m.tbl.Filtering(), m.overlay.Active():
-		return m.forward(press)
-	case key.Matches(press, m.st.Keys.Global.Help):
-		cmd = m.overlay.OpenHelp()
-	case key.Matches(press, m.st.Keys.List.Enter):
-		cmd = m.openDetail()
-	case key.Matches(press, m.st.Keys.Runner.Logs):
-		cmd = m.openLogs()
-	case key.Matches(press, m.st.Keys.Global.Back):
-		m.back()
-	default:
-		// 自分が解釈しないキーは一覧へ渡し、同時に親へ差し戻す。タブ切替・再読み込み・
-		// 終了を解釈するのは親であり、一覧のキーと衝突しないことは keymap の
-		// 重複検査（keymap.Set.Contexts の「一覧画面（通常モード）」）が担保する。
-		// **この経路が二重解釈の起きる場所である。** 自前のキー集合を Set に足す
-		// タブは、そのキーが同時に有効になるコンテキストを Contexts へ登録すること
-		// （登録漏れは TestContextsCoverEverySetField が落とす）。
-		next, c := m.forward(press)
-		return next, tea.Batch(c, page.BubbleKey(press))
-	}
-	return m, tea.Batch(m.chrome(), cmd)
-}
-
-// openDetail はカーソル位置の runner の詳細画面を開く。
-//
-// 孤児ユニットの行では開かない。孤児ユニットには対応する runner ディレクトリが
-// 無く、詳細画面の項目（スコープ・バージョン・ディレクトリ）を埋められないためである。
-func (m *Model) openDetail() tea.Cmd {
-	cur, ok := m.tbl.Selected()
-	if !ok || cur.isOrphan {
-		return nil
-	}
-	return runnerdetail.Open(&m.overlay, cur.runner, m.st.Caps)
-}
-
-// back は esc の「選択のクリア / 1 つ前の状態へ戻る」を処理する。
-//
-// 選択を先に解くのは、選択したまま絞り込みを解除すると画面外の対象が選択されたまま
-// 残るためである（screens.md のグローバルキー）。
-func (m *Model) back() {
-	if len(m.tbl.Checked()) > 0 {
-		m.tbl.ClearSelection()
-		return
-	}
-	m.tbl.ClearFilter()
-}
-
 // chrome は親へ本体以外の状態を知らせる Cmd を返す。
 func (m Model) chrome() tea.Cmd {
 	c := page.ChromeMsg{
@@ -241,8 +224,18 @@ func (m Model) input() string {
 // status は状態行に出す page 側の文を返す。
 //
 // 孤児ユニット件数と警告件数は親が出す（検出結果を持っているのは親であり、
-// タブが変わっても同じ件数を出すため）。ここでは page しか知らない選択件数と
-// 入力中を返す。
+// タブが変わっても同じ件数を出すため）。ここでは page しか知らない入力中・
+// 選択件数・直近の操作の結果を返す。
+//
+// **優先順は 入力中 → 選択件数 → 操作の結果 である。**
+//
+//   - 入力中はグローバルキーが効かない状態そのものなので最優先で示す。示さないと
+//     画面が無反応になったように見える（screens.md の入力中）。
+//   - 選択件数を結果より先に出すのは、実行を終えた時点で選択を解く（handleOps）ため、
+//     両方が同時に非空になるのは「結果を見た後に次の対象を選び始めた」場面に限られる
+//     からである。そこで必要なのは、済んだ操作の報告ではなく今から何台に効くかである。
+//   - 結果は次の操作か esc（back）まで残す。3 秒ごとの再検出で消えると、一括操作の
+//     失敗した runner 名を読み終える前に流れる。
 func (m Model) status() string {
 	if in := m.input(); in != "" {
 		return "入力中: " + in
@@ -250,7 +243,7 @@ func (m Model) status() string {
 	if n := len(m.tbl.Checked()); n > 0 {
 		return "選択: " + strconv.Itoa(n) + " 件"
 	}
-	return ""
+	return m.ops.Status()
 }
 
 // footer はフッタのキーヒントを返す。

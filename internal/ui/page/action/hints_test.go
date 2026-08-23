@@ -36,12 +36,24 @@ func TestHintsMatchSpecFooter(t *testing.T) {
 //
 // 件数を先に固定する。長さを見ずに回すと、Hints が空を返した日に「1 件も違反が
 // 無かった」として通ってしまう（Issue #31）。
+//
+// 能力がすべて揃った systemd 管理の runner では、実装済みのサービス制御だけが有効に
+// なり、残りは未対応の理由を持つ。有効なら理由は空、無効なら理由が要る（理由の無い
+// グレーアウトは、利用者に打ち直しても無駄だと伝えられない）。
 func TestHintsCarryReasons(t *testing.T) {
 	// **期待値を被テスト関数の入力から作らない。** Hints は keys.Footer() を 1 件ずつ
 	// 並べる実装なので、len(keys.Footer()) と比べると Footer が空になった日に両辺 0 で
 	// 素通りし、下のループが 0 回で緑になる（塞いだつもりの穴がそのまま残る）。
 	// screens.md のフッタが定める件数をリテラルで置く（TestHintsMatchSpecFooter と同じ）。
 	const want = 9
+
+	// フッタの 9 キーのうち実装済みは、サービス制御の開始・停止・強制停止・
+	// ドレイン停止の 4 つと、Logs タブが実装したログを開く操作である。
+	// 削除・追加・更新・設定はこの版では未対応である。
+	enabled := map[string]bool{
+		"s": true, "x": true, "X": true, "d": true,
+		page.BindingKey(testKeys().Runner.Logs): true,
+	}
 
 	hints := testActions().Hints(sampleRunner(), fullCaps(), testKeys().Runner)
 	if len(hints) != want {
@@ -50,13 +62,12 @@ func TestHintsCarryReasons(t *testing.T) {
 
 	// 実装済みの操作は有効で理由を持たず、未実装の操作は無効で理由を持つ。
 	// どちらか一方だけを見ると、全件が無効／全件が有効になった日に気づけない。
-	enabled := map[string]bool{page.BindingKey(testKeys().Runner.Logs): true}
 	for _, h := range hints {
 		if h.Enabled != enabled[h.Key] {
 			t.Errorf("キー %q の可否 = %v, want %v", h.Key, h.Enabled, enabled[h.Key])
 		}
-		if (h.Reason == "") != h.Enabled {
-			t.Errorf("キー %q の可否 = %v なのに理由 = %q", h.Key, h.Enabled, h.Reason)
+		if h.Enabled == (h.Reason != "") {
+			t.Errorf("キー %q = %v/%q, 可否と理由の有無が食い違う", h.Key, h.Enabled, h.Reason)
 		}
 	}
 }

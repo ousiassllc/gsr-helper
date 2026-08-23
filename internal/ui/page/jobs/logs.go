@@ -27,12 +27,17 @@ func (m Model) openLogs() tea.Cmd {
 
 // handleResult は詳細画面が返した決定を処理する（runners.handleResult と同じ理由）。
 func (m Model) handleResult(msg page.ResultMsg) (tea.Model, tea.Cmd) {
-	chosen, ok := msg.Msg.(runnerdetail.ChosenMsg)
-	if !ok || chosen.Action != action.Logs {
-		return m, m.chrome()
+	if chosen, ok := msg.Msg.(runnerdetail.ChosenMsg); ok && chosen.Action == action.Logs {
+		m.overlay.Close()
+		return m, tea.Batch(m.chrome(), showLog(chosen.Runner))
 	}
-	m.overlay.Close()
-	return m, tea.Batch(m.chrome(), showLog(chosen.Runner))
+	// ログ以外の決定はサービス制御が解釈する。確認ダイアログと待機画面の決定も
+	// ここを通るため、握り潰すと y を押しても何も実行されない。
+	//
+	// ops の呼び出しを return より前に出すのは jobs.go の runnerop.Msg と同じ理由
+	// （chrome が ops の変更前の状態を読まないようにするため）。
+	c := m.ops.Result(msg)
+	return m, tea.Batch(m.chrome(), c)
 }
 
 // showLog は Logs タブへ移り、直近ジョブの Worker ログを開くよう親へ求める Cmd を返す。
