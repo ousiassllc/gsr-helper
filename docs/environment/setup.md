@@ -98,6 +98,7 @@ lint / test / build のコマンド列を Makefile に集約し、**CI と手元
 | `make linterly` | 行数チェック |
 | `make test` | `go test -race ./...`（競合検出あり） |
 | `make build` | `go build ./...` で全パッケージのコンパイルを検証し、`cmd/gsr-helper` が存在する場合はさらに単一バイナリ `gsr-helper` を生成する |
+| `make run` | `build` を実行してから生成したバイナリを起動する。引数は `ARGS` で渡す（`make run ARGS="--root /path/to/actions-runner"`） |
 | `make hooks` | Lefthook を Git Hooks に登録 |
 | `make check` | `fmt-check` → `vet` → `lint` → `linterly` → `test` を順に実行 |
 
@@ -108,6 +109,9 @@ GO   ?= go
 BIN  := gsr-helper
 CMD  := ./cmd/gsr-helper
 
+# run に渡す引数。make run ARGS="--root /path/to/actions-runner" のように使う。
+ARGS ?=
+
 # go fmt が内部で使う gofmt（GOROOT/bin/gofmt）を fmt-check でも使い、整形と検査で
 # ツールチェーンがずれないようにする。
 GOFMT ?= $(shell $(GO) env GOROOT)/bin/gofmt
@@ -117,7 +121,7 @@ GOFMT ?= $(shell $(GO) env GOROOT)/bin/gofmt
 # ファイルを含み、testdata/ と入れ子 worktree は含まない）になる。
 GOFILES_TMPL := {{range .GoFiles}}{{printf "%s/%s\n" $$.Dir .}}{{end}}{{range .CgoFiles}}{{printf "%s/%s\n" $$.Dir .}}{{end}}{{range .TestGoFiles}}{{printf "%s/%s\n" $$.Dir .}}{{end}}{{range .XTestGoFiles}}{{printf "%s/%s\n" $$.Dir .}}{{end}}{{range .IgnoredGoFiles}}{{printf "%s/%s\n" $$.Dir .}}{{end}}
 
-.PHONY: help tools fmt fmt-check vet lint linterly test build hooks check
+.PHONY: help tools fmt fmt-check vet lint linterly test build run hooks check
 
 help: ## ターゲット一覧を表示する
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -158,6 +162,9 @@ build: ## 全パッケージをコンパイル検証し、エントリポイン�
 		$(GO) build -o $(BIN) $(CMD); \
 	fi
 
+run: build ## TUI を起動する（make run ARGS="--root /path/to/actions-runner"）
+	./$(BIN) $(ARGS)
+
 hooks: ## Git Hooks を登録する
 	$(GO) tool lefthook install
 
@@ -189,7 +196,7 @@ check: fmt-check vet lint linterly test ## すべてのチェックを実行す�
 | ランナー | self-hosted（`runs-on: [self-hosted, linux, x64]`） |
 | トリガー | `main` への push、および PR |
 | ジョブ | fork ガードの `guard`（GitHub ホストランナー）と、それに依存する `lint` / `test` / `build` の 3 本を並列実行 |
-| 設定の不変条件 | `internal/buildconfig` のテストが `ci.yml` / `Makefile` / `lefthook.yml` / lint 設定の不変条件を検証する。`test` ジョブで実行されるため、CI で機械的に守られる |
+| 設定の不変条件 | `internal/buildconfig` のテストが `ci.yml` / `Makefile` / `lefthook.yml` / lint 設定に加え、`docs/` 配下のドキュメントの不変条件を検証する。`test` ジョブで実行されるため、CI で機械的に守られる |
 | デプロイ | なし（配布は `go install`。[非機能要件 / 可搬性](../requirements/non-functional.md#可搬性)） |
 
 `lint` / `test` / `build` を並列にするのは、lint が落ちてもテスト結果が同時に得られるようにするためである。この 3 つの間に依存はなく、いずれも fork ガードの `guard` ジョブだけに依存する（[fork からの PR で self-hosted ジョブを起動しない](#fork-からの-pr-で-self-hosted-ジョブを起動しない)）。
@@ -333,7 +340,9 @@ updates:
 
 `.github/workflows/ci.yml` / `Makefile` / `lefthook.yml` / `.golangci.yml` / `.linterly.yml` は、取り決めを破ってもコンパイルエラーにならず、通常のテストでも検知できない。とくに **self-hosted runner を使うジョブを 1 本追加した人が `needs: guard` を書き忘れると、fork ガードを迂回する退行が静かに入る**。`actionlint` はカスタムルールを持てないため、この種の不変条件は検出できない。
 
-そこで `internal/buildconfig` に設定ファイルの回帰テストを置く。実行時のコードを持たないテスト専用のパッケージで、一時ディレクトリに最小のモジュールを作って `make` を実際に走らせるものと、設定ファイルを読んで内容を検証するものからなる。**`make test` の一部として CI（`test` ジョブ）と pre-push フックの双方で実行される**ため、CI 専用の step を足すより検知が早い。
+同じことが `docs/` 配下のドキュメントにも当てはまる。仕様書のコードブロックが設定ファイルの実体から乖離しても、改訂履歴の版番号が重複・逆順になっても、コンパイルエラーにも通常のテストの失敗にもならない。
+
+そこで `internal/buildconfig` に**設定ファイルとドキュメントの不変条件を守る回帰テスト**を置く。実行時のコードを持たないテスト専用のパッケージで、一時ディレクトリに最小のモジュールを作って `make` を実際に走らせるもの、設定ファイルを読んで内容を検証するもの、`docs/` 配下の Markdown を読んで内容を検証するものからなる。**`make test` の一部として CI（`test` ジョブ）と pre-push フックの双方で実行される**ため、CI 専用の step を足すより検知が早い。
 
 | 守っている不変条件 | 破ったときに落ちるテスト |
 |---|---|
@@ -344,8 +353,9 @@ updates:
 | `make fmt-check` が入れ子 worktree と `testdata/` を対象にしない | `TestFmtCheckSkipsNestedWorktree` / `TestFmtCheckSkipsTestdata` |
 | `make test` が競合を検出する | `TestMakeTestDetectsDataRace` |
 | 仕様書のコードブロックが設定ファイルの実体と一致する | `TestSetupDocEmbedsConfigFilesVerbatim` |
+| ドキュメントの改訂履歴の版番号が重複せず昇順である | `TestDocRevisionHistoryVersionsUniqueAndAscending` |
 
-この表は網羅ではない。設定に新しい取り決めを入れたときは、同じ場所にテストを足す。
+この表は網羅ではない。設定やドキュメントに新しい取り決めを入れたときは、同じ場所にテストを足す。
 
 ### self-hosted runner を使う前提
 
@@ -696,7 +706,6 @@ pre-push:
 | 1.4 | 2026-08-21 | 「Git Hooks」節に既知の制約（pre-commit の `lint` / `linterly` は作業ツリー全体を見る）と `make hooks` の注意（共有 `.git/hooks` への書き込み、`lefthook.yml` の自動生成、既存フックの `*.old` 退避、`prepare-commit-msg` の生成）を追記し、`parallel: false` の説明を「実行順は `commands` のキー名の辞書順で決まる」旨に修正。`.gitignore` に `lefthook-local.yml` と `.claude/worktrees/` を追加 | lefthook を実際に導入して挙動を実測したところ、`fmt` だけが `{staged_files}` にスコープされ `lint` / `linterly` は作業ツリー全体を読むため、無関係な未ステージファイルの整形崩れでコミットが落ちる（かつ `fmt` はそのファイルを直さない）ことを確認した。lefthook が未ステージ変更を隠すのは同一ファイル内に staged と unstaged が混在する場合だけである。また `fmt` を `zfmt` にリネームすると実行順が `lint` → `linterly` → `zfmt` に変わり、`parallel: false` が順序の必要条件にすぎないことを確認した。`git rev-parse --git-path hooks` は worktree からでも共有の `<リポジトリルート>/.git/hooks` を返すため、入れ子 worktree での `make hooks` がメインの作業ツリーに副作用を出す。`lefthook-local.yml` は lefthook 標準のローカル上書きファイルで、置かれた場合に誤コミットされるため。`.claude/worktrees/` は `impl-wt` / `refine` 系スキルが作る作業用 worktree の置き場で、誤コミットを防ぐために追跡から外す（linterly は `.claude/` を `default_excludes` に含むため行数チェックへの影響はない） |
 | 1.5 | 2026-08-21 | 「fork からの PR で self-hosted ジョブを起動しない」節を書き換え、`if` 条件を多層防御の 1 層（一次防御は fork PR の承認ポリシーと org runner group の対象リポジトリ限定）と位置づけ、`skipped` が required status check では success 扱いになること・fork PR のマージを機械的に止める場合はゲートジョブが必要なこと・トリガー追加時のガード見直しと許可リスト形への移行候補を追記。「CI/CD」節に初版では `build` ジョブが失敗する旨を追記 | CI を実際に導入して確認したところ、従前の記述は fork ガードの実効性を過大に書いていた。`pull_request` はワークフロー定義をマージコミット側から取るため fork 側で `if:` 行を削除した改変版が実行され得る（`if` は悪意ある第三者に対する境界にならない）。`skipped` は required status check に対して success として報告されるため、fork PR が CI 未実行のまま緑になりマージ可能に見える。承認ポリシーは実測で `first_time_contributors` であり、一度コミットが取り込まれたユーザーは以後承認不要になる。public リポジトリ + self-hosted runner の組み合わせでは、[セキュリティ設計](../architecture/security.md#パスワード不要-sudo-の要求への対応)の言うとおり `NOPASSWD: ALL` 付与時に実質 root を渡すことになるため、防御の位置づけを正確に書く必要があった。あわせて `make build` が `cmd/gsr-helper` 未作成で失敗すること（Issue #3 で解消）を実測で確認したため |
 | 1.6 | 2026-08-22 | 「タスクランナー」節の「3 経路から同じターゲットを呼ぶ」を実態（CI と手元は Makefile 経由、Git Hooks はコマンドを直接実行）に修正し、「Git Hooks」節にも同趣旨を追記。CI/CD 節に `concurrency` の説明と、`lint` ジョブの step を個別に列挙する理由を追記。「抑制の方針」に `_test.go` の `errcheck` / `gosec` 除外が方針の明示的な例外であることと、G304 抑制 4 件（`internal/runner/config.go` 3 件・`internal/runner/procs.go` 1 件）を追記。「Linterly」節の除外規則を「`default_excludes` の既定リストに無いものだけを明示する」に正確化し、`language: ja` を説明。ターゲット一覧表の `make fmt-check` 行を実装に同期。セットアップ手順に「Git Hooks」節への参照を追加。`ManagedBy` 関連を `internal/runner/managed_by.go` へ分割したことと Issue #2 のスコープを超えて `internal/runner` を変更した理由を記録。`internal/runner/config.go` の `LoadConfig` の nolint 理由を事前条件に依拠する形へ修正。改訂履歴 1.4 の行に `.claude/worktrees/` を `.gitignore` へ追加した旨と linterly の `default_excludes` に関する補足を追記 | PR レビューで、仕様書の記述が同じ差分で導入した設定ファイルおよびコードと食い違う箇所が指摘されたため。Git Hooks は `fmt` の `{staged_files}` スコープのため make を経由できない（`lint` / `linterly` / `test` を寄せるかは Issue #18）。`.claude/` は linterly の `default_excludes` に含まれるため `.linterlyignore` への追記は不要であることを実測で確認した（`--no-default-excludes` 指定時のみ検出される）。`concurrency` は self-hosted runner の稼働台数と実行中ジョブのキャンセル挙動に直結し、`main` の連続 push で中間コミットの CI 結果が残らない副作用がある（見直しは Issue #16）。`ManagedBy` の切り出しは `discover.go` が 329 行で linterly の `warn` 帯（301〜330 行）に入っていたためで、終了コードは 0 であり `make check` は分割前でも通っていた。「上限に当たった場合は数値を上げるのではなく分割を検討する」方針に従った対応であり、`error`（331 行以上）を避けるための必須対応ではない。Issue #2 の影響範囲は「`internal/` 配下のソースコードは変更しない」としていたが、`.golangci.yml` の導入で gosec 5 件・revive 4 件が出るため、`make check` を通す最小対応としてコメント追加と純粋な移動のみを行った。`LoadConfig` は exported で `dir` を呼び出し側が自由に渡せるため、nolint の理由を無条件の断定から doc コメントの事前条件に依拠する形へ直した |
-| 1.8 | 2026-08-22 | 「fork からの PR で self-hosted ジョブを起動しない」節を private 前提に更新。public から private へ切り替えた経緯と理由（org runner group が既定で public リポジトリへ runner を提供せず CI が `queued` で止まった）を明記し、脅威モデルの対象をアクセス権を持つ範囲に限定。runner group の層に public 既定の制約を追記 | org レベルに 12 台の runner が登録・1 台稼働している状態でも CI run が 15 分以上 `queued` のまま引き取られず、private 化した直後に同じ run が実行されたことで原因を確定したため。1.5 / 1.7 の記述は public 前提のままで実態と食い違っていた |
 | 1.7 | 2026-08-22 | 「ディレクトリ構造」の `Makefile` の説明を「CI / 手元で共用。Git Hooks は経由しない」に修正。「抑制の方針」の G304 抑制 4 件の根拠を、`config.go` の 3 件は呼び出し側の事前条件に依拠する条件付きの記述へ、`procs.go` の 1 件は PID の数値検証という別の根拠へ分離し、抑制の棚卸し時に `--max-same-issues=0 --max-issues-per-linter=0` が必要である旨を追記。「Linterly」節に `warning_threshold` をコメントアウトしてはいけない理由を追記。「Git Hooks」節の作業ツリー参照の対処先を Issue #18 と明記し、`parallel: false` の順序説明に lefthook の `priority` フィールドを併記。CI/CD 節の fork ガードの対処先を Issue #17 と明記し、`github.ref` の「（実測）」を仕様に基づく記述へ修正。ターゲット一覧表の `make fmt-check` の注記を「CI / `make check` 用」に修正。改訂履歴 1.3 の `.sweep/` 除外理由と 1.6 の変更内容を本文と整合させた | 2 周目の PR レビューで、1 周目（1.6）の修正が一部の記述に及んでいない・根拠ラベルが実態と合わない・参照先 Issue の番号が欠けている点が指摘されたため。G304 抑制の親記述は、`Discover` の `Options.Roots` により走査ルート自体を呼び出し側が指定できる設計を踏まえると「パスに外部入力が入らない」と無条件に断定できず、コード側（`internal/runner/config.go` の nolint 理由）と食い違っていた。`golangci-lint` は `issues.max-same-issues` / `max-issues-per-linter` の既定（3 / 50）で同種の指摘を打ち切るため、既定のままでは G304 4 件を数え上げられない（設定への `issues` 追加は Issue #15 の範囲）。`.linterly.yml` の `warning_threshold` は既定値と同値だが `rules:` を非空に保つ役割があり、既定値だからという理由でコメントアウトすると `rules section is required` で exit 2 になることを実測した。lefthook v1.13.6 には command 単位の `priority` があり命名に依存せず順序を固定できるため、「命名の維持」は `priority` 未指定である現状の前提にすぎない。本リポジトリの CI run は self-hosted runner に引き取られず `queued` のままでジョブコンテキストが観測されていないため、`github.ref` に「（実測）」と付けるのは根拠ラベルとして誤りだった |
 | 1.8 | 2026-08-22 | `make build` を `go build ./...`（全パッケージのコンパイル検証）＋ `cmd/gsr-helper` が存在する場合のみ単一バイナリを生成する形に変更し、ターゲット一覧表・Makefile 定義・CI/CD 節の記述を実装に同期した | PR #19 の CI で `build` ジョブが `stat ./cmd/gsr-helper: directory not found` により exit 2 で失敗した。エントリポイントの実装は Issue #3 のスコープであり Issue #2 では追加できないため、パッケージが未作成の段階でも通り、かつ Issue #3 で `cmd/gsr-helper` が追加された後はそのままバイナリ生成まで行う形に `build` ターゲットを直した |
 | 1.9 | 2026-08-22 | `make fmt-check` の対象解決をディレクトリ単位からファイル単位（`go list` の `.GoFiles` / `.CgoFiles` / `.TestGoFiles` / `.XTestGoFiles` / `.IgnoredGoFiles`）へ変更し、`gofmt` を `$(GO) env GOROOT` 由来の `$(GOFMT)` に固定。`go list` の失敗と対象 0 件を `exit 1` にした。ターゲット一覧表・Makefile 定義・「Format」節を実装に同期し、`internal/buildconfig` に Makefile の回帰テストを追加 | 1.3 の修正（`gofmt -l $$($(GO) list -f '{{.Dir}}' ./...)`）は、リポジトリルートに `.go` ファイルが 1 本置かれてルート自体がパッケージになると `gofmt` が `.claude/worktrees/` 配下まで再帰して無効化される。`gofmt -l` は `testdata/` も検査するが `go fmt ./...` は対象外にするため、未整形のフィクスチャを置くと `make fmt` で直せないのに `fmt-check` が落ちるデッドロックになる。`fmt` が GOROOT の `gofmt`、`fmt-check` が PATH の `gofmt` を使う非対称も、`GO` を差し替えた環境で整形と検査のツールチェーンをずらす。さらにコマンド置換の終了ステータスを捨てていたため `go.mod` 破損時に検査が静かに通り、対象 0 件では `gofmt` が引数なしで起動して標準入力を読み無言でハングすることを実測した（`timeout 5 gofmt -l` が exit 124）。Issue #14 |
@@ -711,3 +720,9 @@ pre-push:
 | 1.18 | 2026-08-22 | 「抑制の方針」の棚卸しを現在のツリーに合わせて全面的に更新。除去済みの `internal/runner/systemd.go` の G204 暫定抑制への言及を「方針は満たされている（抑制は `internal/exec/command/command.go` の 1 箇所）」に置き換え、G304 4 件の記述を現存する 9 件すべての表に差し替えた（`internal/runner/procs.go` → `internal/runner/procs/procs.go` の移動、`internal/appconfig` / `internal/audit` の抑制の追加を反映）。G コード別の件数を出力から機械的に検算できない理由と、`_test.go` に実際の抑制指示が無いこと（`internal/buildconfig` に現れる `//nolint` はフィクスチャ文字列とガードテスト自身のコメント・正規表現・メッセージであり、`countNolintInTree` が `_test.go` を除くため棚卸しに影響しない）を明記し、棚卸しが Issue #44 の範囲だとする但し書きを削除 | 記述が PR #25 の移動・分割に追随しておらず、存在しないファイル（`internal/runner/systemd.go` / `internal/runner/procs.go`）と存在しない抑制を指していた。`nolintlint` の `require-specific` はリンター名しか要求しないためツリー内の抑制はすべて裸の `//nolint:gosec` であり、「4 件」という G コード別の数え方は出力から検算できない（Issue #44） |
 | 1.19 | 2026-08-22 | 「抑制の方針」の棚卸しの表で `internal/ui/page/actions.go` を `internal/ui/page/action/allow.go` に訂正 | 可否の判定を `ui/page/action` へ分離した際にファイルが移動しており（[TUI コンポーネント設計](../ui/atomic-design.md) 1.12）、棚卸しが存在しないファイルを挙げたままになっていた。`TestSetupDocNolintInventoryMatchesTree` がこのずれを検出した |
 | 1.20 | 2026-08-23 | 「抑制の方針」の棚卸しを Logs タブ（Issue #9）の実装後のツリーに合わせた。総数を 10 件から **11 件**（うち G304 が 9 件）に改め、`internal/logs/tail.go` の行を 1 件から 2 件へ更新（`Tail` の最初の `os.Open` と、同名で作り直されたログを開き直す `reopen` の `os.Open`）。「G304 の抑制の安全性の根拠」の 4 分類に件数（5 / 1 / 1 / 2）を書き添え、`internal/logs/tail.go` の 2 件を「事前条件に依拠する根拠」に分類したうえで、`internal/runner/config.go` との違い（パスを組み立てるか丸ごと受け取るか）と `reopen` で追加の根拠が要らない理由（開き直してもパスは変わらない）を明記 | Logs タブの実装で `internal/logs/tail.go` に G304 の抑制が入り、さらにログの入れ替え（inode 変更）への追従で `reopen` の 1 件が加わって計 2 件になった。表の行は追加されていたが件数は 1 のままで、`TestSetupDocNolintInventoryMatchesTree` が落ちる状態だった。**より問題なのは分類の側で**、4 分類の説明は合計 7 件しか扱っておらず、`internal/logs/tail.go` の抑制はどの分類にも属さないまま表にだけ載っていた。この節は「なぜこの抑制が安全か」を後から検算するための唯一の場所であり、分類に載らない抑制は**理由コメントを読む以外に安全性を確かめる手段が無い**。件数を各分類に書き添えたのは、表の合計と分類の合計が一致することを目視で突き合わせられるようにするためで、次に抑制が増えたときの取りこぼしを同じ形で防ぐ |
+| 1.21 | 2026-08-23 | 「タスクランナー」節のターゲット一覧表と Makefile のコードブロックに `make run`（`build` 後に生成したバイナリを `ARGS` 付きで起動する）を反映 | Makefile に `run` ターゲットと `ARGS` 変数が追加されたのに仕様書へ反映されておらず、`internal/buildconfig` の同期テスト（`TestSetupDocEmbedsConfigFilesVerbatim`）が失敗したまま既定ブランチに入っていた |
+| 1.22 | 2026-08-22 | 「fork からの PR で self-hosted ジョブを起動しない」節を private 前提に更新。public から private へ切り替えた経緯と理由（org runner group が既定で public リポジトリへ runner を提供せず CI が `queued` で止まった）を明記し、脅威モデルの対象をアクセス権を持つ範囲に限定。runner group の層に public 既定の制約を追記 | org レベルに 12 台の runner が登録・1 台稼働している状態でも CI run が 15 分以上 `queued` のまま引き取られず、private 化した直後に同じ run が実行されたことで原因を確定したため。1.5 / 1.7 の記述は public 前提のままで実態と食い違っていた |
+| 1.23 | 2026-08-23 | 改訂履歴表の重複した版番号 `1.8` のうち「fork からの PR で self-hosted ジョブを起動しない」節を private 前提に更新した行を `1.22` へ振り直して表の末尾へ移し、`1.7` の行を `1.8`（`make build`）の前へ戻した。あわせて採番の規則（版番号は変更が入った時点で採番するため、日付が版番号の順と一致しないことがある）を表の直後に明記し、`internal/buildconfig` に改訂履歴の版番号が重複せず昇順であることの回帰テストを追加 | 別々の変更に同じ `1.8` が付き、`1.7` が `1.8` の後ろに並んでいたため、表を版番号で引けなかった（Issue #59）。振り直し先に `1.9` 以降を使わず末尾の `1.22` を割り当てたのは、既存行を繰り下げると他の行の変更理由が版番号で参照している箇所（`1.12` / `1.13`）まで書き換えることになり、「変更内容・変更理由は書き換えない」という前提を満たせないためである |
+| 1.24 | 2026-08-23 | `internal/buildconfig` の責務を「設定ファイルとドキュメントの不変条件を守る回帰テスト」へ広げ、「設定ファイルの不変条件をテストで守る」節の本文と CI 構成表の「設定の不変条件」行を実態に合わせた。不変条件テスト一覧表に `TestDocRevisionHistoryVersionsUniqueAndAscending` の行を追加 | 1.23 で追加した改訂履歴の回帰テストは `docs/` 配下の Markdown を読むテストであり、「ビルド設定ファイルの回帰テストだけを置く」というパッケージの定義（`internal/buildconfig/doc.go`）と本節の記述の範囲外だった。同パッケージには既に仕様書のコードブロックを検査する `TestSetupDocEmbedsConfigFilesVerbatim` があり、ドキュメントを読むテストは既存の性格の延長であるため、パッケージを分けずに定義側を実態へ追随させた |
+
+**版番号は表への追加順ではなく、その変更が入った時点で採番している。** 1.22 の日付が直前の 1.21 より古いのはこのためである。1.22 の行はもともと重複した `1.8` として記録されており（`feat/#1` の取り込み時に 2 つの `1.8` を両方残したまま解消した）、重複を解消する際に、既に使われている 1.9〜1.21 と衝突しない番号として 1.22 を割り当てた。既存行の版番号を繰り下げないのは、他の行の変更理由が版番号で参照している箇所（1.12 / 1.13）まで書き換えることになるためである。
