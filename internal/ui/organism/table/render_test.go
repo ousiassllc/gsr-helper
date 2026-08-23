@@ -27,14 +27,14 @@ func TestTableToleratesRenderRowCellCountMismatch(t *testing.T) {
 			render: func(in table.RowInput[row]) []string {
 				cells := make([]string, 0, len(in.Cols)+3)
 				for range len(in.Cols) + 3 {
-					cells = append(cells, in.Item.name)
+					cells = append(cells, in.Item.Name)
 				}
 				return cells
 			},
 			want: 2, // 余った 3 つは落ちる（切り捨て）
 		},
 		"列数より少ない": {
-			render: func(in table.RowInput[row]) []string { return []string{in.Item.name} },
+			render: func(in table.RowInput[row]) []string { return []string{in.Item.Name} },
 			want:   1, // 足りない 1 つは描画に出ない
 		},
 		"1 つも返さない": {

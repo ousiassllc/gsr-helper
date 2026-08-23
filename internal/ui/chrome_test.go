@@ -83,17 +83,3 @@ func TestFooterShowsReasonForDisabledKey(t *testing.T) {
 		t.Errorf("フッタ 2 行目 = %q, 無効なキーと理由が出ていない", lines[1])
 	}
 }
-
-// sampleRunner は systemd 管理で稼働中の runner を返す。
-//
-// フィクスチャは page/pagetest から取る。親と page で検証の前提が食い違わない
-// ようにするためであり、ui 直下の行数（1 ディレクトリ 2000 行）を道具立てで
-// 押し上げないためでもある（helper_test.go 冒頭の方針）。
-func sampleRunner() runner.Runner { return pagetest.SampleRunner() }
-
-// chromeWith はタブ番号とモーダル・入力の状態を持つ ChromeMsg を返す。
-func chromeWith(tab int, modal bool, input string) tea.Msg {
-	c := pageChrome(tab)
-	c.Modal, c.Input = modal, input
-	return c
-}

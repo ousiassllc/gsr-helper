@@ -145,10 +145,7 @@ func New(cfg appconfig.Config, caps appconfig.Caps, ex exec.Executor, o Options)
 // 関数値のまま渡す（呼ぶと Msg になり Cmd として渡せない）。tea.Cmd は
 // func() tea.Msg なので、この関数値がそのまま Cmd になる。
 func (a App) Init() tea.Cmd {
-	return tea.Batch(
-		tea.RequestBackgroundColor,
-		firstTick(),
-	)
+	return tea.Batch(tea.RequestBackgroundColor, firstTick())
 }
 
 // Update は Msg を種類ごとに振り分ける。

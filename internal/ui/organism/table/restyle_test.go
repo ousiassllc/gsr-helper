@@ -1,15 +1,13 @@
 package table_test
 
 import (
-	"regexp"
 	"slices"
 	"strings"
 	"testing"
 
-	"charm.land/lipgloss/v2"
-
 	"github.com/ousiassllc/gsr-helper/internal/ui/keymap"
 	"github.com/ousiassllc/gsr-helper/internal/ui/organism/table"
+	"github.com/ousiassllc/gsr-helper/internal/ui/organism/table/tabletest"
 	"github.com/ousiassllc/gsr-helper/internal/ui/token"
 )
 
@@ -44,28 +42,6 @@ func TestRestyleAppliesNewPaletteToEveryPart(t *testing.T) {
 			t.Errorf("%s に濃色向けの配色が残っている:\n%q", name, after)
 		}
 	}
-}
-
-// paletteSamples は一覧の各部が配色から作る文字列を返す。部位ごとに引くのは、行だけ・枠だけが
-// 取り残される抜けを 1 本で捕まえるためである（Issue #28 では 4 部位が同時に古かった）。見出しと
-// 区切り線は幅いっぱいを埋めるので、中身ではなく装飾の開始列（SGR）で引く（中身を期待値に
-// 書くと列幅を変えるたびに壊れる）。
-func paletteSamples(s token.Styles) map[string]string {
-	return map[string]string{
-		"カーソル":     s.Cursor.Render(token.IconCursor),
-		"チェックボックス": s.Selected.Render(token.IconChecked),
-		"見出し":      sgrPrefix(s.Header),
-		"区切り線":     sgrPrefix(s.Divider),
-		// 入力中の見出しは bubbles/textinput が Prompt のスタイルで描く。装飾の開始列ではなく
-		// 装飾ごと引くのは、区切り線と同じ Muted を使うため開始列だけでは区別できないからである。
-		"絞り込みプロンプト": s.Muted.Render(filterPrompt),
-	}
-}
-
-// sgrPrefix はスタイルが中身の前に置く装飾の開始列を返す。装飾が無ければ空文字になる。
-func sgrPrefix(st lipgloss.Style) string {
-	prefix, _, _ := strings.Cut(st.Render("x"), "x")
-	return prefix
 }
 
 // 再スタイルでカーソル位置・選択・絞り込み文字列・フォーカス中の区画は失われない。3 秒ごとの
@@ -106,13 +82,6 @@ func TestRestyleKeepsCursorSelectionAndFilter(t *testing.T) {
 	}
 }
 
-// filterPrompt は絞り込みの行の見出し。table パッケージの同名の定数と同じ値を持つ
-// （外から参照できないので写している。食い違えば下の検証が前提から落ちる）。
-const filterPrompt = "絞り込み: "
-
-// sgrSeq は ANSI の装飾列（SGR）。色が入ったかを列単位で調べるために使う。
-var sgrSeq = regexp.MustCompile("\x1b\\[[0-9;]*m")
-
 // 色を無効にした設定（NO_COLOR / --no-color / 非 TTY）では入力欄に色を入れない。
 // bubbles/textinput は自分の既定スタイルを持ち、任せると lipgloss のカラープロファイル判定で
 // 色が付いて色の可否を決める箇所が 2 つになる（non-functional.md の NO_COLOR を尊重する）。
@@ -129,7 +98,7 @@ func TestFilterInputDropsColorWhenColorDisabled(t *testing.T) {
 	}
 
 	view := tbl.View()
-	for _, seq := range sgrSeq.FindAllString(view, -1) {
+	for _, seq := range tabletest.SGRs(view) {
 		// 反転（\x1b[7m）と、それを閉じる \x1b[m だけは残す。反転は色ではなく入力位置を示す
 		// カーソルそのものであり、消すとどこに打っているのか分からなくなる。
 		if seq != "\x1b[7m" && seq != "\x1b[m" {

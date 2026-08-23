@@ -92,7 +92,7 @@ func TestTableSelection(t *testing.T) {
 // （Disk タブのジョブ実行中の _work）を SectionInput.Disabled で表す。
 func TestTableIgnoresSelectionOnDisabledRows(t *testing.T) {
 	sec := runnerSection(true)
-	sec.Disabled = func(r row) (string, bool) { return "ジョブ実行中です", r.name == "build01-2" }
+	sec.Disabled = func(r row) (string, bool) { return "ジョブ実行中です", r.Name == "build01-2" }
 	tbl := table.New(keymap.NewList(), testStyles(), sec)
 	tbl.SetSize(80, 12)
 	tbl.SetItems(0, rows("build01-1", "build01-2", "build01-3"))
@@ -205,7 +205,7 @@ func TestTableDoesNotShareItemSlices(t *testing.T) {
 	tbl, _ := send(newTable(true, items), "ctrl+a")
 
 	// 渡したスライスを書き換えても内部は変わらない。
-	items[0] = row{name: "書き換え", note: ""}
+	items[0] = row{Name: "書き換え", Note: ""}
 	if got := names(tbl.Shown(0)); !slices.Equal(got, want) {
 		t.Errorf("渡したスライスの書き換え後の表示 = %v, want %v", got, want)
 	}
@@ -215,7 +215,7 @@ func TestTableDoesNotShareItemSlices(t *testing.T) {
 
 	// 返ったスライスを書き換えても内部は変わらない。
 	shown := tbl.Shown(0)
-	shown[0] = row{name: "書き換え", note: ""}
+	shown[0] = row{Name: "書き換え", Note: ""}
 	if got := names(tbl.Shown(0)); !slices.Equal(got, want) {
 		t.Errorf("返ったスライスの書き換え後の表示 = %v, want %v", got, want)
 	}

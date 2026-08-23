@@ -7,50 +7,21 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/ousiassllc/gsr-helper/internal/exec"
-	"github.com/ousiassllc/gsr-helper/internal/runner"
-	"github.com/ousiassllc/gsr-helper/internal/ui/discovery"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
-	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
 )
 
-// press1 は打鍵を 1 つ送り、page が返した ChromeMsg と、差し戻しを親が解釈した
-// 結果の Cmd を返す。**閉じ込められたときの Cmd は nil である**（page 自身の Cmd は
-// 返さない。絞り込み中は点滅の Cmd が混じり、isQuit で実行すると待たされる）。
-//
-// **打鍵は page → 親の往復を経る**（helper_test の sendKey と同じ）。App.Update を
-// 1 回呼ぶだけの update では page.GlobalKeyMsg が親へ戻らず、閉じ込めの判定が走らない。
-// update で書いていた頃は runners.handleKey の閉じ込めを消しても緑のままだった
-// （Issue #31）。ChromeMsg は取り出すだけで**親へは渡さない**（前提は「親の状態は
-// 1 打鍵ぶん古い」であり、渡すと検証したい経路が消える）。「親が page より先に
-// キーを解釈する」退行は app_keys_test の spy 経由の検証が受け持つ。
-func press1(a App, k string) (App, page.ChromeMsg, tea.Cmd) {
-	next, cmd := update(a, press(k))
-
-	// 閉じ込められた打鍵では nil を返す（親は打鍵を見ていないので Cmd も無い）。
-	// 差し戻しを取りこぼして nil になる経路は無い（pagetest.ScanKey の doc）。取りこぼしが
-	// nil に化けると 6 つの assertion がすべて満たされて静かに緑になる。
-	c, global, ok := pagetest.ScanKey(cmd)
-	if !ok {
-		return next, c, nil
-	}
-	next, cmd = update(next, global)
-	return next, c, cmd
-}
+// 打鍵は page → 親の往復を経る（pagetest.Press1）。App.Update を 1 回呼ぶだけの
+// update では page.GlobalKeyMsg が親へ戻らず、閉じ込めの判定が走らない。update で
+// 書いていた頃は runners.handleKey の閉じ込めを消しても緑のままだった（Issue #31）。
 
 // press1 の陽性対照。閉じ込めの無い状態では、差し戻しが親へ届いて解釈される。
 //
-// **これが無いと下の 2 つのテストが空振りに戻る。** press1 を「往復せず update を
-// 1 回呼ぶだけ」に戻すと差し戻しは親へ届かなくなるが、下の 2 つは「親が反応しない」
-// ことを見ているので緑のままになる（Issue #31 の元の退行そのもの）。往復が生きて
-// いることをここで固定しておけば、その変異はこのテストが落として知らせる。
+// **これが無いと下のテストが空振りに戻る。** press1 を「往復せず update を 1 回呼ぶ
+// だけ」に戻すと差し戻しは親へ届かなくなるが、下は「親が反応しない」ことを見ている
+// ので緑のままになる（Issue #31 の元の退行そのもの）。往復が生きていることをここで
+// 固定しておけば、その変異はこのテストが落として知らせる。
 func TestPress1DeliversBubbledKeyWhenNotConfined(t *testing.T) {
-	a := newApp(exec.NewFake())
-	a, _ = update(a, tea.WindowSizeMsg{Width: 100, Height: 30})
-	a, _ = update(a, discovery.Msg{
-		Seq:    1,
-		Result: runner.Result{Runners: []runner.Runner{pagetest.SampleRunner()}},
-		Err:    nil,
-	})
+	a := newAppWithRunner(exec.NewFake())
 
 	if _, _, cmd := press1(a, "q"); !isQuit(cmd) {
 		t.Error("閉じ込めの無い状態で q が親へ届いていない")
@@ -60,79 +31,58 @@ func TestPress1DeliversBubbledKeyWhenNotConfined(t *testing.T) {
 	}
 }
 
-// モーダルを開いた直後の打鍵でも、グローバルキーは背後へ抜けない。
+// モーダルを開いた直後・絞り込みを始めた直後の打鍵でも、グローバルキーは背後へ
+// 抜けない。
 //
 // **ChromeMsg を親へ渡さずに検証する。** 親が持つモーダル・入力の状態は page からの
 // Msg で更新されるため、素早い連続打鍵では 1 打鍵ぶん古い。以前は親がその古い値で
 // 配送を判断しており、確認中に打った q でアプリが終わり、1 でタブが変わりえた
 // （page.GlobalKeyMsg の doc）。閉じ込めるのはモーダルを持つ page 自身である。
-func TestModalConfinesGlobalKeysBeforeChromeArrives(t *testing.T) {
-	a := newApp(exec.NewFake())
-	a, _ = update(a, tea.WindowSizeMsg{Width: 100, Height: 30})
-	a, _ = update(a, discovery.Msg{
-		Seq:    1,
-		Result: runner.Result{Runners: []runner.Runner{pagetest.SampleRunner()}},
-		Err:    nil,
-	})
-
-	// enter で詳細のモーダルが開く。親へ ChromeMsg は渡さない（1 打鍵ぶん古い状態）。
-	a, c, _ := press1(a, "enter")
-	if a.chrome.Modal {
-		t.Fatal("ChromeMsg を渡していないのに親がモーダルを認識している（前提が崩れている）")
-	}
-	if !c.Modal {
-		t.Fatal("enter でモーダルが開いていない（前提が崩れている）")
-	}
-
-	// 直後の q で終了しない。
-	a, _, cmd := press1(a, "q")
-	if isQuit(cmd) {
-		t.Error("モーダル表示中の q でアプリが終了した")
-	}
-
-	// 直後の番号キーでタブも変わらない。
-	next, _, _ := press1(a, "2")
-	if next.active != 0 {
-		t.Errorf("モーダル表示中の番号キーでタブが %d に変わった", next.active)
-	}
-
-	// 直後の r でも検出は走らない（モーダル表示中はキーがモーダルに閉じ込められる）。
-	if after, _, _ := press1(a, "r"); after.inflight != 0 {
-		t.Errorf("モーダル表示中の r で検出が走った（inflight = %d）", after.inflight)
-	}
-}
-
+//
 // 絞り込みの入力中も同じ規則が働く。runner 名が数字を含むため、1〜7 を機能キーの
 // まま残すと名前で絞り込めない（screens.md の入力中）。
-func TestFilterInputConfinesGlobalKeysBeforeChromeArrives(t *testing.T) {
-	a := newApp(exec.NewFake())
-	a, _ = update(a, tea.WindowSizeMsg{Width: 100, Height: 30})
-	a, _ = update(a, discovery.Msg{
-		Seq:    1,
-		Result: runner.Result{Runners: []runner.Runner{pagetest.SampleRunner()}},
-		Err:    nil,
-	})
+func TestConfinesGlobalKeysBeforeChromeArrives(t *testing.T) {
+	tests := map[string]struct {
+		open  string                    // 閉じ込めを始める打鍵
+		began func(page.ChromeMsg) bool // page 側がその状態になったか
+		saw   func(App) bool            // 親がその状態を知ってしまっているか
+	}{
+		"モーダル表示中": {
+			open:  "enter",
+			began: func(c page.ChromeMsg) bool { return c.Modal },
+			saw:   func(a App) bool { return a.chrome.Modal },
+		},
+		"入力中": {
+			open:  "/",
+			began: func(c page.ChromeMsg) bool { return c.Input != "" },
+			saw:   func(a App) bool { return a.chrome.Input != "" },
+		},
+	}
 
-	a, c, _ := press1(a, "/")
-	if a.chrome.Input != "" {
-		t.Fatal("ChromeMsg を渡していないのに親が入力中を認識している（前提が崩れている）")
-	}
-	if c.Input == "" {
-		t.Fatal("/ で絞り込みが始まっていない（前提が崩れている）")
-	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			a, c, _ := press1(newAppWithRunner(exec.NewFake()), tt.open)
+			if tt.saw(a) {
+				t.Fatalf("ChromeMsg を渡していないのに親が%sを認識している（前提が崩れている）", name)
+			}
+			if !tt.began(c) {
+				t.Fatalf("%q を押しても%sになっていない（前提が崩れている）", tt.open, name)
+			}
 
-	a, _, cmd := press1(a, "q")
-	if isQuit(cmd) {
-		t.Error("入力中の q でアプリが終了した")
-	}
-	// 1 は選択中のタブ自身なので、誤って親へ抜けても active は変わらない。
-	// 抜けたことが分かるよう別のタブの番号を打つ。
-	next, _, _ := press1(a, "2")
-	if next.active != 0 {
-		t.Errorf("入力中の番号キーでタブが %d に変わった", next.active)
-	}
-	if after, _, _ := press1(a, "r"); after.inflight != 0 {
-		t.Errorf("入力中の r で検出が走った（inflight = %d）", after.inflight)
+			// 直後の q で終了しない。
+			if _, _, cmd := press1(a, "q"); isQuit(cmd) {
+				t.Errorf("%sの q でアプリが終了した", name)
+			}
+			// 直後の番号キーでタブも変わらない。1 は選択中のタブ自身なので、誤って
+			// 親へ抜けても active は変わらない。抜けたことが分かる別の番号を打つ。
+			if next, _, _ := press1(a, "2"); next.active != 0 {
+				t.Errorf("%sの番号キーでタブが %d に変わった", name, next.active)
+			}
+			// 直後の r でも検出は走らない（キーがモーダル・入力に閉じ込められる）。
+			if after, _, _ := press1(a, "r"); after.inflight != 0 {
+				t.Errorf("%sの r で検出が走った（inflight = %d）", name, after.inflight)
+			}
+		})
 	}
 }
 

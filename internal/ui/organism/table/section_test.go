@@ -10,15 +10,6 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/ui/token"
 )
 
-// newSectioned は Runners タブと同じ「一覧 + 孤児ユニット」の 2 区画を組み立てる。
-func newSectioned(runners, orphans []row) table.Model[row] {
-	t := table.New(keymap.NewList(), testStyles(), runnerSection(true), orphanSection())
-	t.SetSize(80, 16)
-	t.SetItems(0, runners)
-	t.SetItems(1, orphans)
-	return t
-}
-
 // 区画の末尾で j を押すと次の区画の先頭へ、先頭で k を押すと前の区画の末尾へ移る。
 //
 // 区画をまたぐ移動に専用のキーは無い（keymap.List に NextSection を持たない）。
@@ -151,7 +142,7 @@ func TestTablePassesDisabledReasonToRender(t *testing.T) {
 		{ID: token.ColName, Title: "NAME", Width: 12},
 		{ID: token.ColNote, Title: "NOTE", Width: 24},
 	}
-	sec.Disabled = func(r row) (string, bool) { return reason, r.name == "build01-2" }
+	sec.Disabled = func(r row) (string, bool) { return reason, r.Name == "build01-2" }
 	tbl := table.New(keymap.NewList(), testStyles(), sec)
 	tbl.SetSize(80, 12)
 	tbl.SetItems(0, rows("build01-1", "build01-2"))

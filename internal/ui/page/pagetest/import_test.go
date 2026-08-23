@@ -18,6 +18,15 @@ const (
 	tabsetPath = modulePath + "/internal/ui/tabset"
 )
 
+// fixtures はテスト用の道具を置く「通常のパッケージ」。どれも _test.go に置けない
+// 事情（他のパッケージから import できない・1 ディレクトリの行数上限）でこの形に
+// なっており、その代償として本番からも import できてしまう。**足すときはここへ
+// 登録すること**（登録しないと検査の網から外れる）。
+var fixtures = map[string]bool{
+	selfPath: true,
+	modulePath + "/internal/ui/organism/table/tabletest": true,
+}
+
 // shared は page/ 直下にあってタブではないパッケージ。
 //
 // `page/` は「1 ディレクトリ 1 タブ」ではない。タブが共用する部品（操作の判定・
@@ -38,19 +47,19 @@ var shared = map[string]bool{
 
 // テスト用の道具は本番の経路から import されない。
 //
-// このパッケージは _test.go ではなく通常のパッケージである（タブ 1 枚ごとに
-// パッケージが分かれるため、_test.go に置いた道具を他のパッケージから import
-// できない。pagetest.go の doc）。その代償として、本番コードからも普通に import
+// これらは _test.go ではなく通常のパッケージである（`pagetest` はタブ 1 枚ごとに
+// パッケージが分かれて _test.go の道具を共有できないため、`organism/table/tabletest`
+// は 1 ディレクトリの行数上限のため）。その代償として、本番コードからも普通に import
 // できてしまう。中身は exec.NewFake() と固定フィクスチャなので、混入すればテスト用の
 // 偽物がそのまま製品に載る。
 //
 // **規約ではなく検査で止める。** ビルドタグでは「テストからは使えてタブからは使えない」
 // を表せず、置いてあるだけの規約は次にタブを足す Issue で破られる（Issue #45）。
-func TestNoProductionCodeImportsPagetest(t *testing.T) {
+func TestNoProductionCodeImportsTestFixtures(t *testing.T) {
 	for pkg, imports := range productionImports(t) {
 		for _, imp := range imports {
-			if imp == selfPath {
-				t.Errorf("本番コード %s が %s を import している（テスト用の道具は _test.go からのみ使うこと）", pkg, selfPath)
+			if fixtures[imp] {
+				t.Errorf("本番コード %s が %s を import している（テスト用の道具は _test.go からのみ使うこと）", pkg, imp)
 			}
 		}
 	}

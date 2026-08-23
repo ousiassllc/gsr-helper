@@ -7,47 +7,9 @@ import (
 
 	"charm.land/lipgloss/v2"
 
-	"github.com/ousiassllc/gsr-helper/internal/ui/keymap"
 	"github.com/ousiassllc/gsr-helper/internal/ui/organism/table"
 	"github.com/ousiassllc/gsr-helper/internal/ui/token"
 )
-
-// columnSets は実際に使う列の組み合わせを返す。
-func columnSets() map[string][]token.Column {
-	return map[string][]token.Column{
-		"Runner": token.RunnerColumns(),
-		"Job":    token.JobColumns(),
-		"Orphan": token.OrphanColumns(),
-	}
-}
-
-// newColumned は列の全集合を持つ 1 区画の一覧を組み立てる。
-func newColumned(cols []token.Column, selectable bool, r table.RenderRow[row]) table.Model[row] {
-	sec := runnerSection(selectable)
-	sec.Columns = cols
-	if r != nil {
-		sec.Render = r
-	}
-
-	t := table.New(keymap.NewList(), testStyles(), sec)
-	t.SetSize(80, 12)
-	t.SetItems(0, rows("build01-1", "build01-2", "build02-1"))
-	return t
-}
-
-// longFilterKeys は絞り込みを始めて領域より長い文字列を打つキー列を返す。accept が真なら
-// enter で確定する。1 文字で 2 桁使う全角で埋めるのは、検証する最大の幅（120）を短い
-// キー列で超えるためである。
-func longFilterKeys(accept bool) []string {
-	keys := []string{"/"}
-	for range 70 {
-		keys = append(keys, "長")
-	}
-	if accept {
-		keys = append(keys, "enter")
-	}
-	return keys
-}
 
 // View の各行は SetSize に渡した幅を超えない。
 //

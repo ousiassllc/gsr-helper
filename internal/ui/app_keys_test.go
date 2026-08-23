@@ -12,18 +12,6 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
 )
 
-// blocked はモーダル表示中と入力中の 2 つの状態を返す。
-//
-// どちらもグローバルキーを解釈しない状態であり、同じ配送の規則が働く。状態を持つのは
-// page 側であり、閉じ込めの判断も page が行う（page.GlobalKeyMsg の doc）ため、
-// spy の chrome に立てる。
-func blocked() map[string]func(s *pagetest.Spy) {
-	return map[string]func(s *pagetest.Spy){
-		"モーダル表示中": func(s *pagetest.Spy) { s.Chrome.Modal = true },
-		"入力中":     func(s *pagetest.Spy) { s.Chrome.Input = "絞り込み" },
-	}
-}
-
 // ctrl+c はどの状態でも親が処理して終了する。
 func TestInterruptQuitsInEveryState(t *testing.T) {
 	states := blocked()
@@ -211,31 +199,4 @@ func TestSwitchTabRefreshesChrome(t *testing.T) {
 	if !found {
 		t.Errorf("切り替えの Cmd に移動先タブの ChromeMsg が無い（%T）", cmd())
 	}
-}
-
-// isQuit は Cmd が終了を指示しているかを返す。
-//
-// 終了は page の後始末を流し切ってから行うため tea.Sequence に包まれる
-// （keys.go の quit）。包みの中まで見ないと終了を見落とす。
-func isQuit(cmd tea.Cmd) bool {
-	if cmd == nil {
-		return false
-	}
-	msg := cmd()
-	if _, ok := msg.(tea.QuitMsg); ok {
-		return true
-	}
-	seq, ok := pagetest.Cmds(msg)
-	if !ok {
-		return false
-	}
-	for _, c := range seq {
-		if c == nil {
-			continue
-		}
-		if _, quit := c().(tea.QuitMsg); quit {
-			return true
-		}
-	}
-	return false
 }

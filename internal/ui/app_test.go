@@ -15,6 +15,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/exec"
 	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/ui/discovery"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 	"github.com/ousiassllc/gsr-helper/internal/ui/template"
 )
 
@@ -43,14 +44,21 @@ func TestInitEmitsBackgroundColorAndFirstTick(t *testing.T) {
 	}
 }
 
-// 最初の tickMsg で検出が走り、Executor を使う（systemd がある能力なので
-// systemctl を叩く）。
+// 最初の tickMsg で検出と次の Tick が発行され、検出は Executor を使う（systemd が
+// ある能力なので systemctl を叩く）。
+//
+// **Cmd を実行する前に Executor の呼び出しを数える。** 重い処理はすべて tea.Cmd と
+// して UI の外で走らせる約束であり、Update の中でドメイン層を呼んでいないことは
+// 実行前の 0 件でしか見分けられない。
 func TestFirstTickRunsDiscover(t *testing.T) {
 	fake := exec.NewFake()
 	a, cmd := update(newApp(fake), tickMsg{})
 	cmds := pagetest.Expand(cmd)
 	if len(cmds) != 2 {
 		t.Fatalf("tickMsg が発行した Cmd の本数 = %d, want 2（検出 + 次の Tick）", len(cmds))
+	}
+	if n := len(fake.Calls()); n != 0 {
+		t.Errorf("Update の中でドメイン層を呼んでいる（Executor の呼び出し %d 件）", n)
 	}
 	if _, ok := cmds[0]().(discovery.Msg); !ok {
 		t.Errorf("1 本目の Msg = %T, want discovery.Msg", cmds[0]())
@@ -60,18 +68,6 @@ func TestFirstTickRunsDiscover(t *testing.T) {
 	}
 	if a.inflight != 1 {
 		t.Errorf("実行中の検出の本数 = %d, want 1", a.inflight)
-	}
-}
-
-// tickMsg は検出と次の Tick を返す。Update の中でドメイン層を直接呼ばない。
-func TestTickEmitsDiscoverAndNextTick(t *testing.T) {
-	fake := exec.NewFake()
-	_, cmd := update(newApp(fake), tickMsg{})
-	if got := len(pagetest.Expand(cmd)); got != 2 {
-		t.Fatalf("tickMsg で発行された Cmd の本数 = %d, want 2", got)
-	}
-	if n := len(fake.Calls()); n != 0 {
-		t.Errorf("Update の中でドメイン層を呼んでいる（Executor の呼び出し %d 件）", n)
 	}
 }
 
@@ -116,24 +112,11 @@ func TestDiscoveredDistributesToAllTabs(t *testing.T) {
 	}
 }
 
-// 検出のエラーは状態行に出し、画面遷移は巻き戻さない。
-func TestDiscoverErrorGoesToStatus(t *testing.T) {
-	a, _ := update(newApp(exec.NewFake()), discovery.Msg{
-		Result: runner.Result{},
-		Err:    errTest,
-	})
-	if got := statusLine(a); !strings.Contains(got, errTest.Error()) {
-		t.Errorf("状態行 = %q, エラーが無い", got)
-	}
-	if a.active != 0 {
-		t.Errorf("エラーでタブが変わっている（active = %d）", a.active)
-	}
-}
-
 // errTest は検出のエラーを模した値。
 var errTest = errors.New("検出が間に合いませんでした")
 
-// 期限切れ・失敗した周期の部分結果で直前の成功結果を上書きしない。
+// 期限切れ・失敗した周期の部分結果で直前の成功結果を上書きせず、エラーは状態行に
+// 出し、画面遷移は巻き戻さない。
 //
 // runner.Discover は ctx がキャンセルされた時点で残りの systemctl show を発行せず、
 // 取れた分だけを返す。その部分結果を採ると systemd 管理の runner が run.sh / - と
@@ -159,6 +142,9 @@ func TestDiscoverErrorKeepsLastResult(t *testing.T) {
 	}
 	if !strings.Contains(statusLine(a), errTest.Error()) {
 		t.Errorf("状態行 = %q, 検出の警告が出ていない", statusLine(a))
+	}
+	if a.active != 0 {
+		t.Errorf("エラーでタブが変わっている（active = %d）", a.active)
 	}
 
 	// page へ配られるスナップショットも直前の成功結果を保つ。
@@ -232,13 +218,19 @@ func TestBackgroundColorResolvesStyles(t *testing.T) {
 // ChromeMsg は有効タブのものだけを採用する。
 func TestChromeFromActiveTabOnly(t *testing.T) {
 	a, _ := withSpies(newApp(exec.NewFake()))
+	// 空の ChromeMsg（pageChrome）にモーダルと入力中を立てたもの。
+	filtering := func(tab int) page.ChromeMsg {
+		c := pageChrome(tab)
+		c.Modal, c.Input = true, "絞り込み"
+		return c
+	}
 
-	a, _ = update(a, chromeWith(1, true, "絞り込み"))
+	a, _ = update(a, filtering(1))
 	if a.chrome.Modal || a.chrome.Input != "" {
 		t.Errorf("無効タブの ChromeMsg を採用している: %+v", a.chrome)
 	}
 
-	a, _ = update(a, chromeWith(0, true, "絞り込み"))
+	a, _ = update(a, filtering(0))
 	if !a.chrome.Modal || a.chrome.Input != "絞り込み" {
 		t.Errorf("有効タブの ChromeMsg を採用していない: %+v", a.chrome)
 	}
@@ -261,43 +253,33 @@ func TestViewDeclaresAltScreen(t *testing.T) {
 	}
 }
 
-// 監査ログの記録先が共有状態に載る（Issue #71）。
+// 起動時に決まる値は共有状態へ載り、まだ確定していない値は載らない。
 //
-// 載らないと、外部コマンドを伴わない削除（internal/disk のファイル削除）が
-// 記録先を持てず、確認を経た破壊的操作が監査ログに 1 行も残らない。
-func TestStateCarriesAuditLogger(t *testing.T) {
+// 組み立ては 1 つ（New → state）なので 1 本にまとめてある。表明ごとの理由は次のとおり。
+func TestStateCarriesStartupValues(t *testing.T) {
 	lg := audit.Discard()
-	a := New(appconfig.Default(), appconfig.Caps{}, exec.NewFake(), Options{Audit: lg})
-
-	if got := a.state().Audit; got != lg {
-		t.Errorf("StateMsg.Audit = %v, want 渡した Logger（記録先が page へ届いていない）", got)
-	}
-}
-
-// 設定のディスク閾値が共有状態に載る（Issue #72）。
-//
-// 載らないと Disk タブの要約行が閾値を判定できず、既定値を表示側に埋め込むことになる。
-func TestStateCarriesDiskThresholds(t *testing.T) {
 	cfg := appconfig.Default()
 	cfg.DiskThresholds = appconfig.DiskThresholds{Warn: 55, Critical: 77}
-	a := New(cfg, appconfig.Caps{}, exec.NewFake(), Options{})
+	st := New(cfg, appconfig.Caps{}, exec.NewFake(), Options{Audit: lg}).state()
 
-	if got := a.state().Disk.Thresholds; got != cfg.DiskThresholds {
-		t.Errorf("StateMsg.Disk.Thresholds = %+v, want %+v", got, cfg.DiskThresholds)
+	// 監査ログの記録先（Issue #71）。載らないと、外部コマンドを伴わない削除
+	// （internal/disk のファイル削除）が記録先を持てず、確認を経た破壊的操作が
+	// 監査ログに 1 行も残らない。
+	if st.Audit != lg {
+		t.Errorf("StateMsg.Audit = %v, want 渡した Logger（記録先が page へ届いていない）", st.Audit)
 	}
-}
-
-// _work 使用量と保有スコープは、確定するまで共有状態に載らない（Issue #73 / #79）。
-//
-// 未集計を 0 バイトとして、判定前を「スコープ無し」として配ると、
-// 一覧が誤った使用量を出し、権限のあるトークンの操作が塞がれる。
-func TestStateStartsWithoutWorkUsageOrScopes(t *testing.T) {
-	a := New(appconfig.Default(), appconfig.Caps{}, exec.NewFake(), Options{})
-
-	if got := a.state().Disk.Work; len(got) != 0 {
-		t.Errorf("StateMsg.Disk.Work = %v, want 空（未集計はキーを持たない）", got)
+	// 設定のディスク閾値（Issue #72）。載らないと Disk タブの要約行が閾値を判定
+	// できず、既定値を表示側に埋め込むことになる。
+	if st.Disk.Thresholds != cfg.DiskThresholds {
+		t.Errorf("StateMsg.Disk.Thresholds = %+v, want %+v", st.Disk.Thresholds, cfg.DiskThresholds)
 	}
-	if a.state().Scopes.Known {
+	// _work 使用量と保有スコープ（Issue #73 / #79）は確定するまで載せない。未集計を
+	// 0 バイトとして、判定前を「スコープ無し」として配ると、一覧が誤った使用量を
+	// 出し、権限のあるトークンの操作が塞がれる。
+	if len(st.Disk.Work) != 0 {
+		t.Errorf("StateMsg.Disk.Work = %v, want 空（未集計はキーを持たない）", st.Disk.Work)
+	}
+	if st.Scopes.Known {
 		t.Error("StateMsg.Scopes.Known = true, want false（まだ引いていない）")
 	}
 }

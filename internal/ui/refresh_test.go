@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/ousiassllc/gsr-helper/internal/exec"
@@ -76,9 +77,4 @@ func TestStaleDiscoverResultDoesNotOverwrite(t *testing.T) {
 }
 
 // errStale は結果の取り違えを見分けるための印。
-var errStale = errStaleType{}
-
-// errStaleType は error を満たす最小の型。
-type errStaleType struct{}
-
-func (errStaleType) Error() string { return "新しい周期の結果" }
+var errStale = errors.New("新しい周期の結果")
