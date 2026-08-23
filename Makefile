@@ -4,6 +4,9 @@ GO   ?= go
 BIN  := gsr-helper
 CMD  := ./cmd/gsr-helper
 
+# run に渡す引数。make run ARGS="--root /path/to/actions-runner" のように使う。
+ARGS ?=
+
 # go fmt が内部で使う gofmt（GOROOT/bin/gofmt）を fmt-check でも使い、整形と検査で
 # ツールチェーンがずれないようにする。
 GOFMT ?= $(shell $(GO) env GOROOT)/bin/gofmt
@@ -13,7 +16,7 @@ GOFMT ?= $(shell $(GO) env GOROOT)/bin/gofmt
 # ファイルを含み、testdata/ と入れ子 worktree は含まない）になる。
 GOFILES_TMPL := {{range .GoFiles}}{{printf "%s/%s\n" $$.Dir .}}{{end}}{{range .CgoFiles}}{{printf "%s/%s\n" $$.Dir .}}{{end}}{{range .TestGoFiles}}{{printf "%s/%s\n" $$.Dir .}}{{end}}{{range .XTestGoFiles}}{{printf "%s/%s\n" $$.Dir .}}{{end}}{{range .IgnoredGoFiles}}{{printf "%s/%s\n" $$.Dir .}}{{end}}
 
-.PHONY: help tools fmt fmt-check vet lint linterly test build hooks check
+.PHONY: help tools fmt fmt-check vet lint linterly test build run hooks check
 
 help: ## ターゲット一覧を表示する
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -53,6 +56,9 @@ build: ## 全パッケージをコンパイル検証し、エントリポイン�
 		echo "$(GO) build -o $(BIN) $(CMD)"; \
 		$(GO) build -o $(BIN) $(CMD); \
 	fi
+
+run: build ## TUI を起動する（make run ARGS="--root /path/to/actions-runner"）
+	./$(BIN) $(ARGS)
 
 hooks: ## Git Hooks を登録する
 	$(GO) tool lefthook install
