@@ -1074,38 +1074,38 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 | `ui/organism/dialog` | 1994 | 6 | pass |
 | `ui/page/logs` | 1994 | 6 | pass |
 | `ui` | 1988 | 12 | pass |
+| `ui/page/runners` | 1983 | 17 | pass |
 | `ui/page` | 1970 | 30 | pass |
 | `ui/organism/table` | 1969 | 31 | pass |
 | `ui/page/disk` | 1940 | 60 | pass |
 | `ui/page/setup` | 1883 | 117 | pass |
-| `ui/page/runners` | 1983 | 17 | pass |
 | `ui/page/config` | 1737 | 263 | pass |
-| `ui/page/jobs` | 1684 | 316 | pass |
 | `ui/page/pagetest` | 1696 | 304 | pass |
-| `ui/keymap` | 1666 | 334 | pass |
+| `ui/page/jobs` | 1684 | 316 | pass |
+| `ui/keymap` | 1681 | 319 | pass |
 | `ui/page/doctor` | 1580 | 420 | pass |
 | `ui/organism/pane` | 1559 | 441 | pass |
-| `ui/molecule` | 1513 | 487 | pass |
 | `ui/molecule/listrow` | 1523 | 477 | pass |
+| `ui/molecule` | 1513 | 487 | pass |
 | `ui/page/runnerop` | 1399 | 601 | pass |
 | `ui/atom` | 1262 | 738 | pass |
 | `ui/page/runnerdetail` | 1224 | 776 | pass |
 | `ui/token` | 1217 | 783 | pass |
-| `ui/page/action` | 1200 | 800 | pass |
+| `ui/page/action` | 1184 | 816 | pass |
 | `ui/template` | 657 | 1343 | pass |
 | `ui/tabset` | 625 | 1375 | pass |
-| `ui/organism` | 521 | 1479 | pass |
-| `ui/page/disk/cleanview` | 408 | 1592 | pass |
-| `ui/page/configmodal` | 448 | 1552 | pass |
-| `ui/page/diskclean` | 312 | 1688 | pass |
 | `ui/molecule/chromebar` | 542 | 1458 | pass |
-| `ui/page/setupmodal` | 248 | 1752 | pass |
+| `ui/organism` | 521 | 1479 | pass |
+| `ui/page/disk/cleanview` | 491 | 1509 | pass |
+| `ui/page/configmodal` | 448 | 1552 | pass |
 | `ui/chrome` | 347 | 1653 | pass |
 | `ui/workscan` | 337 | 1663 | pass |
+| `ui/page/diskclean` | 312 | 1688 | pass |
 | `ui/discovery` | 290 | 1710 | pass |
 | `ui/hostreq` | 283 | 1717 | pass |
 | `ui/page/runners/rowview` | 269 | 1731 | pass |
 | `ui/ghscope` | 268 | 1732 | pass |
+| `ui/page/setupmodal` | 248 | 1752 | pass |
 | `ui/organism/table/tabletest` | 243 | 1757 | pass |
 | `ui/page/progressmodal` | 140 | 1860 | pass |
 | `ui/page/disk/confirmmodal` | 136 | 1864 | pass |
@@ -1156,7 +1156,7 @@ Config タブは項目の一覧・フォーム 6 種・差分の承認・反映�
 
 **その後の研磨で 2059 行になり、警告帯に入った（残り -59 行）。** 押し上げたのは critical 7 件の回帰テストである（二重承認でバックアップが壊れる、実行中の対象切り替えで別の runner へ書く、処理中に新しい編集を始められる、など）。**安全側の検証を行数の都合で落とさない方を採った。** 同じ判断を `ui/page/disk`（当時 2101 行、現在 1940 行。Issue #102 で分割済み）と `ui/page/runners`（当時 2164 行、現在 2018 行）も記録している。エラー境界の 2200 まで 141 行。
 
-**Issue #104 で 2117 行から 1719 行（残り 281 行）へ戻した。** ただし本節がそれまで挙げていた候補——「残った tea 非依存の部分（`items.go` の要約、`form.go` の検証）を `config/edit` へ出す」——は**もう使えなかった。**
+**Issue #104 で 2117 行から 1719 行へ戻した**（その後 Issue #108 が `regress_test.go` を 2 ファイルに分けたぶんを含めて現在 1737 行・残り 263 行）**。** ただし本節がそれまで挙げていた候補——「残った tea 非依存の部分（`items.go` の要約、`form.go` の検証）を `config/edit` へ出す」——は**もう使えなかった。**
 
 - **`form.go` の検証は既に出ている。** `ValidateLine` / `ValidateHook` / `ValidateLabelInput` / `ValidateRoots` / `ValidateRefresh` / `ValidatePercent` / `ValidateAuditLog` はすべて `config/edit` にあり、`form.go` に残っていたのは `huh.Field` の組み立てだけだった。**`huh` は端末の入力欄なので、ドメインの `config/edit` へは出せない**（依存が UI → ドメインの一方向でなくなる）。
 - **`items.go` の要約も同じである。** 現在値の読み取りは `edit.Summarize` / `edit.Summary` として既に出ており、残っていたのは `listrow.SettingView` と `token.Column` を組む部分である。これも UI の型なのでドメインへは出せない。
@@ -1165,7 +1165,7 @@ Config タブは項目の一覧・フォーム 6 種・差分の承認・反映�
 
 `page/pagetest/import_test.go` の `shared` マップに `"configmodal"` を登録してある（足さないとタブとして扱われ `TestOnlyTabsetImportsTabs` が落ちる）。
 
-**次にこのタブへ手を入れる Issue は 281 行を使ってよい。** それを使い切った場合に残る手は、`config.go` / `flow.go` / `results.go` の状態遷移そのものではなく、初回設定ウィザード（`selfconf.go`。編集対象が runner ではなくアプリ自身で、FR-41 / FR-42 と他の項目で要件が分かれている）を出すことである。
+**次にこのタブへ手を入れる Issue は 263 行を使ってよい。** それを使い切った場合に残る手は、`config.go` / `flow.go` / `results.go` の状態遷移そのものではなく、初回設定ウィザード（`selfconf.go`。編集対象が runner ではなくアプリ自身で、FR-41 / FR-42 と他の項目で要件が分かれている）を出すことである。
 
 #### `ui/page/disk` を `page/diskclean` へ分けた判断（Issue #13 / 実施は Issue #102）
 
@@ -1235,7 +1235,7 @@ Setup タブは追加・削除・バージョン更新の 3 操作と、フォ�
 
 **残りは Issue #9 で 125 行から 27 行へ減り、Issue #8 でついに超過した。** タブをまたぐ移動（`page.OpenTabMsg`）は親でしか実現できず、`keys.go` の `openTab` とその検証（`route_test.go` の 3 本）が加わったためである。検証に使う道具のうち App の非公開な状態に触れないもの（受け取った `Msg` を型で数える `Delivered`）は `page/pagetest` へ出してある。**次に `ui` 直下へ足す Issue は、まず既存のテストで `page/pagetest` へ出せるものを探すこと。** 超過した以上、テストを足す前に道具を出すこと。
 
-**余裕は「重複削減」ではなく「道具を `page/pagetest` へ出す」で作る。** Issue #31 でキーの配送を検証する道具を足したとき `ui` 直下は 1967 行（残り 33 行）まで詰まったが、走査の道具（`ScanKey`）とその形の網羅テストを `page/pagetest` へ移して 1875 行（残り 125 行）に戻した。`page/pagetest` は現在 1674 行で余裕があり（残り 326 行）、**そこは元々「タブと親で共用する検証の道具」の置き場である**（`helper_test.go` 冒頭の方針）。
+**余裕は「重複削減」ではなく「道具を `page/pagetest` へ出す」で作る。** Issue #31 でキーの配送を検証する道具を足したとき `ui` 直下は 1967 行（残り 33 行）まで詰まったが、走査の道具（`ScanKey`）とその形の網羅テストを `page/pagetest` へ移して 1875 行（残り 125 行）に戻した。`page/pagetest` は現在 1696 行で余裕があり（残り 304 行）、**そこは元々「タブと親で共用する検証の道具」の置き場である**（`helper_test.go` 冒頭の方針）。
 
 出せるものと出せないものの境目は「`App` の非公開な状態に触れるか」である。`ScanKey` は `page.ChromeMsg` / `page.GlobalKeyMsg` と `pagetest.Msgs` しか使わないので `App` の非公開な状態を 1 つも export せずに出せた。一方 `gate_test.go`（`a.chrome` / `next.active` / `after.inflight` / `tickMsg`）と `app_keys_test.go`（`a.tabs` / `a.active` / `a.chrome`）の**テスト本体**は非公開に触れる内部テストなので出せない。**これらを出そうとして export を増やすのは採らない**（`ui/organism/table` の本体を分割しない判断と、非公開の export を避ける点で理由を共有する）。**ただしテストが使う道具は別である**——Issue #77 は `press1` / `isQuit` / `blocked` を `page/pagetest` へ出した（どれも `tea.Model` の口と `page` の Msg しか使わない）。次に `ui` 直下へテストを足す Issue も、まず道具が `page/pagetest` へ出せないかを見ること。
 
@@ -1369,3 +1369,4 @@ Issue #31 で `table_test.go` の空振りしていたテスト（`View() != ""`
 | 1.53 | 2026-08-24 | 行数表を実測へ更新（`ui/page/setup` 2081 → 1883・pass、`ui/page/setupmodal` 248 を追加）。`ui/page/setup` の節を「`page/setupmodal` へ分けた判断」へ改め、Issue #105 で実施した切り出し（出したのはフォームと確認の 2 種で、進捗は既に `page/progressmodal` にある）と、タブ側に残した中身の組み立ての分担を追記 | 本節が「次に取れるのはモーダルの切り出し」と指示していた作業を Issue #105 が実施したため。「モーダル 4 種」という記述も実態（進捗は切り出し済み）と食い違っていた |
 | 1.54 | 2026-08-24 | 共通レイアウトの帯（`CapsBar` / `TabBar` / `KeyBar`）を `ui/molecule/chromebar` へ切り出した（Issue #106）。ディレクトリ構成のツリー・依存グラフ（`CBar` ノードと `Chrome --> CBar` / `Tabs --> CBar`。`Chrome --> Mol` は無くなったので落とした）・依存の規則の表・実装状況・行数表（`ui/molecule` 2034 → 1513・pass、`ui/molecule/chromebar` 542 を追加）をそろえ、「`ui/molecule` を分割した判断」に 2 周目の節を追加 | `molecule` 直下が 2034 行で再び警告帯に入った。1.18 以降に増えたのはすべてタブ・ダイアログごとに種類が増える部品で、本数が変わらない枠の帯と同じ予算に載っている状態が 1.18 とまったく同じだったため、同じ軸でもう一度分けた。テストの道具を出す手（28 行）では残りが 6 行にしかならず、次の 1 部品で再び超える |
 | 1.55 | 2026-08-24 | 行数表を実測へ更新（`ui/page/runners` 2018 → 1983・pass、`ui/page/pagetest` 1674 → 1696）。`ui/page/runners` の節の「次に足す Issue は道具を `page/pagetest` へ出せないか見ること」を、Issue #107 で実施した結果（`findChrome` / `collect` の写しを捨て、`pagetest.ChromeOf` を入れ子の束も辿る形へ直した）と、残り 17 行に対する次の手（テストの重複削減）へ書き換え | 指示していた削減を実施したため。あわせて `pagetest.ChromeOf` の doc が置いていた「ChromeMsg は入れ子の奥から出てこない」という前提が実際には成り立たず（`/` の束が 2 段になる）、写しを捨てるだけでは検証が落ちる状態だった |
+| 1.56 | 2026-08-24 | 1 ファイル 300 行を超えていた 7 ファイルを責務の境界で分けた（Issue #108〜#114。`page/config` の回帰テストを自身の設定と runner 設定へ、`runner/discover.go` の紐付けを `attach.go` へ、`appconfig` の書き込みを `save.go` / `save_test.go` へ、`exec/command` の秘匿値検証を `auditsecret_test.go` へ、`keymap` のヘルプ組み立てを `help.go` へ、`hostcaps` の時間の検証を `timeout_test.go` へ）。「ディレクトリの行数」の 2 つの表を実測へ更新し、崩れていた降順の並びを直した（`ui/page/runners` / `ui/keymap` / `ui/molecule` / `ui/page/disk/cleanview` / `ui/molecule/chromebar` / `ui/page/setupmodal` などの位置）。`ui/page/config` と `ui/page/pagetest` の散文の数値も実測へそろえた | 表には「実測値」と明記してあり、**この節が次の Issue の読む行数予算の規範である**。並びが崩れると、どこが逼迫しているかを表から読み取れない。1 ファイルの分割はディレクトリの合計をわずかに増やすため、分割のたびに表がずれる |
