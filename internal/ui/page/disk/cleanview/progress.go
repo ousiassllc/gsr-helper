@@ -28,6 +28,24 @@ const ProgressTitle = "クリーンアップ中…"
 // 行うため、別の文言を作ると docker の行だけ完了しても状態が変わらない。
 const DockerLabel = "docker / 未使用リソース"
 
+// Counts は行の状態を成功・失敗・未実行の件数に数える。
+//
+// **件数の出どころをこの 1 つに固定する。** 進捗表示の結果報告と状態行の 1 行が
+// 別々に数えると、片方だけが違う件数を出す状態を作れてしまう。
+func Counts(rows []molecule.ProgressView) (done, failed, pending int) {
+	for _, r := range rows {
+		switch r.State {
+		case molecule.ProgressDone:
+			done++
+		case molecule.ProgressFailed:
+			failed++
+		case molecule.ProgressWaiting, molecule.ProgressRunning:
+			pending++
+		}
+	}
+	return done, failed, pending
+}
+
 // Rows は計画の対象を未着手の行として並べる。
 //
 // 並びは disk.Apply が処理する順（パス → docker）に合わせる。実行順と表示順が
@@ -82,17 +100,7 @@ func Mark(rows []molecule.ProgressView, p disk.Progress) {
 // 進捗の到着順と終了通知の到着順が決まっていないためで、2 つの数え方を持つと
 // 「最後の進捗より先に終了が届いた回だけ 1 件ずれる」形の食い違いが起きる。
 func Report(rows []molecule.ProgressView, bytes int64, err error) []string {
-	done, failedRows, pending := 0, 0, 0
-	for _, r := range rows {
-		switch r.State {
-		case molecule.ProgressDone:
-			done++
-		case molecule.ProgressFailed:
-			failedRows++
-		case molecule.ProgressWaiting, molecule.ProgressRunning:
-			pending++
-		}
-	}
+	done, failedRows, pending := Counts(rows)
 
 	out := []string{"成功: " + strconv.Itoa(done) + " 件"}
 	if failedRows > 0 {

@@ -15,7 +15,8 @@
 // 秒〜分かかりうるため、既定タブ（Runners）の更新周期に載せると
 // 「起動から一覧表示まで 1 秒以内」（docs/requirements/non-functional.md）を壊す。
 // 駆動するのは最初の検出が成功した直後と、手動の再読み込み（r）のときだけである
-// （親の startWorkScan）。
+// （親の startBackground と、r の処理）。**「1 度目か」を見るのは親である**——State は
+// 実行中の重複だけを防ぐので、Start 自体は何度呼んでもよい。
 //
 // Disk タブが自分で駆動する内訳の集計（page/disk の scan.go）とは別物である。
 // あちらは削除の単位ごとの内訳を判明順に出すためのもので、こちらは 1 台につき
@@ -137,6 +138,22 @@ func (s *State) Start(runners []runner.Runner) tea.Cmd {
 
 // Started は 1 度でも集計を始めたかを返す。
 func (s *State) Started() bool { return s.seq > 0 }
+
+// StartOnce は 1 度目だけ集計を始める。2 度目以降は nil を返す。
+//
+// **呼び出し元の契機は「検出が成功した周期」であり、初回とは限らない**
+// （discovery.Reconcile の StartHostReq は成功のたびに真になる）。素の Start を
+// そこから呼ぶと、実行中でない限り 3 秒ごとに再走査が始まり、この集計を再検出
+// サイクルから外した意味が無くなる。
+//
+// Start と分けてあるのは、手動の再読み込み（r）は何度でも走ってよいためである。
+// 「1 度きり」は呼び出し側の契機ごとの性質であって、集計そのものの性質ではない。
+func (s *State) StartOnce(runners []runner.Runner) tea.Cmd {
+	if s.Started() {
+		return nil
+	}
+	return s.Start(runners)
+}
 
 // Apply は集計 1 周期分の結果を取り込む。
 //

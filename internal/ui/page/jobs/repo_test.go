@@ -139,3 +139,56 @@ func TestJobRowDegradesOnUnknownLogFormat(t *testing.T) {
 		t.Errorf("解析できていないのにリポジトリ名が出ている:\n%s", body)
 	}
 }
+
+// **前のジョブのログを今のジョブのものとして出さない。**
+//
+// ジョブが切り替わった直後は新しい Worker ログがまだ無い。そのまま直近のログを読むと、
+// 前のジョブのリポジトリ名がこのジョブの全期間ずっと出続ける。同時実行中に埋めないのと
+// 同じ理由（取り違えた表示は、無い表示より悪い）。
+func TestJobRowIgnoresLogOlderThanTheJob(t *testing.T) {
+	dir := t.TempDir()
+	r := jobRunner(dir, 1)
+	workerLog(t, dir, trackingLine(r.WorkDir))
+
+	// ログをジョブ開始より前の更新時刻にする（＝前のジョブのログ）。
+	path := filepath.Join(dir, logs.DiagDir, "Worker_20260821-120544-utc.log")
+	old := r.Workers[0].Started.Add(-time.Hour)
+	if err := os.Chtimes(path, old, old); err != nil {
+		t.Fatalf("Chtimes: %v", err)
+	}
+
+	body := settle(t, pagetest.State(120, 16, r)).View().Content
+
+	if strings.Contains(body, "ousiassllc") {
+		t.Errorf("前のジョブのログからリポジトリ名を出している:\n%s", body)
+	}
+}
+
+// ログがまだ無いジョブは覚えず、後の周期で引き直す。
+//
+// 覚えてしまうと、ジョブ開始直後に 1 度引いただけで以後ずっと `-` のままになる。
+func TestJobInfoIsRetriedUntilTheLogAppears(t *testing.T) {
+	dir := t.TempDir()
+	r := jobRunner(dir, 1)
+	st := pagetest.State(120, 16, r)
+
+	// 1 周目: ログがまだ無い。
+	m := settle(t, st)
+	if strings.Contains(m.View().Content, "ousiassllc") {
+		t.Fatal("ログが無いのにリポジトリ名が出ている")
+	}
+
+	// 2 周目: ログが現れたら引き直して埋まる。
+	workerLog(t, dir, trackingLine(r.WorkDir))
+	m, cmd := m.Update(st)
+	for _, msg := range pagetest.Msgs(cmd) {
+		if tab, ok := msg.(page.TabMsg); ok {
+			msg = tab.Msg
+		}
+		m, _ = m.Update(msg)
+	}
+
+	if !strings.Contains(m.View().Content, "ousiassllc/gsr-help") {
+		t.Errorf("ログが現れても引き直していない:\n%s", m.View().Content)
+	}
+}

@@ -49,6 +49,7 @@ graph TD
     UIApp --> Doctor
     UIApp --> Config
     UIApp --> Appconf
+    UIApp --> Audit
 
     Svc --> Runner
     Svc --> Appconf
@@ -629,6 +630,13 @@ bubbletea の Model 群。**内部を Atomic Design で階層化する。** 部�
 | `ui/molecule/listrow` | molecule | 一覧の 1 行。セル列（`[]string`）を返す。純粋関数。一覧を持つタブが 1 つずつ足す |
 | `ui/chrome` | molecule | 本体以外の領域（ヘッダ・タブ行・状態行・フッタ）の中身の組み立て。親 Model の型も bubbletea も知らない純粋関数。import するのは `ui/molecule` / `ui/atom` / `ui/token` だけで、**ドメインの型は受け取らない**（`chrome.View` はバッジの真偽値・件数・`[]molecule.TabView` といった表示用の値のみ）。`Caps` / `Result` / `[]tabset.Tab` からの写し替えは親 Model が行う |
 | `ui/tabset` | page | タブのメタ情報と並び。`ui/page/<tab>` を import する唯一の場所 |
+| `ui/discovery` | — | 検出の予算・結果 Msg・発行・間隔決定・周期の突き合わせ（`Reconcile`）。UI ランタイムを知らない |
+| `ui/workscan` | — | runner ごとの `_work` 使用量の集計と、その周期の管理。**再検出サイクルには載せない** |
+| `ui/ghscope` | — | トークンの保有スコープの取得。起動後に 1 度だけ引き、取得前・失敗時は操作を塞がない |
+| `ui/page/progressmodal` | page | `organism/pane.ProgressList` を `page.Modal` へ配線する汎用部分。Setup / Disk タブが共有 |
+| `ui/page/disk/confirmmodal` | page | Disk タブのクリーンアップ確認ダイアログの包み |
+| `ui/page/disk/cleanview` | page | 確認の文面・進捗行・削除可否の判定。すべて純粋関数 |
+| `ui/page/runners/rowview` | page | Runners タブの一覧の行の組み立て。純粋関数 |
 | `ui/atom` | atom | 最小の表示単位。純粋関数 |
 | `ui/keymap` | keymap | キー定義とヘルプ文言（`bubbles/key.Binding`）。読み手の範囲は [TUI コンポーネント設計の依存の規則](../ui/atomic-design.md#依存の規則) |
 | `ui/token` | token | 色・記号・幅。色は背景の明暗で解決し、色を使わない場合の縮退をここに閉じる。`huh.Theme` もここで組み立てる |
@@ -707,3 +715,4 @@ interface はこの 3 つに留める。ドメインごとの interface は、�
 | 1.29 | 2026-08-23 | 依存グラフに実装にあって描かれていなかった 5 本（`SetupJob --> Exec` / `SetupJob --> Runner` / `SetupJob --> RScope` / `Setup --> RScope` / `GH --> RScope`）を追加した | 1.27 で「依存グラフを実際の import と照合した」と記しながら、`setup/job` が `internal/exec` / `internal/runner` / `internal/runner/scope` を、`internal/setup` と `internal/gh` が `internal/runner/scope` を直に import している事実が落ちていた。**このグラフは §依存の規則 を突き合わせる先の一次情報である**ため、辺の欠落は「その依存は存在しない」と読まれる。とくに `setup/job → exec` は、外部コマンドを `exec` 経由に限定するという規則に**従った**正しい import であるにもかかわらず、グラフに無いことを根拠に規則違反（あるいは循環依存の持ち込み）と判定され、差し戻される側に倒れる。`GH --> RScope` も、`internal/gh` が `internal/runner` 全体ではなくスコープだけを参照するという [`internal/runner/scope`](#internalrunnerscope) の分離理由そのものが、グラフからは裏取りできない状態だった（PR #78 の 3 周目レビュー指摘） |
 | 1.30 | 2026-08-23 | doctor（Issue #11）の実装を反映。`Check` の `Run` の戻りを `[]Result` に改め、runner ごとに判定する項目が行を分ける必要があることを理由として明記。`Input` の差し替え口（`Now` / `Dial` / `Getenv` / `LookPath` / `FSRoot` / `NewClient`）を追記。分類ごとの下位パッケージへの分割（`doctor/check` を葉に置く理由・入口を `Checks()` に絞る理由・`internal/runner` を変更せず `systemctl show` を自前で発行する理由）を「パッケージの分割」として新設。`internal/gh` の `TokenScopes` を実装済みへ改め、`Scopes.Classic` による fine-grained PAT の区別と包含関係の判定を追記 | 草案の `Run(ctx, in) CheckResult`（単数）は、runner ごとに 1 行を並べる[画面仕様](../ui/screens.md#doctor-タブ)の TARGET 列と両立しない。単数のまま実装すると、レジストリが検出結果に依存するか TARGET 列を捨てるかのどちらかになる。分割の記述が無いと、次に項目を足す Issue が 1 ディレクトリ 2000 行の上限に当たってから置き場所を考えることになる |
 | 1.31 | 2026-08-23 | Issue #71 の実装を反映。依存グラフに `Disk --> Audit` を追加。`internal/audit` の節を「`exec` から呼ばれる」から「`internal/exec/command` と `internal/disk` の 2 層から呼ばれる」へ改め、`Logger.Report` / `WithErrorFunc` を責務表に追加し、契約を広げても記録漏れが増えない理由（層ごとに記録の起点を 1 関数へ固定）を追記。`internal/disk` の節の `Apply` の署名に `lg *audit.Logger` を追加し、「ファイル削除は監査ログに残らない」という記述を「ファイル削除も監査ログに残る」に書き換えて `removeTarget` が記録すること・`command` に `["(削除)", <パス>]` を載せることを明記 | ファイルの再帰削除の監査ログ記録を実装したため。1.18 以前から本節が明記していた「ファイル削除は外部コマンドではないため監査ログに残らない」という欠落が解消されたので、実装と一致するよう更新する必要があった。`internal/disk` が `internal/audit` を新たに import するため、依存グラフの辺も追加しないと § 依存の規則 と食い違う |
+| 1.32 | 2026-08-24 | 依存グラフに `UIApp --> Audit` を追加し、`internal/ui` のサブパッケージ表に本 PR が新設した 8 つ（`ui/discovery` / `ui/workscan` / `ui/ghscope` / `ui/page/progressmodal` / `ui/page/disk/confirmmodal` / `ui/page/disk/cleanview` / `ui/page/runners/rowview`）を追加 | `internal/ui` と `internal/ui/page` が新たに `internal/audit` を import した（#71 の配布経路）のにグラフには `Disk --> Audit` しか足しておらず、辺の欠落は「その依存は存在しない」と読まれて正当な import が規則違反と判定される（改訂 1.29 が同種の欠落を defect として直した前例がある）。サブパッケージ表は実在するパッケージを本書から辿れるようにするためのもので、7 つが grep 0 件だった |

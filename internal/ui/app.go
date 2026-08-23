@@ -74,8 +74,7 @@ type App struct {
 
 	tabs   []tabset.Tab
 	active int
-	// activated は起動時に選択されているタブへ前面化を配ったか（lifecycle.go）。
-	// 共有状態は何度も配られるため、覚えていないと同じタブへ何度も届く。
+	// activated は起動時の前面化を配ったか（tabset.ActivateOnce）。
 	activated bool
 	chrome    page.ChromeMsg
 	// notice は親が状態行に出す一時的な案内（無効なタブの理由）。次の打鍵で消える。
@@ -279,9 +278,9 @@ func (a App) state() page.StateMsg {
 // するのは選択中のタブのものだけ（Update の page.ChromeMsg の分岐）。配り方そのもの
 // （無効なタブを飛ばす・全有効タブへ配る理由）は tabset.Distribute の doc を参照。
 func (a *App) distribute() tea.Cmd {
-	// 前面化を共有状態より先に配る。activate（タブの切り替え）と同じ順序にして、
-	// 張り直す page が最新のスナップショットを持った状態で張れるようにする。
-	on := a.activateInitial()
+	// 前面化を共有状態より先に配る（activate と同じ順序。張り直す page が最新の
+	// スナップショットを持った状態で張れるようにするため）。
+	on := tabset.ActivateOnce(a.tabs, a.active, &a.activated)
 	return tea.Batch(on, tabset.Distribute(a.tabs, a.state()))
 }
 

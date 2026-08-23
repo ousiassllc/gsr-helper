@@ -24,9 +24,12 @@ import (
 // 合わせて 1 段の tea.Batch にする。ここで束ねると Batch が入れ子になり、配布ぶんの
 // ChromeMsg を親の検証が取り出せなくなる。
 func (a *App) startBackground() []tea.Cmd {
+	// **3 つとも「1 度きり」を自分で覚えている。** 呼び出し元の契機は「検出が成功した
+	// 周期」であり初回とは限らないので（discovery.Reconcile の StartHostReq は成功の
+	// たびに真になる）、ここで数え直さない。
 	cmds := []tea.Cmd{
 		a.startHostReq(),
-		a.work.Start(a.result.Runners),
+		a.work.StartOnce(a.result.Runners),
 		a.scopes.Start(a.ex, a.caps.GitHubToken),
 	}
 

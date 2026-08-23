@@ -224,6 +224,27 @@ func Deliver(tabs []Tab, i int, msg tea.Msg) tea.Cmd {
 	return cmd
 }
 
+// ActivateOnce は起動時に選択されているタブへ page.ActivateMsg を 1 度だけ配る
+// （Issue #63）。done が真なら何もしない。配れたときだけ done を真にする。
+//
+// **配る場所が親の Init ではないのは、Init が Model を書き換えられない（Cmd だけを
+// 返す）ためである。** 配ったことを覚えられないと、共有状態が配られるたび
+// （端末サイズ・背景色・3 秒ごとの再検出）に同じタブへ前面化が届き、
+// page.ActivateMsg で購読を張る page が周期ごとに 1 本ずつ購読を増やす。
+//
+// タブの切り替えに伴う前面化（ui の activate）と役割を分けてあるのは、切り替えでは
+// 離れるタブへの page.DeactivateMsg と対になる必要があるのに対し、起動時の 1 度目には
+// 対になる相手が居ないためである。往復して戻ってきたときの前面化は切り替えの側が配る。
+//
+// **配れないうちは覚えない。** 有効な page が入るのを待って次の機会に配る。
+func ActivateOnce(tabs []Tab, active int, done *bool) tea.Cmd {
+	if *done || !Live(tabs, active) {
+		return nil
+	}
+	*done = true
+	return Deliver(tabs, active, page.ActivateMsg{})
+}
+
 // Distribute は共有状態を有効な全タブへ配る。
 //
 // 選択中のタブだけでなく有効な全タブへ配るのは、タブを切り替えた瞬間に古いサイズや

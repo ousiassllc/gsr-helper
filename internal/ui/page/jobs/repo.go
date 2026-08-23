@@ -3,6 +3,7 @@ package jobs
 import (
 	"path/filepath"
 	"strconv"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -32,6 +33,9 @@ func jobKey(dir string, pid int) string {
 type jobInfoMsg struct {
 	key  string
 	info logs.JobInfo
+	// retry が真なら、まだこのジョブ自身のログが現れていない。覚えずに次の周期で
+	// 引き直す（onJobInfo）。
+	retry bool
 }
 
 // resolveInfo はまだ引いていないジョブについて解析の Cmd を発行し、覚えている結果を
@@ -60,7 +64,7 @@ func (m *Model) resolveInfo(runners []runner.Runner) tea.Cmd {
 			m.asked = make(map[string]struct{})
 		}
 		m.asked[key] = struct{}{}
-		cmds = append(cmds, m.parseWorker(key, r))
+		cmds = append(cmds, m.parseWorker(key, r, r.Workers[0].Started))
 	}
 
 	m.prune(live)
@@ -86,26 +90,44 @@ func (m *Model) prune(live map[string]struct{}) {
 // parseWorker は runner の直近の Worker ログを解析する Cmd を返す。
 //
 // 直近のログを使うのは、走っているジョブが 1 本だけであることを呼び出し側が
-// 確かめているためである（resolveInfo）。ログが 1 件も無い（まだ書かれていない）
-// 場合は空の結果を返し、行は `-` に縮退する。
-func (m Model) parseWorker(key string, r runner.Runner) tea.Cmd {
+// 確かめているためである（resolveInfo）。
+//
+// **ログの更新時刻がジョブの開始より古ければ、それは前のジョブのログである。**
+// ジョブが切り替わった直後は新しい Worker ログがまだ無く、そのまま読むと前のジョブの
+// リポジトリ名を今のジョブのものとして出す。取り違えた表示は、無い表示より悪い
+// （同時実行中に埋めないのと同じ理由）。この場合は覚えずに次の周期へ回す。
+//
+// **一覧の取得も Cmd の中で行う。** logs.LatestWorker はディレクトリの走査と
+// エントリごとの Stat を伴うファイル I/O であり、Update の中で走らせると再検出の
+// たびに UI が止まる（このファイル冒頭の約束）。
+func (m Model) parseWorker(key string, r runner.Runner, started time.Time) tea.Cmd {
 	dir := filepath.Join(r.Dir, logs.DiagDir)
-	f, ok := logs.LatestWorker(r)
 	return page.Do(m.tab, func() tea.Msg {
-		if !ok {
-			return jobInfoMsg{key: key, info: logs.JobInfo{}}
+		f, ok := logs.LatestWorker(r)
+		if !ok || f.ModTime.Before(started) {
+			// このジョブのログがまだ現れていない。次の周期で引き直す。
+			return jobInfoMsg{key: key, retry: true}
 		}
+		// ログが現れた以上、読めた内容がそのジョブの答えである（取り出し口を持たない
+		// ジョブもあるので、空でも覚えて引き直さない）。
 		info, _ := logs.ParseWorker(dir, f.Name)
 		return jobInfoMsg{key: key, info: info}
 	})
 }
 
 // onJobInfo は解析結果を覚え、一覧に反映する。
+//
+// retry のものは覚えない。覚えると、ログが書かれる前に 1 度引いただけのジョブが
+// 以後ずっと `-` のまま再試行されなくなる。発行済みの印（asked）だけを外して
+// 次の周期に委ねる。
 func (m *Model) onJobInfo(msg jobInfoMsg) {
+	delete(m.asked, msg.key)
+	if msg.retry {
+		return
+	}
 	if m.info == nil {
 		m.info = make(map[string]logs.JobInfo)
 	}
 	m.info[msg.key] = msg.info
-	delete(m.asked, msg.key)
 	m.tbl.SetItems(sectionJobs, jobRows(m.st.Result.Runners, m.info))
 }

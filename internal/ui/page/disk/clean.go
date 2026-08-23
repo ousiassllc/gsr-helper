@@ -60,6 +60,13 @@ type cleanState struct {
 	rows []molecule.ProgressView
 	// report は完了後の結果報告。実行中は空。
 	report []string
+	// closed は進捗の channel が閉じたか、result は実行の終了通知。
+	//
+	// **両方そろうまで結果を確定しない**（finish）。進捗を待つ Cmd と終了を待つ Cmd は
+	// 別の goroutine で走るため到着順が決まっておらず、終了が先に届いた回だけ
+	// 最後の対象が未着手のまま報告に載る。
+	closed bool
+	result *applyDoneMsg
 }
 
 // progressMsg は進捗 1 件の到着。ok が偽なら channel が閉じたことを表す。
@@ -70,12 +77,11 @@ type progressMsg struct {
 
 // applyDoneMsg はクリーンアップの終了。
 //
-// 失敗件数を進捗の受信側で数えずに実行側から受け取るのは、進捗を待つ Cmd と
-// 終了を待つ Cmd の到着順が決まっていないためである。受信側で数えると、最後の
-// 進捗より先に終了が届いた回だけ報告の件数が 1 件ずれる。
+// **失敗件数は載せない。** 件数は行の状態から数える（cleanview.Counts）ので出どころは
+// 1 つである。実行側の件数も受け取ると、到着順によって 2 つの数え方が違う答えを出す。
+// 到着順そのものへの対処は finish が受け持つ。
 type applyDoneMsg struct {
-	err    error
-	failed int
+	err error
 }
 
 // requestClean は c（Keys.Disk.Clean）に対する処理。**確認ダイアログを開くだけ**で、
@@ -154,20 +160,14 @@ func (m *Model) startClean(plan disk.CleanPlan) tea.Cmd {
 	lg := m.st.Audit
 
 	go func() {
-		failed := 0
-		err := disk.Apply(ctx, ex, lg, plan, func(p disk.Progress) {
-			if p.Err != nil {
-				failed++
-			}
-			ch <- p
-		})
+		err := disk.Apply(ctx, ex, lg, plan, func(p disk.Progress) { ch <- p })
 		close(ch)
-		doneCh <- applyDoneMsg{err: err, failed: failed}
+		doneCh <- applyDoneMsg{err: err}
 	}()
 
 	m.clean = &cleanState{
 		cancel: cancel, ch: ch, done: 0, total: total, bytes: plan.Bytes,
-		rows: cleanview.Rows(plan), report: nil,
+		rows: cleanview.Rows(plan), report: nil, closed: false, result: nil,
 	}
 	m.notice = ""
 	return tea.Batch(m.waitProgress(ch), m.waitApply(doneCh), m.openProgress())
@@ -209,8 +209,13 @@ func (m Model) waitApply(ch <-chan applyDoneMsg) tea.Cmd {
 // 全体件数は確認を通した計画の時点で確定しているため、進捗バーが出る
 // （atomic-design.md の「bubbles/progress を使う範囲」）。
 func (m *Model) onProgress(msg progressMsg) tea.Cmd {
-	if m.clean == nil || !msg.ok {
+	if m.clean == nil {
 		return nil
+	}
+	if !msg.ok {
+		// channel が閉じた＝全対象を送り終えた。終了通知が既に届いていれば確定する。
+		m.clean.closed = true
+		return m.finish()
 	}
 	m.clean.done = msg.progress.Done
 	cleanview.Mark(m.clean.rows, msg.progress)
@@ -233,10 +238,26 @@ func (m *Model) onApplyDone(msg applyDoneMsg) tea.Cmd {
 		return nil
 	}
 
+	m.clean.result = &msg
+	return m.finish()
+}
+
+// finish は進捗を出し切ったことと終了通知の両方がそろった時点で結果を確定する。
+//
+// **片方だけでは確定しない。** 2 つは別の goroutine から届き、到着順が決まっていない。
+// 終了が先に届いた時点で数えると、最後の対象がまだ未着手のまま報告に載り、
+// 進捗表示の「未実行 1 件」と状態行の「N 件を解放しました」が食い違う。
+func (m *Model) finish() tea.Cmd {
+	if !m.clean.closed || m.clean.result == nil {
+		return nil
+	}
+
 	// 報告は ProgressList の結果報告欄に出す。状態行にも 1 行残すのは、進捗表示を
 	// 閉じたあとでも結果が読めるようにするためである（次の打鍵で消える）。
-	m.clean.report = cleanview.Report(m.clean.rows, m.clean.bytes, msg.err)
-	m.notice = cleanNotice(m.clean.total, m.clean.bytes, msg)
+	// **件数の出どころは行の状態 1 つに固定する**（cleanview.Counts）。
+	err := m.clean.result.err
+	m.clean.report = cleanview.Report(m.clean.rows, m.clean.bytes, err)
+	m.notice = cleanNotice(m.clean.rows, m.clean.bytes, err)
 	report := m.updateProgress()
 	stop := progressmodal.Stop(&m.overlay)
 
@@ -251,13 +272,17 @@ func (m *Model) onApplyDone(msg applyDoneMsg) tea.Cmd {
 // 失敗があるときに解放量を出さないのは、消せなかった対象のぶんが含まれた見込み値に
 // なるためである。見込みと実測が食い違う数字を「解放しました」と書くと、次に何をす
 // べきかの判断を誤らせる。
-func cleanNotice(total int, bytes int64, msg applyDoneMsg) string {
-	if msg.failed > 0 {
-		return "クリーンアップ完了: " + strconv.Itoa(total-msg.failed) + " 件成功 / " +
-			strconv.Itoa(msg.failed) + " 件失敗"
+func cleanNotice(rows []molecule.ProgressView, bytes int64, err error) string {
+	done, failed, pending := cleanview.Counts(rows)
+	switch {
+	case failed > 0:
+		return "クリーンアップ完了: " + strconv.Itoa(done) + " 件成功 / " +
+			strconv.Itoa(failed) + " 件失敗"
+	case err != nil:
+		return "クリーンアップに失敗しました: " + cleanview.FirstLine(err.Error())
+	case pending > 0:
+		return "クリーンアップを中断しました: " + strconv.Itoa(done) + " 件完了"
+	default:
+		return "クリーンアップ完了: " + strconv.Itoa(done) + " 件 / " + atom.Bytes(bytes) + " を解放しました"
 	}
-	if msg.err != nil {
-		return "クリーンアップに失敗しました: " + cleanview.FirstLine(msg.err.Error())
-	}
-	return "クリーンアップ完了: " + strconv.Itoa(total) + " 件 / " + atom.Bytes(bytes) + " を解放しました"
 }

@@ -54,3 +54,26 @@ func TestStateWithoutRunnersDoesNotAdvance(t *testing.T) {
 		t.Error("周期が進んでいる（次の契機で始められなくなる）")
 	}
 }
+
+// StartOnce は 1 度目だけ始める。手動の再読み込み（Start）は何度でも始められる。
+//
+// 「1 度きり」は呼び出し側の契機ごとの性質であって、集計そのものの性質ではない
+// （検出成功の周期は何度も来るが、r は押されたときだけ）。
+func TestStartOnceStartsOnlyTheFirstTime(t *testing.T) {
+	var s workscan.State
+	rs := []runner.Runner{runnerAt(t.TempDir())}
+
+	first := s.StartOnce(rs)
+	if first == nil {
+		t.Fatal("1 度目が始まらない")
+	}
+	// 1 度目の結果を取り込んでから 2 度目を試す（busy ではなく Started で塞ぐことの確認）。
+	s.Apply(run(t, first))
+	if s.StartOnce(rs) != nil {
+		t.Error("2 度目が始まっている（再検出のたびに走ることになる）")
+	}
+	// 明示的な再読み込みは通る。
+	if s.Start(rs) == nil {
+		t.Error("手動の再読み込みが塞がれている")
+	}
+}
