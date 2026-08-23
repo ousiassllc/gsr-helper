@@ -86,11 +86,25 @@ func defaultPrefix(configured, host string) string {
 }
 
 // reset は次に開くフォームの種類に合わせて入力を初期化する。
+//
+// **利用者が毎回入れる項目は必ず消す。** 受け皿は Model が持ち続ける 1 つきりで
+// （formValues の doc）、閉じても値は残る。一方 spec() は種類に関わらず全項目を
+// 読むため、消し忘れは「今のフォームに出ていないのに実行内容へ混ざる」形になる。
+// runnerGroup がその例で、入力欄があるのは 1 台ずつのフォームだけなのに、中断して
+// 一括追加を開くと画面に出ていない --runnergroup が黙って付いていた。url は両方に
+// 出るので隠れはしないが、中断した入力の持ち越し自体が承認時の読み合わせを狂わせる
+// ので同じ扱いにする。
+//
+// namePrefix / labels / installBase は消さない。設定ファイルの既定を持つ項目で、
+// applyDefaults が空欄のときだけ入れ直す（applyDefaults の doc）。既定を書き換えて
+// 使う運用（毎回同じラベルを付ける）で入力をやり直させる方が煩わしい。
 func (v *formValues) reset(st page.StateMsg, kind formKindOf) {
 	v.kind = kind
+	v.url = ""
 	v.count = "1"
 	v.name = ""
 	v.workDir = defaultWork
+	v.runnerGroup = ""
 	v.ephemeral = st.Setup.Defaults.Ephemeral
 	v.applyDefaults(st)
 }
