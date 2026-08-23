@@ -40,37 +40,26 @@ func (a *App) onTick() tea.Cmd {
 	return tea.Batch(a.discover(), a.tick())
 }
 
-// applyDiscovered は検出結果を取り込み、共有状態を配る Cmd を返す。
+// applyDiscovered は検出結果を取り込み、共有状態を配る Cmd を返す。周期の追い抜き・
+// 部分結果の扱い・起動時の前提チェック（FR-44）を許可する条件は discovery.Reconcile
+// の doc を参照（判断はそちらへ寄せ、ここは Outcome をフィールドへ書き写して配る
+// だけである）。
+//
+// 発行しないときは束ねない。**共有状態の配布だけの Cmd の形を変えない**ためで
+// ある（親の検証は 1 段展開で ChromeMsg を拾う）。
 func (a *App) applyDiscovered(msg discovery.Msg) tea.Cmd {
 	if a.inflight > 0 {
 		a.inflight--
 	}
-	if msg.Seq < a.applied {
-		// 追い抜かれた周期の結果は捨てる（discovery.Msg.Seq の doc）。
+
+	out := discovery.Reconcile(a.applied, a.result, a.err, msg)
+	if out.Stale {
 		return nil
 	}
-	a.applied = msg.Seq
+	a.applied, a.result, a.err = out.Applied, out.Result, out.Err
 
-	// 期限切れ・失敗した周期の部分結果では上書きしない。runner.Discover は
-	// ctx がキャンセルされた時点で残りの systemctl show を発行せず取れた分だけを
-	// 返すため、部分結果を採ると systemd 管理の runner が run.sh / - と誤表示され、
-	// 孤児ユニットも過少報告される。エラーは状態行の警告として出し、一覧は
-	// 直前の成功結果を保つ。
-	a.err = msg.Err
-	if msg.Err == nil {
-		a.result = msg.Result
-	}
 	cmd := a.distribute()
-	// runner 一覧を取り込めた最初の周期で起動時の前提チェックを 1 度だけ始める
-	// （FR-44）。判定は非同期なので、確定した時点でヘッダと状態行に現れる。
-	//
-	// **失敗した周期では発行しない。** 一覧を採らないまま発行すると、1 度きりの
-	// 実行を空の Runners で使い切り、runner ごとに判定する 2 項目（NOPASSWD sudo /
-	// docker グループ所属）がセッション中一度も走らず警告も出ない。
-	//
-	// 発行しないときは束ねない。**共有状態の配布だけの Cmd の形を変えない**ため
-	// である（親の検証は 1 段展開で ChromeMsg を拾う）。
-	if msg.Err == nil {
+	if out.StartHostReq {
 		if hr := a.startHostReq(); hr != nil {
 			return tea.Batch(cmd, hr)
 		}

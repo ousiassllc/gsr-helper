@@ -11,6 +11,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/ui/atom"
 	"github.com/ousiassllc/gsr-helper/internal/ui/organism/dialog"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/disk/confirmmodal"
 )
 
 // クリーンアップ（FR-30）の一本道を実装する。
@@ -102,7 +103,7 @@ func (m *Model) requestClean() tea.Cmd {
 	}
 
 	m.plan = plan
-	return openConfirm(&m.overlay, confirmInput(plan))
+	return confirmmodal.Open(&m.overlay, confirmInput(plan))
 }
 
 // onResult は確認ダイアログの決定を処理する。
@@ -112,7 +113,7 @@ func (m *Model) requestClean() tea.Cmd {
 // 触らない。
 func (m *Model) onResult(msg page.ResultMsg) tea.Cmd {
 	decided, ok := msg.Msg.(dialog.DecidedMsg)
-	if msg.Kind != confirmKind || !ok {
+	if msg.Kind != confirmmodal.Kind || !ok {
 		return nil
 	}
 

@@ -10,7 +10,6 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/exec"
 	"github.com/ousiassllc/gsr-helper/internal/ui/chrome"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
-	"github.com/ousiassllc/gsr-helper/internal/ui/tabset"
 )
 
 // 内部テスト（package ui）にしてある。タブのメタ情報・tickMsg・chrome が非公開で、
@@ -62,18 +61,6 @@ func withSpies(a App) (App, []*pagetest.Spy) {
 		spies = append(spies, s)
 	}
 	return a, spies
-}
-
-// lastEnabledTab は最後の有効なタブの添字を返す。無ければ -1。
-func lastEnabledTab(tabs []tabset.Tab) int {
-	last := -1
-	for i := range tabs {
-		if tabs[i].Enabled {
-			last = i
-		}
-	}
-
-	return last
 }
 
 // applyChrome は Cmd に含まれる ChromeMsg を親へ渡し、フッタを反映した App を返す。

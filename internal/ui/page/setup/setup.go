@@ -24,6 +24,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/ui/organism"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/action"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/progressmodal"
 )
 
 // runState は実行中の 1 件。
@@ -85,7 +86,7 @@ func New(tab int, st page.StateMsg) Model {
 	form := overlay.Register(formKind, newFormModal(st))
 	confirm := overlay.Register(confirmKind, newConfirmModal(st, confirmKind))
 	discard := overlay.Register(discardKind, newConfirmModal(st, discardKind))
-	progress := overlay.Register(progressKind, newProgressModal(st))
+	progress := overlay.Register(progressmodal.Kind, progressmodal.New(st))
 	scopeCmd := overlay.SetHelpScope(keymap.Set.SetupHelp)
 
 	m := Model{

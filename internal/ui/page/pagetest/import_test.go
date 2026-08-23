@@ -31,6 +31,9 @@ var shared = map[string]bool{
 	// runnerop は Runners / Jobs が共用するサービス制御の制御部であり、タブではない。
 	"runnerop": true,
 	"pagetest": true,
+	// progressmodal は Setup / Disk が共用する進捗表示のモーダルであり、タブではない
+	// （Issue #75）。
+	"progressmodal": true,
 }
 
 // テスト用の道具は本番の経路から import されない。

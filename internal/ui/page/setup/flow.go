@@ -11,6 +11,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/ui/molecule"
 	"github.com/ousiassllc/gsr-helper/internal/ui/organism/dialog"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/progressmodal"
 )
 
 // onRequest は他のタブ（Runners の n / D / u）からの依頼を処理する。
@@ -152,7 +153,7 @@ func (m *Model) onResult(msg page.ResultMsg) tea.Cmd {
 		}
 		m.discarded(decided.Confirmed)
 		return nil
-	case progressKind:
+	case progressmodal.Kind:
 		return m.onProgressResult(msg.Msg)
 	default:
 		return nil
