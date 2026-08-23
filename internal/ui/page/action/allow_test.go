@@ -103,7 +103,7 @@ func TestAllowReasons(t *testing.T) {
 		},
 		"run.sh 直起動": {
 			caps: fullCaps(), runner: standaloneRunner(),
-			keys: []string{"s", "x", "R"}, want: svc.ReasonStandalone,
+			keys: []string{"s", "x", "d", "R", "E"}, want: svc.ReasonStandalone,
 		},
 		"gh 未認証": {
 			caps: capsWithout(func(c *appconfig.Caps) { c.GitHubToken = false }), runner: sampleRunner(),
@@ -239,7 +239,7 @@ func TestChoicesDivider(t *testing.T) {
 }
 
 // 影響の併記は確認ダイアログを経る 3 操作（停止・強制停止・再起動）と削除が持つ
-// （screens.md の「Runners タブの操作」の表の影響の列）。
+// （screens.md の詳細画面のモックの括弧内）。
 func TestChoicesImpact(t *testing.T) {
 	withImpact := []string{}
 	for _, c := range testActions().Choices(sampleRunner(), fullCaps()) {
@@ -253,21 +253,22 @@ func TestChoicesImpact(t *testing.T) {
 	}
 }
 
-// 管理状態が判定できないときは、systemd 経路に依存する操作だけを専用の理由で塞ぐ。
+// 管理状態が判定できないときは、systemctl を要する操作を専用の理由で塞ぐ。
 //
 // 汎用の未対応（page.ReasonUnsupported）に落ちると、利用者は塞がれた原因を知れない。
-// 強制停止とドレインは worker のプロセスに作用するので残す。
+// 塞ぐ範囲は run.sh 直起動と同じ 5 つで、違うのは理由の文言だけである。強制停止は
+// worker のプロセスへ直接シグナルを送るので残す。
 func TestAllowBlocksManagedUnknown(t *testing.T) {
 	r := standaloneRunner()
 	r.Managed = runner.ManagedUnavailable
 
-	for _, k := range []string{"s", "x", "R", "E"} {
+	for _, k := range []string{"s", "x", "d", "R", "E"} {
 		ok, reason := Allow(action(k, true), r, fullCaps())
 		if ok || reason != svc.ReasonManagedUnknown {
 			t.Errorf("キー %q = %v/%q, want false/%q", k, ok, reason, svc.ReasonManagedUnknown)
 		}
 	}
-	for _, k := range []string{"X", "d", "l"} {
+	for _, k := range []string{"X", "l"} {
 		if _, reason := Allow(action(k, true), r, fullCaps()); reason == svc.ReasonManagedUnknown {
 			t.Errorf("キー %q が管理状態不明で塞がれている", k)
 		}

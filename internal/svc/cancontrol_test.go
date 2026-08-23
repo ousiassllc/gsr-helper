@@ -78,15 +78,15 @@ func TestCanControlReasons(t *testing.T) {
 			caps: noSystemd, runner: systemdRunner(),
 			blocked: allOps(), want: ReasonSystemd,
 		},
-		// ドレイン停止も塞ぐ。待機の後に systemctl stop を発行する（Drainer.Drain）
-		// ため、ユニットの無い runner では待ち切っても必ず失敗する。
+		// systemctl を安全に駆動できない 2 段は同じ 5 つを塞ぎ、強制停止だけを通す。
+		// 違うのは理由の文言（管理外と判明したか、判定できないか）だけである。
 		"run.sh 直起動": {
 			caps: fullCaps(), runner: standaloneRunner(),
-			blocked: []Op{OpStart, OpStop, OpDrain, OpRestart}, want: ReasonStandalone,
+			blocked: []Op{OpStart, OpStop, OpDrain, OpRestart, OpEnable}, want: ReasonStandalone,
 		},
 		"起動方式が判定不能": {
 			caps: fullCaps(), runner: unavailableRunner(),
-			blocked: []Op{OpStart, OpStop, OpRestart, OpEnable}, want: ReasonManagedUnknown,
+			blocked: []Op{OpStart, OpStop, OpDrain, OpRestart, OpEnable}, want: ReasonManagedUnknown,
 		},
 		"能力が揃っている": {
 			caps: fullCaps(), runner: systemdRunner(),
@@ -161,20 +161,34 @@ func TestCanControlAllowsKillWithoutSystemdUnit(t *testing.T) {
 	}
 }
 
-// ドレイン停止は run.sh 直起動では塞ぎ、判定不能では通す。
+// systemctl を安全に駆動できない 2 段（run.sh 直起動・判定不能）は同じ 5 つを塞ぐ。
 //
-// 待機の後に systemctl stop を発行する（Drainer.Drain）ため、**ユニットが無いと
-// 判明している** run.sh 直起動では、無制限に待った末に必ず失敗する。同じ最終動作の
-// 停止（x）が即座に塞がれるのに d だけが長時間待たせてから失敗するのは筋が通らない。
-//
-// 判定不能はユニット一覧を取得できなかっただけで、ユニット名は `<dir>/.service` から
-// 読める。停止が成立しうる以上、待機を始めてよい。
-func TestCanControlDrainFollowsUnitAvailability(t *testing.T) {
-	if ok, reason := CanControl(OpDrain, standaloneRunner(), fullCaps()); ok || reason != ReasonStandalone {
-		t.Errorf("drain（run.sh）= %v/%q, want false/%q", ok, reason, ReasonStandalone)
+// 塞ぐ範囲が段で食い違うと、停止（x）が塞がれている runner に対しドレイン停止（d）が
+// 同じ systemctl stop を確認も猶予も無く発行する（Worker が 0 件なら Drainer.Drain は
+// 初回走査で即 stop へ抜ける）、あるいは「管理外」と分類した runner に対し
+// systemctl enable が発行される（FR-09 違反）といった穴が開く。理由の文言だけが
+// 段ごとに違い、範囲は同じであることをここで固定する。
+func TestCanControlBlocksSameOpsWhenSystemctlUnsafe(t *testing.T) {
+	blocked := []Op{OpStart, OpStop, OpDrain, OpRestart, OpEnable}
+	stages := map[string]struct {
+		runner runner.Runner
+		reason string
+	}{
+		"run.sh 直起動": {standaloneRunner(), ReasonStandalone},
+		"判定不能":       {unavailableRunner(), ReasonManagedUnknown},
 	}
-	if ok, reason := CanControl(OpDrain, unavailableRunner(), fullCaps()); !ok {
-		t.Errorf("drain（判定不能）が塞がれている: %q", reason)
+	for name, st := range stages {
+		t.Run(name, func(t *testing.T) {
+			for _, op := range blocked {
+				ok, reason := CanControl(op, st.runner, fullCaps())
+				if ok || reason != st.reason {
+					t.Errorf("%s = %v/%q, want false/%q", opNames()[op], ok, reason, st.reason)
+				}
+			}
+			if ok, reason := CanControl(OpKill, st.runner, fullCaps()); !ok {
+				t.Errorf("kill が塞がれている: %q", reason)
+			}
+		})
 	}
 }
 

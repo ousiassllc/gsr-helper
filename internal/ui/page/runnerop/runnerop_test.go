@@ -6,11 +6,17 @@ import (
 	"strings"
 	"testing"
 
+	"charm.land/bubbles/v2/spinner"
+	"charm.land/bubbles/v2/stopwatch"
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/runner/systemd"
 	"github.com/ousiassllc/gsr-helper/internal/svc"
 	"github.com/ousiassllc/gsr-helper/internal/ui/keymap"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/action"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
 )
 
 // 制御部の部品（対象の選び方・結果の文・確認の中身）を単体で固定する。
@@ -215,4 +221,62 @@ func TestNoTargetText(t *testing.T) {
 	if !strings.Contains(got, svc.ReasonStandalone) {
 		t.Errorf("noTargetText = %q, 理由を含んでいない", got)
 	}
+}
+
+// 待機画面が発行した Cmd は、ランタイムと同じ規則で束を辿ると計時の開始まで届く。
+//
+// **bubbles の stopwatch.Start は tea.Sequence を返す。** wrap が tea.BatchMsg しか
+// 展開しないと、開始の指示（StartStopMsg）と最初の Tick が実行されないまま
+// page.ModalMsg に封じられてモーダルへ戻り、stopwatch はそれを無視する。スピナだけが
+// 回るので画面は生きて見えるが、**無制限に待つドレイン停止（FR-07）で唯一の進捗指標
+// である経過時間が 0 のまま止まる**（PR #70 CRITICAL C1）。
+//
+// 束の展開は wrap の責務なので、平坦化には pagetest.Msgs（Batch と Sequence を
+// 区別せず再帰的に辿る＝ランタイムと同じ規則）を使い、wrap 自身の判定には頼らない。
+func TestWrapExpandsStopwatchSequence(t *testing.T) {
+	const tab = 2
+
+	m := NewDrainModal(pagetest.State(80, 24)).Model
+	m, _ = m.Update(page.AttachMsg{Tab: tab})
+	_, cmd := m.Update(drainOpenMsg{runner: busy("build01-1"), label: ""})
+
+	var started, spun bool
+	for _, msg := range pagetest.Msgs(cmd) {
+		inner, ok := modalMsg(t, tab, msg)
+		if !ok {
+			continue
+		}
+		switch inner.(type) {
+		case stopwatch.StartStopMsg:
+			started = true
+		case spinner.TickMsg:
+			spun = true
+		}
+	}
+
+	if !started {
+		t.Error("stopwatch.StartStopMsg が待機画面へ戻ってこない（計時が始まらず経過時間が 0 のまま止まる）")
+	}
+	if !spun {
+		t.Error("spinner.TickMsg が待機画面へ戻ってこない（スピナが回らない）")
+	}
+}
+
+// modalMsg は Msg が待機画面宛の包みなら中身を返す。
+func modalMsg(t *testing.T, tab int, msg tea.Msg) (tea.Msg, bool) {
+	t.Helper()
+
+	tm, ok := msg.(page.TabMsg)
+	if !ok {
+		return nil, false
+	}
+	if tm.Tab != tab {
+		t.Errorf("TabMsg.Tab = %d, want %d（発行元のタブへ戻っていない）", tm.Tab, tab)
+		return nil, false
+	}
+	mm, ok := tm.Msg.(page.ModalMsg)
+	if !ok || mm.Kind != DrainKind {
+		return nil, false
+	}
+	return mm.Msg, true
 }

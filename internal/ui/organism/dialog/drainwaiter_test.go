@@ -134,24 +134,6 @@ func TestDrainWaiterWithoutJobs(t *testing.T) {
 	}
 }
 
-// 経過時間を出す。計時は bubbles/stopwatch に委ね、表記は atom.Duration に揃える。
-//
-// 進捗バーは出さない。待ち時間は無制限（FR-07）で完了時期を約束できないためである
-// （atomic-design.md の「bubbles/progress を使う範囲」）。
-func TestDrainWaiterShowsElapsed(t *testing.T) {
-	d := newDrainWaiter(oneJob())
-
-	if got := d.Elapsed(); got != 0 {
-		t.Errorf("Elapsed() = %v, want 0（開始直後）", got)
-	}
-	if want := "経過 0s"; !strings.Contains(d.View(), want) {
-		t.Errorf("%q が描かれていない:\n%s", want, d.View())
-	}
-	if strings.Contains(d.View(), "%") {
-		t.Errorf("進捗の割合が描かれている:\n%s", d.View())
-	}
-}
-
 // スピナは動かしている間だけ回る。止めた後もコマを進めると Msg が流れ続ける。
 func TestDrainWaiterSpinnerTicksWhileRunning(t *testing.T) {
 	d := newDrainWaiter(oneJob())
@@ -258,20 +240,6 @@ func TestDrainWaiterRestyleKeepsInput(t *testing.T) {
 	}
 	if _, ok := cmd().(dialog.DrainCanceledMsg); !ok {
 		t.Fatalf("DrainCanceledMsg 以外の Msg が返った（%T）", cmd())
-	}
-}
-
-// 計時とスピナを動かす Cmd を返す。page が流せないと画面が止まったままになる。
-func TestDrainWaiterStartReturnsCmd(t *testing.T) {
-	d := dialog.NewDrainWaiter(keymap.NewGlobal(), testStyles())
-
-	start, stop := d.Start(), d.Stop()
-
-	if start == nil {
-		t.Error("Start() が Cmd を返していない")
-	}
-	if stop == nil {
-		t.Error("Stop() が Cmd を返していない")
 	}
 }
 

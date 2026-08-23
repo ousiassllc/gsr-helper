@@ -13,7 +13,9 @@ import (
 
 // 停止・強制停止・再起動・削除は影響の文言を持ち、安全な操作は持たない。
 //
-// 文言は screens.md の「Runners タブの操作」の表の影響の列に合わせる。停止と
+// 文言は screens.md の**詳細画面（`enter`）のモック**の括弧内に合わせる。同じ節の
+// 「Runners タブの操作」の表にも影響の列があるが、そちらは「安全」「—」まで含む
+// 記述的な要約で表示文字列ではない（`X` は表では `⚠ 実行中ジョブを中断`）。停止と
 // 再起動に ⚠ を付けないのは、断定（中断されます）と可能性の差を記号で示すためで、
 // この差もここで固定する。
 func TestMetaImpact(t *testing.T) {
@@ -32,9 +34,9 @@ func TestMetaImpact(t *testing.T) {
 		}
 	}
 
-	// 表の文言そのもの。screens.md を書き換えずに実装だけが動くのを防ぐ。
+	// モックの文言そのもの。screens.md を書き換えずに実装だけが動くのを防ぐ。
 	if impactAffectsJob != "実行中ジョブに影響する可能性" {
-		t.Errorf("停止・再起動の影響 = %q, screens.md の表と食い違っている", impactAffectsJob)
+		t.Errorf("停止・再起動の影響 = %q, screens.md の詳細画面のモックと食い違っている", impactAffectsJob)
 	}
 }
 

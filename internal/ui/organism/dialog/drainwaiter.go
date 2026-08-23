@@ -28,6 +28,12 @@ const (
 	labelGap = "   "
 	// spinnerWidth はスピナ 1 コマと後ろの空白が使う幅。行の幅から差し引く。
 	spinnerWidth = 2
+	// drainTick は経過時間を刻む間隔。
+	//
+	// **明示するのは bubbles/stopwatch の既定が 0 だからである**（doc は「1 秒」と
+	// 書いているが New は Interval を設定しない）。0 のままだと加算が 0 で経過が
+	// 増えず、しかも tea.Tick が待たずに発火して Tick が際限なく流れ続ける。
+	drainTick = time.Second
 )
 
 // drainNote は待機の制約の注記を返す。**常時表示する。**
@@ -91,7 +97,7 @@ type DrainWaiter struct {
 func NewDrainWaiter(keys keymap.Global, s token.Styles) DrainWaiter {
 	return DrainWaiter{
 		in:      DrainInput{Runner: "", Jobs: nil},
-		sw:      stopwatch.New(),
+		sw:      stopwatch.New(stopwatch.WithInterval(drainTick)),
 		sp:      spinner.New(spinner.WithSpinner(spinner.MiniDot), spinner.WithStyle(s.Accent)),
 		cancel:  keys.Back,
 		styles:  s,
@@ -124,10 +130,14 @@ func (d *DrainWaiter) SetSize(w, h int) {
 	d.width, d.height = w, h
 }
 
-// Start は計時とスピナを動かす Cmd を返す。page が流す。
+// Start は計時を 0 に戻したうえで計時とスピナを動かす Cmd を返す。page が流す。
+//
+// **Reset を添えるのは、この画面が使い回されるためである。** 待機画面は Overlay へ
+// 1 度だけ登録され（runnerop.New）、2 件目以降の対象でも 2 回目のドレインでも同じ
+// 実体が開き直す。戻さないと前回の経過が引き継がれ、押した直後に「経過 5m」と出る。
 func (d *DrainWaiter) Start() tea.Cmd {
 	d.running = true
-	return tea.Batch(d.sw.Start(), d.sp.Tick)
+	return tea.Batch(d.sw.Reset(), d.sw.Start(), d.sp.Tick)
 }
 
 // Stop は計時とスピナを止める Cmd を返す。

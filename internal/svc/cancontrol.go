@@ -73,17 +73,25 @@ const (
 //     状態を読み替えるだけなので、この段では塞がない（表の 1 行目に d と E が無い）。
 //   - systemd の不在（2 段目）は 6 つすべてを塞ぐ。systemctl が無ければ起動方式に
 //     かかわらずサービス制御ができないため、run.sh 直起動（3 段目）より先に見る。
-//   - run.sh 直起動（3 段目）で塞ぐのは、systemctl でユニットに作用する 4 つである。
-//     **ドレイン停止を含む。** 待機そのものは /proc の走査だけだが、Worker が消えた
-//     後に systemctl stop を発行する（Drainer.Drain）ため、ユニットの無い runner では
-//     待ち切っても必ず失敗する。同じ最終動作の停止（x）が塞がれているのに、d だけが
-//     無制限に待たせてから失敗するのは筋が通らない。enable の切替を塞がないのは、
-//     ユニットファイルが無ければ systemctl 側が即座に失敗し、待たせないためである。
-//     強制停止は worker のプロセスに直接作用するので使える。
-//   - 管理状態が判定できない（4 段目）ときに塞ぐのは、実行経路が「systemd 管理か
-//     どうか」に依存する 4 つである。強制停止とドレイン停止は使える。ユニット一覧を
-//     取得できなかっただけで、ユニット名は `<dir>/.service` から読めるため、停止は
-//     成立しうるからである（3 段目と違い「ユニットが無い」と判明したわけではない）。
+//   - run.sh 直起動（3 段目）と管理状態が判定できない（4 段目）は、**同じ 5 つ**
+//     （開始・停止・ドレイン停止・再起動・enable の切替）を塞ぐ。どちらも
+//     「systemctl を安全に駆動できない」点で同じ状況であり、違うのは理由が
+//     「systemd 管理外だと判明している」のか「そもそも判定できない」のかだけである。
+//     文言が 2 つに分かれているのはその差を利用者に伝えるためで、塞ぐ範囲を分ける
+//     根拠にはならない。UI が「systemd 管理外」「管理状態が不明」と分類した runner に
+//     対し、systemctl でユニットの状態を書き換える操作は 1 つも通さない（FR-09）。
+//   - どちらの段でも通すのは強制停止（X）だけである。worker のプロセスへ直接シグナル
+//     を送る操作で、systemctl の可否に依存しないためである。ここを塞ぐと run.sh
+//     直起動・判定不能の runner を止める手段が UI から無くなる。
+//   - **ドレイン停止（d）を通さない。** 待機そのものは /proc の走査だけだが、Worker
+//     が消えた後に発行するのは systemctl stop（Drainer.Drain）であり、同じ最終動作の
+//     停止（x）が塞がれているのに d だけが待たせた末に同じ systemctl stop を発行する
+//     のは筋が通らない。とくに Worker が 0 件なら初回走査で即 stop へ抜けるため、
+//     アイドルな runner では確認も猶予も無いまま停止が走る。
+//
+// 4 段目について「ユニット一覧を取得できなかっただけで、ユニット名は `<dir>/.service`
+// から読めるため停止は成立しうる」という理由付けは採らない。同じ理屈は停止（x）にも
+// そのまま当てはまり、x を塞ぐ以上 d を通す根拠にならないためである。
 //
 // スコープ不足（表の 6 行目）はここに無い。保有スコープの判定には GitHub API が必要で、
 // appconfig.Caps はその情報を持たないためである。GitHub API を持ち込む Issue が足す。
@@ -93,9 +101,9 @@ func CanControl(op Op, r runner.Runner, caps appconfig.Caps) (bool, string) {
 		return false, ReasonRoot
 	case !caps.Systemd && isOp(op, OpStart, OpStop, OpKill, OpDrain, OpRestart, OpEnable):
 		return false, ReasonSystemd
-	case r.Managed == runner.ManagedStandalone && isOp(op, OpStart, OpStop, OpDrain, OpRestart):
+	case r.Managed == runner.ManagedStandalone && isOp(op, OpStart, OpStop, OpDrain, OpRestart, OpEnable):
 		return false, ReasonStandalone
-	case r.Managed == runner.ManagedUnavailable && isOp(op, OpStart, OpStop, OpRestart, OpEnable):
+	case r.Managed == runner.ManagedUnavailable && isOp(op, OpStart, OpStop, OpDrain, OpRestart, OpEnable):
 		return false, ReasonManagedUnknown
 	default:
 		return true, ""
