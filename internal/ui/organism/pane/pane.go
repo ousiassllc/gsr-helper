@@ -1,15 +1,20 @@
-// Package pane はスクロールする表示専用の領域を提供する。
+// Package pane は bubbles/viewport でスクロールする領域を提供する。
 //
 // organism の部品を性質で 2 つに分け、カーソルと選択を持つ対話的な一覧・選択
-// （organism.Table / organism.ChoiceList）は organism に、スクロールするだけの表示専用の
-// 領域（Detail / Help）はこのパッケージに置く。持つ状態も検証の観点も違うためである。
+// （organism.Table / organism.ChoiceList）は organism に、行を縦に流してスクロールする
+// 領域（Detail / Help / Log）はこのパッケージに置く。持つ状態も検証の観点も違うためである。
+//
+// **分かれ目は「表示専用か」ではない。** Log はフィルタの入力欄（textinput.Model）と
+// 入力モードを持つので表示専用ではないが、それでもここに置く。3 つとも viewportKeyMap で
+// 同じスクロールのキー定義を共有しており、入力欄の有無で置き場所を分けると、
+// スクロールの扱いが 2 つの階層に割れて keymap との対応づけが追えなくなるためである。
 //
 // organism とこのパッケージは互いに import しない（どちらの向きの参照も作らない）。
 // 両者は独立した部品の集まりであり、必要なものを選んで組み合わせるのは page の役割である。
 // import するのは atom / molecule / token / keymap と bubbles / bubbletea / lipgloss に限り、
 // page とドメイン層は import しない。
 //
-// 型名に階層名を重ねない規約に従い、型は Detail / Help と呼ぶ（DetailPane とはしない）。
+// 型名に階層名を重ねない規約に従い、型は Detail / Help / Log と呼ぶ（DetailPane とはしない）。
 package pane
 
 import (
