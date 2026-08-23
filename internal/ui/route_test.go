@@ -6,8 +6,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/ousiassllc/gsr-helper/internal/exec"
-	"github.com/ousiassllc/gsr-helper/internal/runner"
-	"github.com/ousiassllc/gsr-helper/internal/ui/discovery"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
 )
@@ -140,16 +138,13 @@ func TestRunnerKeysOpenSetupTab(t *testing.T) {
 	for _, k := range []string{"n", "D", "u"} {
 		t.Run(k, func(t *testing.T) {
 			f := exec.NewFake()
-			a := newApp(f)
-			a, _ = update(a, tea.WindowSizeMsg{Width: 100, Height: 30})
-			a, _ = update(a, discovery.Msg{
-				Seq:    1,
-				Result: runner.Result{Runners: []runner.Runner{pagetest.SampleRunner()}},
-				Err:    nil,
-			})
+			a := newAppWithRunner(f)
 
 			a, cmd := update(a, press(k))
-			open := openTabOf(t, cmd)
+			open, ok := pagetest.OpenTabOf(cmd)
+			if !ok {
+				t.Fatal("page.OpenTabMsg が発行されていない")
+			}
 			if open.Title != page.TabSetup {
 				t.Errorf("移動先 = %q, want %q", open.Title, page.TabSetup)
 			}
@@ -163,17 +158,4 @@ func TestRunnerKeysOpenSetupTab(t *testing.T) {
 			}
 		})
 	}
-}
-
-// openTabOf は Cmd の結果から page.OpenTabMsg を取り出す。
-func openTabOf(t *testing.T, cmd tea.Cmd) page.OpenTabMsg {
-	t.Helper()
-
-	for _, msg := range pagetest.Msgs(cmd) {
-		if open, ok := msg.(page.OpenTabMsg); ok {
-			return open
-		}
-	}
-	t.Fatal("page.OpenTabMsg が発行されていない")
-	return page.OpenTabMsg{Title: "", Msg: nil}
 }

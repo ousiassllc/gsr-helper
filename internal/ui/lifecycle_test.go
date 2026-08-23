@@ -7,10 +7,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/ousiassllc/gsr-helper/internal/exec"
-	"github.com/ousiassllc/gsr-helper/internal/runner"
-	"github.com/ousiassllc/gsr-helper/internal/ui/discovery"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
-	"github.com/ousiassllc/gsr-helper/internal/ui/workscan"
 )
 
 // page の寿命の通知（Issue #41）を検証する。裏へ回ったこと・前面に戻ったこと・
@@ -18,20 +15,6 @@ import (
 //
 // 長寿命の購読を持つ page は pagetest.StreamPage を使う（前面で 1 本張り、裏へ
 // 回ったら畳む）。
-
-// withStreams は有効なタブを pagetest.StreamPage に差し替える。
-func withStreams(a App) (App, []*pagetest.StreamPage) {
-	pages := make([]*pagetest.StreamPage, 0, len(a.tabs))
-	for i := range a.tabs {
-		if !a.tabs[i].Enabled {
-			continue
-		}
-		p := pagetest.NewStreamPage(i)
-		a.tabs[i].Model = p
-		pages = append(pages, p)
-	}
-	return a, pages
-}
 
 // タブを往復しても購読が積み上がらない。
 //
@@ -169,25 +152,6 @@ func TestInitialActivationDoesNotDoubleCountOnReturn(t *testing.T) {
 
 // 起動シーケンスの外へ回した取得の駆動（Issue #73 / #79）を検証する。
 
-// cycles は検出成功を n 周期分流し、その間に発行された集計の回数を返す。
-func cycles(t *testing.T, a App, n int) int {
-	t.Helper()
-
-	res := runner.Result{Runners: []runner.Runner{{Dir: t.TempDir()}}}
-	starts := 0
-	for seq := 1; seq <= n; seq++ {
-		var cmd tea.Cmd
-		a, cmd = update(a, discovery.Msg{Seq: seq, Result: res, Err: nil})
-		for _, msg := range pagetest.Msgs(cmd) {
-			if _, ok := msg.(workscan.Msg); ok {
-				starts++
-			}
-			a, _ = update(a, msg)
-		}
-	}
-	return starts
-}
-
 // _work の集計は再検出のたびに走らない。
 //
 // 駆動の契機は「最初の検出成功」と手動の再読み込みだけである。検出が成功するたびに
@@ -196,7 +160,7 @@ func cycles(t *testing.T, a App, n int) int {
 func TestWorkScanRunsOnceAcrossDiscoveryCycles(t *testing.T) {
 	a, _ := update(newApp(exec.NewFake()), tea.WindowSizeMsg{Width: 80, Height: 24})
 
-	if got := cycles(t, a, 3); got != 1 {
+	if got := pagetest.WorkScanStarts(a, t.TempDir(), 3); got != 1 {
 		t.Errorf("集計の発行 = %d 回, want 1（再検出のたびに走っている）", got)
 	}
 }

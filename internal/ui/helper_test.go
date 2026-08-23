@@ -11,8 +11,9 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/doctor"
 	"github.com/ousiassllc/gsr-helper/internal/exec"
 	"github.com/ousiassllc/gsr-helper/internal/gh"
+	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/ui/chrome"
-	"github.com/ousiassllc/gsr-helper/internal/ui/page"
+	"github.com/ousiassllc/gsr-helper/internal/ui/discovery"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
 )
 
@@ -21,15 +22,26 @@ import (
 //
 // 共通の道具は page/pagetest から取る（書き写すと前提が食い違い、行数も増える）。
 
-// press はキー入力の Msg を作る。
-func press(k string) tea.KeyPressMsg { return pagetest.Press(k) }
-
-// testCaps はすべての能力がある状態。
-func testCaps() appconfig.Caps { return pagetest.Caps() }
+// App の非公開な状態に触れない道具は page/pagetest にある（pagetest/parent.go）。
+// ここでは型引数を App に固定して束縛するだけにする——関数値なので呼び出し側の
+// 書き方は移す前と変わらない。**ここへ本体を書き戻さないこと**（`ui` 直下の行数は
+// 上限に張り付いている。atomic-design.md のディレクトリの行数）。
+var (
+	press        = pagetest.Press
+	update       = pagetest.Update[App]
+	sendKey      = pagetest.SendKey[App]
+	press1       = pagetest.Press1[App]
+	applyChrome  = pagetest.ApplyChrome[App]
+	isQuit       = pagetest.IsQuit
+	blocked      = pagetest.Blocked
+	sampleRunner = pagetest.SampleRunner
+	discovered   = pagetest.Discovered[App]
+	takeHostReq  = pagetest.TakeHostReq[App]
+)
 
 // newApp は親 Model を組み立てる。走査ルートを空にして検出の入力を最小にする。
 func newApp(ex exec.Executor) App {
-	a := New(appconfig.Default(), testCaps(), ex, Options{
+	a := New(appconfig.Default(), pagetest.Caps(), ex, Options{
 		Color:   false,
 		Refresh: 2 * time.Second,
 		Roots:   nil,
@@ -47,71 +59,58 @@ func newApp(ex exec.Executor) App {
 	return a
 }
 
+// newAppWithRunner は端末サイズを配り、runner 1 台の検出結果を取り込んだ App を返す。
+//
+// 既定タブ（Runners）が一覧を持っていることは、キーの閉じ込め（gate_test）とタブを
+// またぐ移動（route_test）の前提である。一覧が空だと打鍵が一覧に届かず、閉じ込めも
+// 移動も起きないまま緑になる。
+func newAppWithRunner(ex exec.Executor) App {
+	a, _ := update(newApp(ex), tea.WindowSizeMsg{Width: 100, Height: 30})
+	a, _ = update(a, discovery.Msg{
+		Seq:    1,
+		Result: runner.Result{Runners: []runner.Runner{sampleRunner()}},
+		Err:    nil,
+	})
+	return a
+}
+
 // withHostChecks は起動時の前提チェックを差し替えた App を返す。
 func withHostChecks(a App, checks ...doctor.Check) App {
 	a.hostChecks = checks
 	return a
 }
 
-// withSpies は有効なタブを pagetest.Spy に差し替える。並びはタブの並びと同じ。
-//
-// **差し戻し（Bubble）を立てる。** 親はグローバルキーを page が差し戻してきた
-// ときにだけ解釈する（keys.go の配送）。立てないとキーの配送を検証できない。
-func withSpies(a App) (App, []*pagetest.Spy) {
-	spies := make([]*pagetest.Spy, 0, len(a.tabs))
+// replaceTabs は有効なタブを mk が返す Model に差し替える。並びはタブの並びと同じ
+// （無効なタブは差し替えないので、タブの添字とは一致しない）。
+func replaceTabs[M tea.Model](a App, mk func(tab int) M) (App, []M) {
+	out := make([]M, 0, len(a.tabs))
 	for i := range a.tabs {
 		if !a.tabs[i].Enabled {
 			continue
 		}
-		s := pagetest.NewSpy(i)
-		s.Bubble = true
-		s.Chrome = pageChrome(i)
-		a.tabs[i].Model = s
-		spies = append(spies, s)
+		m := mk(i)
+		a.tabs[i].Model = m
+		out = append(out, m)
 	}
-	return a, spies
+	return a, out
 }
 
-// applyChrome は Cmd に含まれる ChromeMsg を親へ渡し、フッタを反映した App を返す。
+// withSpies は有効なタブを pagetest.Spy に差し替える。
 //
-// フッタは page が ChromeMsg で報告したものを親が描くため、フッタの表示を検証するには
-// page → 親の 1 往復が必要である。取り出しは pagetest.ChromeMsgs が持つ。
-// **入れ子の tea.Batch まで辿る。** 親は共有状態の配布と、起動後に 1 度だけ走る取得
-// （前提チェック・_work 集計・保有スコープ）を 1 つの Batch にまとめて返すため、
-// 1 段だけ展開すると配布ぶんが Batch のまま残り ChromeMsg を取り出せない。
-func applyChrome(a App, cmd tea.Cmd) App {
-	for _, msg := range pagetest.Msgs(cmd) {
-		c, ok := msg.(page.ChromeMsg)
-		if !ok {
-			continue
-		}
-		a, _ = update(a, c)
-	}
-	return a
+// **差し戻し（Bubble）を立てる。** 親はグローバルキーを page が差し戻してきた
+// ときにだけ解釈する（keys.go の配送）。立てないとキーの配送を検証できない。
+func withSpies(a App) (App, []*pagetest.Spy) {
+	return replaceTabs(a, func(tab int) *pagetest.Spy {
+		s := pagetest.NewSpy(tab)
+		s.Bubble, s.Chrome = true, pageChrome(tab)
+		return s
+	})
 }
 
-// update は Msg を 1 つ渡し、App と Cmd を返す。
-func update(a App, msg tea.Msg) (App, tea.Cmd) {
-	m, cmd := a.Update(msg)
-	next, ok := m.(App)
-	if !ok {
-		panic("Update が App 以外を返した")
-	}
-	return next, cmd
-}
-
-// sendKey は打鍵を渡し、page が差し戻したグローバルキーまで解釈させる。
-//
-// 親はキーを必ず有効タブへ渡し、page が自分では使わないキーだけを
-// page.GlobalKeyMsg として差し戻す（keys.go の配送）。実機ではこの往復が bubbletea の
-// Msg ループで起きるため、テストでも同じ順で回す。返す Cmd は差し戻しを処理した
-// 結果のもの（差し戻しが無ければ打鍵そのものの結果）である。
-func sendKey(a App, k string) (App, tea.Cmd) {
-	a, cmd := update(a, press(k))
-	if _, global, ok := pagetest.ScanKey(cmd); ok {
-		return update(a, global)
-	}
-	return a, cmd
+// withStreams は有効なタブを pagetest.StreamPage に差し替える（前面で購読を 1 本
+// 張り、裏へ回ったら畳む page）。
+func withStreams(a App) (App, []*pagetest.StreamPage) {
+	return replaceTabs(a, pagetest.NewStreamPage)
 }
 
 // statusLine は親が描く状態行を返す。
