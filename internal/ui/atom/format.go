@@ -42,3 +42,30 @@ func VersionText(cur, latest string) (text string, role token.RoleToken) {
 	}
 	return cur + " " + token.Icon(token.StateWarn), token.StateWarn.Role()
 }
+
+// byteUnits はサイズの単位。1024 倍ごとに 1 つ進む。
+var byteUnits = [...]string{"B", "K", "M", "G", "T", "P"}
+
+// Bytes はバイト数を一覧の桁に収まる表記で返す（`102.4M` / `512B`）。
+//
+// 1024 を基数にするのは、対象がファイルサイズとディスク使用量だからである。
+// 単位を 1 文字にし、1024 未満は小数を付けないのは、SIZE 列の幅を狭く保つため
+// である（`1023B` で 5 桁、`1023.9K` で 7 桁に収まる）。
+//
+// 負の値は不正な計測結果として記号のみを返す（Duration と同じ扱い）。
+func Bytes(n int64) string {
+	if n < 0 {
+		return token.IconNoUnit
+	}
+	if n < 1024 {
+		return fmt.Sprintf("%dB", n)
+	}
+
+	v := float64(n)
+	i := 0
+	for v >= 1024 && i < len(byteUnits)-1 {
+		v /= 1024
+		i++
+	}
+	return fmt.Sprintf("%.1f%s", v, byteUnits[i])
+}

@@ -47,6 +47,7 @@ func TestColumnsAreWellFormed(t *testing.T) {
 		"RunnerColumns": RunnerColumns(),
 		"OrphanColumns": OrphanColumns(),
 		"JobColumns":    JobColumns(),
+		"LogColumns":    LogColumns(),
 	}
 	for name, cols := range sets {
 		if len(cols) == 0 {
@@ -89,5 +90,30 @@ func TestColumnGettersReturnFreshValues(t *testing.T) {
 	order[0] = "壊れた列"
 	if again := RunnerColumnRules().Drop; again[0] == "壊れた列" {
 		t.Error("ColumnDropOrder の返り値への書き換えが次の呼び出しに影響している")
+	}
+}
+
+// Logs タブの列は幅 80 に収まり、落とす順と常時表示で全列を覆う。
+//
+// 覆っていない列は、幅が足りないときに molecule.Columns の既定（末尾から落とす）で
+// 消える。どの列がどの順で消えるかを定義側で決めきるための検査である
+// （RunnerColumns に対する TestRunnerColumnsCoverAlwaysAndDropOrder と同じ趣旨）。
+func TestLogColumnsFitTargetAndCoverRules(t *testing.T) {
+	cols := LogColumns()
+	rules := LogColumnRules()
+
+	if len(cols) != len(rules.Keep)+len(rules.Drop) {
+		t.Errorf("LogColumns の列数 %d が常時表示 %d + 省略対象 %d と一致しない",
+			len(cols), len(rules.Keep), len(rules.Drop))
+	}
+
+	// 行頭 2（カーソル 1 + 間隔 1）+ 列幅合計 + 列間（列数 - 1）。
+	const prefix = 2
+	total := prefix + len(cols) - 1
+	for _, c := range cols {
+		total += c.Width
+	}
+	if total > WidthTarget {
+		t.Errorf("LogColumns の必要幅 = %d, want %d 以下", total, WidthTarget)
 	}
 }

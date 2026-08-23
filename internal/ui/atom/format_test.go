@@ -95,3 +95,35 @@ func TestPathTailKeepsGraphemes(t *testing.T) {
 		})
 	}
 }
+
+// サイズは 1024 を基数に、SIZE 列の幅に収まる桁で表記する。
+func TestBytes(t *testing.T) {
+	cases := map[string]struct {
+		n    int64
+		want string
+	}{
+		"0":         {0, "0B"},
+		"1023 まではB": {1023, "1023B"},
+		"1024 でK":   {1024, "1.0K"},
+		"端数は 1 桁":   {1536, "1.5K"},
+		"M":         {107374182, "102.4M"},
+		"G":         {2 << 30, "2.0G"},
+		"負は記号":      {-1, token.IconNoUnit},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := Bytes(c.n); got != c.want {
+				t.Errorf("Bytes(%d) = %q, want %q", c.n, got, c.want)
+			}
+		})
+	}
+}
+
+// どの桁でも SIZE 列の幅（7）に収まる。収まらないと一覧の桁が溢れる。
+func TestBytesFitsColumnWidth(t *testing.T) {
+	for _, n := range []int64{0, 1023, 1024, 1<<20 - 1, 1 << 40, 1 << 50, 1<<63 - 1} {
+		if got := Bytes(n); len(got) > token.SizeColumnWidth {
+			t.Errorf("Bytes(%d) = %q（%d 桁）, want %d 桁以内", n, got, len(got), token.SizeColumnWidth)
+		}
+	}
+}

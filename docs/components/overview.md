@@ -62,6 +62,7 @@ graph TD
     Svc --> Exec
     Setup --> Exec
     Disk --> Exec
+    Logs --> Exec
     Doctor --> Exec
     GH --> Exec
     Appconf --> Exec
@@ -249,10 +250,27 @@ runner の追加・削除・バージョン更新。最も破壊的な操作を�
 
 | 要素 | 責務 |
 |------|------|
-| `List(Runner) []LogFile` | `_diag` 配下のログを更新時刻順に列挙 |
-| `Tail(ctx, path, out chan<- Line)` | `fsnotify` による追記の検知と送出 |
-| `Journal(ctx, unit, out chan<- Line)` | `journalctl -f` の出力を送出 |
-| `LatestWorker(Runner)` | 直近ジョブの Worker ログを特定 |
+| `List(Runner) ([]File, error)` | `_diag` 配下の `Runner_*.log` / `Worker_*.log` を更新時刻の降順で列挙（サイズ・更新時刻付き） |
+| `LatestWorker(Runner) (File, bool)` | 直近ジョブの Worker ログを特定（`l` の宛先） |
+| `Tail(ctx, path, out chan<- Line) error` | `fsnotify` による追記の検知と送出 |
+| `Journal(ctx, Executor, unit, out chan<- Line) error` | systemd ユニットのログを一定間隔で取得し、増えた分を送出 |
+| `Classify(text) Level` | 行の重大度（`ERROR` / `WARN`）の判定。強調表示（FR-25）の入力 |
+
+型名にパッケージ名を重ねない規約に従い、ログファイル 1 件は `File` と呼ぶ（`logs.LogFile` とはしない）。
+
+**`Tail` / `Journal` は戻るときに `out` を閉じる。** 受け手（`ui/page/logs`）は閉じたことで購読の終わりを知り、読み直しの `tea.Cmd` を発行し続けずに済む。したがって `out` は 1 本の購読専用に作る。
+
+**色は決めない。** 強調表示に使うのは `Level`（値）であり、色を割り当てるのは表示層である（[依存の規則](#依存の規則)）。
+
+#### `journalctl -f` を使わない理由
+
+`Journal` は `journalctl -u <unit> -n <N> --no-pager` を 2 秒ごとに発行し、前回の出力との重なりを除いた差分を送る。`-f`（follow）は使わない。
+
+`Executor` は 1 回の実行の出力をまとめて返す契約であり（`Run(ctx, name, args...) (Result, error)`）、`-f` を渡すと**タイムアウトまで 1 行も届かない**。追従のためだけに標準出力をストリームで受け取る経路を開けると、外部プロセスの実行が `Executor` 1 本ではなくなり、タイムアウト・監査記録・マスクの適用漏れを構造的に防ぐという `internal/exec` の目的が崩れる。取得のたびにプロセスを起こす費用より、実行経路を 1 本に保つほうを採る。
+
+重なりの判定は行の内容だけで行うため、**同じ文言が連続して出力された場合は重なりを長く取りすぎて数行を出し損ねることがある**。`journalctl` の行は時刻を含むため実際にはまれで、取りこぼしても次の取得で末尾側は必ず届く。
+
+取得は監査ログに記録しない（`exec.Options.SkipAudit`）。理由は [セキュリティ設計](../architecture/security.md#記録対象外とする読み取りコマンド) を参照。
 
 ### `internal/doctor`
 
@@ -332,7 +350,7 @@ type Executor interface {
 | `Runner` | 監査ログの `runner`。ホスト全体の操作では空 |
 | `Dir` | 作業ディレクトリ。監査ログの `dir` にもこの値を記録する（runner ディレクトリでの `config.sh` 実行に必要） |
 | `Env` | 追加の環境変数（`KEY=VALUE`） |
-| `SkipAudit` | この実行を監査ログに記録しない指定。**既定は偽（記録する）**。使ってよいのは再検出（`internal/runner/systemd` の `Scan`）が発行する読み取り専用コマンドだけ（[セキュリティ設計の監査ログ](../architecture/security.md#記録対象外とする再検出の読み取りコマンド)） |
+| `SkipAudit` | この実行を監査ログに記録しない指定。**既定は偽（記録する）**。使ってよいのは再検出（`internal/runner/systemd` の `Scan`）とログ追従（`internal/logs` の `Journal`）が発行する読み取り専用コマンドだけ（[セキュリティ設計の監査ログ](../architecture/security.md#記録対象外とする読み取りコマンド)） |
 
 `exec.WithOptions(ctx, o)` で載せ、実行側が `exec.OptionsFrom(ctx)` で取り出す。**監査レコードの `action` と `runner` を埋める経路はこれだけである。** 未設定でもエラーにはせず、`action` が空のレコードとして残る（記録漏れにはしない）。
 
@@ -465,7 +483,7 @@ bubbletea の Model 群。**内部を Atomic Design で階層化する。** 部�
 | サブパッケージ | 階層 | 責務 |
 |--------------|------|------|
 | `ui`（`app.go`） | 親 Model | 検出結果・`Caps`・端末サイズ・背景の明暗を保持し、page を切り替える。自動更新（既定 3 秒）の再検出を駆動する。キーの配送を担う（`ctrl+c` のみ親が直接解釈し、他は有効タブへ渡す）。**page の寿命を管理する**（下記） |
-| `ui/page` | page | タブ共通の `Msg`（`StateMsg` / `ChromeMsg` / `TabMsg` / `GlobalKeyMsg` / `AttachMsg` / `ModalMsg` / `ResultMsg` / `ActivateMsg` / `DeactivateMsg` / `ShutdownMsg`）、モーダルの重なり（`Overlay`） |
+| `ui/page` | page | タブ共通の `Msg`（`StateMsg` / `ChromeMsg` / `TabMsg` / `GlobalKeyMsg` / `AttachMsg` / `ModalMsg` / `ResultMsg` / `ActivateMsg` / `DeactivateMsg` / `ShutdownMsg`）、**タブをまたぐ移動の `Msg`**（`OpenTabMsg` と移動先の名前 `TabLogs`、用件の `ShowLogMsg`）、モーダルの重なり（`Overlay`） |
 | `ui/page/action` | page | 操作の識別子（`action.ID`）と、可否・理由の判定（`Allow` / `Set`）。依存は `page/action` → `page` の一方向で、`page` からは参照しない |
 | `ui/page/<tab>` | page | タブ 1 枚（`tea.Model`）。organism を構成し、キー入力をドメイン層の `tea.Cmd` に変換する |
 | `ui/page/runnerdetail` | page | runner の詳細画面。Runners / Jobs が共用するモーダルで、タブではない。依存は `page/runnerdetail` → `page` の一方向 |
@@ -473,7 +491,7 @@ bubbletea の Model 群。**内部を Atomic Design で階層化する。** 部�
 | `ui/template` | template | 画面共通の枠（ヘッダ / タブ / 本体 / 状態行 / フッタ、モーダル、2 ペイン）。中身を知らない |
 | `ui/organism` | organism | カーソルと選択を持つ対話的な部品（`ChoiceList`）。`tea.Model` は実装せず `bubbles` 流の署名に揃える |
 | `ui/organism/table` | organism | 区画に分かれた一覧の共通実装（`bubbles/table` のラッパー） |
-| `ui/organism/pane` | organism | スクロールする表示専用の領域（`Detail` / `Help`） |
+| `ui/organism/pane` | organism | スクロールする領域（`Detail` / `Help` / `Log`）。`Detail` / `Help` は表示専用、`Log` は追従の ON/OFF とフィルタの入力欄を持つ（ただし一致の判定は持たず、装飾済みの行を受け取るだけである） |
 | `ui/molecule` | molecule | 1 区画の描画（ヘッダ・タブ行・フッタ・操作リスト・列の選択）。純粋関数 |
 | `ui/molecule/listrow` | molecule | 一覧の 1 行。セル列（`[]string`）を返す。純粋関数。一覧を持つタブが 1 つずつ足す |
 | `ui/chrome` | molecule | 本体以外の領域（ヘッダ・タブ行・状態行・フッタ）の中身の組み立て。親 Model の型も bubbletea も知らない純粋関数。import するのは `ui/molecule` / `ui/atom` / `ui/token` だけで、**ドメインの型は受け取らない**（`chrome.View` はバッジの真偽値・件数・`[]molecule.TabView` といった表示用の値のみ）。`Caps` / `Result` / `[]tabset.Tab` からの写し替えは親 Model が行う |
@@ -485,6 +503,7 @@ bubbletea の Model 群。**内部を Atomic Design で階層化する。** 部�
 - タブ間で共有する状態は親のみが持つ。これを実際に守らせているのは `page/pagetest/import_test.go` の `TestOnlyTabsetImportsTabs` で、`ui/page/<tab>` を import してよいのは `ui/tabset` だけであることを本番ファイルの import から検査する（Go が禁じるのは `page` → `page/<tab>` の循環だけで、タブ同士の参照は止まらない）。**検出（`runner.Discover`）を呼ぶのは親 Model だけで、page は呼ばない。** page は親から配られたスナップショット（`page.StateMsg`）を描画に使う。端末サイズも親が持ち、`template.BodySize` で算出した領域を配る。
 - 一覧と確認ダイアログはそれぞれ `organism/table.Model` / `organism/dialog.Confirm` の 1 実装に統一する。個別のダイアログを追加しないことで「確認を経ない破壊的操作の経路を作らない」を構造として守る（`organism/dialog` は未実装。[TUI コンポーネント設計の実装状況](../ui/atomic-design.md#実装状況)）。
 - 操作の起点は複数あるが（一覧の直接キー / 詳細画面の操作リスト / Jobs タブ、[FR-45〜FR-47](../requirements/functional.md)）、いずれも同じ確認ダイアログを経る。選択肢を並べる UI は `organism.ChoiceList` の 1 実装に統一する。
+- **タブをまたぐ移動も親が担う。** Runners / Jobs の `l`（選択中 runner の直近ジョブの Worker ログを開く）は Logs タブへ移って対象を渡すが、タブ同士は互いを import しないため（上記の `TestOnlyTabsetImportsTabs`）、移動元は移動先の型もタブ番号も持てない。そこで移動元は `page.OpenTabMsg{Title: page.TabLogs, Msg: page.ShowLogMsg{...}}` を親へ投げ、親が `[]tabset.Tab` を**名前で**走査して移り、移動先へ用件を配る。この 3 つを `ui/page` に置くのは、**移動元と移動先の双方から見える場所がここしか無い**ためである（`ShowLogMsg` は Logs タブ固有の用件だが、同じ理由でここに置く）。名前は文字列で突き合わせるので、タブ名を変えると移動だけが静かに効かなくなる。`tabset` の `TestOpenTabTitlesMatchTabs` が `page.TabLogs` に対応する有効なタブの実在を検査してこれを防ぐ。一致するタブが無い・無効な場合、親は移動せず理由を状態行に出す（押しても何も起きないキーを作らないため）。
 - **page の寿命は親が知らせる。** タブを切り替えるときは離れるタブへ `page.DeactivateMsg`、移動先へ `page.ActivateMsg` を配る（長寿命の購読を張り直させるため）。終了時は有効な全タブへ `page.ShutdownMsg` を配り、各 page が返した後始末の `tea.Cmd` を `tea.Sequence` で `tea.Quit` より**前**に流す（`tea.Batch` では並走して後始末の前に止まりうる）。この契約は `q` / `ctrl+c` の終了でのみ働き、シグナル終了では `Update` を通らないため走らない。
 - キーの定義は `ui/keymap` に集約する。可否の判断は `ui/page/action`（`action.Allow` / `action.Set`）が持ち、`atom.KeyHint` は受け取った可否と理由を描くだけとする。**これは暫定である。** 本来は page がドメイン層（`svc.CanControl` など）に問い合わせる形だが、`svc` はまだ存在せず、判定は `runner.Runner` と `Caps` から表示層で導いている。`svc` を持ち込む Issue が `action.Allow` の中身をドメイン層への問い合わせへ置き換える（呼び出し側の形は変えない）。`?` の全キー一覧は `bubbles/help` に描かせるが、フッタは無効キーをグレーアウトする必要があるため自前で描く。
 - キーは最上位のモーダルにのみ配り、入力中（絞り込み・フィルタ・フォーム）はグローバルキーを解釈しない。**この閉じ込めを担うのは page 自身である**（グローバルキーを親へ差し戻さないことで実現する。[TUI コンポーネント設計](../ui/atomic-design.md#キー入力の配送)）。
@@ -532,9 +551,11 @@ interface はこの 3 つに留める。ドメインごとの interface は、�
 | 1.9 | 2026-08-22 | 走査ルートの合成規約（`--root` / `scan_roots` / `SkipDefaultRoots`）と `scanRoots` を追加。`exec.Options` に `SkipAudit` を追記。呼び出し元の無い `appconfig.Exists` と `State.Label()` を削除 | 既定の走査ルートが実ホストのパスを glob するため検証がホストに依存していた。読み取り専用の定期実行が監査ログを埋めていた。呼び出し元の無い公開 API は実際の必要に対して形が正しいかを確かめられない |
 | 1.10 | 2026-08-22 | `--refresh` / `--root` が設定ファイルと同じ有効範囲・検査を通すことと、走査ルートの重複除去が入口をまたぐことを明記 | `--refresh` に上限が無く、`--root` が `scan_roots` の絶対パス・`..` 検査を迂回していた |
 | 1.11 | 2026-08-22 | 監査ログのクローズ失敗を利用者に報告することを縮退の表に追加 | クローズのエラーを捨てており、監査ログのエラーのうちこれだけが利用者に見えなかった |
-| 1.12 | 2026-08-22 | `SkipAudit` を使ってよい範囲を「読み取り専用の定期実行」から「再検出（`Scan`）が発行する読み取り専用コマンド」に改め、参照先の見出しに追随 | 記録対象外の判定基準を発行契機から発行元へ統一したため（[セキュリティ設計](../architecture/security.md#記録対象外とする再検出の読み取りコマンド) 1.5） |
+| 1.12 | 2026-08-22 | `SkipAudit` を使ってよい範囲を「読み取り専用の定期実行」から「再検出（`Scan`）が発行する読み取り専用コマンド」に改め、参照先の見出しに追随 | 記録対象外の判定基準を発行契機から発行元へ統一したため（[セキュリティ設計](../architecture/security.md#記録対象外とする読み取りコマンド) 1.5） |
 | 1.13 | 2026-08-22 | `internal/runner` の責務表から `ScanProcesses` / `ScanUnits` の行を削除し、`Executor` が `nil` のときの縮退を `Discover` の行に統合。所要時間・キャンセルの契約と孤児にしないユニットの記述、下位パッケージの再公開範囲を実装に合わせた | 再公開面を絞って `Discover` を唯一の入口にしたため（Issue #42）。下位パッケージの `Scan` は 3 経路の突き合わせを迂回するため意図的に再公開していないが、仕様書には別名として再公開してあると書かれていた |
 | 1.14 | 2026-08-22 | `Result.Stderr` の取り込み上限を「先頭 1 MiB」から「1 MiB まで取り込み、あふれたら古い先頭を捨てて末尾を残す」に訂正 | 実装（`limitedBuffer`）は末尾を残しており、[セキュリティ設計](../architecture/security.md#標準エラー出力の取り込みと抜粋)の表とも記述が食い違っていた |
 | 1.15 | 2026-08-22 | `ui/page/action` を階層表に追加し、`ui/page` の責務から可否の判定を外す。タブ共通の `Msg` の列挙に `AttachMsg` / `ModalMsg` / `ResultMsg` / `ActivateMsg` / `DeactivateMsg` / `ShutdownMsg` を追加。親 Model の責務に page の寿命管理（切替時の `Deactivate` / `Activate`、終了時の `Shutdown` と `tea.Sequence` での後始末）を追加。可否の判断が `action.Allow` にある暫定である旨と、`svc` を持ち込む Issue が置き換える範囲を明記 | 可否の判定は Issue #34 で `ui/page/action` へ分離済みだったが、表は `ui/page` の責務のままで新しいパッケージの行も無かった。Issue #26 / #41 が足した 6 つの `Msg` と、親が担うようになった page の寿命管理が本書に反映されていなかった。「page がドメイン層（`svc.CanControl` など）に問い合わせ」は `svc` が存在しない以上そのまま読むと実装できず、暫定であることが読み取れなかった |
 | 1.16 | 2026-08-23 | `internal/ui` のサブパッケージ表に `ui/page/runnerdetail`（Runners / Jobs が共用する詳細モーダル）と `ui/page/pagetest`（テスト専用のフィクスチャ）の行を追加。「タブ間で共有する状態は親のみが持つ」の箇条書きに、それを守らせている検査（`TestOnlyTabsetImportsTabs`）を明記 | 表が `ui/page` → `ui/page/action` → `ui/page/<tab>` の 3 行だけで、`page/` 階層が「page + 共通部品 + タブ 1 枚ずつ」だと読めた。[TUI コンポーネント設計](../ui/atomic-design.md)（1.20）が明記した「`page/` は 1 ディレクトリ 1 タブではない」と食い違い、実在する 2 パッケージが本書からは辿れなかった。共有状態の規則も規約としてしか書かれておらず、それを機械的に守らせている検査が本書からは読み取れなかった（PR #67 のレビュー指摘） |
 | 1.17 | 2026-08-23 | `ui/page/pagetest` の行を「`page/<tab>` と親 Model が共用するテスト用の道具」に改め、`Msgs` / `ScanKey` / `StreamPage` を挙げた | 表は同パッケージを `page/<tab>` 用のフィクスチャに限定して書いていたが、親 Model 専用の道具（寿命テストの `StreamPage`、Issue #31 で移した打鍵の走査 `ScanKey`）も置かれており、[TUI コンポーネント設計](../ui/atomic-design.md) 側は「タブと親で共用する検証の道具の置き場」と記して親側からの利用を推奨している。2 文書が同じパッケージの守備範囲について別のことを述べていた（Issue #31 の最終ゲート指摘） |
+| 1.18 | 2026-08-23 | `internal/logs` の要素表を実装に合わせて更新（`LogFile` → `File`、`List` / `Tail` / `Journal` の戻り値、`Journal` が `Executor` を取ること、`Classify` の追加）。`journalctl -f` を使わず一定間隔の再発行と差分の送出で追従する理由を新設。依存グラフに `Logs --> Exec` を追加。`SkipAudit` を使ってよい範囲にログ追従の `journalctl` を追加 | ログ閲覧を実装した（Issue #9）。`Executor` は 1 回の実行の出力をまとめて返す契約で、`-f` を渡すとタイムアウトまで 1 行も届かない。追従のためだけにストリームの経路を開けると外部プロセスの実行が `Executor` 1 本でなくなり、タイムアウト・監査記録・マスクの適用漏れを構造的に防ぐという `internal/exec` の目的が崩れる。表が `Journal(ctx, unit, out)` としていたのは `Executor` を渡す道が無く実装できない署名だった |
+| 1.19 | 2026-08-23 | `internal/ui` のサブパッケージ表を Logs タブ（Issue #9）の実装に合わせた。`ui/organism/pane` の責務に `Log` を追加し、`Detail` / `Help` が表示専用なのに対し `Log` は追従の ON/OFF とフィルタの入力欄を持つ（ただし一致の判定は持たない）ことを明記。`ui/page` の責務のタブ共通 `Msg` の列挙に `OpenTabMsg` / `TabLogs` / `ShowLogMsg` を追加し、タブをまたぐ移動を親が担う仕組み（移動先を名前で指し、親が `[]tabset.Tab` を走査して用件を配る）と、その 3 つを `ui/page` に置く理由・タブ名の不一致を防ぐ検査（`TestOpenTabTitlesMatchTabs`）を箇条書きで新設 | 表は `pane` を「（`Detail` / `Help`）」、`ui/page` の `Msg` を `ShutdownMsg` までと書いており、実装済みの `pane.Log` と `page.OpenTabMsg` / `page.ShowLogMsg` が両方とも漏れていた。[TUI コンポーネント設計](../ui/atomic-design.md)は同じ内容を更新済みで、**同じ事実について 2 文書が食い違う**状態だった。本書はパッケージの責務境界の一覧であり、ここに無い型は「その層に置くと決まっていないもの」と読まれる。とくにタブをまたぐ移動は「タブ同士は互いを import しない」という規約の唯一の抜け道になりうる箇所で、**なぜ `page` に置くのか**が本書に無いと、次のタブが移動を実装するときに移動元へ移動先を直接 import する形を選びかねない |

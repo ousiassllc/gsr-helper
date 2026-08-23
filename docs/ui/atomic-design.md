@@ -63,12 +63,12 @@ internal/ui/
   keymap/           キー定義とヘルプ文言（key.Binding）
   atom/             最小の表示単位（純粋関数）
   molecule/         atom を並べた 1 行 / 1 区画（純粋関数）
-  molecule/listrow/ 一覧の 1 行（RunnerRow / JobRow / OrphanRow）。タブごとに増える
+  molecule/listrow/ 一覧の 1 行（RunnerRow / JobRow / OrphanRow / LogRow）。タブごとに増える
   chrome/           ヘッダ・タブ行・状態行・フッタの中身の組み立て（純粋関数）
   tabset/           タブのメタ情報と並び。page/<tab> を import する唯一の場所
   organism/         カーソルと選択を持つ対話的な部品（ChoiceList）
   organism/table/   区画に分かれた一覧の共通実装（Model[T]）
-  organism/pane/    スクロールする表示専用の領域（Detail / Help）
+  organism/pane/    スクロールする領域（Detail / Help / Log）。Log は入力欄を持ち表示専用ではない
   organism/dialog/  承認・待機・入力（未実装。後述の「実装状況」）
   template/         画面共通の枠
   page/             タブ共通の Msg と、タブ間で共有する部品（モーダルの重なり・page の寿命）
@@ -77,6 +77,8 @@ internal/ui/
   page/runnerdetail/ runner の詳細画面（Runners / Jobs が共用するモーダル）
   page/pagetest/    page/<tab> のテスト用フィクスチャ（共有状態と Msg の記録）
 ```
+
+**`organism/pane/` の分かれ目は「表示専用かどうか」ではない。** `pane.Log` は `bubbles/textinput` とフィルタの入力モードを持つので表示専用ではなく（後述の「organism 一覧」）、それでも `Detail` / `Help` と同じディレクトリに置いてある。分かれ目は **行を縦に流してスクロールする領域かどうか**であり、`bubbles/viewport` を使うかどうかは問わない。実際 `Detail` と `Log` は `viewport` を組み立てて既定のキーを本ツールのキーマップへ差し替える同じ関数（`viewportKeyMap`）を共有するが、`Help` は `viewport` を使わず、`bubbles/help` が組んだ全キー一覧を自前の `offset` で切り出してスクロールする。**実装の道具ではなく、持つ状態（先頭から何行隠しているか）と検証の観点（期待する行が見えているか）が同じであることで揃えている。** 対して `organism/` 直下に置くのは、項目の並びに対して**カーソルと選択**を持つ部品（`ChoiceList`）である。**入力欄の有無でも `viewport` の有無でも置き場所を決めない。** どちらで分けても、フィルタを足しただけの `Log` や自前でスクロールする `Help` が別の階層へ移り、スクロールの扱いが 2 箇所に分かれる。
 
 **`page/` は「1 ディレクトリ 1 タブ」ではない。** タブが共用する部品（`page/action` / `page/runnerdetail`）とテスト用フィクスチャ（`page/pagetest`）も同じ階層に並ぶ。どれがタブでどれが共有部品かは名前からは決まらないので、`page/pagetest/import_test.go` の `shared` に共有部品を列挙し、**そこに載っていない `page/<名前>` をタブとして扱う**。新しいタブは自動で検査の対象になり、共有部品を足すときだけ明示的な追記が要る。
 
@@ -255,12 +257,27 @@ graph TD
 | `Column` | 識別子・見出し・幅・寄せの組 | 列の定義。`organism/table` が `table.Column` に変換する |
 | `ColumnRules` | `Drop []string` / `Keep []string` | 幅が足りないときの落とし方。**一覧の区画ごとに持つ** |
 | `RunnerColumnRules()` | Drop: `_WORK` → `VERSION` → `MANAGED` → `SCOPE` / Keep: `NAME` / `SVC` / `JOB` | runner を並べる一覧（Runners / 孤児ユニット / Jobs）の落とし方（[画面仕様](screens.md#端末幅による列の省略)） |
+| `LogColumnRules()` | Drop: `UPDATED` → `RUNNER` / Keep: `LOG` / `SIZE` | Logs タブのファイル一覧の落とし方 |
+| `SizeColumnWidth` | 7 | サイズ列（`SIZE`）の幅。`atom.Bytes` の最長表記（`1023.9K` の 7 桁）に合わせる |
 
 **落とす順は共有の 1 本ではなく区画の定義が宣言する。** 共有にすると、別の列を持つタブ（Disk / Logs / Doctor）を足すたびにその並びを直すことになる。`ColumnRules` のゼロ値は「順の指定なし・落とさない列なし」を意味し、末尾から落ちる。
 
-列の**集合**（`RunnerColumns()` / `OrphanColumns()` / `JobColumns()`）は `token` に残す。区画の定義が持つのは落とす**順**だけである。集合をタブのパッケージへ移すと、幅に対する不変条件のテスト（`organism/table`）がタブを参照できず（organism は page を import しない）検証できなくなる。
+**`LogColumnRules()` はこの宣言の最初の実例である。** Logs タブのファイル一覧は `RunnerColumnRules()` の Drop に挙がる列（`_WORK` / `VERSION` / `MANAGED` / `SCOPE`）を 1 つも持たないので、共有の順に乗れない。最初に落とすのは `UPDATED` である——並びが更新時刻の降順であること（[FR-23](../requirements/functional.md)）は列が無くても順序から読み取れる。次が `RUNNER` で、選択中のログがどの runner のものかは本文の見出しに出るため、狭い端末では一覧から省ける。`LOG`（ファイル名）と `SIZE` は `Keep` に置いて落とさない。FR-23 が求める「ログの一覧（サイズ付き）」そのものであり、落とすと一覧の目的を満たせないからである。
 
-各列の幅は `token.WidthTarget`（80）に全列が収まるように定めてある。行頭に 6 セル（カーソル 1 + 間隔 1 + チェックボックス 3 + 間隔 1）を見積もるため、列を足すときはこの余裕を確認すること。
+**`SizeColumnWidth` だけが定数として独立しているのは、列幅を表記の側から縛るためである。** 他の列幅は `LogColumns()` の中の数値でよいが、`SIZE` の中身を組み立てるのは `atom.Bytes` であり（最長は `1023.9K` の 7 桁）、幅と表記が別々の場所にあると、表記を変えたときの食い違いが表示の崩れとして初めて現れる。定数にすると `atom` 側のテスト（`TestBytesFitsColumnWidth`）が `Bytes` の出力長を `token.SizeColumnWidth` と突き合わせられる。**別の列で幅が表記に縛られるときも同じ形にすること。**
+
+列の**集合**（`RunnerColumns()` / `OrphanColumns()` / `JobColumns()` / `LogColumns()`）は `token` に残す。区画の定義が持つのは落とす**順**だけである。集合をタブのパッケージへ移すと、幅に対する不変条件のテスト（`organism/table`）がタブを参照できず（organism は page を import しない）検証できなくなる。
+
+各列の幅は `token.WidthTarget`（80）に全列が収まるように定めてある。**行頭に要るセル数は、その一覧が選択を持つかどうかで変わる。**
+
+| 一覧 | 行頭 | 内訳 |
+|------|------|------|
+| 選択できる（`Selectable: true`。Runners / 孤児ユニット / Jobs） | 6 セル | カーソル 1 + 間隔 1 + チェックボックス 3 + 間隔 1 |
+| 選択できない（`Selectable: false`。Logs のファイル一覧） | 2 セル | カーソル 1 + 間隔 1 |
+
+行頭のガター列を足すのは `organism/table` で、チェックボックスのガターは `Selectable` が真のときだけ足す。したがって実測の余裕は一覧ごとに違い、`LogColumns()` は行頭 2 + 列幅合計 66 + 列間 3 = 71 セルで 9 セル余る。
+
+**ただし列を落とすかどうかの判定は、選択の可否によらず常に 6 セルで見積もる**（`molecule.Columns` の `columnPrefix`）。選択できる一覧では選択モードに入った瞬間にチェックボックスが現れるため、見積もりを実測に合わせて 2 セルへ下げると、その瞬間に右端が溢れる。判定を区画ごとに分けないのは、判定の入力を 1 つ増やすより常に 4 セル取っておくほうが安全であり、選択できない一覧では余裕が実測より 4 セル狭く見えるだけで済むためである（`LogColumns()` は判定上も 6 + 66 + 3 = 75 セルで 80 に収まる）。**列を足すときに確認するのは判定側の見積もりのほうである。** 実測で収まっても、判定が 6 セルで数えて溢れると判断すれば列は落ちる。
 
 列の省略は `molecule.Columns` が決め、行を返す molecule（`RunnerRow` など）と `organism/table` はその結果をそのまま使う。**見出しは `bubbles/table` が描く**ため molecule 側に見出し用の部品は置かない。列幅の調整箇所を 1 つに保つことで、ヘッダと行の桁がずれる経路を作らない。
 
@@ -310,7 +327,7 @@ func Columns(all []token.Column, width int, rules token.ColumnRules) []token.Col
 | `Truncate` / `Pad` / `Justify` | 文字列・幅 | 幅に収めた文字列 | 全画面 |
 | `Hint` | — | `KeyHint` の入力（キー・説明・可否・理由） | フッタ / 詳細画面 |
 
-タブ 3〜7 でのみ使う atom（`DoctorStatus` / `Bytes` / `Files` / `Ratio`）は未実装である（後述の「実装状況」）。
+タブ 3〜7 でのみ使う atom のうち未実装なのは `DoctorStatus` / `Files` / `Ratio` である（後述の「実装状況」）。`Bytes` は Logs タブのファイル一覧の `SIZE` 列で使うため実装済みで、最長の表記（`1023.9K` / `8192.0P` の 7 桁）が `token.SizeColumnWidth` に収まることをテストで固定してある。
 
 `Cell` は日本語を含む表の桁ずれを防ぐための atom。**文字列の表示幅の計算は `lipgloss.Width` に一本化し、この atom に閉じる。** 上位の階層は「どの列を何文字幅で置くか」を決めるだけで、幅そのものを数えない。
 
@@ -329,7 +346,8 @@ func Columns(all []token.Column, width int, rules token.ColumnRules) []token.Col
 | `DiskTargetRow` | 削除候補 1 行のセル列（選択状態・サイズ・ファイル数・パス・選択不可の理由） | Disk |
 | `FSSummaryLine` | ファイルシステム要約（使用率・inode・閾値超過） | Disk / ヘッダ |
 | `DoctorRow` | 診断結果 1 行のセル列 | Doctor |
-| `LogLine` | ログ 1 行（`ERROR` / `WARN` の強調、フィルタ一致のハイライト） | Logs |
+| `LogRow` | ログファイル 1 行のセル列（runner 名 / ログ名 / サイズ / 更新時刻）。更新時刻が取れていなければ「値なし」の記号にする | Logs |
+| `LogLine` | ログ 1 行（`ERROR` / `WARN` の強調）。重大度ではなく表示上の役割を受け取る | Logs |
 | `SettingRow` | 設定項目 1 行（項目名・現在値・注意書き） | Config |
 | `DiffLine` | 差分 1 行（`-` / `+` / 変更なし） | Config |
 | `ProgressRow` | 進捗 1 行（`✓ 完了` / `▶ 実行中…` / `待機`） | Setup / Disk |
@@ -340,7 +358,9 @@ func Columns(all []token.Column, width int, rules token.ColumnRules) []token.Col
 | `CapsBar` | `host: build01  root  gh: 認証済み`（root が無ければ `read-only`、systemctl が無ければ `systemd なし` を挟む） | ヘッダ |
 | `SummaryCounts` | `OK 14  WARN 2  FAIL 1  SKIP 1` | Doctor / 状態行 |
 
-このうち実装済みは `Columns` / `RunnerRow` / `OrphanRow` / `JobRow` / `ActionRow` / `KeyBar` / `TabBar` / `CapsBar` である。残りはタブ 3〜7 とダイアログのものなので未実装である（後述の「実装状況」）。
+このうち実装済みは `Columns` / `RunnerRow` / `OrphanRow` / `JobRow` / `LogRow` / `LogLine` / `ActionRow` / `KeyBar` / `TabBar` / `CapsBar` である。残りはタブ 3 / 5〜7 とダイアログのものなので未実装である（後述の「実装状況」）。
+
+`LogRow` は Logs タブのファイル一覧 1 行（runner 名 / ログ名 / サイズ / 更新時刻）で、`molecule/listrow` に置く（一覧タブの数に比例して増える行ビルダのため）。`LogLine` は本文 1 行なので `molecule` 直下である。**`LogLine` は一致部分のハイライトを持たない。** フィルタは一致しない行を落とすので本文に並ぶ行はすべて一致しており、行の中を塗り分けても `ERROR` / `WARN` の強調と重なって読みにくくなるだけである（[FR-25](../requirements/functional.md) が求めるのはフィルタと `ERROR` / `WARN` の強調の 2 つで、一致部分の強調は含まない）。
 
 行を返す molecule（`RunnerRow` など）は **`cols` と同じ順・同じ数のセルを返す**。`bubbles/table` は行のセルを走査しながら同じ添字の列定義を引くため、数が合わないと桁がずれるか添字範囲外で panic する。知らない列 ID を渡された場合も空のセルを返して数を欠かさない。
 
@@ -356,13 +376,15 @@ func Columns(all []token.Column, width int, rules token.ColumnRules) []token.Col
 | `ChoiceList` | `organism` | カーソル位置 | — | Setup のメニュー、反映方法の選択、**詳細画面の操作リスト** | 実装済み |
 | `Detail` | `organism/pane` | スクロール位置 | `bubbles/viewport` | Doctor の詳細、runner の詳細（情報部分） | 実装済み |
 | `Help` | `organism/pane` | スクロール位置 | `bubbles/help`（`FullHelpView`） | `?` の全キー一覧 | 実装済み |
-| `LogPane` | `organism/pane` | ペインの選択・追従の ON/OFF・フィルタ | `bubbles/viewport` / `textinput` | Logs の 2 ペイン。追従・手動スクロールでの解除・`G` での再開 | 未実装（Logs タブ） |
+| `Log` | `organism/pane` | スクロール位置・追従の ON/OFF・フィルタの入力 | `bubbles/viewport` / `textinput` | Logs の本文。追従・手動スクロールでの解除・`G` での再開・フィルタの入力欄 | 実装済み |
 | `ProgressList` | `organism/pane` | 進捗の受信状態 | `bubbles/spinner` / `progress` | 一括処理の逐次表示と結果報告（[FR-15](../requirements/functional.md)） | 未実装（Setup / Disk タブ） |
 | `Confirm` | `organism/dialog` | なし（既定はキャンセル） | — | 破壊的操作の共通ダイアログ | 未実装 |
 | `DiffApproval` | `organism/dialog` | なし（既定はキャンセル） | — | 差分＋バックアップパスの提示と承認 | 未実装（Config タブ） |
 | `DrainWaiter` | `organism/dialog` | 対象ジョブ | `bubbles/stopwatch` / `spinner` | ドレイン待機。経過時間の計時、制約の注記と `esc` でのキャンセル | 未実装 |
 | `Form` | `organism/dialog` | `huh.Form` | `huh` | フォームのラッパー。テーマの適用と検証エラーの表示位置を統一する | 未実装（`huh` も未導入） |
 | `ErrorBanner` | `organism` | なし | — | 失敗の表示 | 未実装 |
+
+**`pane.Log` が持つのは本文のペインだけである。** 2 ペインのうちファイル一覧は `organism/table.Model[T]` であり、どちらを操作しているか（フォーカス）を持つのは組み合わせる側の `page/logs` である。以前の版はこれを 1 つの `LogPane` としていたが、一覧は他のタブと同じ `Table` で足り、部品を増やさないという規則（`Table` を増やさない）に従うとフォーカスだけが宙に浮く。**`pane.Log` は一致の判定を持たない。** 受け取るのは装飾済みの行であり、装飾済みの文字列に正規表現を当てると ANSI 列が一致に混ざる。絞り込みは素の行を持つ `page/logs` が行う。
 
 一覧の共通実装は `organism/table.Model[T]`（生成は `table.New`）である。パッケージ名が型名を兼ねるため、本書で `Table` と書くのはこの型を指す。`bubbles/table` はこのパッケージ内で `btable` として import する（名前の衝突を避けるため）。
 
@@ -546,7 +568,9 @@ type ConfirmInput struct {
 |----------|------|---------|------|
 | `Frame` | ヘッダ / タブ行 / 本体 / 状態行 / フッタ | 全画面 | 実装済み |
 | `Modal` | 中央寄せのオーバーレイ枠 | runner の詳細 / ヘルプ（今後 `Confirm` / `DrainWaiter` / `DiffApproval` も） | 実装済み |
-| `Split` | 左右 2 ペイン | Logs（ファイル一覧と本文）、Config（項目と現在値） | 未実装（Logs / Config タブ） |
+| `Split` | 左右 2 ペイン | Config（項目と現在値） | 未実装（Config タブ） |
+
+**Logs タブは `Split` を使わない。** 保証する端末幅は 80 であり（後述の「幅」）、左右に割ると本文がログ 1 行を出せる幅にならない。上に一覧・下に本文を置く縦の分割で、`page/logs` が本体領域を配る（1 行の見出しを挟むだけなので template を要しない）。
 
 `Frame` は `screens.md` の「共通レイアウト」に対応する。
 
@@ -587,7 +611,7 @@ func ModalPadding() (w, h int)
 | `runners.Model` | 1 | `organism/table` | 検出結果は親から受け取る。操作（`svc` / `setup`）は後続 Issue | 実装済み（一覧・詳細・可否の表示まで） |
 | `jobs.Model` | 2 | `organism/table` | 同上（対象は runner） | 実装済み（同上） |
 | `disk.Model` | 3 | `Table` / `Confirm` / `ProgressList` | `disk` | 未実装 |
-| `logs.Model` | 4 | `LogPane` | `logs` | 未実装 |
+| `logs.Model` | 4 | `organism/table` / `organism/pane`（`Log`） | `logs` | 実装済み |
 | `doctor.Model` | 5 | `Table` / `Detail` | `doctor` | 未実装 |
 | `config.Model` | 6 | `ChoiceList` / `Form` / `DiffApproval` | `config` / `gh` | 未実装 |
 | `setup.Model` | 7 | `ChoiceList` / `Form` / `Confirm` / `ProgressList` | `setup` / `gh` | 未実装 |
@@ -609,6 +633,17 @@ runner の詳細画面は Runners / Jobs が共用するモーダルなので、
 | `internal/ui/keymap/` | そのタブ固有のキーがある場合のみ、定義と `Set` への 1 フィールド、および `Set.Contexts()` への登録（そのキーが同時に有効になるコンテキスト）。登録漏れは `TestContextsCoverEverySetField` が落とす | 任意 |
 
 **`internal/ui` 直下（親 Model）は 1 行も触らない。** タブを知っているのは `tabset` だけであり、この分担は `page/<tab>` を import するのが `tabset` に限られることで強制される。
+
+**例外はタブをまたぐ移動である。** Runners / Jobs タブの `l` は Logs タブへ移って対象を渡す（[画面仕様](screens.md#l-でログを開く)）。タブ同士は互いを import しないため、移動元は移動先の番号も型も持てず、移動できるのは有効タブを切り替える唯一の主体である親 Model だけである。そこで `page.OpenTabMsg{Title, Msg}` を親が受け、名前（`tabset.Tab.Title`）でタブを引いて `activate` してから用件を配る。
+
+| 対象 | 変更内容 |
+|------|---------|
+| `page` | 移動の要求（`OpenTabMsg`）・移動先の名前（`TabLogs`）・用件（`ShowLogMsg`）。**移動元と移動先の双方から見える場所がここしか無い** |
+| `internal/ui`（親 Model） | `Update` の `case page.OpenTabMsg` と `keys.go` の `openTab`。**タブの名前も個別のタブの型も知らないまま**、`[]tabset.Tab` を名前で走査して移るだけである |
+
+**移動の要求は `page.Do` で包まない。** 包むと発行元のタブへ戻る（`TabMsg` の doc）。宛先は親である。
+
+名前は文字列で突き合わせるので、タブ名を変えると移動だけが静かに効かなくなる（親は一致するタブが無ければ何もしない）。`tabset` の `TestOpenTabTitlesMatchTabs` が、`page.TabLogs` に対応する有効なタブが実在することを検査する。
 
 親 Model は `[]tabset.Tab` を走査するだけで個別のタブを知らない。共有状態は 1 本の `Msg` で全 page に配られるので、新しいタブは受け取り側を書くだけで済む。モーダルと入力中の有無も page が `Msg` で報告するため、親はタブの内部状態を知らない。
 
@@ -762,9 +797,14 @@ page は親から配られた `page.StateMsg` を**描画用のスナップシ�
 | **モーダルの重なり** | page（`page.Overlay`）。下記 |
 | 共有状態のスナップショット（描画用） | page |
 | カーソル位置 / 選択 / スクロール / フィルタ | organism |
-| フォーカス（入力中か、どの区画・ペインか） | organism |
+| フォーカス（入力中か、organism の**内側**のどの区画か） | organism |
+| フォーカス（organism を**またぐ**ペイン間。キーをどの organism へ渡すか） | page |
 | 入力途中のフォーム値 | `organism/dialog.Form` |
 | ドメイン処理の進行中フラグ・直近のエラー | page |
+
+**フォーカスは所有者が 2 つに分かれる。持ち主を分ける境目は organism の内側か外側かである。** organism が持つのは自分の内側のフォーカス——`organism/table.Model[T]` の「どの区画（セクション）にカーソルがあるか」（`FocusedSection`）と「絞り込みの入力欄が入力を受けているか」——であり、いずれもその organism 1 つで完結する。対して**複数の organism を並べたときにどちらがキーを受けるかは page が持つ**。Logs タブはファイル一覧（`organism/table.Model[T]`）と本文（`organism/pane.Log`）の 2 つを並べるが、どちらを操作しているかは `page/logs` の `Model.focus` が持ち、`pane.Log` はフォーカスの概念を持たない。
+
+**ペイン間のフォーカスを organism に持たせられない。** 下位が上位の状態を書き換えないという規則（後述）のもとでは、`pane.Log` が「今は一覧の番だ」と決めて `table.Model[T]` へキーを回すことはできない。並べた 2 つを知っているのは組み合わせる側だけであり、`tab` を解釈してフォーカスを移すのも page の仕事である（前述の「organism 一覧」の `pane.Log` の注記、および後述の「キー入力の配送」）。
 
 **モーダルの重なりは page が持つ。** 親が持つ形にすると、キーを閉じ込める判断が親に移り、`ChromeMsg` で受け取る 1 打鍵ぶん古い状態に依存することになる（下記「キー入力の配送」）。親が知る必要があるのは「1 枚以上開いているか」だけで、それは `ChromeMsg.Modal` で報告する。Runners / Jobs のように同じモーダル（runner の詳細）を使うタブがあるため、重なりの実装（`page.Overlay`）と中身（`page/runnerdetail`）は `page` 階層の共有部品として置く。
 
@@ -828,6 +868,17 @@ Disk / Logs / Doctor タブの部品を足すときは、まずその部品が�
 
 **page がグローバルキーを差し戻さないことが、キーを閉じ込める仕組みそのものである。** モーダル表示中と入力中は差し戻さない。それ以外は自分のキーを処理した残りを差し戻す。
 
+**閉じ込めには、状態によるものとキー単位のものの 2 種類がある。**
+
+| 種類 | 対象 | 例 |
+|------|------|----|
+| 状態による閉じ込め | その状態のあいだ、`ctrl+c` 以外の**すべて**を差し戻さない | モーダル表示中 / 入力中 |
+| キー単位の閉じ込め | 通常モードでも、その page が自分の意味を持つ**特定のキーだけ**を差し戻さない | `page/logs` の `tab`（ファイル一覧 / 本文のペインの切り替え） |
+
+キー単位の閉じ込めは `page/logs` の `tab` が唯一の例である。保証端末幅 80 では 2 ペインを上下に割るしかなく（左右では本文がログ 1 行を出せない）、上下の移動に使う `j` / `k` は各ペインのスクロールに取られているため、ペインの切り替えには `tab` を充てるしかない。ここで消費したうえで差し戻すと、ペインが移ると同時にタブも切り替わり、**1 打鍵で 2 つの操作が起きる**（[画面仕様のグローバル](screens.md#グローバル)）。
+
+**キー単位の閉じ込めを増やすときは、`keymap` の Context を必ず分けること。** 状態による閉じ込めと違い、キー単位の閉じ込めは「同時に有効なキーが重複しない」という不変条件を**その画面では意図的に破っている**ように見える。破っていないことを示すのが Context の分割である（下記）。
+
 親が先に解釈しない理由: 以前は `ChromeMsg` で受け取ったモーダル・入力の状態を親が見て配送を止めていたが、`ChromeMsg` は次のフレームで届くため親の値は 1 打鍵ぶん古い。素早い連続打鍵（押しっぱなし・貼り付け）では確認中に打った `q` でアプリが終わり、`1` でタブが変わりえた。**キーを閉じ込められるのは、モーダルを持っている page だけである。**
 
 `?` と `esc` も page が処理する。`?` の中身は画面ごとのキー集合に依存し、`esc` は「選択のクリア」か「モーダルを 1 枚閉じる」かを page しか判断できないためである。
@@ -836,7 +887,40 @@ Disk / Logs / Doctor タブの部品を足すときは、まずその部品が�
 
 キーが page と親で二重に解釈されないことは、**同時に有効なキーが重複しない**という規則が担保する（`keymap` の重複禁止テスト）。数字キーは page を通るが、一覧は数字を割り当てないため差し戻されるまでに反応しない。
 
-**入力モード**とは、`organism/table` の絞り込み・`organism/pane.LogPane` のフィルタ・`organism/dialog.Form` のいずれかが入力を受け付けている状態を指す。
+**この不変条件の検査の単位は画面ではなく `keymap.Context`（同時に有効になるキーの集合）である。** `Set.Contexts()` が集合を列挙し、集合ごとに重複を検査する。集合が画面と 1 対 1 でないのは、同じ画面でも状態によって有効なキーが変わるためである（入力中は確定・取消・中断だけが有効）。現在の Context は次の 3 つである。
+
+| Context | 内容 | `Global.TabNext`（`tab`） |
+|---------|------|--------------------------|
+| 一覧画面（通常モード） | `Global` + `List` + `Runner`（runner を並べる Runners / Jobs） | 含む（親が「次のタブ」として解釈する） |
+| Logs タブ（通常モード） | `Global` から `tab` のものを落としたもの（`Set.logsGlobal`）+ `Log` + `List` の一部 | **含まない**（`Log.Pane` がこのキーを取る） |
+| 入力中 | `List.Accept` / `List.Cancel` / `Global.Interrupt` のみ | 含まない（グローバルキーは入力文字として扱う） |
+
+**Logs 用の Context から `Global.TabNext` を外していることが、不変条件を保っている証拠そのものである。** `Log.Pane` は `tab` に割り当てられているので、外さなければ重複検査が落ちる。落ちることは誤りの通知ではなく、**「この画面で `tab` は 2 つの意味を持つ」という前提が崩れていることの正しい指摘**である。逆に言えば、Context を分けたうえで検査が通っている限り、Logs タブでも「同時に有効なキーは重複していない」——`tab` の意味はこの画面では 1 つ（ペインの切り替え）だけである。
+
+Context の登録漏れは人の注意に頼らない。`Set` の全フィールドがいずれかの Context の `Fields` に現れることを `TestContextsCoverEverySetField` が reflect で突き合わせるため、キー集合を足して登録を忘れるとテストが落ちる。
+
+**`?` の全キー一覧には、Context と同じ除外（`tab`）を適用する。** Logs タブのヘルプ（`Set.LogsHelp`）は「次のタブ」の `tab` を出さない。出すと、押しても次のタブへ行かないキーをこの画面のヘルプが案内することになり、[画面仕様](screens.md#グローバル)の「この画面では `tab` が次のタブではない」とも食い違う。**除外だけは両者で必ず一致させる。** 片方にしか書かないと、**重複検査は通るのに `?` だけが嘘をつく**という、テストで捕まえられない食い違いが残る。
+
+**一致させるのは除外だけで、範囲そのものは同じではない。** ヘルプと Context は目的が違うため、`List` の扱いが割れる。
+
+| | `Set.LogsHelp()`（`?` の一覧） | Logs タブの `Context`（重複検査） |
+|---|---|---|
+| 目的 | この画面で押せるキーと動作の対応を**人に見せる** | ある瞬間に**同時に有効な**キーを列挙し、重複を**機械が検査する** |
+| 単位 | キーのグループ（`List.Bindings()` / `List.FilterBindings()` をそのまま渡す） | キー 1 つずつ |
+| 状態 | 画面 1 枚ぶんをまとめて示す（通常モードと入力中の両方） | 状態ごとに分ける（入力中は別の Context） |
+| `Global` | `logsGlobal`（`tab` を除く） | `logsGlobal`（`tab` を除く） |
+| `Log` | `Bindings()` 全体（`tab` / `f` / `J`） | `Bindings()` 全体（`tab` / `f` / `J`） |
+| `List` | `Bindings()` **全体** + `FilterBindings()` | `Up` / `Down` / `Top` / `Bottom` / `PageDown` / `PageUp` / `Filter` / `Enter` の **8 つだけ** |
+
+**Context が `List` の一部なのは、列挙したキーが「同時に有効」でなければ検査そのものが意味を失うためである。** 絞り込みの `enter`（確定）/ `esc`（取消）は入力中にしか効かず、通常モードの `enter`（詳細を開く）/ `esc`（戻る）と同じキーを共有している。同じ Context に入れれば必ず重複で落ちるが、それは実装の誤りではなく**列挙の誤り**である。だから状態で Context を切り、入力中のキーは「入力中」Context に置く。選択の `space` / `ctrl+a` を外しているのは、Logs タブのファイル一覧が `Selectable: false`（一括操作が無く、対象は常にカーソル位置の 1 件）で、この画面ではどちらも何も起こさないためである。
+
+**ヘルプが `List` を丸ごと出すのは、`?` の単位が状態ではなく画面 1 枚だからである。** 入力中に `?` を開き直せるわけではないので、通常モードのキーと入力中のキーを 1 枚に並べ、有効になる状況が違うことはグループを分けて示す（`List.Bindings()` と `List.FilterBindings()` を別のグループにする理由）。渡す単位がグループなのは `Set.Help` の設計そのもの——画面は**自分が使うキーのグループ**を渡す——であり、`List` に部分集合を切り出す口を足すと、画面ごとの部分集合が `keymap` に溜まっていく。
+
+**ヘルプに何を出すかは検査ではなく方針が決める。** 重複検査が見るのは Context だけなので、ヘルプに余分なキーが並んでもテストは落ちない。方針は「押しても何も起きないキーは出さない」で、Logs タブのヘルプから runner の操作キーを外しているのがこれである（`TestLogsHelpHasOwnKeysWithoutRunnerActions`）。`tab` を外すのも同じ方針の適用であって、Context に範囲を揃えるためではない。**現状はこの方針に 1 つ穴がある**——`List` をグループ単位で渡す都合で、この画面では効かない `space` / `ctrl+a` も Logs タブの `?` に並ぶ。塞ぐなら `List` の部分集合を渡す形になるが、上のとおりそれは画面ごとの部分集合を `keymap` に溜める選択なので、この版では取らない。
+
+**したがって除外の出どころは 1 つに保つ。** 「Logs タブで `tab` は次のタブではない」という事実は `Set.logsGlobal`（グローバルキーから `tab` を落として返す）1 箇所が持ち、`Contexts()` の Logs 用 Context と `LogsHelp()` の両方がそれを使う。除外を Context 側にだけ書くと、上の食い違いがそのまま作れてしまう。除外は `Global.TabNext` を名指しで飛ばす列挙ではなく **`tab` というキーでの判定**にしている。列挙にするとグローバルキーを 1 つ足すたびにここも直す必要が生じ、直し忘れると Logs タブの `?` からだけそのキーが消えるためである。
+
+**入力モード**とは、`organism/table` の絞り込み・`organism/pane.Log` のフィルタ・`organism/dialog.Form` のいずれかが入力を受け付けている状態を指す。
 
 | 項目 | 定め |
 |------|------|
@@ -866,7 +950,7 @@ Disk / Logs / Doctor タブの部品を足すときは、まずその部品が�
 | ヘルプ | `Modal` | `Help` | —（`bubbles/help` が描く） | 実装済み |
 | Disk タブ | `Frame` | `Table` | `FSSummaryLine` / `DiskTargetRow` | 未実装 |
 | クリーンアップの確認 | `Modal` | `Confirm` | `CommandBlock` | 未実装 |
-| Logs タブ | `Frame` + `Split` | `LogPane` | `LogLine` | 未実装 |
+| Logs タブ | `Frame` | `Table` + `Log` | `Columns` / `LogRow` / `LogLine` | 実装済み |
 | Doctor タブ | `Frame` | `Table` | `SummaryCounts` / `DoctorRow` | 未実装 |
 | Doctor の詳細 | `Modal` | `Detail` | `CommandBlock`（対処コマンドの表示） | 未実装 |
 | Config タブ | `Frame` + `Split` | `ChoiceList` / `Form` | `SettingRow` | 未実装 |
@@ -904,7 +988,7 @@ Disk / Logs / Doctor タブの部品を足すときは、まずその部品が�
 |-----------|---------|------|
 | `organism` | `ChoiceList` | カーソルを持つ**選択の一覧** |
 | `organism/table` | `Model[T]`（区画に分かれた一覧） | 区画・複数選択・絞り込みを持つ**一覧の共通実装**。1 部品で 1700 行規模になるため独立させる |
-| `organism/pane` | `Detail` / `Help` / `LogPane` / `ProgressList` | スクロールする**表示専用の領域** |
+| `organism/pane` | `Detail` / `Help` / `Log` / `ProgressList` | 行を縦に流して**スクロールする領域**（`Log` は入力欄を持つので表示専用ではない。`Help` は `viewport` を使わない） |
 | `organism/dialog` | `Confirm` / `DiffApproval` / `DrainWaiter` / `Form` | **承認・待機・入力** |
 
 `page` は 4 つとも import してよい。**パッケージ同士の参照は作らない**（`organism/pane` → `organism` も、その逆も）。分割の目的は行数上限の分散であり、部品同士の依存を増やすことではない。`Table` と `Confirm` をそれぞれ 1 実装に統一する規則（前述）は置き場所が変わっても維持する。
@@ -919,12 +1003,12 @@ Disk / Logs / Doctor タブの部品を足すときは、まずその部品が�
 
 | 区分 | 対象 |
 |------|------|
-| 実装済み | `token` / `keymap` / `atom` / `molecule`（フッタ・タブ行・ヘッダ・操作リスト・列選択）/ `molecule/listrow`（`RunnerRow` / `JobRow` / `OrphanRow`）/ `chrome` / `tabset` / `organism`（`ChoiceList`）/ `organism/table` / `organism/pane`（`Detail` / `Help`）/ `template`（`Frame` / `Modal`）/ `page` / `page/runners` / `page/jobs` / `page/runnerdetail` |
-| 未実装（タブ 3〜7 の Issue が持ち込む） | `page/disk` / `page/logs` / `page/doctor` / `page/config` / `page/setup`、`organism/pane` の `LogPane` / `ProgressList`、`template.Split`、atom の `DoctorStatus` / `Bytes` / `Files` / `Ratio`、`molecule/listrow` の `DiskTargetRow` / `DoctorRow` / `LogLine` / `SettingRow` / `DiffLine` / `ProgressRow`、molecule の `FSSummaryLine` / `CommandBlock` / `SummaryCounts` |
+| 実装済み | `token` / `keymap` / `atom` / `molecule`（フッタ・タブ行・ヘッダ・操作リスト・列選択・`LogLine`）/ `molecule/listrow`（`RunnerRow` / `JobRow` / `OrphanRow` / `LogRow`）/ `chrome` / `tabset` / `organism`（`ChoiceList`）/ `organism/table` / `organism/pane`（`Detail` / `Help` / `Log`）/ `template`（`Frame` / `Modal`）/ `page` / `page/runners` / `page/jobs` / `page/logs` / `page/runnerdetail` |
+| 未実装（タブ 3 / 5〜7 の Issue が持ち込む） | `page/disk` / `page/doctor` / `page/config` / `page/setup`、`organism/pane` の `ProgressList`、`template.Split`、atom の `DoctorStatus` / `Files` / `Ratio`、`molecule/listrow` の `DiskTargetRow` / `DoctorRow` / `SettingRow` / `DiffLine` / `ProgressRow`、molecule の `FSSummaryLine` / `CommandBlock` / `SummaryCounts` |
 | 未実装（パッケージ自体が無い） | `organism/dialog`（`Confirm` / `DiffApproval` / `DrainWaiter` / `Form`）、`organism.ErrorBanner` |
 | 未導入の依存 | `huh`（`Form` と `huh.Theme` に必要） |
 
-実装済みのタブでも、runner に対する**操作そのもの（開始・停止・削除・更新・ログ・設定編集）は未実装**である。キーとフッタと詳細画面の操作リストは出るが、可否の判定が `この版では未対応です` で塞ぐ（[画面仕様](screens.md#無効な操作の表示)）。押しても何も起きない経路を作らないためである。
+runner に対する操作のうち実装済みは **`l`（ログを開く）だけ**である。開始・停止・削除・更新・設定編集は未実装で、キーとフッタと詳細画面の操作リストには出るが、可否の判定が `この版では未対応です` で塞ぐ（[画面仕様](screens.md#無効な操作の表示)）。押しても何も起きない経路を作らないためである。実装状況は `action.Def.Supported`（`page/action` の `meta`）1 箇所が持ち、操作を実装する Issue はそこを真にする。
 
 **未実装の節を削らない。** 削ると、タブを足す Issue が同じ設計判断（`Confirm` を 1 実装に統一する、進捗バーを出す範囲、`Table` を増やさない）をやり直すことになる。実装が追いついた時点でこの表から行を外す。
 
@@ -939,31 +1023,40 @@ Disk / Logs / Doctor タブの部品を足すときは、まずその部品が�
 | ディレクトリ | 行数 | 残り | 判定 |
 |------------|------|------|------|
 | `ui/organism/table` | 2157 | -157 | **WARN（超過中）** |
-| `ui` | 1875 | 125 | pass |
-| `ui/page` | 1608 | 392 | pass |
-| `ui/molecule` | 1197 | 803 | pass |
-| `ui/page/runners` | 1187 | 813 | pass |
+| `ui/page/logs` | 1984 | 16 | pass |
+| `ui` | 1973 | 27 | pass |
+| `ui/page` | 1660 | 340 | pass |
+| `ui/page/runners` | 1324 | 676 | pass |
+| `ui/molecule` | 1269 | 731 | pass |
+| `ui/keymap` | 1233 | 767 | pass |
 | `ui/page/runnerdetail` | 1174 | 826 | pass |
-| `ui/atom` | 983 | 1017 | pass |
-| `ui/keymap` | 974 | 1026 | pass |
-| `ui/page/jobs` | 888 | 1112 | pass |
-| `ui/page/pagetest` | 809 | 1191 | pass |
-| `ui/page/action` | 794 | 1206 | pass |
-| `ui/token` | 712 | 1288 | pass |
-| `ui/organism/pane` | 691 | 1309 | pass |
+| `ui/organism/pane` | 1124 | 876 | pass |
+| `ui/atom` | 1042 | 958 | pass |
+| `ui/page/jobs` | 1014 | 986 | pass |
+| `ui/page/pagetest` | 1003 | 997 | pass |
+| `ui/page/action` | 807 | 1193 | pass |
+| `ui/token` | 779 | 1221 | pass |
+| `ui/molecule/listrow` | 749 | 1251 | pass |
 | `ui/template` | 657 | 1343 | pass |
-| `ui/molecule/listrow` | 608 | 1392 | pass |
 | `ui/organism` | 521 | 1479 | pass |
-| `ui/tabset` | 344 | 1656 | pass |
+| `ui/tabset` | 369 | 1631 | pass |
 | `ui/chrome` | 283 | 1717 | pass |
+
+**`ui/page/logs` の残りは 16 行しかない。** Logs タブ（Issue #9）は本文の組み立てと購読の 2 つを 1 つのタブに持つため、`page/<tab>` のなかで最も大きい。**次にこのディレクトリへ足す Issue は、まず道具を `page/pagetest` へ出すこと。** Issue #9 の 2 周目で回帰テストを 2 本足したときもそうして 120 行あまりを空けた（`Cmd` を回す道具 `RunCmd` / `ChromeOf` / `Pump` / `Drained` と、`_diag` のフィクスチャ `DiagRunner` / `WriteDiagLog`。`page/pagetest` が 824 行から 1003 行へ増えているのはこの移動ぶんである）。
+
+**ただし同じ手が何度も使えるとは限らない。** 残っている道具は Logs タブに固有のもの（購読を張り直すたびに最新の `Model` を追う `track`、`_diag` を持つ共有状態の組み立て）だけであり、`page/pagetest` へ出すと他のタブが使わない道具が共有の置き場に溜まる。**その次に採るのはテストの重複削減であって、本文（`content.go` / `stream.go`）の分割ではない。** ファイルを分けても 1 ディレクトリの合計は 1 行も減らない（`ui/organism/table` を分割しない判断と同じ理由）。
 
 #### 一覧タブを 2 枚足せる余裕（Issue #35）
 
-残る Disk / Logs / Doctor のうち一覧を持つタブは、行ビルダを `ui/molecule/listrow` へ、列定義を `ui/token` へ足す。既存の行ビルダはテスト込みで `runner_row` 272 行 / `job_row` 110 行 / `orphan_row` 116 行なので、**2 枚ぶんでも最大 550 行程度**である。`ui/molecule/listrow` の残り 1392 行はこれを 2 枚どころか 5 枚ぶん受けられる。
+残る **Disk / Doctor**（Logs は Issue #9 で実装済み）のうち一覧を持つタブは、行ビルダを `ui/molecule/listrow` へ、列定義を `ui/token` へ足す。既存の行ビルダはテスト込みで `runner_row` 272 行 / `job_row` 110 行 / `orphan_row` 116 行 / `log_row` 141 行なので、**2 枚ぶんでも最大 550 行程度**である（最大の `runner_row` が 2 枚ぶんで 544 行。実際に足された `log_row` は 141 行で、見積りの半分にも満たない）。`ui/molecule/listrow` の残り 1251 行はこれを 2 枚どころか 4 枚ぶん受けられる。
 
-`ui` 直下は**タブが増えても 1 行も増えない**。タブを知るのは `ui/tabset` だけであり、親 Model は `[]tabset.Tab` を走査するだけだからである（「タブを 1 つ追加するときに触る箇所」）。残り 125 行は親 Model 自身のテストのための余裕である。
+**Logs タブのぶんは既に消費済みである。** 残りは 1392 行から `log_row.go` 62 行 + `log_row_test.go` 79 行を引いて 1251 行になった。**足す必要のある一覧タブも 1 枚減り、見出しどおり Disk / Doctor の 2 枚になった**ので、余裕の判定は変わらない。むしろ 1 枚ぶんの実測値（141 行）が得られたことで、見積り 272 行が上振れに寄せた安全側の数字であることが確かめられた。
 
-**余裕は「重複削減」ではなく「道具を `page/pagetest` へ出す」で作る。** Issue #31 でキーの配送を検証する道具を足したとき `ui` 直下は 1967 行（残り 33 行）まで詰まったが、走査の道具（`ScanKey`）とその形の網羅テストを `page/pagetest` へ移して 1875 行（残り 125 行）に戻した。`page/pagetest` は 809 行で余裕があり、**そこは元々「タブと親で共用する検証の道具」の置き場である**（`helper_test.go` 冒頭の方針）。
+`ui` 直下は**タブが増えても 1 行も増えない**。タブを知るのは `ui/tabset` だけであり、親 Model は `[]tabset.Tab` を走査するだけだからである（「タブを 1 つ追加するときに触る箇所」）。残り 27 行は親 Model 自身のテストのための余裕である。
+
+**この残りは Issue #9 で 125 行から 27 行へ減った。** タブをまたぐ移動（`page.OpenTabMsg`）は親でしか実現できず、`keys.go` の `openTab` とその検証（`route_test.go` の 3 本）が加わったためである。検証に使う道具のうち App の非公開な状態に触れないもの（受け取った `Msg` を型で数える `Delivered`）は `page/pagetest` へ出してある。**次に `ui` 直下へ足す Issue は、まず既存のテストで `page/pagetest` へ出せるものを探すこと。** 残り 27 行はテスト 1 本ぶんも無い。
+
+**余裕は「重複削減」ではなく「道具を `page/pagetest` へ出す」で作る。** Issue #31 でキーの配送を検証する道具を足したとき `ui` 直下は 1967 行（残り 33 行）まで詰まったが、走査の道具（`ScanKey`）とその形の網羅テストを `page/pagetest` へ移して 1875 行（残り 125 行）に戻した。`page/pagetest` は現在 1003 行で余裕があり、**そこは元々「タブと親で共用する検証の道具」の置き場である**（`helper_test.go` 冒頭の方針）。
 
 出せるものと出せないものの境目は「`App` の非公開な状態に触れるか」である。`ScanKey` は `page.ChromeMsg` / `page.GlobalKeyMsg` と `pagetest.Msgs` しか使わないので `App` の非公開な状態を 1 つも export せずに出せた。一方 `gate_test.go`（`a.chrome` / `next.active` / `after.inflight` / `tickMsg` / `discoveredMsg`）と `app_keys_test.go`（`a.tabs` / `a.active` / `a.chrome`）は非公開に触れる内部テストなので出せない。**これらを出そうとして export を増やすのは採らない**（`ui/organism/table` を分割しない判断と、非公開の export を避ける点で理由を共有する）。次に `ui` 直下へテストを足す Issue も、まず道具が `page/pagetest` へ出せないかを見ること。
 
@@ -1033,3 +1126,7 @@ Issue #31 で `table_test.go` の空振りしていたテスト（`View() != ""`
 | 1.23 | 2026-08-23 | 走査（`scanKey`）の手書きの再帰を既存の `pagetest.Msgs` へ寄せ、`scanKey` と `scan_test.go` の doc が挙げていた「束が平らになる場面」を実測に合わせて訂正（モーダル表示中ではなく、一覧が `Cmd` を返さない通常の打鍵。モーダル表示中は束が畳まれて `ChromeMsg` 単体になる）。「この 34 行は次のテスト追加でほぼ尽きる」の段落から誤った分割候補を撤回し、`ui` 直下が非公開の状態に触れる内部テストであるために外部パッケージへ出せないことと、余裕は重複削減で作ることを明記 | 1.22 で追記した分割候補は「親 Model の非公開な状態には触らず `App` の公開の振る舞いだけを使っている」と書いていたが、挙げた 4 ファイルはすべて `a.chrome` / `a.active` / `a.inflight` / `a.tabs` / `tickMsg` / `discoveredMsg` に触れており**事実に反していた**。`helper_test.go` 冒頭が同じ PR 内で正反対の理由を明記しているうえ、そのまま着手すると本書が `organism/table` で退けたのと同じ「非公開状態の大量 export」へ誘導する。`scanKey` の doc が挙げた「モーダル表示中に平らな束になる」も実測では `ChromeMsg` 単体であり、閉じ込めの不変条件（モーダル中は差し戻さない）の逆を述べていた。走査の再帰は `pagetest.Msgs` の再実装で、`helper_test.go` 自身の「道具は `page/pagetest` から取る」方針にも反していた（Issue #31 の最終レビュー指摘） |
 | 1.24 | 2026-08-23 | 走査の道具を `ScanKey` として `page/pagetest` へ移し、`ui` 直下を 1966 → 1875 行（残り 125 行）に戻した。「余裕の作り方」の段落を、出せるもの（`App` の非公開に触れない道具）と出せないもの（`gate_test.go` / `app_keys_test.go`）の境目で書き直し。`ui/organism/table` に `fitcells_test.go`（詰めの白箱検証）を足して 2148 行・エラー境界まで 52 行へ更新し、本番 1053 行 / テスト 1095 行に訂正（**この本文への反映は漏れており、1.25 で適用した**）。行数表を実測へ更新。1.22 の行が遡って書き換えられていたのを当時の内容へ戻し、1.22 の理由欄に残っていた誤り（「モーダル表示中に破れる」）に訂正済みの注記を付けた | 1.23 が「候補はいずれも `App` の非公開な状態に触れるので外部パッケージへ出せない」と書いていたが、`ScanKey` とその網羅テストは `page` の型と `pagetest` しか使っておらず**事実に反していた**（1.22 の「非公開に触れない」という誤りを、逆向きの誤りで上書きしていた）。実際に export を 1 つも増やさず移せたので、記述を実態に合わせたうえで移動そのものを行った。`render_test.go` の「空セルで詰められる」は `View()` から観測できず、詰めの分岐を消しても全緑で**空振りだった**（空振りテストを直す PR が空振りを新規に持ち込んでいた）。`press1` の page → 親の往復にも回帰ガードが無く、往復を外しても全テストが緑だったため陽性対照を足した。`hints_test.go` の件数ガードは期待値を被テスト関数の入力（`keys.Footer()`）から作っており、`Footer()` が空になると両辺 0 で素通りしていた（Issue #31 の最終確認レビュー指摘） |
 | 1.25 | 2026-08-23 | `ui/organism/table` の本番/テスト内訳を実測（本番 1053 行 / テスト 1104 行）へ訂正し、行数表と節の数字を 2157 行・エラー境界まで 43 行へ更新。`ui` 直下のピークを 1967 行（残り 33 行）に、「export を 1 つも増やさず」を「`App` の非公開な状態を 1 つも export せず」に訂正し、WARN 帯の `ui/organism/table` へテスト整理を先行させずに足した例外の理由を記録 | 1.24 は「本番 1053 行 / テスト 1095 行に訂正」と記録していたが**その編集は実際には適用されておらず**、本文は 1058 行のままだった。1053+1058=2111 は `fitcells_test.go` 追加前の古い合計で、同じ節の見出し（2148 行）と食い違い、エラー境界までの余裕を 37 行ぶん甘く見せていた。改訂履歴が行っていない訂正を主張する形であり、1.21 が是正した「1 つの節が 2 つの値を主張する」欠陥の再発でもある（Issue #31 の最終ゲート指摘） |
+| 1.26 | 2026-08-23 | Logs タブ（Issue #9）の実装を反映。`organism/pane` の `LogPane` を `Log`（本文のペインのみ・実装済み）に改め、ファイル一覧は `organism/table` を使うこととフォーカスを持つのは `page/logs` であることを明記。`molecule` に `LogLine`、`molecule/listrow` に `LogRow` を実装済みとして記載し、`LogLine` が一致部分のハイライトを持たない理由を追記。`atom.Bytes` を実装済みへ。`template.Split` の使用箇所から Logs を外し、上下 2 ペインにした理由を追記。「タブを 1 つ追加するときに触る箇所」に、タブをまたぐ移動（`page.OpenTabMsg`）だけは親 Model を触る例外であることとその内訳を追加。runner の操作の実装状況を「`l` だけ実装済み」に更新。行数の表を実測値へ更新し、`ui` 直下の残りが 125 → 27 行になった理由と次の Issue への指示を追記 | Logs タブを実装した。左右 2 ペイン（`Split`）は保証する幅 80 では本文がログ 1 行を出せず実現不能で、`LogPane` として一覧まで抱える形も「一覧の共通実装は 1 つ」という規則と衝突した。`l`（ログを開く）は Runners / Jobs から Logs タブへ移る操作であり、タブ同士が互いを import しない構造では親 Model を通すほかに実現手段が無い。**「親 Model は 1 行も触らない」は「タブを 1 枚足すだけなら触らない」の意味であり、タブ間の移動はその外側にある**ことが読み取れる形にした |
+| 1.27 | 2026-08-23 | Logs タブ（Issue #9）のレビューで見つかった本書内の不整合を 4 点直した。(1) 「状態の所有」の表で所有者を organism としていたフォーカスの行を、organism の**内側**の区画・入力中（organism）と、organism を**またぐ**ペイン間（page）の 2 行に分割し、境目と、ペイン間のフォーカスを organism に持たせられない理由（下位が上位を書き換えない規則）を本文に追記。(2) 「キー入力の配送」に、閉じ込めが状態によるものとキー単位のもの（`page/logs` の `tab`）の 2 種類あることを表で明示し、`keymap.Context` の一覧（一覧画面 / Logs タブ / 入力中）と、Logs 用 Context から `Global.TabNext` を外していることが「同時に有効なキーが重複しない」不変条件を保っている証拠であることを追記。`Set.LogsHelp` がヘルプからも `tab` を外すこと、除外の出どころを `Set.logsGlobal` 1 箇所に保つ理由も併記。(3) molecule 一覧の表に `LogRow` の行を追加。(4) 「一覧タブを 2 枚足せる余裕」を実測へ更新（`log_row` 141 行、残り 1392 → 1251 行、受けられるのは 5 枚 → 4 枚ぶん、残る一覧タブは Disk / Doctor の 2 枚） | (1) は**同じ文書の中で正反対のことを言っていた**。「organism 一覧」の `pane.Log` の注記は「フォーカスを持つのは `page/logs` である」と書き、実装も `page/logs` の `Model.focus` だが、「状態の所有」の表は organism としていた。所有者の表は「新しい部品をどちらに置くか」を決めるときに最初に引く場所であり、ここが誤っていると次のタブが 2 ペインを組むときにフォーカスを organism へ持たせ、下位が上位を書き換える形になる。(2) は `screens.md` が「同時に有効なキーが重複しない」の根拠として本節を参照しているのに、参照先に Logs の例外が無かった。例外の存在だけでなく、**Context を分けることで不変条件が実際には破られていない**ことまで書かなければ、読み手は仕様と実装のどちらかが誤っていると判断せざるを得ない。(3) は表に無いのに直後の実装済みの列挙が `LogRow` を数えており、他の行ビルダはすべて表にある。(4) は同じ文書の行数表が 749 行 / 残り 1251 行へ更新済みで、**1 つの文書が 2 つの値を主張していた**うえ、Logs を「これから足すタブ」に数えたままだった |
+| 1.28 | 2026-08-23 | Logs タブ（Issue #9）のレビューで見つかった本書の誤りを 6 点直した。(1) ディレクトリ構成の一覧の `molecule/listrow/` に `LogRow` を追加。(2) 同じ一覧の `organism/pane/` を「スクロールする表示専用の領域（Detail / Help）」から「スクロールする領域（Detail / Help / Log）。Log は入力欄を持ち表示専用ではない」へ訂正し、`pane` に置くかどうかの分かれ目が「表示専用か」ではなく「`bubbles/viewport` でスクロールする領域か」であることと、入力欄の有無で置き場所を決めない理由を本文に追加。(3)「キー入力の配送」の `?` の段落を訂正。「Context と同じ範囲で組む」を「Context と同じ除外（`tab`）を適用する」に限定し、ヘルプ（`LogsHelp` は `logsGlobal` + `Log.Bindings()` + `List.Bindings()` **全体** + `List.FilterBindings()`）と Logs 用 Context（`List` は `Up` / `Down` / `Top` / `Bottom` / `PageDown` / `PageUp` / `Filter` / `Enter` の 8 つだけ）で範囲が違うこと、その目的の違い（`?` は押せるキーを人に見せる / Context は同時に有効なキーの重複を機械が検査する）を表と本文で追加。ヘルプに残る `space` / `ctrl+a` の穴も明記。(4)「幅」の表に `LogColumnRules()`（Drop: `UPDATED` → `RUNNER` / Keep: `LOG` / `SIZE`）と `SizeColumnWidth`（7）の行を追加し、列の集合の列挙に `LogColumns()` を追加。落とす順の根拠と `SizeColumnWidth` を定数にする理由（`atom.Bytes` の最長表記を `TestBytesFitsColumnWidth` が突き合わせる）を本文に追加。(5)「行頭に 6 セル」を、選択できる一覧は 6 セル・選択できない一覧（Logs のファイル一覧）は 2 セルという表へ訂正。あわせて `molecule.Columns` の判定だけは選択の可否によらず常に 6 セルで見積もることと、列を足すときに確認するのは実測ではなく判定側の見積もりであることを追加。(6) ディレクトリの行数表を今回の修正を終えたあとの実測値へ更新し（`ui/page/logs` 1666→1984、`ui/keymap` 1140→1233、`ui/organism/pane` 1108→1124、`ui/page/pagetest` 824→1003）、崩れていた降順の並びを直した。あわせて `ui/page/logs` の残りが 16 行しかないことと、次にこのディレクトリへ足す Issue が採るべき順序（まず道具を `page/pagetest` へ出す → 次にテストの重複削減 → ファイル分割は合計を減らさないので採らない）を本文に追加 | (1) 同じ文書の他の 5 箇所（molecule の表・実装済み部品の列挙・画面別の部品表・実装状況の表・`LogRow` の説明）が `LogRow` を数えているのに、部品の置き場所を引くときに最初に読まれるこの一覧だけが漏れていた。(2) `pane.Log` は `textinput` と入力モード（`filtering`）を持ち**表示専用ではない**。同文書の organism 一覧と [コンポーネント設計](../components/overview.md)は 1.26 / 1.19 で訂正済みで、**この一覧だけが偽の記述として残っていた**（**「この一覧だけが」は誤りである。同じ本書の「organism の分割方針」の表が `organism/pane` を「表示専用の領域」と定義したまま残っており、しかも本項が新設した分かれ目（`bubbles/viewport` を使うか）そのものが偽だった。ともに 1.29 で訂正した**）。「表示専用でないものは `pane` に置けない」と読まれると、次のスクロール領域が `organism` 直下へ散る。(3) 実装を読むと範囲は同じではない。`LogsHelp()` は `List.Bindings()` を丸ごと（`Toggle` / `SelectAll` を含む）渡し、`FilterBindings()` も別グループで出すが、Logs 用 Context は `List` の 8 つしか列挙しない。しかも**同じ文書の 3 段落上にある Context の表は「`List` の一部」と正しく書いており、1 つの文書が同じ事実について 2 つのことを主張していた**。「同じ範囲で組む」を真に受けて Context を `List` 全体へ広げると、入力中にしか効かない `enter`（確定）/ `esc`（取消）が通常モードの `enter` / `esc` と重複して検査が落ちる——直すべきでない側を直す誘導になっていた。なお `tab` の除外を `Set.logsGlobal` 1 箇所に集約している点は正しかったので残した。(4) 同節は「別の列を持つタブ（Disk / Logs / Doctor）を足すたびに区画の定義が落とす順を宣言する」と明記しているのに、Logs タブがまさにそれを行った差分で表が `RunnerColumnRules()` の 1 行のままであり、**宣言の実例を 1 つも読めない**状態だった。列の集合の列挙も同じく `LogColumns()` を欠いていた。(5) Logs のファイル一覧は `Selectable: false` でチェックボックスのガターを持たず、行頭は 2 セルである（`token/width.go` の `LogColumns` の doc が明記している）。無条件に 6 セルと書いてあると、この節が指示する余裕確認の手順が選択できない一覧で誤った桁数を出す。一方で判定側の `molecule.Columns` は選択の可否によらず 6 セルで見積もるため、実測の 2 セルへ書き換えるだけでは逆向きに誤る。両方を書き分けないと確認手順として使えない。(6) 表には「実測値。2026-08-23 時点」と明記してあるのに 4 行が古く、**この節が次の Issue の読む行数予算の規範である**以上、残り 334 行と読んだ Issue が実際には 104 行しか無いディレクトリへ部品を足すことになっていた。降順の並びも崩れており、どこが逼迫しているかを表から読み取れなくなっていた（Issue #9 のレビュー指摘） |
+| 1.29 | 2026-08-23 | 1.28 が新設した「`organism/pane` に置くかどうかの分かれ目」を実装に合わせて書き直した。分かれ目を **`bubbles/viewport` を使うか**から**行を縦に流してスクロールする領域か**（道具は問わない）へ改め、`viewportKeyMap` を共有するのは `Detail` / `Log` の 2 つだけで `Help` は `bubbles/help` の出力を自前の `offset` で切り出していることを明記。3 つを同じディレクトリに置く理由を「同じ関数を共有しているから」ではなく「持つ状態（先頭から何行隠しているか）と検証の観点（期待する行が見えているか）が同じだから」へ置き換えた（本書のディレクトリ構成の段落と `internal/ui/organism/pane/pane.go` の package doc の両方）。あわせて「organism の分割方針」の表の `organism/pane` の行を「スクロールする**表示専用の領域**」から「行を縦に流して**スクロールする領域**（`Log` は入力欄を持つので表示専用ではない。`Help` は `viewport` を使わない）」へ訂正し、1.28 の理由欄の「この一覧だけが偽の記述として残っていた」に訂正の注記を付けた。あわせて Logs タブのフィルタの受け入れ条件（FR-25）の回帰テストのパターンをメタ文字を含む正規表現へ差し替えた | 1.28 が定めた分かれ目は**名指しした 3 部品のうち `Help` によって反証される**。`internal/ui/organism/pane/help.go` は `bubbles/viewport` を 1 度も import しておらず、`viewportKeyMap` の呼び出し元は `detail.go` と `log.go` の 2 つだけである。この分かれ目は「`organism/pane` に置くか `organism` 直下に置くか」を決めるときに引かれる**配置の規範**として新設されたもので、そのまま従うと `viewport` を使わない次のスクロール領域が `organism` 直下へ出され、1.28 自身が防ごうとした「スクロールの扱いが 2 階層に割れる」結果をそのまま招く。「organism の分割方針」の表はその配置を決めるときに実際に引かれる一覧であり、**同じ文書が同じ事実について 2 つのことを主張していた**（81 行が「分かれ目は表示専用かどうかではない」と宣言した直後に、この表が `Log` を含めたまま pane を「表示専用の領域」と定義し続けていた）。1.28 の理由欄の「この一覧だけが」もこの表が残っている以上それ自体が誤りだった。フィルタのテストは `ERROR` / `A` / `k` / `q` などリテラル文字列でしか実行されておらず、`compileFilter` の `regexp.Compile` を `strings.Contains` 相当へ置き換えても全件緑になる**空振り**で、受け入れ条件「正規表現によるフィルタ」を何も縛っていなかった（Issue #9 の refine-git 検証ラウンド指摘） |

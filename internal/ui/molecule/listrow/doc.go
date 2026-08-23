@@ -2,7 +2,7 @@
 //
 // 中身は molecule と同じ約束に従う。bubbletea / bubbles を import せず、ドメインの
 // 型も受け取らず、表示に必要な値だけを落とした構造体（RunnerView / JobView /
-// OrphanView）とプリミティブだけを受け取る。返すのは列定義（token.Column）と同じ
+// OrphanView / LogView）とプリミティブだけを受け取る。返すのは列定義（token.Column）と同じ
 // 順・同じ数のセルである。
 //
 // molecule 直下から分けているのは、**行ビルダだけが一覧タブの数に比例して増える**

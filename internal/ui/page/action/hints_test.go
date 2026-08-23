@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/ousiassllc/gsr-helper/internal/ui/atom"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 )
 
 // フッタのキーヒント（Set.Hints）の検証を集める。可否の判定そのものは allow_test.go。
@@ -47,12 +48,15 @@ func TestHintsCarryReasons(t *testing.T) {
 		t.Fatalf("ヒントの件数 = %d, want %d", len(hints), want)
 	}
 
+	// 実装済みの操作は有効で理由を持たず、未実装の操作は無効で理由を持つ。
+	// どちらか一方だけを見ると、全件が無効／全件が有効になった日に気づけない。
+	enabled := map[string]bool{page.BindingKey(testKeys().Runner.Logs): true}
 	for _, h := range hints {
-		if h.Enabled {
-			t.Errorf("キー %q が有効になっている（この版では未対応のはず）", h.Key)
+		if h.Enabled != enabled[h.Key] {
+			t.Errorf("キー %q の可否 = %v, want %v", h.Key, h.Enabled, enabled[h.Key])
 		}
-		if h.Reason == "" {
-			t.Errorf("キー %q に理由が無い", h.Key)
+		if (h.Reason == "") != h.Enabled {
+			t.Errorf("キー %q の可否 = %v なのに理由 = %q", h.Key, h.Enabled, h.Reason)
 		}
 	}
 }

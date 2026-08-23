@@ -78,7 +78,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// モーダルが返した決定は page が受ける（runners.go と同じ理由）。
 		// page.Overlay.Handles が ResultMsg に偽を返すことと合わせた二重の守りで
 		// あり、並びは関係しない（型スイッチの default は常に最後に評価される）。
-		return m, m.chrome()
+		return m.handleResult(msg)
 	default:
 		return m.forward(msg)
 	}
@@ -144,6 +144,8 @@ func (m Model) handleKey(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		cmd = m.overlay.OpenHelp()
 	case key.Matches(press, m.st.Keys.List.Enter):
 		cmd = m.openDetail()
+	case key.Matches(press, m.st.Keys.Runner.Logs):
+		cmd = m.openLogs()
 	case key.Matches(press, m.st.Keys.Global.Back):
 		m.tbl.ClearFilter()
 	default:

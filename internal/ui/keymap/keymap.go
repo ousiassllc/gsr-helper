@@ -1,12 +1,17 @@
 package keymap
 
-import "charm.land/bubbles/v2/key"
+import (
+	"slices"
+
+	"charm.land/bubbles/v2/key"
+)
 
 // Set は 1 つの画面で参照するキー定義の集約。
 type Set struct {
 	Global Global
 	List   List
 	Runner RunnerKeys
+	Log    LogKeys
 }
 
 // New はキー定義の集約を返す。
@@ -15,6 +20,7 @@ func New() Set {
 		Global: NewGlobal(),
 		List:   NewList(),
 		Runner: NewRunnerKeys(),
+		Log:    NewLogKeys(),
 	}
 }
 
@@ -56,11 +62,28 @@ func (s Set) Contexts() []Context {
 	normal = append(normal, s.List.Bindings()...)
 	normal = append(normal, s.Runner.Bindings()...)
 
+	// Logs タブの通常モード。runner の操作キーは効かず、代わりに Logs タブ固有の
+	// 3 つが有効になる。**Global.TabNext（tab）を含めない**のは、この画面では tab が
+	// ペインの切り替えだからである（LogKeys.Pane の doc）。含めると重複検査が落ちるが、
+	// それは「同時に有効なキー」という前提が崩れることを正しく示している。
+	//
+	// 除外そのものは logsGlobal が持つ。? の一覧（LogsHelp）も同じ除外を必要とするため、
+	// ここに書き並べると同じ事実が 2 箇所に散る。
+	logs := s.logsGlobal()
+	logs = append(logs, s.Log.Bindings()...)
+	logs = append(logs, s.List.Up, s.List.Down, s.List.Top, s.List.Bottom,
+		s.List.PageDown, s.List.PageUp, s.List.Filter, s.List.Enter)
+
 	return []Context{
 		{
 			Name:   "一覧画面（通常モード）",
 			Fields: []string{"Global", "List", "Runner"},
 			Keys:   normal,
+		},
+		{
+			Name:   "Logs タブ（通常モード）",
+			Fields: []string{"Global", "List", "Log"},
+			Keys:   logs,
 		},
 		{
 			// 入力中はグローバルキーを解釈せず、確定・取消・中断のみが有効。
@@ -69,6 +92,31 @@ func (s Set) Contexts() []Context {
 			Keys:   []key.Binding{s.List.Accept, s.List.Cancel, s.Global.Interrupt},
 		},
 	}
+}
+
+// logsGlobal は Logs タブで実際に効くグローバルキーを返す（tab を除いたもの）。
+//
+// **Logs タブで tab が「次のタブ」ではない、という事実の出どころをここ 1 つにする。**
+// 同時に有効なキーの集合（Contexts）と ? の全キー一覧（LogsHelp）は、どちらもこの除外を
+// 必要とする。片方だけに書くと、重複検査は緑のまま ? だけが嘘をつく形が作れてしまう。
+// 実際、LogsHelp が Help 経由でグローバルキーをそのまま先頭に並べていたころは、Logs タブの
+// ? に tab の行が「次のタブ」と「ファイル一覧 / 本文の切り替え」の 2 つ、互いに矛盾する
+// 説明で並んでいた（screens.md の「この画面では tab が次のタブではない」に反する表示）。
+//
+// 除外を tab というキーで判定し、Global.TabNext を名指しで飛ばす列挙にしないのは、
+// Global にキーが増えたときに Logs タブだけ取りこぼさないためである。列挙で書くと
+// グローバルキーを 1 つ足すたびにここも直さなければならず、直し忘れると Logs タブの
+// ? からだけそのキーが消える。
+func (s Set) logsGlobal() []key.Binding {
+	all := s.Global.Bindings()
+	out := make([]key.Binding, 0, len(all))
+	for _, b := range all {
+		if slices.Equal(b.Keys(), s.Global.TabNext.Keys()) {
+			continue
+		}
+		out = append(out, b)
+	}
+	return out
 }
 
 // Help は ? の全キー一覧のグループを組み立てる。bubbles/help の FullHelpView に渡す。
@@ -83,8 +131,18 @@ func (s Set) Contexts() []Context {
 // 全キー一覧は操作の可否を反映しない。可否は状況で変わるため、一覧の役割は
 // キーと動作の対応を示すことに限る（screens.md の無効な操作の表示）。
 func (s Set) Help(groups ...[]key.Binding) [][]key.Binding {
+	return help(s.Global.Bindings(), groups...)
+}
+
+// help は先頭に置くグローバルキーのグループを指定して ? のグループを組み立てる。
+//
+// Help から分けているのは、Logs タブだけ先頭のグループが違う（tab を除く）ためである。
+// Help に「先頭を差し替える」引数を足すと全画面の呼び出しが 1 画面の都合を背負うので、
+// 組み立てだけをこの関数に置き、既定の先頭を渡す Help と Logs 用の先頭を渡す LogsHelp が
+// それぞれ呼ぶ形にした。空のグループを落とすのは bubbles/help が空の列を描かないため。
+func help(global []key.Binding, groups ...[]key.Binding) [][]key.Binding {
 	out := make([][]key.Binding, 0, len(groups)+1)
-	out = append(out, s.Global.Bindings())
+	out = append(out, global)
 	for _, g := range groups {
 		if len(g) > 0 {
 			out = append(out, g)
@@ -100,4 +158,20 @@ func (s Set) Help(groups ...[]key.Binding) [][]key.Binding {
 // 使わず Help に自分のグループを渡す。
 func (s Set) RunnerListHelp() [][]key.Binding {
 	return s.Help(s.List.Bindings(), s.List.FilterBindings(), s.Runner.Order())
+}
+
+// LogsHelp は Logs タブが ? に出すグループを返す。
+//
+// runner の操作キーは出さない。Logs タブに runner への操作は無く、出すと押しても
+// 何も起きないキーをヘルプに並べることになる。一覧のキーを出すのはファイル一覧の
+// ペインで有効だからで、Logs タブ固有の 3 つを別のグループにするのは、有効になる
+// 状況が違うキーはグループを分けるという Help の方針に従っている。
+//
+// **Help を経由せず、先頭のグローバルは logsGlobal（tab を除いたもの）を渡す。**
+// Help が付ける既定の先頭には Global.TabNext が入っており、この画面では効かない
+// 「次のタブ」が Log.Pane の「ファイル一覧 / 本文の切り替え」と並んで tab の行を
+// 2 つ作ってしまう。押しても効かないキーを出さない方針は runner の操作キーを外すのと
+// 同じであり、tab だけ例外にする理由は無い。
+func (s Set) LogsHelp() [][]key.Binding {
+	return help(s.logsGlobal(), s.Log.Bindings(), s.List.Bindings(), s.List.FilterBindings())
 }

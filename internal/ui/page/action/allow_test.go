@@ -31,9 +31,12 @@ func testActions() Set { return NewSet(testKeys().Runner) }
 // 仕様に固定している。ここでは page がそれに従うことと、識別子がキー定義から引かれて
 // いること（キーを差し替えても操作の同一性が保たれること）を見る。
 //
-// Supported はこの版ではすべて false である。操作の実装は後続の Issue が担うため、
-// 「押せるが何も起きない」経路を作らない。
+// Supported が真なのは実装済みの操作だけである。未実装の操作に真を付けると
+// 「押せるが何も起きない」経路ができるため、実装済みの集合をここに固定する。
 func TestActionsFollowKeymap(t *testing.T) {
+	// 実装済みの操作。実装する Issue がここへ 1 行足す。
+	supported := map[ID]bool{Logs: true}
+
 	keys := testKeys().Runner
 	ids := testActions().byKey
 	acts := testActions().List()
@@ -50,8 +53,8 @@ func TestActionsFollowKeymap(t *testing.T) {
 			t.Errorf("キー %q の説明 = %q, want %q", k, acts[i].Desc, b.Help().Desc)
 		case acts[i].ID != ids[k]:
 			t.Errorf("キー %q の識別子 = %d, want %d", k, acts[i].ID, ids[k])
-		case acts[i].Supported:
-			t.Errorf("キー %q が実装済みになっている（この版では未対応のはず）", k)
+		case acts[i].Supported != supported[acts[i].ID]:
+			t.Errorf("キー %q の Supported = %v, want %v", k, acts[i].Supported, supported[acts[i].ID])
 		}
 	}
 }
@@ -178,7 +181,10 @@ func TestAllowPermitsAndAllowedAgrees(t *testing.T) {
 		"s": reasonRoot, "x": reasonRoot, "X": reasonRoot, "R": reasonRoot,
 		"u": reasonRoot, "n": reasonRoot, "D": reasonRoot,
 		"d": page.ReasonUnsupported, "E": page.ReasonUnsupported,
-		"e": page.ReasonUnsupported, "l": page.ReasonUnsupported,
+		"e": page.ReasonUnsupported,
+		// l（ログを開く）は実装済みで、管理経路にも権限にも依存しない
+		// （screens.md の「無効な操作の表示」）。非 root でも塞がらない。
+		"l": "",
 	}
 
 	// キー定義が持つ操作を 1 つ足したら、ここも足さないと落ちる（Detail は n を
@@ -194,8 +200,8 @@ func TestAllowPermitsAndAllowedAgrees(t *testing.T) {
 			t.Errorf("キー %q = %v/%q, want true/空", k, ok, reason)
 		}
 		ok, reason := set.Allowed(k, sampleRunner(), noRoot)
-		if ok || reason != wantReason {
-			t.Errorf("Allowed(%q) = %v/%q, want false/%q", k, ok, reason, wantReason)
+		if ok != (wantReason == "") || reason != wantReason {
+			t.Errorf("Allowed(%q) = %v/%q, want %v/%q", k, ok, reason, wantReason == "", wantReason)
 		}
 	}
 }
