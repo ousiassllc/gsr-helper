@@ -1071,7 +1071,6 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 
 | ディレクトリ | 行数 | 残り | 判定 |
 |------------|------|------|------|
-| `ui/page/runners` | 2018 | -18 | **WARN（超過中）** |
 | `ui/organism/dialog` | 1994 | 6 | pass |
 | `ui/page/logs` | 1994 | 6 | pass |
 | `ui` | 1988 | 12 | pass |
@@ -1079,9 +1078,10 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 | `ui/organism/table` | 1969 | 31 | pass |
 | `ui/page/disk` | 1940 | 60 | pass |
 | `ui/page/setup` | 1883 | 117 | pass |
+| `ui/page/runners` | 1983 | 17 | pass |
 | `ui/page/config` | 1719 | 281 | pass |
 | `ui/page/jobs` | 1684 | 316 | pass |
-| `ui/page/pagetest` | 1674 | 326 | pass |
+| `ui/page/pagetest` | 1696 | 304 | pass |
 | `ui/keymap` | 1666 | 334 | pass |
 | `ui/page/doctor` | 1580 | 420 | pass |
 | `ui/organism/pane` | 1559 | 441 | pass |
@@ -1248,7 +1248,9 @@ Runners タブと Jobs タブは、同じサービス制御（確認 → 実行 
 
 依存は `page/runnerop` → `page` / `page/action` / `page/runnerdetail` / `organism/dialog` / `svc` の一方向で、タブからは `runnerop` を import するが逆は無い。**タブではないので `page/pagetest/import_test.go` の `shared` に登録してある**（登録しないと `TestOnlyTabsetImportsTabs` がタブと誤認して落ちる）。
 
-`ui/page/runners` は 1187 → 2091 行になり、**警告帯に入った**。Setup タブ（Issue #8）が `n` / `D` / `u` の引き渡し（`keys.go` の `openSetup` / `setupBlocked`）を足したことで 2164 行（残り -164 行）まで伸びている。増分の大半はサービス制御の検証（発行コマンド列・確認の経路・一括操作・可否の再判定・詳細画面からの起点）で、Logs タブ（Issue #9）が足した `l` の経路もここに乗る。**分割せず警告帯に入ることを選んだのは `ui/page/disk` と同じ判断である**（上記）。サービス制御の配線と Logs タブのマージを 1 つの差分で行っており、そこへパッケージ移動を混ぜるとレビューで「どちらが壊したか」を切り分けられなくなる。エラー境界（2200 行）までは 36 行しかなかった（本 PR が `page/runners/rowview` を切り出して 2018 行へ戻した）、**次にこのタブへ足す Issue は、まず検証の道具が `page/pagetest` へ出せないかを見ること**。`runners/helper_test.go` の `chrome` / `findChrome` / `collect` は `pagetest.ChromeOf` / `pagetest.Msgs` と重複しており、そこが最初の削減候補である。
+`ui/page/runners` は 1187 → 2091 行になり、**警告帯に入った**。Setup タブ（Issue #8）が `n` / `D` / `u` の引き渡し（`keys.go` の `openSetup` / `setupBlocked`）を足したことで 2164 行（残り -164 行）まで伸びている。増分の大半はサービス制御の検証（発行コマンド列・確認の経路・一括操作・可否の再判定・詳細画面からの起点）で、Logs タブ（Issue #9）が足した `l` の経路もここに乗る。**分割せず警告帯に入ることを選んだのは `ui/page/disk` と同じ判断である**（上記）。サービス制御の配線と Logs タブのマージを 1 つの差分で行っており、そこへパッケージ移動を混ぜるとレビューで「どちらが壊したか」を切り分けられなくなる。エラー境界（2200 行）までは 36 行しかなかった（本 PR が `page/runners/rowview` を切り出して 2018 行へ戻した）、**Issue #107 がその削減を実施し、2018 行から 1983 行（残り 17 行）へ戻した。** `runners/helper_test.go` が持っていた `findChrome`（束を辿る再帰）と `collect`（Msg の平坦化）はどちらも `pagetest.ChromeOf` / `pagetest.Msgs` の写しだったので捨てた。**そのとき `pagetest.ChromeOf` の側にも欠陥が見つかった**——「1 段だけ展開すればよい（ChromeMsg が入れ子の奥から出てくることは無い）」という前提が成り立たず、絞り込みを始める `/` では page 自身の `ChromeMsg` と部品の返した束がもう 1 段深い形になる。写しの側だけが正しく辿っていたので、共有の道具を再帰へ直した（見つかった時点で打ち切るので、点滅の `Cmd` を踏まないという性質は変えていない）。
+
+**残り 17 行は実質ゼロである。次にこのタブへ足す Issue は、1 行足す前に空けること。** 道具の重複はこの 1 周で使い切ったので、次に採れるのはテストの重複削減（`ops_test.go` / `opsdrain_test.go` / `opsflow_test.go` の 589 行はサービス制御の経路を 3 ファイルに分けて見ている）である。
 
 非同期の往復（page が `Cmd` を返し、親が `page.TabMsg` を外して発行元のタブへ戻す）を回す道具 `pagetest.Advance` は、Runners / Jobs の両方が使うため `page/pagetest` に置いた。タブごとに写すと、往復の 1 段を書き忘れたテストだけが「何も起きない」を正常として緑になる。**`Pump` ではなく `Advance` という名前なのは、Logs タブ（Issue #9）が同じ階層に別の `Pump`（合否の判定関数を取る総称版）を先に置いているためである。** 2 つは役割が違う（`Advance` は既定の往復数まで Model を進めるだけ、`Pump` は条件を満たすまで辿る）ので、片方に寄せずに名前で書き分ける。
 
@@ -1366,3 +1368,4 @@ Issue #31 で `table_test.go` の空振りしていたテスト（`View() != ""`
 | 1.52 | 2026-08-24 | 行数表を実測へ更新（`ui/page/config` 2117 → 1719・pass、`ui/page/configmodal` 448 を追加）。`ui/page/config` の節を「`page/configmodal` へ分けた判断」へ改め、本節が挙げていた「`items.go` の要約・`form.go` の検証を `config/edit` へ出す」が既に実施済み（検証）または実施不能（`huh` / `listrow` に依るため UI からドメインへは出せない）であることと、代わりにモーダル 3 種を出した理由を記録（Issue #104） | 本節の指示どおりに着手すると、既に `config/edit` にある検証をもう一度探すことになり、`items.go` に残った部分も UI の型に依るため出せない。指示を実態に合わせないと、次の Issue も同じ空振りをする |
 | 1.53 | 2026-08-24 | 行数表を実測へ更新（`ui/page/setup` 2081 → 1883・pass、`ui/page/setupmodal` 248 を追加）。`ui/page/setup` の節を「`page/setupmodal` へ分けた判断」へ改め、Issue #105 で実施した切り出し（出したのはフォームと確認の 2 種で、進捗は既に `page/progressmodal` にある）と、タブ側に残した中身の組み立ての分担を追記 | 本節が「次に取れるのはモーダルの切り出し」と指示していた作業を Issue #105 が実施したため。「モーダル 4 種」という記述も実態（進捗は切り出し済み）と食い違っていた |
 | 1.54 | 2026-08-24 | 共通レイアウトの帯（`CapsBar` / `TabBar` / `KeyBar`）を `ui/molecule/chromebar` へ切り出した（Issue #106）。ディレクトリ構成のツリー・依存グラフ（`CBar` ノードと `Chrome --> CBar` / `Tabs --> CBar`。`Chrome --> Mol` は無くなったので落とした）・依存の規則の表・実装状況・行数表（`ui/molecule` 2034 → 1513・pass、`ui/molecule/chromebar` 542 を追加）をそろえ、「`ui/molecule` を分割した判断」に 2 周目の節を追加 | `molecule` 直下が 2034 行で再び警告帯に入った。1.18 以降に増えたのはすべてタブ・ダイアログごとに種類が増える部品で、本数が変わらない枠の帯と同じ予算に載っている状態が 1.18 とまったく同じだったため、同じ軸でもう一度分けた。テストの道具を出す手（28 行）では残りが 6 行にしかならず、次の 1 部品で再び超える |
+| 1.55 | 2026-08-24 | 行数表を実測へ更新（`ui/page/runners` 2018 → 1983・pass、`ui/page/pagetest` 1674 → 1696）。`ui/page/runners` の節の「次に足す Issue は道具を `page/pagetest` へ出せないか見ること」を、Issue #107 で実施した結果（`findChrome` / `collect` の写しを捨て、`pagetest.ChromeOf` を入れ子の束も辿る形へ直した）と、残り 17 行に対する次の手（テストの重複削減）へ書き換え | 指示していた削減を実施したため。あわせて `pagetest.ChromeOf` の doc が置いていた「ChromeMsg は入れ子の奥から出てこない」という前提が実際には成り立たず（`/` の束が 2 段になる）、写しを捨てるだけでは検証が落ちる状態だった |

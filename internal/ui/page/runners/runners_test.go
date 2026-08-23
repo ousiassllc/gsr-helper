@@ -40,7 +40,7 @@ func TestStateMsgEmitsOnlyChrome(t *testing.T) {
 	for range 3 {
 		var cmd tea.Cmd
 		m, cmd = m.Update(testState(80, 16))
-		msgs := collect(cmd)
+		msgs := pagetest.Msgs(cmd)
 		if len(msgs) != 1 {
 			t.Fatalf("発行された Msg の件数 = %d, want 1", len(msgs))
 		}

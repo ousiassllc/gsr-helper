@@ -18,16 +18,13 @@ import (
 // しまう。Issue #31 の jobs 側がその状態だった）。
 func press(k string) tea.KeyPressMsg { return pagetest.Press(k) }
 
-// testResult は runner 2 台と孤児ユニット 1 件の検出結果を返す。
-func testResult() runner.Result {
-	return runner.Result{
-		Runners: []runner.Runner{sampleRunner("build01-1", false), sampleRunner("build01-2", true)},
-		OrphanUnits: []runner.SvcState{{
-			Unit: "actions.runner.foo-bar.old01.service", Load: "loaded", Active: "failed",
-			Sub: "failed", FileState: "enabled", WorkingDir: "", User: "", MainPID: 0,
-		}},
-		Warnings: nil,
-	}
+// orphanUnits は孤児ユニット 1 件（サービスは残っているがディレクトリが無い）を返す。
+// pagetest の共有状態は孤児を持たないので、この場で足す。
+func orphanUnits() []runner.SvcState {
+	return []runner.SvcState{{
+		Unit: "actions.runner.foo-bar.old01.service", Load: "loaded", Active: "failed",
+		Sub: "failed", FileState: "enabled", WorkingDir: "", User: "", MainPID: 0,
+	}}
 }
 
 // sampleRunner は systemd 管理の runner を返す。busy が真ならジョブを実行中にする。
@@ -77,10 +74,9 @@ func unmanagedRunner(name string) runner.Runner {
 // **私物の組み立てを持たない。** 自前で組んでいた頃は Exec を nil のままにしており、
 // 「systemctl が無い環境でも nil にはしない」という page.StateMsg の不変条件に反する、
 // **親が決して作らない状態**でしか Runners タブを検証していなかった（Issue #31）。
-// 孤児ユニットは pagetest が持たないので、この場で足す。
 func testState(w, h int) page.StateMsg {
 	st := pagetest.State(w, h, sampleRunner("build01-1", false), sampleRunner("build01-2", true))
-	st.Result.OrphanUnits = testResult().OrphanUnits
+	st.Result.OrphanUnits = orphanUnits()
 	return st
 }
 
@@ -105,52 +101,21 @@ func send(t *testing.T, m tea.Model, keys ...string) (tea.Model, page.ChromeMsg)
 	return m, c
 }
 
-// chrome は Cmd から ChromeMsg を取り出す。Batch は展開する。
+// chrome は Cmd から ChromeMsg を取り出す。
 //
-// 見つかった時点で打ち切るのは、絞り込みのカーソル点滅の Cmd（1 秒待つ）を
-// 実行しないためである。page は ChromeMsg を Batch の先頭に置いている。
+// **走査は page/pagetest に任せる。** 以前はこのファイルが同じ再帰
+// （`findChrome`）と Msg の平坦化（`collect`）を持っていたが、どちらも
+// `pagetest.ChromeOf` / `pagetest.Msgs` の写しであり、道具はタブごとに写さず
+// 共有の置き場から取るのが本書の方針である（helper_test.go 冒頭の方針。Issue #107）。
+//
+// `ChromeOf` が最初の 1 件で打ち切るので、絞り込みのカーソル点滅の Cmd（1 秒待つ）は
+// 実行されない。page は ChromeMsg を束の先頭に置いている。
 func chrome(t *testing.T, cmd tea.Cmd) page.ChromeMsg {
 	t.Helper()
 
-	if c, ok := findChrome(cmd); ok {
-		return c
-	}
-	t.Fatal("ChromeMsg が発行されていない")
-	return page.ChromeMsg{}
-}
-
-// findChrome は Cmd を辿って最初の ChromeMsg を返す。
-func findChrome(cmd tea.Cmd) (page.ChromeMsg, bool) {
-	if cmd == nil {
-		return page.ChromeMsg{}, false
-	}
-	switch msg := cmd().(type) {
-	case page.ChromeMsg:
-		return msg, true
-	case tea.BatchMsg:
-		for _, c := range msg {
-			if v, ok := findChrome(c); ok {
-				return v, true
-			}
-		}
-	}
-	return page.ChromeMsg{}, false
-}
-
-// collect は Cmd が返す Msg を平坦化して返す。
-func collect(cmd tea.Cmd) []tea.Msg {
-	if cmd == nil {
-		return nil
-	}
-	msg := cmd()
-	batch, ok := msg.(tea.BatchMsg)
+	c, ok := pagetest.ChromeOf(cmd)
 	if !ok {
-		return []tea.Msg{msg}
+		t.Fatal("ChromeMsg が発行されていない")
 	}
-
-	var out []tea.Msg
-	for _, c := range batch {
-		out = append(out, collect(c)...)
-	}
-	return out
+	return c
 }
