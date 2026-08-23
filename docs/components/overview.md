@@ -210,19 +210,23 @@ runner の検出とモデル定義。**最下層**であり、他のドメイン
 |------|------|
 | `Op` | サービス制御操作の識別子（`OpStart` / `OpStop` / `OpKill` / `OpDrain` / `OpRestart` / `OpEnable`） |
 | `Start` / `Stop` / `Restart` / `Enable` / `Disable` | `systemctl <verb> <unit>` の呼び出し。ユニット名が空なら実行せず `ErrNoUnit` を返す |
-| `Kill(ctx, Executor, Runner)` | **強制停止**。`Runner.Listener` と `Runner.Worker` の PID へ `kill -KILL` を 1 回発行し、ユニット名があれば続けて `systemctl stop` を発行する。systemd 管理でなくても動く |
+| `Kill(ctx, Executor, Runner)` | **強制停止**。`Runner.Listener` と `Runner.Worker` の PID へ `kill -KILL` を 1 回発行し、ユニット名があれば続けて `systemctl stop` を発行する。systemd 管理でなくても動く。**PID もユニット名も無ければ 1 本も発行せず `ErrNoKillTarget` を返す** |
 | `DaemonReload` | drop-in 変更の反映 |
-| `Drain(ctx, Executor, Runner, progress)` / `Drainer` | `Runner.Worker` の消滅を待ってから停止。無制限に待ち、`ctx` のキャンセルで中断（このとき停止処理は行わない）。`Drainer` は走査手段・間隔・時刻を差し替えられる |
+| `Drain(ctx, Executor, Runner, progress)` / `Drainer` | `Runner.Worker` の消滅を待ってから停止。無制限に待ち、`ctx` のキャンセルで中断（このとき停止処理は行わない）。**ユニット名が無ければ待機に入らず `ErrNoUnit` を返す**（待ち切った先の `systemctl stop` が必ず失敗すると分かっているため）。`Drainer` は走査手段・間隔・時刻を差し替えられる |
 | `CommandLine(Op, Runner) []string` | 操作が発行するコマンドを実行順に返す。確認ダイアログの「実行するコマンド全文」がこれを読む |
 | `Enabled(Runner) bool` | ユニットが enable 済みかを返す。`OpEnable` が enable / disable のどちらへ倒れるかの判定を 1 箇所に置く |
-| `CanControl(Op, Runner, Caps) (bool, string)` | 操作可否と不可の理由を返す。`run.sh` 直起動・非 root・systemd 不在・管理状態の判定不能を判定 |
-| `ReasonRoot` / `ReasonSystemd` / `ReasonStandalone` / `ReasonManagedUnknown` | 不可の理由の文言。表示側が同じ文言を持たないよう公開する |
+| `CanControl(Op, Runner, Caps) (bool, string)` | 操作可否と不可の理由を返す。非 root・systemd 不在・`run.sh` 直起動・管理状態の判定不能を、この順に判定する |
+| `ReasonRoot` / `ReasonSystemd` / `ReasonStandalone` / `ReasonManagedUnknown` / `ReasonNoCommand` | 不可の理由の文言。表示側が同じ文言を持たないよう公開する |
 
 `CanControl` が `Op` を取るのは、[無効な操作の表示](../ui/screens.md#無効な操作の表示) の判定表が操作ごとに塞ぐ範囲を変えるためである（root が要るのは開始・停止・強制停止・再起動の 4 つで、ドレイン停止と enable の切替は要らない）。`CanControl` を 1 箇所に集約し、UI 側で操作可否の判断を再実装しない。
 
+**`run.sh` 直起動（3 段目）はドレイン停止も塞ぐ。** 待機そのものは `/proc` の走査だけだが、Worker が消えたあとに発行するのは `systemctl stop` であり、ユニットの無い runner では待ち切っても必ず失敗する（`Drainer.Drain` も待機に入る前に `ErrNoUnit` を返す）。同じ最終動作の停止が即座に塞がれるのに、ドレイン停止だけが無制限に待たせてから同じ理由で失敗するのは筋が通らない。**管理状態が判定できない（4 段目）ときはドレイン停止を塞がない。** ユニット一覧を取得できなかっただけで、ユニット名は `<dir>/.service` から読めるため停止は成立しうるからである。
+
+**`ReasonNoCommand` は `CanControl` が返す理由ではない。** `CanControl` の 4 段が見るのは起動方式と能力だけで、対象そのものの有無は見ない。可否を通っても `CommandLine` が空になる runner（未稼働かつサービス未インストールで、PID もユニット名も無い）は残るため、UI 側（`ui/page/runnerop`）が**確認ダイアログを開く前に**この理由で対象から外す。文言だけを `svc` に置くのは、理由の出どころを 1 箇所に保つためである。
+
 **確認ダイアログに出すコマンド全文は `CommandLine` から引く。** 表示側で `"systemctl " + verb + " " + unit` を組み直すと、承認した文面と実際に発行される内容が食い違いうる。「実行コマンド全文の提示と `y/N`」（[画面仕様の操作フロー](../requirements/functional.md)）は、提示と実行が同じ 1 箇所から出ていて初めて意味を持つ。
 
-**`Kill` は `systemctl kill` を使わない。** 対象を main プロセス以外へ広げるフラグの綴りが systemd のバージョンで変わり（`--kill-who` / `--kill-whom`）、既定のままでは main プロセスしか落とせずに worker が生き残るためである。プロセスを落とした後に `systemctl stop` まで打つのは、シグナルだけでは systemd 側が「停止した」と記録せず `Restart=` 付きのユニットが戻ってくるためである。`kill` が失敗しても `stop` は試み、両方の結果を `errors.Join` でまとめる。
+**`Kill` は `systemctl kill` を使わない。** 対象を main プロセス以外へ広げるフラグの綴りが systemd のバージョンで変わり（`--kill-who` / `--kill-whom`）、既定のままでは main プロセスしか落とせずに worker が生き残るためである。プロセスを落とした後に `systemctl stop` まで打つのは、シグナルだけでは systemd 側が「停止した」と記録せず `Restart=` 付きのユニットが戻ってくるためである。`kill` が失敗しても `stop` は試み、両方の結果を `errors.Join` でまとめる。**どちらの段も対象を持たない場合は 1 本も発行せず `ErrNoKillTarget` を返す。** 発行が 0 本のまま `errors.Join(nil...)` を返すと nil になり、何もしていない実行が「成功」として報告されて、止まっていない runner を止まったものとして扱わせてしまう。
 
 ### `internal/setup`
 
@@ -495,7 +499,7 @@ bubbletea の Model 群。**内部を Atomic Design で階層化する。** 部�
 | `ui/token` | token | 色・記号・幅。色は背景の明暗で解決し、色を使わない場合の縮退をここに閉じる。`huh.Theme` もここで組み立てる |
 
 - タブ間で共有する状態は親のみが持つ。これを実際に守らせているのは `page/pagetest/import_test.go` の `TestOnlyTabsetImportsTabs` で、`ui/page/<tab>` を import してよいのは `ui/tabset` だけであることを本番ファイルの import から検査する（Go が禁じるのは `page` → `page/<tab>` の循環だけで、タブ同士の参照は止まらない）。**検出（`runner.Discover`）を呼ぶのは親 Model だけで、page は呼ばない。** page は親から配られたスナップショット（`page.StateMsg`）を描画に使う。端末サイズも親が持ち、`template.BodySize` で算出した領域を配る。
-- 一覧と確認ダイアログはそれぞれ `organism/table.Model` / `organism/dialog.Confirm` の 1 実装に統一する。個別のダイアログを追加しないことで「確認を経ない破壊的操作の経路を作らない」を構造として守る（`organism/dialog` は未実装。[TUI コンポーネント設計の実装状況](../ui/atomic-design.md#実装状況)）。
+- 一覧と確認ダイアログはそれぞれ `organism/table.Model` / `organism/dialog.Confirm` の 1 実装に統一する。個別のダイアログを追加しないことで「確認を経ない破壊的操作の経路を作らない」を構造として守る（`organism/dialog` の `Confirm` / `DrainWaiter` は実装済みで、未実装なのは `DiffApproval` / `Form` だけである。[TUI コンポーネント設計の実装状況](../ui/atomic-design.md#実装状況)）。
 - 操作の起点は複数あるが（一覧の直接キー / 詳細画面の操作リスト / Jobs タブ、[FR-45〜FR-47](../requirements/functional.md)）、いずれも同じ確認ダイアログを経る。選択肢を並べる UI は `organism.ChoiceList` の 1 実装に統一する。
 - **page の寿命は親が知らせる。** タブを切り替えるときは離れるタブへ `page.DeactivateMsg`、移動先へ `page.ActivateMsg` を配る（長寿命の購読を張り直させるため）。終了時は有効な全タブへ `page.ShutdownMsg` を配り、各 page が返した後始末の `tea.Cmd` を `tea.Sequence` で `tea.Quit` より**前**に流す（`tea.Batch` では並走して後始末の前に止まりうる）。この契約は `q` / `ctrl+c` の終了でのみ働き、シグナル終了では `Update` を通らないため走らない。
 - キーの定義は `ui/keymap` に集約する。可否の判断は `ui/page/action`（`action.Allow` / `action.Set`）が持ち、`atom.KeyHint` は受け取った可否と理由を描くだけとする。**サービス制御の判定は `svc.CanControl` へ委譲済みである。** `action.Allow` が表示層に持つのは「どの操作をドメイン層のどの操作として問うか」の対応（`action.ID` → `svc.Op`）だけで、判定表と理由の文言は `internal/svc` にある。表示層に残る判定は `svc` の関心事ではないもの（GitHub の認証・ジョブ実行中・この版での実装状況）に限る。`?` の全キー一覧は `bubbles/help` に描かせるが、フッタは無効キーをグレーアウトする必要があるため自前で描く。
@@ -552,3 +556,4 @@ interface はこの 3 つに留める。ドメインごとの interface は、�
 | 1.17 | 2026-08-23 | `ui/page/pagetest` の行を「`page/<tab>` と親 Model が共用するテスト用の道具」に改め、`Msgs` / `ScanKey` / `StreamPage` を挙げた | 表は同パッケージを `page/<tab>` 用のフィクスチャに限定して書いていたが、親 Model 専用の道具（寿命テストの `StreamPage`、Issue #31 で移した打鍵の走査 `ScanKey`）も置かれており、[TUI コンポーネント設計](../ui/atomic-design.md) 側は「タブと親で共用する検証の道具の置き場」と記して親側からの利用を推奨している。2 文書が同じパッケージの守備範囲について別のことを述べていた（Issue #31 の最終ゲート指摘） |
 | 1.18 | 2026-08-23 | 依存関係に `Svc --> Appconf` を追加。`internal/svc` の責務表に `Op` / `Kill` / `Drainer` / 理由の文言を足し、`CanControl` のシグネチャを `CanControl(Op, Runner, Caps)` に訂正。可否の判断が `action.Allow` にある暫定である旨を、`svc.CanControl` へ委譲済みの記述に置き換えた | サービス制御（Issue #5）で `internal/svc` を実装したため。`CanControl` は操作ごとに塞ぐ範囲が違う（[無効な操作の表示](../ui/screens.md#無効な操作の表示)）ので `Runner` と `Caps` だけでは判定できず、仕様書のシグネチャのままでは実装できなかった。`Caps` を引数に取る以上 `appconfig` への依存もグラフに必要で、強制停止（`Kill`）は責務表に行が無かった |
 | 1.19 | 2026-08-23 | `internal/ui` のサブパッケージ表に `ui/page/runnerop` と `ui/organism/dialog` の行を追加。`internal/svc` の責務表に `CommandLine` / `Enabled` を追加し、確認ダイアログのコマンド全文が `CommandLine` を出どころとする規約を明記 | サービス制御（Issue #5）で実装したパッケージが本書の階層表から辿れなかった。実行コマンドの提示と実行を別々に組み立てると承認の意味が失われるため、出どころを 1 箇所に定める規約を仕様の側にも残す必要があった |
+| 1.20 | 2026-08-23 | `internal/svc` の責務表で `Kill` に「PID もユニット名も無ければ 1 本も発行せず `ErrNoKillTarget` を返す」、`Drain` に「ユニット名が無ければ待機に入らず `ErrNoUnit` を返す」を追記し、理由の文言の行に `ReasonNoCommand` を追加。`CanControl` の行を判定の順（非 root → systemd 不在 → `run.sh` 直起動 → 判定不能）に書き改め、3 段目がドレイン停止も塞ぐ理由と 4 段目が塞がない理由、`ReasonNoCommand` が `CanControl` の返す理由ではなく UI 側が確認ダイアログの手前で使う文言であることを段落で追記。`organism/dialog` を「未実装」と書いていた箇条書き（`Confirm` を 1 実装に統一する規則）を、`Confirm` / `DrainWaiter` は実装済みで未実装は `DiffApproval` / `Form` だけである記述に訂正 | 同じ文書の `internal/ui` のサブパッケージ表（1.19 で更新）が `organism/dialog` を実装済みと書く一方、箇条書きは「未実装」のままで**文書が自分自身と矛盾**しており、リンク先の [TUI コンポーネント設計の実装状況](../ui/atomic-design.md#実装状況) とも食い違っていた。`Kill` / `Drain` の「対象が無ければ発行しない」は本 PR で入れた振る舞いで、書かないと 0 本の実行を成功として報告する実装へ戻りうる。`CanControl` は 3 段目でドレイン停止も塞ぐようになったのに責務表は塞ぐ範囲を挙げておらず、`ReasonNoCommand` に至っては公開定数が本書のどこからも辿れなかった（PR #70 のレビュー指摘） |
