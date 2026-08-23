@@ -35,8 +35,8 @@ func TestCleanRowsCoverEveryTargetInPlanOrder(t *testing.T) {
 	if rows[0].Name != "build01-1 / _work/foo" {
 		t.Errorf("1 行目 = %q, want パスの対象", rows[0].Name)
 	}
-	if rows[1].Name != cleanview.DockerLabel {
-		t.Errorf("2 行目 = %q, want %q", rows[1].Name, cleanview.DockerLabel)
+	if rows[1].Name != disk.DockerLabel {
+		t.Errorf("2 行目 = %q, want %q", rows[1].Name, disk.DockerLabel)
 	}
 	for i, r := range rows {
 		if r.State != molecule.ProgressWaiting {
@@ -50,7 +50,7 @@ func TestMarkRowReflectsOutcomePerTarget(t *testing.T) {
 	rows := cleanview.Rows(plan2())
 
 	cleanview.Mark(rows, disk.Progress{Label: "build01-1 / _work/foo", Done: 1, Total: 2})
-	cleanview.Mark(rows, disk.Progress{Label: cleanview.DockerLabel, Done: 2, Total: 2,
+	cleanview.Mark(rows, disk.Progress{Label: disk.DockerLabel, Done: 2, Total: 2,
 		Err: errors.New("prune が終了コード 1 で終了しました")})
 
 	if rows[0].State != molecule.ProgressDone {

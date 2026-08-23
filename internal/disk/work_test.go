@@ -73,3 +73,37 @@ func TestWorkUsageCanceledReturnsError(t *testing.T) {
 		t.Errorf("WorkUsage = %d, want 0（途中経過を返してはいけない）", got)
 	}
 }
+
+// _work がシンボリックリンクでも中身を集計する。
+//
+// `_work` を別ボリュームへ寄せた構成ではリンクになる。辿らないと filepath.WalkDir が
+// root を Lstat で見てリンク 1 件だけを数え、**集計できていないのに 0 バイトという
+// 確定値**を一覧に出す（未集計は `-` に縮退させるのが本来の扱い）。
+func TestWorkUsageFollowsSymlinkedWorkDir(t *testing.T) {
+	base := t.TempDir()
+	target := filepath.Join(base, "elsewhere")
+	write(t, target, "repo/repo/a.bin", 4096)
+
+	dir := t.TempDir()
+	if err := os.Symlink(target, filepath.Join(dir, "_work")); err != nil {
+		t.Fatalf("Symlink: %v", err)
+	}
+
+	got, err := WorkUsage(context.Background(), newRunner(dir, false))
+	if err != nil {
+		t.Fatalf("WorkUsage: %v", err)
+	}
+	if want := int64(4096); got != want {
+		t.Errorf("WorkUsage = %d, want %d（リンクを辿っていない）", got, want)
+	}
+}
+
+// _work がディレクトリでなければエラーにする（0 バイトと取り違えさせない）。
+func TestWorkUsageRejectsNonDirectory(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, "_work", 10)
+
+	if _, err := WorkUsage(context.Background(), newRunner(dir, false)); err == nil {
+		t.Error("_work がファイルなのにエラーを返していない")
+	}
+}

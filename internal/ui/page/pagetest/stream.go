@@ -15,7 +15,8 @@ type CleanupDoneMsg struct{ Tab int }
 // StreamPage は長寿命の購読（journalctl -f のようなストリーム）を持つ page を
 // 模したテスト用の Model。前面に出たら 1 本張り、裏へ回ったら畳む。
 //
-// 起動時に選択されているタブは page.ActivateMsg を受け取らないので 0 本から始める。
+// 購読は 0 本から始まる。**起動時に選択されているタブも page.ActivateMsg を受け取る**
+// ので（Issue #63）、親へ最初の共有状態を配った時点で既定タブは 1 本になる。
 type StreamPage struct {
 	Tab       int
 	Open      int // 開いている購読の本数

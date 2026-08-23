@@ -93,3 +93,31 @@ func TestVersionString(t *testing.T) {
 		t.Errorf("バージョン表記 = %q, ツール名で始まっていない", got)
 	}
 }
+
+// 監査記録の失敗が auditSink へ届く（Issue #71 の配布経路）。
+//
+// **openAudit の第 3 引数を nil に戻す退行を CI が検出できるようにする。** 通知先を
+// 渡さないと audit が os.Stderr へ直接書き、bubbletea が代替スクリーンを握っている
+// 間に画面が壊れる（openAudit / audit.WithErrorFunc の doc）。internal/disk 側には
+// 記録そのものの回帰テストがあるが、cmd の配線だけが見られていなかった。
+func TestOpenAuditRoutesReportFailuresToSink(t *testing.T) {
+	var errOut strings.Builder
+	sink := &auditSink{}
+
+	lg := openAudit(filepath.Join(t.TempDir(), "audit.jsonl"), &errOut, sink.add)
+	// 閉じたあとの Report は書き込みに失敗する。**戻り値を持たない**ので、
+	// 通知先が繋がっていなければ失敗は誰にも見えない。
+	if err := lg.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	lg.Report(audit.Record{Action: "disk.clean", Command: []string{"(削除)", "/tmp/x"}})
+
+	var report strings.Builder
+	sink.report(&report)
+	if report.Len() == 0 {
+		t.Error("記録の失敗が auditSink へ届いていない（openAudit の通知先が繋がっていない）")
+	}
+	if got := report.String(); !strings.Contains(got, "監査ログの記録に") {
+		t.Errorf("報告の文言 = %q, want 監査ログの記録に…を含む", got)
+	}
+}

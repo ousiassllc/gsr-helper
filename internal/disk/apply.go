@@ -23,8 +23,13 @@ import (
 // 追う羽目になる。
 const actionClean = "disk.clean"
 
-// dockerCleanLabel は docker の削除の進捗に出す表示名。
-const dockerCleanLabel = "docker / 未使用リソース"
+// DockerLabel は docker の削除の進捗（Progress.Label）に出る表示名。
+//
+// **公開しているのは、表示側が名前で突き合わせるためである。** Disk タブは進捗の
+// Label で行を引き当てるので（page/disk/cleanview.Mark）、同じ文字列を写しで持つと
+// こちらを変えた瞬間に docker の行だけ永久に未着手で残り、報告の件数もずれる。
+// コンパイルもテストも通ってしまうため、名前の一致は型で保証する。
+const DockerLabel = "docker / 未使用リソース"
 
 // auditRemoveLabel は監査レコードの command[0] に載せる値。
 //
@@ -74,7 +79,7 @@ func Apply(ctx context.Context, ex exec.Executor, lg *audit.Logger, plan CleanPl
 	if plan.Docker {
 		err := pruneDocker(ctx, ex)
 		done++
-		report(progress, Progress{Label: dockerCleanLabel, Done: done, Total: total, Err: err})
+		report(progress, Progress{Label: DockerLabel, Done: done, Total: total, Err: err})
 		if err != nil {
 			errs = append(errs, err)
 		}

@@ -2,6 +2,9 @@ package disk
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 
@@ -18,7 +21,9 @@ import (
 //
 // _work が無い runner は 0 とエラー無しを返す。ジョブを 1 度も実行していない runner は
 // _work を持たないので、それを異常として見せると起動直後の一覧がエラーで埋まる
-// （scanTargets が対象 0 件として扱うのと同じ理由）。
+// （scanTargets が対象 0 件として扱うのと同じ理由）。**「無い」以外の理由で読めない
+// 場合はエラーを返す**——0 を返すと、集計できていないことが「0 バイト」という確定値
+// として一覧に出る。
 //
 // 読めないエントリは飛ばして走査を続ける（walkTree の契約）。_work 自体が読めない
 // 場合だけエラーを返し、呼び出し側はその runner を `-` に縮退させる。
@@ -30,12 +35,31 @@ func WorkUsage(ctx context.Context, r runner.Runner) (int64, error) {
 	work := filepath.Join(r.Dir, workDirName)
 
 	fi, err := os.Stat(work)
-	if err != nil || !fi.IsDir() {
-		// 無い・読めないは「0 バイト」として扱う。上の doc を参照。
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		// ジョブを 1 度も実行していない runner。0 バイトとして扱う（上の doc）。
 		return 0, nil
+	case err != nil:
+		// 読めない理由がそれ以外（権限など）なら伝える。0 を返すと、集計できて
+		// いないことが「0 バイト」という確定値として一覧に出る。
+		return 0, fmt.Errorf("%s の情報取得に失敗しました: %w", work, err)
+	case !fi.IsDir():
+		return 0, fmt.Errorf("%s はディレクトリではありません", work)
 	}
 
-	bytes, _, err := walkTree(ctx, work)
+	// **シンボリックリンクは辿る。** `_work` を別ボリュームへ寄せた構成では `_work`
+	// 自体がリンクになる。filepath.WalkDir は root を Lstat で見るため、辿らないと
+	// リンク 1 件だけを見て 0 バイトを返し、**集計できていないのに 0 バイトという
+	// 確定値**を一覧に出す（未集計は `-` に縮退させるのが本来の扱い）。
+	//
+	// 削除（Apply / removeTree）が辿らないのとは扱いが違ってよい。あちらはリンク先の
+	// 実体を消さないための約束で、こちらは読むだけである。
+	target, err := filepath.EvalSymlinks(work)
+	if err != nil {
+		return 0, fmt.Errorf("%s の解決に失敗しました: %w", work, err)
+	}
+
+	bytes, _, err := walkTree(ctx, target)
 	if err != nil {
 		return 0, err
 	}

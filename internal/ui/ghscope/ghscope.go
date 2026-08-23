@@ -86,6 +86,14 @@ func build(ctx context.Context, ex exec.Executor, newClient func(context.Context
 type State struct {
 	scopes page.ScopeState
 	done   bool
+	// NewClient は API クライアントの生成を差し替える口。
+	//
+	// **テストが本物の GitHub へ出ないようにするための継ぎ目である**
+	// （page.SetupDeps.NewClient と同じ役割）。nil のままだと Start は gh.Token から
+	// 借りたトークンでクライアントを作り、周囲の GH_TOKEN を拾って api.github.com を
+	// 叩きうる。親 Model の検証は共有状態を配るたびに束の Cmd をすべて実行するため、
+	// この口を塞がないとユニットテストがネットワークに出る。本番は nil。
+	NewClient func(context.Context) (*gh.Client, error)
 }
 
 // Scopes は共有状態へ載せる値を返す。取得前・失敗時は Known が偽のままである。
@@ -101,9 +109,9 @@ func (s *State) Start(ex exec.Executor, hasToken bool) tea.Cmd {
 		return nil
 	}
 	s.done = true
-	// 本番は差し替えない。nil のまま渡すと gh.Token から借りたトークンで本物の
-	// クライアントを作る（Start の doc）。
-	return Start(ex, nil)
+	// 本番は NewClient が nil で、gh.Token から借りたトークンで本物のクライアントを
+	// 作る（Start の doc）。テストは継ぎ目を差し替える。
+	return Start(ex, s.NewClient)
 }
 
 // Apply は取得結果を取り込む。

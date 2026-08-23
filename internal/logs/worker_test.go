@@ -1,7 +1,9 @@
 package logs_test
 
 import (
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/ousiassllc/gsr-helper/internal/logs"
@@ -128,5 +130,57 @@ func TestWorkspaceFallback(t *testing.T) {
 				t.Errorf("WorkspaceFallback(%q, %q) = %q, want %q", tt.workDir, tt.repo, got, tt.want)
 			}
 		})
+	}
+}
+
+// 行の途中で切れたマーカーが次の行を巻き込まない。
+//
+// マーカー以降をファイル全体から探すと、切り詰められたログで次の行のログ本文まで
+// 取り込み、改行を含む値が REPOSITORY 列に出て表の描画が崩れる。
+func TestParseWorkerDoesNotCrossLineBoundaries(t *testing.T) {
+	got, err := logs.ParseWorker(testdataDir, "worker_split_marker.log")
+	if err != nil {
+		t.Fatalf("ParseWorker: %v", err)
+	}
+	if strings.ContainsAny(got.Repository, "\n ") {
+		t.Errorf("Repository に改行や空白が入っている: %q", got.Repository)
+	}
+	// owner だけで repo が無い行からは取り出さない。
+	if got.Repository != "" {
+		t.Errorf("Repository = %q, want 空（owner までしか書かれていない）", got.Repository)
+	}
+}
+
+// Job message の巨大な JSON ダンプ（1 行）の後ろに出る取り出し口へ届く。
+//
+// 1 行の上限が既定（64 KiB）だとダンプの行で読み取りが止まり、その後ろの
+// 作業ディレクトリの行を一切見られない。
+func TestParseWorkerReadsPastHugeJSONLine(t *testing.T) {
+	dir := t.TempDir()
+	var b strings.Builder
+	b.WriteString("[2026-08-21 12:05:40Z INFO Worker] Starting Worker\n")
+	b.WriteString("[2026-08-21 12:05:41Z INFO WorkerRunner] Job message:\n")
+	// 1 行で 512 KiB 以上（bufio.Scanner の既定 64 KiB を大きく超える）の JSON ダンプ。
+	b.WriteString(` {"jobId":"x","padding":"` + strings.Repeat("p", 512<<10) + `"}` + "\n")
+	b.WriteString("[2026-08-21 12:05:42Z INFO PipelineDirectoryManager] Loading tracking config if exists: " +
+		"/opt/runners/build01-1/_work/_PipelineMapping/ousiassllc/gsr-helper/PipelineFolder.json\n")
+	b.WriteString("[2026-08-21 12:05:42Z INFO PipelineDirectoryManager] Update workspace to " +
+		"'/opt/runners/build01-1/_work/gsr-helper/gsr-helper'\n")
+
+	const name = "Worker_20260821-120540-utc.log"
+	if err := os.WriteFile(filepath.Join(dir, name), []byte(b.String()), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	got, err := logs.ParseWorker(dir, name)
+	if err != nil {
+		t.Fatalf("ParseWorker: %v", err)
+	}
+	if got.Repository != "ousiassllc/gsr-helper" {
+		t.Errorf("Repository = %q, want %q（巨大な 1 行で読み取りが止まっている）",
+			got.Repository, "ousiassllc/gsr-helper")
+	}
+	if got.Workspace != "/opt/runners/build01-1/_work/gsr-helper/gsr-helper" {
+		t.Errorf("Workspace = %q, want 作業ディレクトリ", got.Workspace)
 	}
 }

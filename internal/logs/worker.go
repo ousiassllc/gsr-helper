@@ -1,6 +1,7 @@
 package logs
 
 import (
+	"bufio"
 	"io"
 	"os"
 	"path/filepath"
@@ -11,6 +12,13 @@ import (
 // 埋めるための情報源であり、Tail / Journal の「追従」とは独立した「1 度だけ読んで
 // 済ませる」経路である。取り出し口は actions/runner のソース（HEAD 258d6c857）で
 // 確認済みのものだけを使う。
+//
+// **抽出は 1 行ずつ行う。** マーカー以降をファイル全体から探すと、ログが途中で
+// 切れている場合に次の行のログ本文まで巻き込み、改行を含む値が列に出る。行に
+// 閉じることで、切れた行はその行だけが一致しないという形に収まる。
+//
+// **両方が見つかった時点で読むのをやめる。** 取り出し口はいずれもジョブ開始直後に
+// 出るので、正常なログでは先頭のわずかな量しか読まない。
 //
 // **リポジトリ名の取り出し口は優先順に 3 つ試す。**
 //  1. PipelineDirectoryManager の tracking config 探索行のパス
@@ -26,14 +34,23 @@ import (
 // どちらも見つからない場合のフォールバック（`<_work>/<repo>/<repo>`）は
 // WorkspaceFallback が別に持つ（下記の doc）。
 
-// workerParseLimit は ParseWorker が先頭から読む最大バイト数。
+// 読み取りの上限。
 //
-// Worker ログは Job message の JSON ダンプ（ジョブの設定を丸ごと含む）を書き出すため
-// 数 MB に育つことがある。リポジトリ名も作業ディレクトリも、上記の取り出し口が
-// すべてジョブ開始直後の数十行以内に出る行であるため、先頭の一定量だけを読めば
-// 足りる。上限を置かないと、Jobs タブの再検出（3 秒ごと）のたびに新しく対応付いた
-// ジョブぶんだけとはいえ、巨大なログを丸ごと読むことになる。
-const workerParseLimit = 1 << 20 // 1 MiB
+// **2 つとも必要である。** Worker ログは Job message の JSON ダンプ（ジョブの設定を
+// 丸ごと含む）を 1 行で書き出すため、行 1 本が数 MB になることがある。
+//
+//   - workerParseLimit はファイル全体から読む量の上限。取り出し口が 1 つも無いログ
+//     （ジョブが checkout 前に落ちた場合など）で際限なく読まないための歯止めである。
+//     **両方の値が見つかった時点で読むのをやめる**ので、正常なログでこの上限に
+//     達することはない。1 MiB では JSON ダンプの後ろに出る取り出し口（作業
+//     ディレクトリ）へ届かないことがあったため広げた。
+//   - workerMaxLine は 1 行の上限。bufio.Scanner の既定（64 KiB）では JSON ダンプの
+//     行で読み取りが止まり、その後ろの行を一切見られない。
+const (
+	workerParseLimit = 8 << 20  // 8 MiB
+	workerMaxLine    = 4 << 20  // 4 MiB
+	workerLineBuffer = 64 << 10 // 初期バッファ。長い行だけが workerMaxLine まで伸びる
+)
 
 // JobInfo は Worker ログから読み取ったジョブの素性。読み取れなかった項目は空文字。
 type JobInfo struct {
@@ -72,16 +89,24 @@ func ParseWorker(dir, name string) (JobInfo, error) {
 	}
 	defer func() { _ = f.Close() }()
 
-	b, err := io.ReadAll(io.LimitReader(f, workerParseLimit))
-	if err != nil {
-		return JobInfo{}, nil
+	var info JobInfo
+	sc := bufio.NewScanner(io.LimitReader(f, workerParseLimit))
+	sc.Buffer(make([]byte, 0, workerLineBuffer), workerMaxLine)
+	for sc.Scan() {
+		line := sc.Text()
+		if info.Repository == "" {
+			info.Repository = firstMatch(line, repoFromMapping, repoFromJobMessage, repoFromMultiRepo)
+		}
+		if info.Workspace == "" {
+			info.Workspace = firstMatch(line, workspaceFromUpdate, workspaceFromWorkingDir)
+		}
+		if info.Repository != "" && info.Workspace != "" {
+			break
+		}
 	}
-	content := string(b)
-
-	return JobInfo{
-		Repository: firstMatch(content, repoFromMapping, repoFromJobMessage, repoFromMultiRepo),
-		Workspace:  firstMatch(content, workspaceFromUpdate, workspaceFromWorkingDir),
-	}, nil
+	// 読み取りの失敗（長すぎる行・途中で切れたファイル）はそこまでで打ち切る。
+	// 取れた分は返す（呼び出し側は空を `-` に縮退する）。
+	return info, nil
 }
 
 // WorkspaceFallback は ParseWorker がジョブの作業ディレクトリを取れなかった場合の

@@ -22,8 +22,8 @@ const (
 	dockerSkipLabel = "docker"
 	// dockerPruneLabel は実際に選べる docker の行の表示名。内訳とは別に 1 行置くのは、
 	// 発行するのが docker system prune -f 1 本で種別を選り分けられないためである
-	// （internal/disk が進捗に出す dockerCleanLabel と同じ文字列にしてある）。
-	dockerPruneLabel = "docker / 未使用リソース"
+	// （internal/disk.DockerLabel と同じ文字列。一覧の行名と進捗の突き合わせを揃える）。
+	dockerPruneLabel = disk.DockerLabel
 	// 以下 3 つは選択できない理由。**いずれも 22 セル以内に収める。** 理由は一覧の
 	// 最終列（PATH）に載り、organism/table が最終列を 1 セル狭めるため使えるのは
 	// token.DiskColumns の 25 セルではなく 24 セルである。長いと末尾が中略されて

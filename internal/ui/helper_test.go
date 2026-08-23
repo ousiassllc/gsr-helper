@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"context"
+	"errors"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -8,6 +10,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/appconfig"
 	"github.com/ousiassllc/gsr-helper/internal/doctor"
 	"github.com/ousiassllc/gsr-helper/internal/exec"
+	"github.com/ousiassllc/gsr-helper/internal/gh"
 	"github.com/ousiassllc/gsr-helper/internal/ui/chrome"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
@@ -36,6 +39,11 @@ func newApp(ex exec.Executor) App {
 	// sudo / docker / /etc/group を読むため、親 Model の検証が実行環境の構成で
 	// 揺れる。FR-44 そのものを見るテストは withHostChecks で差し替える。
 	a.hostChecks = nil
+	// **保有スコープも本物の GitHub へ出させない。** 束の Cmd をすべて実行する検証
+	// （applyChrome）があるため、塞がないと api.github.com を叩いて Budget ぶん止まる。
+	a.scopes.NewClient = func(context.Context) (*gh.Client, error) {
+		return nil, errors.New("テストでは GitHub へ出ない")
+	}
 	return a
 }
 

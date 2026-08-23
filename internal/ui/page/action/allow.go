@@ -180,15 +180,23 @@ func Allow(a Def, r runner.Runner, caps appconfig.Caps, scopes page.ScopeState) 
 			return false, reason
 		}
 	}
+	// スコープ不足の理由は 1 度だけ求める。判定は 1 フレームに何度も走る（フッタは
+	// キーぶん、操作リストは項目ぶん）ので、条件と戻り値で 2 度評価すると塞ぐ側で
+	// 文字列の組み立てが二重に走る。
+	scopeReason := ""
+	if is(a, Add, Delete) {
+		scopeReason = missingScope(r, scopes)
+	}
+
 	switch {
 	case !caps.Root && is(a, Delete, Add, Update):
 		return false, svc.ReasonRoot
 	case !caps.GitHubToken && is(a, Add, Delete, Update):
 		return false, reasonToken
-	case is(a, Add, Delete) && missingScope(r, scopes) != "":
+	case scopeReason != "":
 		// 6 段目「スコープ不足」。塞ぐのは n / D の 2 つで、u（更新）は含めない
 		// （screens.md「無効な操作の表示」の表）。
-		return false, missingScope(r, scopes)
+		return false, scopeReason
 	case r.Busy() && a.ID == Delete:
 		return false, reasonBusy
 	case !a.Supported:

@@ -185,7 +185,7 @@ func TestApplyPrunesDocker(t *testing.T) {
 	if c.Options.Action != "disk.clean" || c.Options.SkipAudit {
 		t.Errorf("Options = %+v, want Action=disk.clean SkipAudit=false", c.Options)
 	}
-	want := []Progress{{Label: dockerCleanLabel, Done: 1, Total: 1, Err: nil}}
+	want := []Progress{{Label: DockerLabel, Done: 1, Total: 1, Err: nil}}
 	if !slices.Equal(rec.got, want) {
 		t.Errorf("Progress\n got: %+v\nwant: %+v", rec.got, want)
 	}

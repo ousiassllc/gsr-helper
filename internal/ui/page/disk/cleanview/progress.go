@@ -22,12 +22,6 @@ import (
 // 添えるので、ここには入れない（page/setup の bareTitle と同じ約束）。
 const ProgressTitle = "クリーンアップ中…"
 
-// DockerLabel は docker の削除の進捗に出る表示名。
-//
-// internal/disk が進捗に載せる表示名と同じ文字列にしてある。突き合わせを名前で
-// 行うため、別の文言を作ると docker の行だけ完了しても状態が変わらない。
-const DockerLabel = "docker / 未使用リソース"
-
 // Counts は行の状態を成功・失敗・未実行の件数に数える。
 //
 // **件数の出どころをこの 1 つに固定する。** 進捗表示の結果報告と状態行の 1 行が
@@ -61,11 +55,11 @@ func Rows(plan disk.CleanPlan) []molecule.ProgressView {
 		})
 	}
 	if plan.Docker {
-		// disk.Apply が docker の進捗に載せる表示名は dockerPruneLabel と同じ
-		// 文字列である（scan.go の doc）。名前で突き合わせるので、ここで別の
-		// 文言を作ると docker の行だけ完了しても状態が変わらない。
+		// **名前は internal/disk の定数をそのまま使う。** 突き合わせ（Mark）は
+		// 表示名で行うので、写しを持つと internal/disk 側を変えた瞬間に docker の
+		// 行だけ永久に未着手で残り、報告の件数もずれる。
 		rows = append(rows, molecule.ProgressView{
-			Name: DockerLabel, State: molecule.ProgressWaiting, Detail: "",
+			Name: disk.DockerLabel, State: molecule.ProgressWaiting, Detail: "",
 		})
 	}
 	return rows

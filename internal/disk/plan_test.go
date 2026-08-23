@@ -43,7 +43,7 @@ func pathTarget(base, rel string, bytes int64) Target {
 // dockerTarget は docker の未使用リソースの対象を組み立てる。
 func dockerTarget(bytes int64) Target {
 	return Target{
-		Label: dockerCleanLabel, Base: "", Path: "", Bytes: bytes, Files: -1,
+		Label: DockerLabel, Base: "", Path: "", Bytes: bytes, Files: -1,
 		Docker: true, Protected: "",
 	}
 }
