@@ -44,7 +44,7 @@ func fakePATH(t *testing.T) {
 		}
 	}
 	t.Setenv("PATH", dir)
-	t.Setenv(envGHToken, "")
+	t.Setenv("GH_TOKEN", "")
 	t.Setenv(confpath.EnvSudoUser, "")
 }
 
@@ -164,15 +164,15 @@ func TestDetectSudoUser(t *testing.T) {
 	}
 }
 
-// Detect が Options を probes に渡し、HasToken を渡したら既定実装（gh / sudo）が
-// 動かないこと。PATH を固定して、ホストに gh があるかに依存せず検証する。
+// Detect が Options.HasToken を使い、その結果を Caps に載せること。トークン判定の
+// 実装はこのパッケージに無く（internal/gh が持つ）、注入だけを受ける。
 func TestDetectWiresOptions(t *testing.T) {
 	fakePATH(t)
 	f := exec.NewFake()
 	f.SetFunc(func(_ string, _ []string) (exec.Result, error) { return exec.Result{ExitCode: 1}, nil })
 
 	opts := Options{
-		HasToken: func(_ context.Context, _ exec.Executor) bool { return true },
+		HasToken: func(_ context.Context, _ exec.Executor, _ time.Duration) bool { return true },
 		Timeout:  testTimeout,
 	}
 	got := Detect(context.Background(), f, opts)
@@ -181,7 +181,26 @@ func TestDetectWiresOptions(t *testing.T) {
 	}
 	for _, c := range f.Calls() {
 		if c.Name == "gh" || c.Name == "sudo" {
-			t.Errorf("トークン取得の既定実装が動いている: %v", c)
+			t.Errorf("このパッケージがトークン取得を発行している: %v", c)
+		}
+	}
+}
+
+// HasToken を渡さない起動は「認証されていない」に倒し、トークン取得のコマンドを
+// 1 本も発行しないこと。取得の優先順の実装を internal/gh の 1 箇所に閉じたため、
+// このパッケージは判定手段を持たない。
+func TestDetectWithoutTokenFuncReportsNoToken(t *testing.T) {
+	fakePATH(t)
+	f := exec.NewFake()
+	f.SetFunc(func(_ string, _ []string) (exec.Result, error) { return okResult() })
+
+	got := Detect(context.Background(), f, Options{HasToken: nil, Timeout: testTimeout})
+	if got.GitHubToken {
+		t.Error("判定手段が無いのに GitHubToken = true になっている")
+	}
+	for _, c := range f.Calls() {
+		if c.Name == "gh" || c.Name == "sudo" {
+			t.Errorf("トークン取得のコマンドを発行している: %v", c)
 		}
 	}
 }
@@ -235,9 +254,16 @@ func TestDetectRunsProbesConcurrently(t *testing.T) {
 		return okResult()
 	})
 
+	// トークン判定は注入されたものが発行する。docker と合わせて 2 本になる。
+	p := testProbes([]string{"docker", "gh"}, nil, 1000)
+	p.hasToken = func(ctx context.Context, ex exec.Executor, _ time.Duration) bool {
+		res, err := ex.Run(ctx, "gh", "auth", "token")
+		return err == nil && res.ExitCode == 0
+	}
+
 	done := make(chan Caps, 1)
 	go func() {
-		done <- detect(context.Background(), f, testProbes([]string{"docker", "gh"}, nil, 1000), testTimeout)
+		done <- detect(context.Background(), f, p, testTimeout)
 	}()
 
 	for i := 1; i <= 2; i++ {

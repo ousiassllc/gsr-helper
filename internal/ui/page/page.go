@@ -22,6 +22,7 @@ import (
 
 	"github.com/ousiassllc/gsr-helper/internal/appconfig"
 	"github.com/ousiassllc/gsr-helper/internal/exec"
+	"github.com/ousiassllc/gsr-helper/internal/gh"
 	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/ui/atom"
 	"github.com/ousiassllc/gsr-helper/internal/ui/keymap"
@@ -63,6 +64,25 @@ type StateMsg struct {
 	BodyW int
 	BodyH int
 	Err   error // 直近の検出エラー
+	// Setup は Setup タブが要る起動時の決定事項。1 つにまとめてあるのは、
+	// タブ 1 枚のためだけに StateMsg のフィールドを 3 つ増やさないためである。
+	Setup SetupDeps
+}
+
+// SetupDeps は Setup タブ（runner の追加・削除・バージョン更新）が要る値。
+//
+// いずれも cmd が起動時に決め、UI 側で環境や設定を読み直さない
+// （docs/ui/atomic-design.md「背景の明暗と NO_COLOR」と同じ方針）。
+type SetupDeps struct {
+	// Host は既定の runner 名の接頭辞に使うホスト名（FR-11）。
+	Host string
+	// Defaults は設定ファイルの defaults（インストール先・ラベル・ephemeral）。
+	Defaults appconfig.Defaults
+	// Secrets は取得した短命トークンの預け先。
+	//
+	// ここへ預けた値は exec の値一致マスク（段 2）に載り、監査ログと
+	// エラー文言から平文が消える（docs/architecture/security.md）。
+	Secrets *gh.Secrets
 }
 
 // TabMsg は page が発行した Cmd の結果を、発行元のタブへ差し戻すための包み。

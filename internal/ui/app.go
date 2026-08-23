@@ -15,6 +15,7 @@ import (
 
 	"github.com/ousiassllc/gsr-helper/internal/appconfig"
 	"github.com/ousiassllc/gsr-helper/internal/exec"
+	"github.com/ousiassllc/gsr-helper/internal/gh"
 	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/ui/chrome"
 	"github.com/ousiassllc/gsr-helper/internal/ui/keymap"
@@ -33,8 +34,10 @@ type Options struct {
 	Refresh time.Duration
 	// Roots は追加の走査ルート（設定ファイルと --root を cmd が合わせたもの）。
 	Roots []string
-	// Host はヘッダに出すホスト名。
+	// Host はヘッダに出すホスト名。既定の runner 名の接頭辞にも使う（FR-11）。
 	Host string
+	// Secrets は短命トークンの預け先。Setup タブが取得したトークンを載せる。
+	Secrets *gh.Secrets
 }
 
 // App は親 Model。
@@ -208,6 +211,11 @@ func (a App) state() page.StateMsg {
 		BodyW:  w,
 		BodyH:  h,
 		Err:    a.err,
+		Setup: page.SetupDeps{
+			Host:     a.opts.Host,
+			Defaults: a.cfg.Defaults,
+			Secrets:  a.opts.Secrets,
+		},
 	}
 }
 

@@ -18,6 +18,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/appconfig"
 	"github.com/ousiassllc/gsr-helper/internal/audit"
 	"github.com/ousiassllc/gsr-helper/internal/exec/command"
+	"github.com/ousiassllc/gsr-helper/internal/gh"
 	"github.com/ousiassllc/gsr-helper/internal/ui"
 )
 
@@ -78,16 +79,23 @@ func run(args []string, stdout, stderr io.Writer) int {
 	sink := &auditSink{}
 	defer func() { sink.report(stderr) }()
 
-	// 秘密情報の提供元は NoSecrets。この版はトークンをメモリに保持しない
-	// （GitHub API を使う機能の Issue で、トークンを保持する提供元に差し替える）。
-	ex := command.New(command.NoSecrets, command.WithAudit(lg), command.WithAuditErrorFunc(sink.add))
-	caps := appconfig.Detect(context.Background(), ex, appconfig.Options{HasToken: nil, Timeout: 0})
+	// 秘密情報の提供元。runner の追加・削除で取得する短命トークンをここへ預け、
+	// 監査ログと ExitError の値一致マスク（exec/mask の段 2）に効かせる。
+	// 提供元は Run のたびに呼ばれるため、外部コマンドを起動しない実装である
+	// 必要がある（gh.Secrets は保持済みの値を複製して返すだけ）。
+	secrets := gh.NewSecrets()
+	ex := command.New(secrets.Values, command.WithAudit(lg), command.WithAuditErrorFunc(sink.add))
+	caps := appconfig.Detect(
+		context.Background(), ex,
+		appconfig.Options{HasToken: gh.HasToken, Timeout: 0},
+	)
 
 	app := ui.New(cfg, caps, ex, ui.Options{
 		Color:   colorEnabled(o.noColor, os.Getenv, isTerminal(os.Stdout)),
 		Refresh: o.refresh,
 		Roots:   appconfig.MergeScanRoots(cfg.ScanRoots, o.roots),
 		Host:    hostname(),
+		Secrets: secrets,
 	})
 	return runProgram(app, stderr)
 }

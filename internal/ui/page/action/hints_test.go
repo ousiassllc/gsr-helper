@@ -48,11 +48,17 @@ func TestHintsCarryReasons(t *testing.T) {
 	const want = 9
 
 	// フッタの 9 キーのうち実装済みは、サービス制御の開始・停止・強制停止・
-	// ドレイン停止の 4 つと、Logs タブが実装したログを開く操作である。
-	// 削除・追加・更新・設定はこの版では未対応である。
+	// ドレイン停止の 4 つ、Logs タブが実装したログを開く操作、そして Setup タブが
+	// 実装した削除・追加・バージョン更新である。設定（e）はこの版では未対応。
+	//
+	// 削除・追加・更新が有効になるのは、対象がジョブ実行中でなく、root と
+	// GitHub の認証がそろっている場合に限る（sampleRunner / fullCaps がそれ）。
 	enabled := map[string]bool{
 		"s": true, "x": true, "X": true, "d": true,
-		page.BindingKey(testKeys().Runner.Logs): true,
+		page.BindingKey(testKeys().Runner.Logs):   true,
+		page.BindingKey(testKeys().Runner.Add):    true,
+		page.BindingKey(testKeys().Runner.Delete): true,
+		page.BindingKey(testKeys().Runner.Update): true,
 	}
 
 	hints := testActions().Hints(sampleRunner(), fullCaps(), testKeys().Runner)

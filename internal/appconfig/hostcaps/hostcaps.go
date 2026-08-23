@@ -59,10 +59,27 @@ type Caps struct {
 	SudoUser string
 }
 
+// TokenFunc はトークンを取得できるかを判定する関数。
+//
+// 取得した値そのものは返さない。呼び出し側に値を渡さないことで、判定のためだけに
+// 取り出したトークンが Caps や画面に載る経路を作らない（security.md「保持と出力」）。
+//
+// timeout は 1 コマンドあたりの上限である。判定はトークンの取得元を優先順に
+// 試すため複数のコマンドを逐次で発行しうる。全体の上限（detectBudget）だけでは、
+// 1 本目が応答しないときに 2 本目を試す余地が無くなる。
+//
+// 実装は internal/gh が持つ（gh.HasToken）。取得の優先順を security.md の
+// 1 箇所の規定に対して 1 つの実装で保つため、このパッケージは判定手段を
+// 持たず注入だけを受ける。
+type TokenFunc func(ctx context.Context, ex exec.Executor, timeout time.Duration) bool
+
 // Options は Detect の設定。
 type Options struct {
-	// HasToken はトークン有無の判定。nil のとき既定の判定を使う。
-	// internal/gh の実装ができたらそれに差し替える。
+	// HasToken はトークン有無の判定。**nil のときトークン無しとして扱う。**
+	//
+	// 既定の判定を持たないのは、取得の優先順（security.md「取得の優先順」）の
+	// 実装を internal/gh の 1 箇所に閉じるためである。判定手段を渡し忘れた
+	// 起動は「認証されていない」として縮退し、追加・削除がグレーアウトする。
 	HasToken TokenFunc
 	// Timeout は 1 コマンドあたりの上限。0 のとき defaultProbeTimeout。
 	// 全体の所要時間は Timeout に関わらず detectBudget で打ち切る。
@@ -105,13 +122,6 @@ func probeTimeout(d time.Duration) time.Duration {
 // docker とトークンの判定は互いに独立なので並行実行し、さらに全体に detectBudget の
 // 期限を掛ける。逐次だと最悪 3 本分待つことになり、起動時間の目標に収まらない。
 func detect(ctx context.Context, ex exec.Executor, p probes, timeout time.Duration) Caps {
-	hasToken := p.hasToken
-	if hasToken == nil {
-		hasToken = func(c context.Context, e exec.Executor) bool {
-			return hasTokenDefault(c, e, p, timeout)
-		}
-	}
-
 	ctx, cancel := context.WithTimeout(ctx, detectBudget)
 	defer cancel()
 
@@ -125,7 +135,7 @@ func detect(ctx context.Context, ex exec.Executor, p probes, timeout time.Durati
 	}()
 	go func() {
 		defer wg.Done()
-		token = hasToken(ctx, ex)
+		token = detectToken(ctx, ex, p.hasToken, timeout)
 	}()
 	wg.Wait()
 
@@ -137,6 +147,14 @@ func detect(ctx context.Context, ex exec.Executor, p probes, timeout time.Durati
 		GitHubToken: token,
 		SudoUser:    confpath.SudoUserFrom(p.getenv),
 	}
+}
+
+// detectToken はトークンの有無を判定する。判定手段が無ければ「無い」に倒す。
+func detectToken(ctx context.Context, ex exec.Executor, fn TokenFunc, timeout time.Duration) bool {
+	if fn == nil {
+		return false
+	}
+	return fn(ctx, ex, timeout)
 }
 
 // available は name が PATH 上にあるかを返す。
