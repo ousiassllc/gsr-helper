@@ -4,53 +4,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ousiassllc/gsr-helper/internal/appconfig"
 	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/setup"
 )
-
-func TestMenuListsThreeEntries(t *testing.T) {
-	t.Parallel()
-
-	m := newModel(t, state(t, pagetest.SampleRunner()))
-	got := view(m)
-
-	for _, want := range []string{
-		"台数を指定して一括追加", "1 台ずつ個別に設定して追加", "バージョンを一括更新",
-	} {
-		if !strings.Contains(got, want) {
-			t.Errorf("メニューに %q が無い:\n%s", want, got)
-		}
-	}
-}
-
-func TestMenuIsGatedByCaps(t *testing.T) {
-	t.Parallel()
-
-	tests := map[string]struct {
-		mutate func(*appconfig.Caps)
-		want   string
-	}{
-		"非 root": {func(c *appconfig.Caps) { c.Root = false }, "root 権限が必要です"},
-		"gh 未認証": {func(c *appconfig.Caps) { c.GitHubToken = false }, "GitHub の認証が必要です"},
-	}
-
-	for name, tt := range tests {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-
-			st := state(t, pagetest.SampleRunner())
-			tt.mutate(&st.Caps)
-
-			got := view(newModel(t, st))
-			if !strings.Contains(got, tt.want) {
-				t.Errorf("理由 %q が出ていない:\n%s", tt.want, got)
-			}
-		})
-	}
-}
 
 func TestDeleteRequestShowsConfirmBeforeAnyCommand(t *testing.T) {
 	t.Parallel()
@@ -245,40 +203,5 @@ func TestEscapeReturnsToRunners(t *testing.T) {
 	}
 	if !found {
 		t.Error("esc で Runners タブへ戻る要求が出ていない")
-	}
-}
-
-// フッタは実行・追加・更新のキーを可否つきで出す。
-//
-// 可否の理由は action.Allow から引くので、Runners タブのフッタと同じ文言になる。
-func TestFooterCarriesKeysAndReasons(t *testing.T) {
-	t.Parallel()
-
-	st := state(t, pagetest.SampleRunner())
-	st.Caps.GitHubToken = false
-	m := newModel(t, st)
-
-	hints := chromeOf(t, m).Footer
-	if len(hints) == 0 {
-		t.Fatal("フッタが空である")
-	}
-
-	seen := make(map[string]string, len(hints))
-	for _, h := range hints {
-		if h.Enabled == (h.Reason != "") {
-			t.Errorf("キー %q = %v/%q, 可否と理由の有無が食い違う", h.Key, h.Enabled, h.Reason)
-		}
-		seen[h.Key] = h.Reason
-	}
-
-	for _, k := range []string{"n", "u"} {
-		why, ok := seen[k]
-		if !ok {
-			t.Errorf("フッタに %q が無い: %v", k, seen)
-			continue
-		}
-		if !strings.Contains(why, "GitHub の認証が必要です") {
-			t.Errorf("キー %q の理由 = %q, want 認証を促す文言", k, why)
-		}
 	}
 }

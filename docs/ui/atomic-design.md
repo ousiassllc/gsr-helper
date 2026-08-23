@@ -68,8 +68,8 @@ internal/ui/
   tabset/           タブのメタ情報と並び。page/<tab> を import する唯一の場所
   organism/         カーソルと選択を持つ対話的な部品（ChoiceList）
   organism/table/   区画に分かれた一覧の共通実装（Model[T]）
-  organism/pane/    スクロールする領域（Detail / Help / Log）。Log は入力欄を持ち表示専用ではない
-  organism/dialog/  承認・待機・入力（Confirm / DrainWaiter。DiffApproval / Form は未実装）
+  organism/pane/    スクロールする領域（Detail / Help / Log / ProgressList）。Log は入力欄を持ち表示専用ではない
+  organism/dialog/  承認・待機・入力（Confirm / DrainWaiter / Form。DiffApproval は未実装）
   template/         画面共通の枠
   page/             タブ共通の Msg と、タブ間で共有する部品（モーダルの重なり・page の寿命）
   page/action/      runner に対する操作の識別・可否の判定・一覧の組み立て
@@ -176,7 +176,7 @@ graph TD
 
 | 規則 | 理由 |
 |------|------|
-| `token` は `lipgloss` のみ import する | 最下層。色の定義を token の外に作らない。`huh.Theme` の組み立てを足すときも token 内に置く（後述の「`Form` と huh」。`huh` は未導入） |
+| `token` は `lipgloss` のみ import する | 最下層。色の定義を token の外に作らない。`huh.Theme` の組み立ても token 内に置く（後述の「`Form` と huh」。実装は `token/huhtheme.go` の 1 ファイルに閉じる） |
 | `keymap` は `bubbles/key` のみ import する | token と並ぶ最下層。キー定義が他の階層に依存すると参照方向が壊れる |
 | `atom` は `token` と `lipgloss` のみに依存する | 表示単位を単体でテストできる状態に保つ。`lipgloss` を許すのは表示幅の計算（`lipgloss.Width`）と ANSI 安全な切り詰めのためで、**幅を数える実装をここ 1 箇所に閉じる**という規則の裏返しである |
 | `molecule` は `atom` / `token` と `lipgloss` のみ。**molecule 同士は参照しない**（唯一の例外は `molecule/listrow` → `molecule` の一方向。逆は作らない） | 同階層参照を双方向に許すと階層が意味を失う。共通化したい場合は atom に降ろすか organism に上げる。`listrow` を分けたのは増え方の違い（タブ数に比例する行ビルダ）であって別階層にしたわけではないので、列の選択だけは `molecule` を向いてよい |
@@ -364,7 +364,9 @@ func Columns(all []token.Column, width int, rules token.ColumnRules) []token.Col
 | `CapsBar` | `host: build01  root  gh: 認証済み`（root が無ければ `read-only`、systemctl が無ければ `systemd なし` を挟む） | ヘッダ |
 | `SummaryCounts` | `OK 14  WARN 2  FAIL 1  SKIP 1` | Doctor / 状態行 |
 
-このうち実装済みは `Columns` / `RunnerRow` / `OrphanRow` / `JobRow` / `DiskTargetRow` / `FSSummaryLine` / `LogRow` / `LogLine` / `CommandBlock` / `ActionRow` / `KeyBar` / `TabBar` / `CapsBar` である。残りはタブ 5〜7 と残りのダイアログのものなので未実装である（後述の「実装状況」）。
+このうち実装済みは `Columns` / `RunnerRow` / `OrphanRow` / `JobRow` / `DiskTargetRow` / `FSSummaryLine` / `LogRow` / `LogLine` / `CommandBlock` / `ActionRow` / `KeyBar` / `TabBar` / `CapsBar` / `ProgressRow` である。残りはタブ 5〜6（Doctor / Config）のものなので未実装である（後述の「実装状況」）。
+
+`ProgressRow` は `molecule` 直下に置く（`molecule/listrow` ではない）。一覧タブの数に比例して増える行ビルダではなく、進捗表示に 1 つしかない部品だからである。**対応する画面のうち実装済みなのは Setup だけで、Disk のクリーンアップはまだこの行に切り替えていない**（後述の `ProgressList` の項）。
 
 `LogRow` は Logs タブのファイル一覧 1 行（runner 名 / ログ名 / サイズ / 更新時刻）で、`molecule/listrow` に置く（一覧タブの数に比例して増える行ビルダのため）。`LogLine` は本文 1 行なので `molecule` 直下である。**`LogLine` は一致部分のハイライトを持たない。** フィルタは一致しない行を落とすので本文に並ぶ行はすべて一致しており、行の中を塗り分けても `ERROR` / `WARN` の強調と重なって読みにくくなるだけである（[FR-25](../requirements/functional.md) が求めるのはフィルタと `ERROR` / `WARN` の強調の 2 つで、一致部分の強調は含まない）。
 
@@ -383,18 +385,18 @@ func Columns(all []token.Column, width int, rules token.ColumnRules) []token.Col
 | `Detail` | `organism/pane` | スクロール位置 | `bubbles/viewport` | Doctor の詳細、runner の詳細（情報部分） | 実装済み |
 | `Help` | `organism/pane` | スクロール位置 | `bubbles/help`（`FullHelpView`） | `?` の全キー一覧 | 実装済み |
 | `Log` | `organism/pane` | スクロール位置・追従の ON/OFF・フィルタの入力 | `bubbles/viewport` / `textinput` | Logs の本文。追従・手動スクロールでの解除・`G` での再開・フィルタの入力欄 | 実装済み |
-| `ProgressList` | `organism/pane` | 進捗の受信状態 | `bubbles/spinner` / `progress` | 一括処理の逐次表示と結果報告（[FR-15](../requirements/functional.md)） | 未実装（Setup タブ）。Disk タブのクリーンアップは進捗を状態行の `クリーンアップ中 (2/5)` で示す |
+| `ProgressList` | `organism/pane` | 進捗の受信状態 | `bubbles/spinner` / `progress` / `viewport` | 一括処理の逐次表示と結果報告（[FR-15](../requirements/functional.md)） | 実装済み（Setup タブ）。**Disk タブのクリーンアップは切り替えていない**——進捗は今も状態行の `クリーンアップ中 (2/5)` で示す |
 | `Confirm` | `organism/dialog` | なし（既定はキャンセル） | — | 破壊的操作の共通ダイアログ | 実装済み |
 | `DiffApproval` | `organism/dialog` | なし（既定はキャンセル） | — | 差分＋バックアップパスの提示と承認 | 未実装（Config タブ） |
 | `DrainWaiter` | `organism/dialog` | 対象ジョブ | `bubbles/stopwatch` / `spinner` | ドレイン待機。経過時間の計時、制約の注記と `esc` でのキャンセル | 実装済み |
-| `Form` | `organism/dialog` | `huh.Form` | `huh` | フォームのラッパー。テーマの適用と検証エラーの表示位置を統一する | 未実装（`huh` も未導入） |
+| `Form` | `organism/dialog` | `huh.Form` / 入力済みの印 | `huh` | フォームのラッパー。テーマの適用と検証エラーの表示位置を統一する | 実装済み（Setup タブの追加フォーム）。**破棄の確認だけは未完**（後述の「`Form` と huh」） |
 | `ErrorBanner` | `organism` | なし | — | 失敗の表示 | 未実装 |
 
 **`pane.Log` が持つのは本文のペインだけである。** 2 ペインのうちファイル一覧は `organism/table.Model[T]` であり、どちらを操作しているか（フォーカス）を持つのは組み合わせる側の `page/logs` である。以前の版はこれを 1 つの `LogPane` としていたが、一覧は他のタブと同じ `Table` で足り、部品を増やさないという規則（`Table` を増やさない）に従うとフォーカスだけが宙に浮く。**`pane.Log` は一致の判定を持たない。** 受け取るのは装飾済みの行であり、装飾済みの文字列に正規表現を当てると ANSI 列が一致に混ざる。絞り込みは素の行を持つ `page/logs` が行う。
 
 一覧の共通実装は `organism/table.Model[T]`（生成は `table.New`）である。パッケージ名が型名を兼ねるため、本書で `Table` と書くのはこの型を指す。`bubbles/table` はこのパッケージ内で `btable` として import する（名前の衝突を避けるため）。
 
-`organism/dialog` には `Confirm` と `DrainWaiter` がある。`DiffApproval`（Config タブ）と `Form`（`huh` 未導入）は置き場所だけが決まっており、実装は各ダイアログを持ち込む Issue が作る（後述の「実装状況」）。
+`organism/dialog` には `Confirm` / `DrainWaiter` / `Form` がある。`DiffApproval`（Config タブ）だけが置き場所の決まった未実装で、実装はそのダイアログを持ち込む Issue が作る（後述の「実装状況」）。
 
 スクロール・計時・アニメーションを自前で実装しない。上の表で「—」の部品は、いずれも既存部品に対応するものがないか、対応させると要件を満たせないものである（`ChoiceList` は区切り線と無効項目の理由表示を持つため）。
 
@@ -402,7 +404,9 @@ func Columns(all []token.Column, width int, rules token.ColumnRules) []token.Col
 
 進捗バーは **全体件数が事前に確定する処理に限る**。一括追加（`n` 台中 `m` 台完了）がこれに当たる。
 
-**選択済み対象のクリーンアップは、件数が確定していてもバーを出さない。** バーを描く部品（`ProgressList`）がまだ無く、`page/disk` は状態行に `クリーンアップ中 (2/5)` のテキストだけを出す（organism 一覧の `ProgressList` の行）。部品ができた時点で差し替えられる位置にあるが、それまでは「バーを出す処理」に数えない。
+一括追加・一括削除・一括更新（Setup タブ）は `pane.ProgressList` がバーを描く。分母（台数）は計画（`setup.Plan.Units`）の時点で確定しており、`ProgressInput.Total` が 0 のときはバーを省いてスピナだけを出す。
+
+**選択済み対象のクリーンアップは、件数が確定していてもバーを出さない。** 部品（`ProgressList`）は Setup タブ（Issue #8）で実装したが、`page/disk` はまだ切り替えておらず、状態行に `クリーンアップ中 (2/5)` のテキストだけを出す（organism 一覧の `ProgressList` の行）。**「部品が無いから」ではなく「まだ差し替えていないから」である。** 次に Disk タブへ手を入れる Issue が切り替えられる位置にあり、それまでは「バーを出す処理」に数えない。
 
 ディスク集計とドレイン待機ではバーを使わず、`spinner` と `stopwatch` で「動いていること」と経過時間のみを示す。ドレイン待機は待ち時間が無制限（[FR-07](../requirements/functional.md)）で、集計は対象ごとに判明順で埋まるため、分母を示すと完了時期を約束する表示になってしまう。
 
@@ -539,7 +543,9 @@ type ConfirmInput struct {
 
 ### `Form` と huh
 
-> **実装状況: 未実装。`huh` は依存にも入っていない。** Config / Setup タブのフォームを持ち込む Issue が `huh` の追加と併せて実装する（[非機能要件の依存ライブラリ](../requirements/non-functional.md#依存ライブラリ)）。
+> **実装状況: 実装済み**（Issue #8）。`huh`（`charm.land/huh/v2`）も依存に入っている（[非機能要件の依存ライブラリ](../requirements/non-functional.md#依存ライブラリ)）。使っているのは Setup タブの追加フォームで、Config タブのフォームは Config タブ自体が未実装である。
+>
+> **3 番目の責務（中断の確認）だけが未完である。** `Form` は入力済みの状態で `esc` を受けると `FormDiscardMsg` を発行するところまでを行い、それを受けて `Confirm` を重ねる page 側の実装がまだ無い（`page/setup` は受け取って何もしない）。したがって現時点では、入力済みのフォームで `esc` を押しても**何も起きず、フォームが開いたままになる**。入力は失われないので安全側に倒れてはいるが、`esc` で抜ける手段が無い状態でもある。**この節を実装の記述に書き換えず未完として残す**のは、確認を重ねる側を page に置く分担（`Confirm` を 1 実装に保つ）が設計判断としてまだ有効だからである。次に Setup タブか Config タブへ手を入れる Issue が page 側を足す。
 
 `Form` は `huh.Form` のラッパーである。`huh` はキー処理・検証・レイアウトを自分で持つため、ラッパーの責務は次の 3 点に限る。
 
@@ -616,13 +622,13 @@ func ModalPadding() (w, h int)
 
 | page | タブ | 主に使う organism | 呼ぶドメイン | 状況 |
 |------|------|-----------------|------------|------|
-| `runners.Model` | 1 | `organism/table` / `Confirm` / `DrainWaiter` | 検出結果は親から受け取る。サービス制御は `svc`（`page/runnerop` 経由）。追加・削除・バージョン更新（`setup`）は後続 Issue | 実装済み（一覧・詳細・可否の表示とサービス制御） |
+| `runners.Model` | 1 | `organism/table` / `Confirm` / `DrainWaiter` | 検出結果は親から受け取る。サービス制御は `svc`（`page/runnerop` 経由）。追加・削除・バージョン更新は**呼ばず**、可否だけ判定して Setup タブへ引き渡す（`page.OpenTabMsg`） | 実装済み（一覧・詳細・可否の表示とサービス制御、`n` / `D` / `u` の引き渡し） |
 | `jobs.Model` | 2 | 同上 | 同上（対象は runner） | 実装済み（同上。直接受ける操作は `d` / `X` / `R` の 3 つ） |
 | `disk.Model` | 3 | `Table` / `Confirm` | `disk` | 実装済み（集計・クリーンアップ・確認ダイアログまで） |
 | `logs.Model` | 4 | `organism/table` / `organism/pane`（`Log`） | `logs` | 実装済み |
 | `doctor.Model` | 5 | `Table` / `Detail` | `doctor` | 未実装 |
 | `config.Model` | 6 | `ChoiceList` / `Form` / `DiffApproval` | `config` / `gh` | 未実装 |
-| `setup.Model` | 7 | `ChoiceList` / `Form` / `Confirm` / `ProgressList` | `setup` / `gh` | 未実装 |
+| `setup.Model` | 7 | `ChoiceList` / `Form` / `Confirm` / `ProgressList` | `setup` / `setup/job`（`gh` と `setup/tarball` はその内側） | 実装済み（追加・削除・バージョン更新） |
 
 runner の詳細画面は Runners / Jobs が共用するモーダルなので、どちらのタブにも属さない `page/runnerdetail` に置く（`runnerdetail.Model`。`Detail` + `ChoiceList` の組み合わせ）。
 
@@ -972,11 +978,14 @@ Context の登録漏れは人の注意に頼らない。`Set` の全フィール
 | Config タブ | `Frame` + `Split` | `ChoiceList` / `Form` | `SettingRow` | 未実装 |
 | 変更内容の確認 | `Modal` | `DiffApproval` | `DiffLine` | 未実装 |
 | 反映方法の選択 | `Modal` | `ChoiceList` | — | 未実装 |
-| Setup タブ（メニュー） | `Frame` | `ChoiceList` | — | 未実装 |
-| 実行前の確認 | `Modal` | `Confirm` | `CommandBlock` | 未実装 |
-| 追加中の進捗 | `Frame` | `ProgressList` | `ProgressRow` | 未実装 |
-| 削除の確認 | `Modal` | `Confirm` | — | 未実装 |
+| Setup タブ（メニュー） | `Frame` | `ChoiceList` | — | 実装済み |
+| 追加のフォーム | `Modal` | `Form` | — | 実装済み |
+| 実行前の確認 | `Modal` | `Confirm` | `CommandBlock` | 実装済み |
+| 追加中の進捗 | `Modal` | `ProgressList` | `ProgressRow` | 実装済み |
+| 削除の確認 | `Modal` | `Confirm` | `CommandBlock` | 実装済み |
 | ドレイン待機 | `Modal` | `DrainWaiter` | — | 実装済み |
+
+**追加中の進捗は本体ではなくモーダルに置く。** 以前の版は `Frame` としていたが、実行中は背後の一覧へキーを流さないことが要る（[画面仕様のモーダル表示中](screens.md#モーダル表示中)）。本体に描くと、実行中に打った `x` が背後の一覧で停止として解釈されうる。実行中は `esc` も握って閉じさせない——閉じても処理は止まらず、進捗を見失うだけだからである。
 
 **runner の詳細画面の情報部に専用の molecule は置かない。** ラベルと値を 1 行に組む処理は `page/runnerdetail` が `atom.Cell` / `atom.Truncate` から組み立てる。行の形が画面固有で使い回さないうえ、詳細用の言い換え（`-` → `未稼働（サービス登録なし・プロセスなし）`）を持つのが page の関心事だからである。
 
@@ -1019,12 +1028,12 @@ Context の登録漏れは人の注意に頼らない。`Set` の全フィール
 
 | 区分 | 対象 |
 |------|------|
-| 実装済み | `token` / `keymap` / `atom` / `molecule`（フッタ・タブ行・ヘッダ・操作リスト・列選択・`FSSummaryLine` / `CommandBlock` / `LogLine`）/ `molecule/listrow`（`RunnerRow` / `JobRow` / `OrphanRow` / `DiskTargetRow` / `LogRow`）/ `chrome` / `tabset` / `organism`（`ChoiceList`）/ `organism/table` / `organism/pane`（`Detail` / `Help` / `Log`）/ `organism/dialog`（`Confirm` / `DrainWaiter`）/ `template`（`Frame` / `Modal`）/ `page` / `page/runners` / `page/jobs` / `page/disk` / `page/logs` / `page/runnerdetail` / `page/runnerop` |
-| 未実装（タブ 5〜7 の Issue が持ち込む） | `page/doctor` / `page/config` / `page/setup`、`organism/pane` の `ProgressList`、`template.Split`、atom の `DoctorStatus`、`molecule/listrow` の `DoctorRow` / `SettingRow` / `DiffLine` / `ProgressRow`、molecule の `SummaryCounts` |
-| 未実装（部品が無い） | `organism/dialog` の `DiffApproval`（Config タブ）と `Form`（`huh` 未導入）、`organism.ErrorBanner` |
-| 未導入の依存 | `huh`（`Form` と `huh.Theme` に必要） |
+| 実装済み | `token`（`huh.Theme` の組み立てを含む）/ `keymap` / `atom` / `molecule`（フッタ・タブ行・ヘッダ・操作リスト・列選択・`FSSummaryLine` / `CommandBlock` / `LogLine` / `ProgressRow`）/ `molecule/listrow`（`RunnerRow` / `JobRow` / `OrphanRow` / `DiskTargetRow` / `LogRow`）/ `chrome` / `tabset` / `organism`（`ChoiceList`）/ `organism/table` / `organism/pane`（`Detail` / `Help` / `Log` / `ProgressList`）/ `organism/dialog`（`Confirm` / `DrainWaiter` / `Form`）/ `template`（`Frame` / `Modal`）/ `page` / `page/runners` / `page/jobs` / `page/disk` / `page/logs` / `page/setup` / `page/runnerdetail` / `page/runnerop` |
+| 未実装（タブ 5〜6 の Issue が持ち込む） | `page/doctor` / `page/config`、`template.Split`、atom の `DoctorStatus`、`molecule/listrow` の `DoctorRow` / `SettingRow` / `DiffLine`、molecule の `SummaryCounts` |
+| 未実装（部品が無い） | `organism/dialog` の `DiffApproval`（Config タブ）、`organism.ErrorBanner` |
+| 実装済みだが未接続 | `Form` の破棄の確認（`FormDiscardMsg` を受けて `Confirm` を重ねる page 側）、`page/disk` の進捗（`ProgressList` へ切り替えていない） |
 
-runner に対する操作のうち、**サービス制御の 6 つ（開始 / 停止 / 強制停止 / ドレイン停止 / 再起動 / enable の切替）と `l`（ログを開く）は実装済み**である（`internal/svc` と `ui/page/runnerop`、および Logs タブ）。**追加・削除・バージョン更新・設定編集は未実装**で、キーとフッタと詳細画面の操作リストには出るが、可否の判定が `この版では未対応です` で塞ぐ（[画面仕様](screens.md#無効な操作の表示)）。押しても何も起きない経路を作らないためである。実装状況は `action.Def.Supported`（`page/action` の `meta`）1 箇所が持ち、操作を実装する Issue はそこを真にする。
+runner に対する操作のうち、**サービス制御の 6 つ（開始 / 停止 / 強制停止 / ドレイン停止 / 再起動 / enable の切替）・`l`（ログを開く）・`n`（追加）/ `D`（削除）/ `u`（バージョン更新）は実装済み**である（`internal/svc` と `ui/page/runnerop`、Logs タブ、Setup タブ）。**未実装で残るのは `e`（設定編集）だけ**で、キーとフッタと詳細画面の操作リストには出るが、可否の判定が `この版では未対応です` で塞ぐ（[画面仕様](screens.md#無効な操作の表示)）。押しても何も起きない経路を作らないためである。実装状況は `action.Def.Supported`（`page/action` の `meta`）1 箇所が持ち、操作を実装する Issue はそこを真にする。
 
 **未実装の節を削らない。** 削ると、タブを足す Issue が同じ設計判断（`Confirm` を 1 実装に統一する、進捗バーを出す範囲、`Table` を増やさない）をやり直すことになる。実装が追いついた時点でこの表から行を外す。
 
@@ -1038,27 +1047,28 @@ runner に対する操作のうち、**サービス制御の 6 つ（開始 / �
 
 | ディレクトリ | 行数 | 残り | 判定 |
 |------------|------|------|------|
+| `ui/page/runners` | 2164 | -164 | **WARN（超過中）** |
 | `ui/organism/table` | 2157 | -157 | **WARN（超過中）** |
 | `ui/page/disk` | 2101 | -101 | **WARN（超過中）** |
-| `ui/page/runners` | 2091 | -91 | **WARN（超過中）** |
+| `ui` | 2031 | -31 | **WARN（超過中）** |
 | `ui/page/logs` | 1994 | 6 | pass |
-| `ui` | 1974 | 26 | pass |
-| `ui/page` | 1660 | 340 | pass |
-| `ui/molecule` | 1655 | 345 | pass |
-| `ui/keymap` | 1526 | 474 | pass |
-| `ui/page/runnerop` | 1495 | 505 | pass |
+| `ui/molecule` | 1860 | 140 | pass |
+| `ui/page` | 1823 | 177 | pass |
+| `ui/page/setup` | 1811 | 189 | pass |
+| `ui/organism/dialog` | 1654 | 346 | pass |
+| `ui/organism/pane` | 1559 | 441 | pass |
+| `ui/keymap` | 1547 | 453 | pass |
+| `ui/page/runnerop` | 1399 | 601 | pass |
 | `ui/page/jobs` | 1282 | 718 | pass |
-| `ui/organism/dialog` | 1189 | 811 | pass |
 | `ui/page/runnerdetail` | 1174 | 826 | pass |
+| `ui/token` | 1163 | 837 | pass |
 | `ui/atom` | 1154 | 846 | pass |
-| `ui/organism/pane` | 1127 | 873 | pass |
 | `ui/page/pagetest` | 1082 | 918 | pass |
 | `ui/molecule/listrow` | 1041 | 959 | pass |
-| `ui/page/action` | 973 | 1027 | pass |
-| `ui/token` | 883 | 1117 | pass |
+| `ui/page/action` | 988 | 1012 | pass |
 | `ui/template` | 657 | 1343 | pass |
 | `ui/organism` | 521 | 1479 | pass |
-| `ui/tabset` | 371 | 1629 | pass |
+| `ui/tabset` | 372 | 1628 | pass |
 | `ui/chrome` | 283 | 1717 | pass |
 #### `ui/page/disk` が警告帯に入った判断（Issue #13）
 
@@ -1080,11 +1090,13 @@ Disk タブは 1 ディレクトリに一覧・集計・クリーンアップ・
 
 **Disk / Logs の 2 枚ぶんは既に消費済みである。** 残りは 1392 行から `disk_row`（122 + 170 = 292 行）と `log_row`（62 + 79 = 141 行）を引いて 959 行になった。**足す必要のある一覧タブも 2 枚減り、見出しどおり Doctor の 1 枚だけになった**ので、余裕の判定は変わらない。むしろ 2 枚ぶんの実測値（292 行 / 141 行）が得られたことで、見積り 272 行が概ね妥当であること（Disk のように選択不可の理由まで持つ行は上振れすること）が確かめられた。
 
-`ui` 直下は**タブが増えても 1 行も増えない**。タブを知るのは `ui/tabset` だけであり、親 Model は `[]tabset.Tab` を走査するだけだからである（「タブを 1 つ追加するときに触る箇所」）。残り 26 行は親 Model 自身のテストのための余裕である。
+`ui` 直下は**タブが増えても 1 行も増えない**——ただしこれは「タブを 1 枚足すだけなら」の意味である。タブを知るのは `ui/tabset` だけであり、親 Model は `[]tabset.Tab` を走査するだけだからである（「タブを 1 つ追加するときに触る箇所」）。
 
-**この残りは Issue #9 で 125 行から 27 行へ減った。** タブをまたぐ移動（`page.OpenTabMsg`）は親でしか実現できず、`keys.go` の `openTab` とその検証（`route_test.go` の 3 本）が加わったためである。検証に使う道具のうち App の非公開な状態に触れないもの（受け取った `Msg` を型で数える `Delivered`）は `page/pagetest` へ出してある。**次に `ui` 直下へ足す Issue は、まず既存のテストで `page/pagetest` へ出せるものを探すこと。** 残り 27 行はテスト 1 本ぶんも無い。
+**Setup タブ（Issue #8）で `ui` 直下は 1974 行から 2031 行へ増え、警告帯に入った（残り -31 行）。** 増えたのは 2 箇所で、どちらもタブそのものではなく**タブが要する起動時の値とタブ間の移動**である。`app.go` は Setup タブへ配る値（`Options.Secrets` と `page.SetupDeps` への写し）で 9 行、`route_test.go` は `n` / `D` / `u` による Setup タブへの移動の検証で 48 行である。前者は「起動時に決めた値を親が配る」という既存の分担そのもの（`Host` / `Color` と同じ形）、後者は「タブをまたぐ移動は親でしか実現できない」という既に記した例外にあたり、いずれも `tabset` へは寄せられない。**次に `ui` 直下へ足す Issue は、まず既存の検証が `page/pagetest` へ出せないかを見ること**（下記）。
 
-**余裕は「重複削減」ではなく「道具を `page/pagetest` へ出す」で作る。** Issue #31 でキーの配送を検証する道具を足したとき `ui` 直下は 1967 行（残り 33 行）まで詰まったが、走査の道具（`ScanKey`）とその形の網羅テストを `page/pagetest` へ移して 1875 行（残り 125 行）に戻した。`page/pagetest` は現在 1003 行で余裕があり、**そこは元々「タブと親で共用する検証の道具」の置き場である**（`helper_test.go` 冒頭の方針）。
+**残りは Issue #9 で 125 行から 27 行へ減り、Issue #8 でついに超過した。** タブをまたぐ移動（`page.OpenTabMsg`）は親でしか実現できず、`keys.go` の `openTab` とその検証（`route_test.go` の 3 本）が加わったためである。検証に使う道具のうち App の非公開な状態に触れないもの（受け取った `Msg` を型で数える `Delivered`）は `page/pagetest` へ出してある。**次に `ui` 直下へ足す Issue は、まず既存のテストで `page/pagetest` へ出せるものを探すこと。** 超過した以上、テストを足す前に道具を出すこと。
+
+**余裕は「重複削減」ではなく「道具を `page/pagetest` へ出す」で作る。** Issue #31 でキーの配送を検証する道具を足したとき `ui` 直下は 1967 行（残り 33 行）まで詰まったが、走査の道具（`ScanKey`）とその形の網羅テストを `page/pagetest` へ移して 1875 行（残り 125 行）に戻した。`page/pagetest` は現在 1082 行で余裕があり、**そこは元々「タブと親で共用する検証の道具」の置き場である**（`helper_test.go` 冒頭の方針）。
 
 出せるものと出せないものの境目は「`App` の非公開な状態に触れるか」である。`ScanKey` は `page.ChromeMsg` / `page.GlobalKeyMsg` と `pagetest.Msgs` しか使わないので `App` の非公開な状態を 1 つも export せずに出せた。一方 `gate_test.go`（`a.chrome` / `next.active` / `after.inflight` / `tickMsg` / `discoveredMsg`）と `app_keys_test.go`（`a.tabs` / `a.active` / `a.chrome`）は非公開に触れる内部テストなので出せない。**これらを出そうとして export を増やすのは採らない**（`ui/organism/table` を分割しない判断と、非公開の export を避ける点で理由を共有する）。次に `ui` 直下へテストを足す Issue も、まず道具が `page/pagetest` へ出せないかを見ること。
 
@@ -1097,7 +1109,7 @@ Runners タブと Jobs タブは、同じサービス制御（確認 → 実行 
 
 依存は `page/runnerop` → `page` / `page/action` / `page/runnerdetail` / `organism/dialog` / `svc` の一方向で、タブからは `runnerop` を import するが逆は無い。**タブではないので `page/pagetest/import_test.go` の `shared` に登録してある**（登録しないと `TestOnlyTabsetImportsTabs` がタブと誤認して落ちる）。
 
-`ui/page/runners` は 1187 → 2091 行になり、**警告帯に入った（残り -91 行）**。増分の大半はサービス制御の検証（発行コマンド列・確認の経路・一括操作・可否の再判定・詳細画面からの起点）で、Logs タブ（Issue #9）が足した `l` の経路もここに乗る。**分割せず警告帯に入ることを選んだのは `ui/page/disk` と同じ判断である**（上記）。サービス制御の配線と Logs タブのマージを 1 つの差分で行っており、そこへパッケージ移動を混ぜるとレビューで「どちらが壊したか」を切り分けられなくなる。エラー境界（2200 行）までは 109 行あるが、**次にこのタブへ足す Issue は、まず検証の道具が `page/pagetest` へ出せないかを見ること**。`runners/helper_test.go` の `chrome` / `findChrome` / `collect` は `pagetest.ChromeOf` / `pagetest.Msgs` と重複しており、そこが最初の削減候補である。
+`ui/page/runners` は 1187 → 2091 行になり、**警告帯に入った**。Setup タブ（Issue #8）が `n` / `D` / `u` の引き渡し（`keys.go` の `openSetup` / `setupBlocked`）を足したことで 2164 行（残り -164 行）まで伸びている。増分の大半はサービス制御の検証（発行コマンド列・確認の経路・一括操作・可否の再判定・詳細画面からの起点）で、Logs タブ（Issue #9）が足した `l` の経路もここに乗る。**分割せず警告帯に入ることを選んだのは `ui/page/disk` と同じ判断である**（上記）。サービス制御の配線と Logs タブのマージを 1 つの差分で行っており、そこへパッケージ移動を混ぜるとレビューで「どちらが壊したか」を切り分けられなくなる。エラー境界（2200 行）までは 36 行しかなく、**次にこのタブへ足す Issue は、まず検証の道具が `page/pagetest` へ出せないかを見ること**。`runners/helper_test.go` の `chrome` / `findChrome` / `collect` は `pagetest.ChromeOf` / `pagetest.Msgs` と重複しており、そこが最初の削減候補である。
 
 非同期の往復（page が `Cmd` を返し、親が `page.TabMsg` を外して発行元のタブへ戻す）を回す道具 `pagetest.Advance` は、Runners / Jobs の両方が使うため `page/pagetest` に置いた。タブごとに写すと、往復の 1 段を書き忘れたテストだけが「何も起きない」を正常として緑になる。**`Pump` ではなく `Advance` という名前なのは、Logs タブ（Issue #9）が同じ階層に別の `Pump`（合否の判定関数を取る総称版）を先に置いているためである。** 2 つは役割が違う（`Advance` は既定の往復数まで Model を進めるだけ、`Pump` は条件を満たすまで辿る）ので、片方に寄せずに名前で書き分ける。
 
@@ -1180,3 +1192,4 @@ Issue #31 で `table_test.go` の空振りしていたテスト（`View() != ""`
 | 1.36 | 2026-08-23 | 「page 一覧」の表の `runners.Model` / `jobs.Model` の行を実態へ更新（organism に `Confirm` / `DrainWaiter`、ドメインに `svc`、状況にサービス制御）し、表の直後に `page/runnerop` の位置づけ（両タブが 1 つずつ持つ共有部品で、確認と実行の経路が 1 つであること）を `page/runnerdetail` と同じ形で補足 | 1.26 でサービス制御を実装済みへ反転しながら、この表の 2 行だけが「操作（`svc` / `setup`）は後続 Issue」「実装済み（一覧・詳細・可否の表示まで）」のまま残り、**同じ文書の「`Confirm` を 1 つに統一する」節・実装状況の一覧と正面から食い違っていた**。表だけを読んだ後続 Issue は、確認と実行の経路が既にある（`page/runnerop`）ことに気付かずタブ側へ書き写す。それは本節が禁じた「起点によって確認の強さが変わる」状態そのものである（PR #70 のレビュー指摘 M4） |
 | 1.37 | 2026-08-23 | ディレクトリの行数表を `linterly check -f json` の実測値へ更新し（`ui/page/runners` 1954 行・残り 46 行、`ui/page/runnerop` 1495 行、`ui/organism/dialog` 1215 行、`ui/page/jobs` 1155 行、`ui/page/action` 945 行）、行数の降順という表の体裁に合わせて並びも直した。本文の「`ui/page/runners` は 1187 → 1833 行になった（残り 167 行）」を 1954 行・残り 46 行へ、「`page/pagetest` は 809 行」を 888 行へ訂正 | 1.26 が「行数表を実測に合わせて更新」と記録していたが、**同じコミット群が追加したテストを測る前の値**のままだった。とりわけ `ui/page/runners` は残り 46 行しかないのに 167 行と読め、余裕を 3.6 倍に過大表示していた。本節は「警告帯に入ったディレクトリへ部品を足すときは先に分割の是非を検討する」という判断をこの表に依存させているため、後続 Issue はこのタブへ 100 行超のテストを足せると誤読し、検証の道具を `page/pagetest` へ出す判断を飛ばして警告帯へ突入する。1.21 / 1.24 / 1.25 が繰り返し是正してきた「改訂履歴が行っていない更新を主張する」欠陥の再発でもある（PR #70 のレビュー指摘 M5） |
 | 1.38 | 2026-08-23 | Logs タブ（Issue #9）/ Disk タブ（Issue #13）とサービス制御（Issue #5）を突き合わせた。`organism/dialog` の `Confirm` は両者が別々に作っていたため Disk 側の 1 実装に寄せ（`DecidedMsg` / `NewConfirm(keymap.Set, …)`）、サービス制御はそれを使う側に回った。`DrainWaiter` は #5 のものを残す。部品・page 一覧・実装状況の各表を両タブ分の実装済みへ統合し、ディレクトリの行数表を `linterly check -f json` の実測へ更新（`ui/page/runners` が 2091 行で警告帯に入った）。`ui` 直下の余裕の段落が 2 つに重複していたので実測の残り 26 行の側へ寄せた。`pagetest` の往復の道具は Logs 側の総称 `Pump` と名前が衝突したため #5 側を `Advance` に改名 | 3 つの Issue が同じ階層へ同時に部品を足した結果、`Confirm` が 2 実装になり（本書が「1 実装に統一する」と定めた当の部品である）、`Pump` が同名で 2 つ、実装状況の表と行数表が互いの変更を打ち消していた。マージで両方の記述を残すと、後続の Issue がどちらを使うか決められない（PR #70 のベース追従） |
+| 1.39 | 2026-08-23 | Setup タブ（Issue #8）の実装を反映。`organism/pane.ProgressList`・`organism/dialog.Form`・`molecule.ProgressRow`・`page/setup`・`token` の `huh.Theme` を実装済みへ反転し、ディレクトリ構成・依存の規則・molecule / organism / page / 画面と部品の各表・実装状況の区分をそろえた。実装状況に「実装済みだが未接続」の区分を新設し、`Form` の破棄の確認（`FormDiscardMsg` を受けて `Confirm` を重ねる page 側が無い）と `page/disk` が `ProgressList` へ切り替えていないことをそこへ入れた。「`bubbles/progress` を使う範囲」のクリーンアップの理由を「部品が無いから」から「まだ差し替えていないから」へ書き換え。「画面と部品の対応」の追加中の進捗を `Frame` から `Modal` へ改め、その理由（背後へキーを流さない・実行中は `esc` を握る）を追記。`ProgressRow` の置き場所が `molecule` 直下であることを明記。ディレクトリの行数表を実測へ更新し（`ui/page/runners` 2164 行・`ui` 2031 行が新たに警告帯、`ui/page/setup` 1811 行を追加）、`ui` 直下が超過した内訳（`app.go` の 9 行と `route_test.go` の 48 行）と、それが「タブを 1 枚足すだけなら親を触らない」の例外にあたる理由を追記 | runner の追加・削除・バージョン更新を実装したため。実装状況の表と各表の「状況」列は**後続 Issue が「部品が有るか」を最初に引く場所**であり、`ProgressList` を未実装のまま残すと Disk タブを触る Issue がもう 1 つ進捗部品を作りかねない。`Form` の破棄の確認だけは部品が揃っていても経路が繋がっておらず、実装済みに丸めると「動くはず」と読まれてしまうため、区分を分けて残した。行数表は次の Issue が読む予算の規範なので、`ui` 直下の超過を記さないと親 Model へテストを足す Issue が境界に当たってから気付くことになる |

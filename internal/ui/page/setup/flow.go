@@ -145,6 +145,13 @@ func (m *Model) onResult(msg page.ResultMsg) tea.Cmd {
 			return nil
 		}
 		return m.confirmed(decided.Confirmed)
+	case discardKind:
+		decided, ok := msg.Msg.(dialog.DecidedMsg)
+		if !ok {
+			return nil
+		}
+		m.discarded(decided.Confirmed)
+		return nil
 	case progressKind:
 		return m.onProgressResult(msg.Msg)
 	default:
@@ -166,6 +173,19 @@ func (m *Model) confirmed(ok bool) tea.Cmd {
 		return nil
 	}
 	return m.startRun(plan, sc)
+}
+
+// discarded は入力の破棄の可否を処理する。
+//
+// 破棄するなら確認とフォームの 2 枚を閉じてメニューへ戻る。やめるなら確認だけを
+// 閉じ、入力途中のフォームへ戻す（Overlay.Close は最上位を 1 枚だけ閉じる）。
+func (m *Model) discarded(ok bool) {
+	m.overlay.Close()
+	if !ok {
+		return
+	}
+	m.overlay.Close()
+	m.formShown = false
 }
 
 // onProgress は進捗を 1 件取り込み、次の 1 件を待つ。

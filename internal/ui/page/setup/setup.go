@@ -76,7 +76,8 @@ var _ tea.Model = Model{}
 func New(tab int, st page.StateMsg) Model {
 	overlay, help := page.NewOverlay(tab, st)
 	form := overlay.Register(formKind, newFormModal(st))
-	confirm := overlay.Register(confirmKind, newConfirmModal(st))
+	confirm := overlay.Register(confirmKind, newConfirmModal(st, confirmKind))
+	discard := overlay.Register(discardKind, newConfirmModal(st, discardKind))
 	progress := overlay.Register(progressKind, newProgressModal(st))
 	scopeCmd := overlay.SetHelpScope(keymap.Set.SetupHelp)
 
@@ -85,7 +86,7 @@ func New(tab int, st page.StateMsg) Model {
 		menu:    organism.NewChoiceList(st.Keys.List, st.Styles),
 		actions: action.NewSet(st.Keys.Runner),
 		overlay: overlay,
-		initCmd: tea.Batch(help, form, confirm, progress, scopeCmd),
+		initCmd: tea.Batch(help, form, confirm, discard, progress, scopeCmd),
 		vals:    newValues(st),
 		plan:    setup.Plan{}, apiScope: scope.Scope{Kind: scope.Unknown, Owner: "", Repo: ""},
 		pending: page.SetupAdd, targets: nil, run: nil,

@@ -22,9 +22,10 @@ func (m *Model) onFormResult(msg tea.Msg) tea.Cmd {
 		m.overlay.Close()
 		return nil
 	case dialog.FormDiscardMsg:
-		// 入力済みの中断は破棄の確認を経る。確認は dialog.Form が Confirm を
-		// 重ねて出すため、page 側では何もしない（atomic-design.md「Form と huh」）。
-		return nil
+		// 入力済みのまま esc を押した。破棄してよいかを確認する
+		// （atomic-design.md「Form と huh」）。**Form 自身は確認を出さない。**
+		// モーダルを重ねられるのは Overlay を持つ page だけである。
+		return m.overlay.Open(discardKind, confirmOpenMsg{input: discardInput()})
 	default:
 		return nil
 	}
