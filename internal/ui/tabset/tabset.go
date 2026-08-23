@@ -25,6 +25,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/jobs"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/logs"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/runners"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/setup"
 	"github.com/ousiassllc/gsr-helper/internal/ui/token"
 )
 
@@ -77,7 +78,7 @@ func specs() []spec {
 		{Title: page.TabLogs, New: func(i int, st page.StateMsg) tea.Model { return logs.New(i, st) }},
 		{Title: "Doctor", New: nil},
 		{Title: "Config", New: nil},
-		{Title: "Setup", New: nil},
+		{Title: page.TabSetup, New: func(i int, st page.StateMsg) tea.Model { return setup.New(i, st) }},
 	}
 }
 
@@ -94,12 +95,16 @@ func specs() []spec {
 // 同じ文言になるのは、利用者にとって「この版ではまだ使えない」という同じ意味だから
 // である。
 //
-// Enabled / Reason は能力（Caps）でタブを無効化する枠も兼ねる。実装済みの 4 枚は
+// Enabled / Reason は能力（Caps）でタブを無効化する枠も兼ねる。実装済みの 5 枚は
 // いずれもタブ自体は能力を必要としない（runner の一覧とジョブの一覧はホスト内の
 // 読み取りだけで成立し、systemd が無くても run.sh 直起動の runner を表示できる。
 // Disk と Logs も、docker や journal が無ければタブの中で該当する行や操作だけを
-// 縮退させる）ため、常に有効である。能力を必要とするタブ（追加・削除を行う Setup
-// など）を足す Issue が、Caps を見て Enabled と Reason を決める判断を spec に足す。
+// 縮退させる）ため、常に有効である。
+//
+// **Setup も同じで、タブ自体は塞がない。** 追加・削除・更新は root と GitHub の
+// 認証を要するが、screens.md「無効な操作の表示」はこれを**操作単位**で規定して
+// いる。タブごと塞ぐと、何が足りないのかを操作の理由として出せなくなる
+// （判定は ui/page/action の Allow が持つ）。
 func New(caps appconfig.Caps, ex exec.Executor, keys keymap.Set, s token.Styles, dark bool) []Tab {
 	init := page.StateMsg{
 		Result: runner.Result{},

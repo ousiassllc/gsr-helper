@@ -81,11 +81,11 @@ func Of(id string) (ID, bool) {
 
 // Def は詳細画面の操作リスト 1 項目の定義。
 //
-// Supported は「この版で実装済みか」を表す。真なのはサービス制御の 6 つ
-// （開始・停止・強制停止・ドレイン停止・再起動・enable の切替）で、追加・削除・更新・
-// 設定編集・ログは後続の Issue が担うため偽である。Def の定義にこのフィールドを
-// 置くことで、後続 Issue は meta の 1 箇所を真にするだけで操作を有効化でき、
-// 可否の判定（Allow）とフッタ・操作リストの描画には手を入れずに済む。
+// Supported は「この版で実装済みか」を表す。偽なのは設定編集（e）だけで、
+// 残る 10 個はサービス制御・ログ・追加・削除・バージョン更新として実装済みである
+// （内訳は meta の doc）。Def の定義にこのフィールドを置くことで、後続 Issue は
+// meta の 1 箇所を真にするだけで操作を有効化でき、可否の判定（Allow）とフッタ・
+// 操作リストの描画には手を入れずに済む。
 type Def struct {
 	ID          ID // どの操作か（判定はキーではなくこれで引く）
 	Key         string
@@ -141,9 +141,15 @@ const (
 // 文言の有無が決まる。
 //
 // Supported が真なのはサービス制御の 6 つ（internal/svc が実装した開始・停止・強制
-// 停止・ドレイン停止・再起動・enable の切替）と、Logs タブが実装したログを開く操作である。
-// 追加・削除・更新・設定編集は後続の Issue が担うため偽のままで、「押せるが何も
-// 起きない」経路を作らない。
+// 停止・ドレイン停止・再起動・enable の切替）、Logs タブが実装したログを開く操作、
+// および Setup タブが実装した追加・削除・バージョン更新である。設定編集（e）は
+// 後続の Issue が担うため偽のままで、「押せるが何も起きない」経路を作らない。
+//
+// **追加とバージョン更新は影響の文言を持たない。** 出どころである詳細画面のモック
+// （screens.md）が `u  バージョン更新` を括弧無しで書いているためである。更新が伴う
+// 一時停止は対象の稼働状況で変わるので、確認ダイアログの影響は計画
+// （setup.Plan.Warnings）から取る。定数で持つと、停止中の台だけを更新するときにも
+// 「一時停止します」と出てしまう。
 func meta(id ID) (impact string, destructive, supported bool) {
 	switch id {
 	case Start, Drain, Enable:
@@ -154,8 +160,10 @@ func meta(id ID) (impact string, destructive, supported bool) {
 		return impactAffectsJob, true, true
 	case Kill:
 		return impactKill, true, true
+	case Add, Update:
+		return "", false, true
 	case Delete:
-		return impactDelete, true, false
+		return impactDelete, true, true
 	case Logs:
 		return "", false, true
 	default:

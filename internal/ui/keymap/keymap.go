@@ -202,6 +202,27 @@ func (s Set) DiskHelp() [][]key.Binding {
 	return s.Help(s.listBindingsWithoutEnter(), s.List.FilterBindings(), s.Disk.Bindings())
 }
 
+// SetupHelp は Setup タブが ? に出すグループを返す。
+//
+// 一覧のキー（メニューの上下と決定）と、runner に対する追加・削除・バージョン更新の
+// キーを載せる。サービス制御のキーはこの画面で効かないので渡さない。
+//
+// enter を残すのは、Disk タブと違って Setup のメニューが enter で決まるためである
+// （DiskHelp が enter を落とす理由はその画面に決定操作が無いことであって、一覧の
+// キー定義そのものの性質ではない）。
+func (s Set) SetupHelp() [][]key.Binding {
+	return s.Help(s.List.Bindings(), s.Setup())
+}
+
+// Setup は Setup タブで有効な runner 操作のキーを返す。
+//
+// RunnerKeys から追加・削除・バージョン更新の 3 つだけを取り出す。専用のキー群を
+// 新設しないのは、同じ操作に同じキーを割り当てるためである（Runners 一覧の n / D / u
+// と Setup タブのそれが別の定義に分かれると、片方だけキーを変えても気付けない）。
+func (s Set) Setup() []key.Binding {
+	return []key.Binding{s.Runner.Add, s.Runner.Delete, s.Runner.Update}
+}
+
 // listBindingsWithoutEnter は enter を除いた通常モードの一覧のキーを返す。
 //
 // **List 側ではなくここに置く。** enter を外す理由は「このタブに詳細画面が無い」と

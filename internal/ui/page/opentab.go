@@ -45,6 +45,51 @@ type ShowLogMsg struct {
 	Runner runner.Runner
 }
 
+// TabRunners は Runners タブの名前。OpenTabMsg.Title に渡す。
+//
+// Setup タブの esc（前の画面へ戻る）が使う。**親は esc をタブの移動に使わない**
+// （keys.go の handleGlobalKey）。Logs タブの esc は絞り込みの解除であり、
+// 移動に使うと絞り込みを解くつもりの打鍵で画面ごと切り替わってしまうためである
+// （screens.md「Logs タブから esc では戻らない」）。戻り先が一意に決まるタブだけが
+// 自分で移動を要求する形にしてある。
+const TabRunners = "Runners"
+
+// TabSetup は Setup タブの名前。OpenTabMsg.Title に渡す。
+//
+// TabLogs と同じく、対応するタブが実在することを tabset のテストが検査する。
+const TabSetup = "Setup"
+
+// SetupOp は Setup タブへ依頼する操作。
+//
+// action.ID を使わないのは、依存が action → page の一方向であり page から
+// action を参照できないためである（action/allow.go のパッケージコメント）。
+type SetupOp int
+
+const (
+	// SetupAdd は runner の追加（FR-10〜FR-16）。
+	SetupAdd SetupOp = iota
+	// SetupRemove は runner の削除（FR-17〜FR-19）。
+	SetupRemove
+	// SetupUpdate は runner のバージョン更新（FR-20〜FR-22）。
+	SetupUpdate
+)
+
+// SetupRequestMsg は「この runner に対して追加・削除・更新を始める」という用件。
+//
+// OpenTabMsg.Msg に載せて Setup タブへ渡す（screens.md の `n` / `D` / `u`）。
+// ShowLogMsg と同じ理由でここに置く（移動元と移動先の双方から見える場所が
+// page しか無い）。
+//
+// **確認ダイアログは移動先の Setup タブが出す。** 起点によって確認の強さを
+// 変えないという規則（functional.md の操作フロー）は、確認の実装を 1 つに保つ
+// ことで守る。移動元にも確認を置くと、同じ操作に 2 つの確認の組み立てができる。
+type SetupRequestMsg struct {
+	// Op は依頼する操作。
+	Op SetupOp
+	// Runners は対象。追加では空（Setup タブがフォームで受け取る）。
+	Runners []runner.Runner
+}
+
 // OpenTab は移動先のタブと用件を親へ伝える Cmd を返す。
 func OpenTab(title string, msg tea.Msg) tea.Cmd {
 	m := OpenTabMsg{Title: title, Msg: msg}

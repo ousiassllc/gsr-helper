@@ -41,6 +41,11 @@ type Model struct {
 	ops runnerop.Model
 	// initCmd はモーダルを登録したときに返った Cmd。最初の共有状態で流し、nil に落とす。
 	initCmd tea.Cmd
+	// notice は Setup タブへ移せなかった理由。次の打鍵で消える。
+	//
+	// ops.Status とは別に持つ。サービス制御の結果報告とは寿命も出どころも違い、
+	// 同じ入れ物に混ぜると片方が他方を黙って上書きする。
+	notice string
 }
 
 // tea.Model を実装していることをコンパイル時に確かめる。
@@ -69,6 +74,7 @@ func New(tab int, st page.StateMsg) Model {
 		actions: action.NewSet(st.Keys.Runner),
 		ops:     ops,
 		initCmd: cmd,
+		notice:  "",
 	}
 }
 
@@ -231,6 +237,8 @@ func (m Model) input() string {
 //
 //   - 入力中はグローバルキーが効かない状態そのものなので最優先で示す。示さないと
 //     画面が無反応になったように見える（screens.md の入力中）。
+//   - 移動できなかった理由（notice）は選択件数より先に出す。直前の打鍵に対する
+//     応答であり、出さないと n / D / u が無反応に見える。
 //   - 選択件数を結果より先に出すのは、実行を終えた時点で選択を解く（handleOps）ため、
 //     両方が同時に非空になるのは「結果を見た後に次の対象を選び始めた」場面に限られる
 //     からである。そこで必要なのは、済んだ操作の報告ではなく今から何台に効くかである。
@@ -239,6 +247,9 @@ func (m Model) input() string {
 func (m Model) status() string {
 	if in := m.input(); in != "" {
 		return "入力中: " + in
+	}
+	if m.notice != "" {
+		return m.notice
 	}
 	if n := len(m.tbl.Checked()); n > 0 {
 		return "選択: " + strconv.Itoa(n) + " 件"

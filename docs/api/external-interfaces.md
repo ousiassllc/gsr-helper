@@ -35,7 +35,7 @@ sequenceDiagram
 
 ### 必要なトークンスコープ
 
-**runner の管理にはスコープごとに異なる権限が必要**であり、不足していると 403 になる。起動時と doctor で保有スコープを確認する。
+**runner の管理にはスコープごとに異なる権限が必要**であり、不足していると 403 になる。起動時と doctor で保有スコープを確認する。**ただし保有スコープの確認は未実装である**——起動時の能力判定（`gh.HasToken`）が見るのはトークンを取得できるかどうかだけで、スコープを引く `gh.TokenScopes` は doctor を持ち込む Issue が足す。それまで権限不足は API を呼んだ時点の 403 として現れる（下記「レート制限とエラー」）。
 
 | 対象 | 必要なスコープ（classic PAT / OAuth） | Fine-grained PAT での権限 |
 |------|--------------------------------|------------------------|
@@ -65,8 +65,8 @@ gh auth refresh -h github.com -s admin:org
 |------|--------------|---------|
 | 登録トークンの取得 | `POST {scope}/actions/runners/registration-token` | FR-14（追加） |
 | 登録解除トークンの取得 | `POST {scope}/actions/runners/remove-token` | FR-17（削除） |
-| runner 一覧の取得 | `GET {scope}/actions/runners` | 一覧の照合、孤児検出 |
-| runner の削除 | `DELETE {scope}/actions/runners/{runner_id}` | FR-17（`config.sh remove` が使えない場合の代替） |
+| runner 一覧の取得 | `GET {scope}/actions/runners` | 一覧の照合、孤児検出（**実装済みだが未使用**） |
+| runner の削除 | `DELETE {scope}/actions/runners/{runner_id}` | FR-17（**実装済みだが未使用**） |
 | runner tarball の取得情報 | `GET {scope}/actions/runners/downloads` | FR-13。OS / アーキテクチャごとの `download_url`・`filename`・`sha256_checksum` を返す |
 | ラベルの取得 | `GET {scope}/actions/runners/{runner_id}/labels` | FR-35（設定編集） |
 | ラベルの置換 | `PUT {scope}/actions/runners/{runner_id}/labels` | FR-35 |
@@ -76,6 +76,12 @@ gh auth refresh -h github.com -s admin:org
 | runner 本体の最新版 | `GET /repos/actions/runner/releases/latest` | FR-20（更新の必要性判定） |
 
 **tarball の SHA-256 は `downloads` エンドポイントが返す値を使う。** 自前でハッシュ一覧を持たず、取得したチェックサムと展開前のファイルを照合する。
+
+**上表のうち実際に呼んでいるのは 4 つである**（登録トークン / 登録解除トークン / tarball の取得情報 / runner 本体の最新版）。
+
+**runner 一覧の取得と runner の削除は `internal/gh` に実装済みだが、本番の呼び出し元がまだ無い**（`ListRunners` / `DeleteRunner` を呼ぶのはテストだけである）。一覧の照合と孤児検出は、3 秒ポーリングで API を呼ばない方針（後述）に沿ってホスト内の情報だけで構成しており、API 側の一覧と突き合わせる画面がまだ無い。削除は `svc.sh stop` → `svc.sh uninstall` → `config.sh remove --token` の 3 本で完結しており（`internal/setup/remove.go`）、**`config.sh remove` が使えない場合に DELETE へ切り替える経路は実装していない**。runner ディレクトリを失ったなどで `config.sh` を起動できない台の後始末は、この DELETE を使う将来の機能に委ねる。
+
+**ラベルの 4 つと runner group の一覧は実装自体がまだ無い**——どちらも FR-35（設定編集）と FR-12 の runner group 指定に付随するもので、Config タブが未実装だからである。runner group は追加のフォームで名前を入力する形にしてあり（`config.sh --runnergroup`）、一覧から選ばせる段階でこのエンドポイントが要る。呼び出しはすべて `internal/gh` の `Client` を通り、**GitHub と通信するパッケージはここ 1 つだけである**（[コンポーネント設計](../components/overview.md#internalgh)）。
 
 ### レート制限とエラー
 
@@ -87,7 +93,9 @@ gh auth refresh -h github.com -s admin:org
 | 404 | スコープの指定誤り、または権限不足による隠蔽の可能性を併記する |
 | ネットワーク到達不可 | API を要する機能を無効化し、ホスト内の情報のみで動作を継続する |
 
-一覧表示の 3 秒ポーリングでは **API を呼ばない**（ホスト内の情報のみで構成する）。API 呼び出しはユーザーの操作に対応する形でのみ行い、レート制限を消費しない。
+この表は `gh.APIError` が実装する。失敗は「次に何をすればよいか」（不足しているスコープ、待機時間、確認コマンド）を `Hint` に載せて返し、**自動リトライはしない**。再試行するかどうかは利用者に委ねる。
+
+一覧表示の 3 秒ポーリングでは **API を呼ばない**（ホスト内の情報のみで構成する）。API 呼び出しはユーザーの操作に対応する形でのみ行い、レート制限を消費しない。runner の追加・削除・バージョン更新も、利用者の操作を起点に 1 度だけ呼ぶ（計画を組むときに最新バージョンを 1 回、承認のあとに短命トークンと tarball の取得情報を必要な分だけ）。**短命トークンを取るのは承認のあとである**——承認前に取ると、キャンセルした場合にも有効なトークンを発行してしまう。
 
 ## 実行する外部コマンド
 
@@ -123,10 +131,10 @@ gh auth refresh -h github.com -s admin:org
 
 | コマンド | 用途 | 備考 |
 |---------|------|------|
-| `./config.sh --url <url> --token <token> --name <name> --labels <labels> --work <dir> --runnergroup <group> --unattended [--ephemeral] [--disableupdate]` | runner の登録 | FR-10、FR-12。`--unattended` で非対話実行する。**`--token` はプロセス引数として渡るため [既知の制約](../architecture/security.md#プロセス引数からのトークン読み取り既知の制約) がある** |
+| `./config.sh --url <url> --token <token> --name <name> [--labels <labels>] --work <dir> [--runnergroup <group>] --unattended [--ephemeral] [--disableupdate]` | runner の登録 | FR-10、FR-12。`--unattended` で非対話実行する。**`--labels` と `--runnergroup` は値があるときだけ付ける**（空文字を渡さない）。予約ラベル（`self-hosted` / `linux` / `x64`）は runner 側が自動で付けるため `--labels` に含めない。**`--token` はプロセス引数として渡るため [既知の制約](../architecture/security.md#プロセス引数からのトークン読み取り既知の制約) がある** |
 | `./config.sh remove --token <token>` | 登録解除 | FR-17 |
 | `./svc.sh install [user]` | systemd ユニットの作成 | FR-10 |
-| `./svc.sh uninstall` | ユニットの削除 | FR-17 |
+| `./svc.sh uninstall` | ユニットの削除 | FR-17。**サービス化されていない runner には発行しない**（存在しないユニットへの `uninstall` は必ず失敗し、そこで計画全体が中止される） |
 | `./svc.sh start` / `stop` / `status` | サービス操作 | `systemctl` と等価。ユニット名の解決を任せられる場面で使う |
 
 `config.sh` は対話入力を要求しないよう、必要な引数をすべて与えて実行する。
@@ -191,3 +199,4 @@ TCP 接続の成否とレイテンシを確認する。到達先は runner が�
 | 1.6 | 2026-08-22 | 記録対象外の判定を発行契機ではなく発行元（再検出の `Scan`）に統一し、「利用者の操作を起点に発行する場合は記録する」を削除 | 手動再読み込み（`r`）も同じ `Scan` を通るため記録されず、記述が実装と矛盾していた |
 | 1.7 | 2026-08-23 | `journalctl` の行を実装に合わせ、追従を `-f` ではなく `-n <N> --no-pager` の再発行と差分の送出で行うことに変更。ログ追従が発行する `journalctl` を監査ログの記録対象外に追加し、doctor の `-k --since` は記録することを明記 | ログ閲覧を実装した（Issue #9）。`Executor` は 1 回の実行の出力をまとめて返す契約であり `-f` はタイムアウトまで 1 行も届かない（理由は [コンポーネント設計](../components/overview.md#journalctl--f-を使わない理由)）。追従中は同じ読み取りが繰り返し発行され、記録すると破壊的操作のレコードを押し流す |
 | 1.8 | 2026-08-23 | 強制停止が発行する `kill -KILL <pid>...` を「その他のシステムコマンド」に追加し、`systemctl kill` を使わない理由と停止まで打つ理由を注記 | サービス制御（Issue #5）で強制停止を実装したため。本節はツールが起動する外部コマンドを網羅する表であり、`kill` だけが載っていない状態になっていた |
+| 1.9 | 2026-08-23 | GitHub REST API のエンドポイントが `internal/gh` から実際に呼ばれるようになったことを反映し、4 つ（登録トークン / 登録解除トークン / tarball の取得情報 / 最新版）が使用中、runner 一覧の取得と runner の削除は `internal/gh` に実装済みだが呼び出し元がテストしか無いこと、ラベルの 4 つと runner group の一覧は実装自体が無いことを表と表の直後に明記。DELETE の行が謳っていた「`config.sh remove` が使えない場合の代替」経路は `internal/setup/remove.go` に存在しないため取り消し。保有スコープの確認（`X-OAuth-Scopes`）が未実装で、権限不足は 403 として現れることを「必要なトークンスコープ」に追記。「レート制限とエラー」の表が `gh.APIError` の実装であることと、API を呼ぶ契機（計画を組むときに 1 回、短命トークンは承認のあと）を追記。`config.sh` の `--labels` / `--runnergroup` が値のあるときだけ付くことと予約ラベルを渡さないこと、`svc.sh uninstall` をサービス化されていない runner には発行しないことを注記 | runner の追加・削除・バージョン更新（Issue #8）を実装したため。本節は「外部との接点の全量」を定める文書なので、**どのエンドポイントが実際に呼ばれているのかが読めないと、レート制限やスコープの議論の対象範囲が決まらない**。「起動時と doctor で保有スコープを確認する」は実装が無いまま残っており、[画面仕様](../ui/screens.md#無効な操作の表示)が「スコープ不足の判定は未実装」と書いているのと正面から食い違っていた。`config.sh` の行は空の値でも常にオプションを付ける形に読め、そのとおりに実装すると runner group を指定しない追加が失敗する |

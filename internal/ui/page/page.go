@@ -18,11 +18,16 @@
 package page
 
 import (
+	"context"
+
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/ousiassllc/gsr-helper/internal/appconfig"
 	"github.com/ousiassllc/gsr-helper/internal/exec"
+	"github.com/ousiassllc/gsr-helper/internal/gh"
 	"github.com/ousiassllc/gsr-helper/internal/runner"
+	"github.com/ousiassllc/gsr-helper/internal/setup/job"
+	"github.com/ousiassllc/gsr-helper/internal/setup/tarball"
 	"github.com/ousiassllc/gsr-helper/internal/ui/atom"
 	"github.com/ousiassllc/gsr-helper/internal/ui/keymap"
 	"github.com/ousiassllc/gsr-helper/internal/ui/token"
@@ -58,11 +63,48 @@ type StateMsg struct {
 	// 監査記録の失敗は Executor 自身が通知先（command.WithAuditErrorFunc）へ渡し、
 	// cmd 側が TUI の終了後にまとめて出す。**UI から stderr へ書かない**（描画が壊れる）ため、
 	// 監査エラーの受け皿を page へ配る必要はない。
-	Exec  exec.Executor
-	Dark  bool
+	Exec exec.Executor
+	Dark bool
+	// Color は色を使うか。NO_COLOR / --no-color / 非 TTY を cmd が 1 つの値に
+	// まとめたもので、UI 側で環境を読み直さない。Styles には畳み込み済みだが、
+	// huh のテーマを組み立てるには真偽値そのものが要る（token.HuhTheme）。
+	Color bool
 	BodyW int
 	BodyH int
 	Err   error // 直近の検出エラー
+	// Setup は Setup タブが要る起動時の決定事項。1 つにまとめてあるのは、
+	// タブ 1 枚のためだけに StateMsg のフィールドを 3 つ増やさないためである。
+	Setup SetupDeps
+}
+
+// SetupDeps は Setup タブ（runner の追加・削除・バージョン更新）が要る値。
+//
+// いずれも cmd が起動時に決め、UI 側で環境や設定を読み直さない
+// （docs/ui/atomic-design.md「背景の明暗と NO_COLOR」と同じ方針）。
+type SetupDeps struct {
+	// Host は既定の runner 名の接頭辞に使うホスト名（FR-11）。
+	Host string
+	// Defaults は設定ファイルの defaults（インストール先・ラベル・ephemeral）。
+	Defaults appconfig.Defaults
+	// Secrets は取得した短命トークンの預け先。
+	//
+	// ここへ預けた値は exec の値一致マスク（段 2）に載り、監査ログと
+	// エラー文言から平文が消える（docs/architecture/security.md）。
+	Secrets *gh.Secrets
+	// NewClient は API クライアントの生成を差し替える口（job.Deps.NewClient と同じ形）。
+	//
+	// **テストが本物の GitHub へ出ないようにするための継ぎ目である。** 本番は nil を
+	// 渡し、job 側が gh.Token から借りたトークンで api.github.com 向けの
+	// クライアントを作る。nil のままではテストも同じ経路に落ち、周囲の GH_TOKEN を
+	// 拾って短命トークンの発行（remove-token）まで実際に叩いてしまう。t.Parallel を
+	// 使う以上 t.Setenv で環境を消すこともできないので、差し替えの口を共有状態に
+	// 持たせて、テストは httptest のサーバへ向ける。
+	NewClient func(ctx context.Context, d job.Deps) (*gh.Client, error)
+	// Fetch は tarball の取得を差し替える口（job.Deps.Fetch と同じ形）。
+	//
+	// NewClient と同じ理由で置く。本番は nil で tarball.Fetch を使い、テストは
+	// 外向きのダウンロードが起きない実装を挿す。
+	Fetch func(ctx context.Context, in tarball.Info, dir string) (string, error)
 }
 
 // TabMsg は page が発行した Cmd の結果を、発行元のタブへ差し戻すための包み。

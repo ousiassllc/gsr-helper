@@ -18,6 +18,7 @@ graph TD
         RScope[runner/scope]
         Svc[svc]
         Setup[setup]
+        SetupJob[setup/job]
         Disk[disk]
         Logs[logs]
         Doctor[doctor]
@@ -34,12 +35,15 @@ graph TD
     Main --> UIApp
     Main --> Appconf
     Main --> Audit
+    Main --> GH
 
     UIApp --> UIParts
 
     UIApp --> Runner
     UIApp --> Svc
     UIApp --> Setup
+    UIApp --> SetupJob
+    UIApp --> GH
     UIApp --> Disk
     UIApp --> Logs
     UIApp --> Doctor
@@ -48,9 +52,11 @@ graph TD
 
     Svc --> Runner
     Svc --> Appconf
+    SetupJob --> Runner
+    SetupJob --> Setup
+    SetupJob --> GH
     Setup --> Runner
     Setup --> Svc
-    Setup --> GH
     Disk --> Runner
     Logs --> Runner
     Doctor --> Runner
@@ -61,14 +67,21 @@ graph TD
     Runner --> Exec
     Runner --> RScope
     Svc --> Exec
+    SetupJob --> Exec
+    SetupJob --> RScope
     Setup --> Exec
+    Setup --> RScope
     Disk --> Exec
     Logs --> Exec
     Doctor --> Exec
     GH --> Exec
+    GH --> RScope
+    GH --> Appconf
     Appconf --> Exec
     Exec --> Audit
 ```
+
+**UI 層が `setup` と `gh` を直に参照するのは値の型のためである。** 実行前プレビュー（FR-16）は `setup.Plan` をそのまま描くので `ui/page` 以下が `setup` を import し（本番ファイル 7 本）、短命トークンの預け先 `gh.Secrets` は起動時に `cmd` が 1 つ作って UI へ配るため `cmd` と `ui` の双方が `gh` を import する。**実行そのものを呼ぶのは `setup/job` だけである**——UI は `setup.Apply` を直接叩かない。
 
 ### 依存の規則
 
@@ -87,6 +100,8 @@ graph TD
 ### `cmd/gsr-helper`
 
 エントリポイント。フラグ解析、設定の読み込み、監査ログのオープン、能力判定、色を使うかの判定、`tea.Program` の起動を行う。ロジックを持たない。
+
+**秘密情報の提供元（`gh.Secrets`）と、トークン有無の判定手段（`gh.HasToken`）を組み立てるのもここである。** どちらも `internal/gh` の実装を、それを知らない側（`internal/exec/command` と `internal/appconfig/hostcaps`）へ渡す配線であり、依存の向きを増やさずに実装を 1 つに保つための一手である。`gh.Secrets` は `command.New` の値一致マスク（段 2）の提供元と、Setup タブが取得した短命トークンの預け先を兼ねる**同じ 1 つの実体**で、預けた値がそのまま監査ログとエラー文言のマスクに効く（[セキュリティ設計](../architecture/security.md#監査ログでのマスク)）。
 
 代替スクリーンへの切り替えは親 Model が宣言し、panic からの端末復元は bubbletea が行う。`cmd` は `tea.NewProgram(app).Run()` を呼ぶだけで、どちらも自分では扱わない（扱う箇所を 2 つ持つと、片方だけが効いた状態を追えなくなる）。
 
@@ -235,13 +250,38 @@ runner の追加・削除・バージョン更新。最も破壊的な操作を�
 
 | 要素 | 責務 |
 |------|------|
-| `PlanAdd(spec) (Plan, error)` | 追加の計画を立てる。作成するディレクトリと実行コマンドを**確定させてから**返す |
-| `Apply(ctx, Plan, progress)` | 計画を順に実行。失敗した時点で中止し、成功分と失敗理由を返す |
-| `NextIndex(existing []string, prefix string) int` | 命名の連番決定（**純粋関数**） |
-| `PlanRemove` / `PlanUpdate` | 削除・更新の計画 |
-| `FetchTarball(ctx, info)` | tarball の取得と SHA-256 検証 |
+| `Kind` | 計画の種類（`KindAdd` / `KindRemove` / `KindUpdate`）。`String()` が確認ダイアログの見出しに出る表示名（`追加` / `削除` / `バージョン更新`）を返す |
+| `Plan` / `Unit` / `Step` | 確定した計画。`Plan` は台ごとの `Unit`、`Unit` は実行順の `Step` を持つ。`Step.Kind` は `StepCommand` / `StepMkdir` / `StepExtract` / `StepDrain` の 4 種 |
+| `PlanAdd(AddSpec) (Plan, error)` | 追加の計画を立てる。作成するディレクトリと実行コマンドを**確定させてから**返す。検証に落ちた時点でエラーにし、途中まで作った計画は返さない |
+| `PlanRemove(RemoveSpec)` / `PlanUpdate(UpdateSpec)` | 削除・更新の計画。削除は `svc.sh stop` → `svc.sh uninstall` → `config.sh remove --token` の順（FR-17。ユニットが無い runner には `svc.sh` の 2 手順を入れない）、更新は「ドレイン停止 → 展開 → 起動」の順（FR-22） |
+| `Apply(ctx, ApplyInput) (Result, error)` | 計画を順に実行。失敗した時点で中止し、成功分と失敗理由を `Result` に載せて返す（FR-15）。`error` は `Result.Err` と同じもの |
+| `Progress` / `Result` / `StepError` | 1 手順ごとの進捗、実行結果（成功した台 / 失敗した台とフェーズ / 着手しなかった台）、どの台のどのフェーズで失敗したかを保つエラー |
+| `NextIndex(existing []string, prefix string) int` / `RunnerName` / `Names` | 命名の連番決定（**純粋関数**。ホストの状態を一切読まない） |
 
 **計画（Plan）と実行（Apply）を分離する。** これにより実行前プレビュー（FR-16）が計画をそのまま表示するだけで実現でき、表示と実行の食い違いが起きない。
+
+**短命トークンは計画に載せない。** `Step.TokenIndex` が「`Args` のどこにトークンが入るか」だけを持ち、`Args` にはマスクのプレースホルダ（`mask.Placeholder`）が入ったままである。実際の値は `Apply` が `Args` の複製に対して実行の直前に差し込む。プレビューが参照するのは常にプレースホルダのままの `Args` なので、**承認画面にトークンが載る経路が構造として存在しない**（[セキュリティ設計](../architecture/security.md#保持と出力)）。
+
+**短命トークンの渡し方は 2 系統ある。** `ApplyInput.Token` は全台で共通の 1 本（追加はスコープが 1 つなので使い回せる。FR-14）、`ApplyInput.TokenFor` は台ごとに引く関数で、設定されていればこちらが優先する。削除の対象は複数のスコープにまたがりうるうえ remove token はスコープごとに発行されるため、1 本を使い回すと別スコープの台で必ず失敗する。
+
+**トークンの取得と tarball の手配はこのパッケージに入れない。** `internal/setup` が知るのは計画とその実行だけで、GitHub API もネットワークも触らない（`internal/gh` を import しない）。外部資源を揃える側は `internal/setup/job` である。
+
+#### 分割したパッケージ
+
+1 ディレクトリ 2000 行（テスト込み）の上限に対する分散と、責務の切り分けを兼ねる。依存は **`setup/job` → `setup` → `setup/tarball` / `setup/valid`** の一方向で、逆向きは無い。**`setup/job` は `setup/tarball` も直に import する**（取得情報を `tarball.Info` に詰めて `tarball.Fetch` を呼ぶのが `setup/job` の役目のため）。`setup` を経由しなければならない決まりではなく、下位のパッケージを飛び越して参照してよい。
+
+| パッケージ | 置くもの |
+|-----------|---------|
+| `setup` | `Plan` / `Unit` / `Step` / `PlanAdd` / `PlanRemove` / `PlanUpdate` / `Apply` / `NextIndex` |
+| `setup/valid` | 入力検証（`Name` / `Labels` / `Dir` / `URL` / `Count`）とその理由の文言。**外部コマンドを一切起動しない純粋な判定**であり、[セキュリティ設計の「入力を検証してから渡す」](../architecture/security.md#外部コマンド実行の安全性) の表を実装する |
+| `setup/tarball` | tarball の取得（`Fetch`）・検証（`Verify`）・展開（`Extract`）・上書きしない名前（`PreservedNames`。FR-21）。**内部パッケージを 1 つも import しない**（`net/http` と `os` だけで完結する） |
+| `setup/job` | 短命トークンの取得と tarball の手配を済ませて `setup.Apply` を呼ぶ（`Deps` / `Input` / `Run` / `LatestVersion`）。`internal/gh` を import する唯一のドメイン側 |
+
+**`setup/job` を UI 層から分けたのは、この一連が bubbletea を知らない普通の関数として書けるためである。** TUI なしでテストでき、UI 層に残るのは「進捗を画面へ流す」ことだけになる。`Run` を呼ぶのは承認のあとだけである——承認前に呼ぶと、キャンセルした場合にも有効な短命トークンを発行してしまう。
+
+`setup/job` は短命トークンをスコープと操作の組でキャッシュし、期限内なら使い回す（FR-14）。取得したトークンは `gh.Secrets` へ預け、実行を終えたら忘れる。預けている間だけ監査ログとエラー文言の値一致マスクが効く（[セキュリティ設計](../architecture/security.md#監査ログでのマスク)）。tarball も 1 回だけ取得して各ディレクトリへ展開に使い、終わったら消す（FR-13）。
+
+**`setup/tarball` は展開の前に SHA-256 を必ず検証する。** 検証に失敗した場合は展開せず、取得したファイルを消してエラーを返す。root 権限で動くため展開は tar の中身を信用せず、`os.OpenRoot` で展開先を根に固定したうえで絶対パス・`..` を含むエントリ・展開先の外を指すリンク・**保持対象（`PreservedNames`）へリンクで潜り込むエントリ**を拒否し、1 エントリ 1 GiB / 合計 2 GiB の上限も置く（展開量で埋め尽くされないため）。最後の 1 つ（`ErrPreservedLink`、`keeplink.go`）が FR-21 の保持を守る検査である。`os.OpenRoot` は展開先の**外**への逸脱しか防がないため、`link -> .runner` の直後に `link/pwned` を並べる tar は、名前だけを見る保持判定をすり抜けて `.runner` の中へ書き込める。この展開で作ったリンクの向き先を覚え、**見かけの名前ではなく実際に書き込まれる場所**で保持判定を行う。 展開そのものは展開先の中の一時ディレクトリ（`.gsr-stage-<乱数>`）で行い、済んでから `rename` で最終位置へ移す（`stage.go`）——更新中に強制終了されても中途半端なファイルを残さないためである。移動は 1 件ずつなので新旧の混在までは防げない。詳細は[セキュリティ設計](../architecture/security.md#ネットワーク)。
 
 ### `internal/disk`
 
@@ -336,18 +376,23 @@ runner 側の設定ファイルの読み書き。
 
 ### `internal/gh`
 
-GitHub API とトークンの取得。
+GitHub API とトークンの取得。**GitHub と通信するのはこのパッケージだけである。** ドメイン層は `Client` のメソッド越しにしか API を触らず、`go-github` の型は外へ出さない。
 
-| 要素 | 責務 |
-|------|------|
-| `Token(ctx) (string, error)` | 優先順に従ってトークンを取得（環境変数 → `SUDO_USER` の `gh` → `gh`） |
-| `Client` | `go-github` のラッパー。スコープに応じたパスの切り替えを内部で処理 |
-| `RegistrationToken` / `RemoveToken` | 短命トークンの取得 |
-| `ListRunners` / `DeleteRunner` | runner 情報の取得と削除 |
-| `RunnerDownloads` | tarball の URL と SHA-256 の取得 |
-| `Labels` 系 | ラベルの取得・置換・追加・削除 |
-| `LatestRunnerVersion` | runner 本体の最新版 |
-| `TokenScopes(ctx)` | 保有スコープの取得（doctor 用） |
+| 要素 | 責務 | 状況 |
+|------|------|------|
+| `Source` / `Token(ctx, Executor)` | 優先順に従ってトークンを取得（環境変数 `GH_TOKEN` → `SUDO_USER` の `gh` → `gh`）。`Source` は環境変数・実効 UID・`LookPath` を差し替えられる | 実装済み |
+| `HasToken(ctx, Executor, timeout) bool` | 取得できるかだけを返す。**値そのものは返さない**（`hostcaps.TokenFunc` として渡す。下記「能力判定」） | 実装済み |
+| `Client` / `New` / `WithHTTPClient` / `WithBaseURL` | `go-github` のラッパー。スコープ（repo / org / enterprise）に応じたパスの切り替えを内部で処理する。`WithHTTPClient` / `WithBaseURL` はテスト（`httptest`）とプロキシ環境のための差し替え | 実装済み |
+| `RegistrationToken` / `RemoveToken` | 短命トークンの取得。戻りの `ShortToken` は `String()` がマスク済みで、書式指定子で誤って出力しても平文にならない。`Valid(now)` で使い回しの可否を判定する（FR-14） | 実装済み |
+| `ListRunners` / `DeleteRunner` | runner 情報の取得と削除。一覧はページングを最後まで辿る | 実装済み |
+| `RunnerDownloads` / `PickDownload` / `HostArch` | tarball の URL と SHA-256 の取得と、OS / アーキテクチャに合う 1 件の選択。GitHub の表記（amd64 は `x64`）への読み替えを 1 箇所に置く | 実装済み |
+| `LatestRunnerVersion` | runner 本体の最新版。タグの先頭の `v` を落として `bin/runnerversion` と同じ表記に揃える | 実装済み |
+| `APIError` | 失敗を「次に何をすればよいか」まで含めて表す（不足スコープ・待機時間・確認コマンドを `Hint` に載せる）。**自動リトライはしない**（レート制限を再消費しないため） | 実装済み |
+| `Secrets` | マスク対象の秘密文字列をメモリ上だけで保持する。`command.New` の秘密情報の提供元として渡す（下記） | 実装済み |
+| `Labels` 系 | ラベルの取得・置換・追加・削除 | **未実装**（FR-35 の設定編集で使う。Config タブの Issue が足す） |
+| `TokenScopes(ctx)` | 保有スコープの取得 | **未実装**（doctor の Issue が足す。[画面仕様の「無効な操作の表示」](../ui/screens.md#無効な操作の表示) 6 段目「スコープ不足」が判定未実装なのはこのため） |
+
+**`Secrets` は `command.New` の契約を満たすために、保持済みの値を複製して返すだけの実装にしてある。** 提供元は `Run` のたびに呼ばれるので並行安全であることと、**外部コマンドを起動しないこと**が要る（起動すると `gh auth token` が無限に再帰する）。`cmd/gsr-helper` が 1 つ作って `command.New` と UI（`page.StateMsg.Setup.Secrets`）の両方へ渡し、`setup/job` が取得した短命トークンをここへ預ける。
 
 ### `internal/exec`
 
@@ -461,7 +506,7 @@ type Executor interface {
 | Root | `os.Geteuid() == 0`。プロセスを起動しない |
 | Systemd / Journal | `LookPath` でコマンドの存在を見る。プロセスを起動しない |
 | Docker | `Executor.Run` で `docker info --format …` を実行し、値が取れたことをもって daemon 応答とみなす |
-| GitHubToken | `Executor.Run` 経由でトークンを取得できたか（差し替え可能。下記 `Options`） |
+| GitHubToken | `Executor.Run` 経由でトークンを取得できたか。判定手段は注入する（下記 `Options`）。`cmd/gsr-helper` が `gh.HasToken` を渡す |
 
 外部プロセスを起動するのは docker とトークンの 2 つだけであり、この 2 つは互いに独立なので並行実行する。
 
@@ -474,9 +519,13 @@ type Executor interface {
 
 `Options` で呼び出し側が判定を差し替えられる。
 
+**`HasToken` に既定の実装を持たせない**のは、取得の優先順（[セキュリティ設計](../architecture/security.md#取得の優先順)）の実装を `internal/gh` の 1 箇所に閉じるためである。`appconfig` から `gh` への依存を作らずに済み、規定 1 つに対して実装も 1 つに保てる。渡し忘れた起動は「認証されていない」として縮退し、追加・削除・バージョン更新がグレーアウトする。**判定関数は取得した値そのものを返さない。** 判定のためだけに取り出したトークンが `Caps` や画面に載る経路を作らないためである（[セキュリティ設計の「保持と出力」](../architecture/security.md#保持と出力)）。
+
+`TokenFunc` が 1 コマンドあたりの上限（`timeout`）を受け取るのは、判定が取得元を優先順に試すため複数のコマンドを逐次で発行しうるからである。全体の上限（800 ms）だけでは、1 本目が応答しないときに 2 本目を試す余地が無くなる。
+
 | フィールド | 用途 |
 |-----------|------|
-| `HasToken TokenFunc` | トークン判定の差し替え（テスト、および `gh` に依存しない判定を持ち込む場合） |
+| `HasToken TokenFunc` | トークン判定。`TokenFunc` は `func(ctx, exec.Executor, timeout time.Duration) bool` で、**`nil` のときはトークン無しとして扱う**（既定の判定を持たない） |
 | `Timeout time.Duration` | 1 プローブあたりの上限の上書き。0 以下は既定値（500 ms） |
 
 #### 分割したパッケージ
@@ -510,17 +559,17 @@ bubbletea の Model 群。**内部を Atomic Design で階層化する。** 部�
 | サブパッケージ | 階層 | 責務 |
 |--------------|------|------|
 | `ui`（`app.go`） | 親 Model | 検出結果・`Caps`・端末サイズ・背景の明暗を保持し、page を切り替える。自動更新（既定 3 秒）の再検出を駆動する。キーの配送を担う（`ctrl+c` のみ親が直接解釈し、他は有効タブへ渡す）。**page の寿命を管理する**（下記） |
-| `ui/page` | page | タブ共通の `Msg`（`StateMsg` / `ChromeMsg` / `TabMsg` / `GlobalKeyMsg` / `AttachMsg` / `ModalMsg` / `ResultMsg` / `ActivateMsg` / `DeactivateMsg` / `ShutdownMsg`）、**タブをまたぐ移動の `Msg`**（`OpenTabMsg` と移動先の名前 `TabLogs`、用件の `ShowLogMsg`）、モーダルの重なり（`Overlay`） |
+| `ui/page` | page | タブ共通の `Msg`（`StateMsg` / `ChromeMsg` / `TabMsg` / `GlobalKeyMsg` / `AttachMsg` / `ModalMsg` / `ResultMsg` / `ActivateMsg` / `DeactivateMsg` / `ShutdownMsg`）、**タブをまたぐ移動の `Msg`**（`OpenTabMsg` と移動先の名前 `TabLogs` / `TabSetup`、用件の `ShowLogMsg` / `SetupRequestMsg`）、モーダルの中身が発行した `Cmd` を中身へ戻す包み（`WrapModal`）、モーダルの重なり（`Overlay`） |
 | `ui/page/action` | page | 操作の識別子（`action.ID`）と、可否・理由の判定（`Allow` / `Set`）。依存は `page/action` → `page` の一方向で、`page` からは参照しない |
-| `ui/page/<tab>` | page | タブ 1 枚（`tea.Model`）。organism を構成し、キー入力をドメイン層の `tea.Cmd` に変換する |
+| `ui/page/<tab>` | page | タブ 1 枚（`tea.Model`）。organism を構成し、キー入力をドメイン層の `tea.Cmd` に変換する。Setup タブ（`ui/page/setup`）が呼ぶのは `internal/setup` と `internal/setup/job` で、GitHub API と tarball はその内側にある |
 | `ui/page/runnerdetail` | page | runner の詳細画面。Runners / Jobs が共用するモーダルで、タブではない。依存は `page/runnerdetail` → `page` の一方向 |
 | `ui/page/runnerop` | page | runner に対するサービス制御の起点（対象の決定・確認ダイアログ・実行・結果の報告）。Runners / Jobs / 詳細画面が共用し、タブではない。依存は `page/runnerop` → `page` / `page/action` / `page/runnerdetail` / `organism/dialog` / `svc` の一方向 |
 | `ui/page/pagetest` | page | `page/<tab>` **と親 Model** が共用するテスト用の道具（共有状態・`Spy`・打鍵の組み立て・`Cmd` の展開と走査（`Msgs` / `ScanKey`）・長寿命の購読を模した `StreamPage`）。**テスト専用で本番からは import しない**（`TestNoProductionCodeImportsPagetest` が本番ファイルの import を読んで検査する） |
 | `ui/template` | template | 画面共通の枠（ヘッダ / タブ / 本体 / 状態行 / フッタ、モーダル、2 ペイン）。中身を知らない |
 | `ui/organism` | organism | カーソルと選択を持つ対話的な部品（`ChoiceList`）。`tea.Model` は実装せず `bubbles` 流の署名に揃える |
 | `ui/organism/table` | organism | 区画に分かれた一覧の共通実装（`bubbles/table` のラッパー） |
-| `ui/organism/pane` | organism | スクロールする領域（`Detail` / `Help` / `Log`）。`Detail` / `Help` は表示専用、`Log` は追従の ON/OFF とフィルタの入力欄を持つ（ただし一致の判定は持たず、装飾済みの行を受け取るだけである） |
-| `ui/organism/dialog` | organism | 承認・待機のダイアログ（`Confirm` / `DrainWaiter`）。`DiffApproval` / `Form` は未実装 |
+| `ui/organism/pane` | organism | スクロールする領域（`Detail` / `Help` / `Log` / `ProgressList`）。`Detail` / `Help` は表示専用、`Log` は追従の ON/OFF とフィルタの入力欄を持つ（ただし一致の判定は持たず、装飾済みの行を受け取るだけである）。`ProgressList` は一括処理の逐次表示と結果報告で、行の状態を決めるのは page 側である |
+| `ui/organism/dialog` | organism | 承認・待機・入力のダイアログ（`Confirm` / `DrainWaiter` / `Form`）。`Form` は `huh.Form` のラッパーで、ドメイン層は呼ばず完了・中断を `tea.Msg` で page へ返すだけである。`DiffApproval` は未実装 |
 | `ui/molecule` | molecule | 1 区画の描画（ヘッダ・タブ行・フッタ・操作リスト・列の選択）。純粋関数 |
 | `ui/molecule/listrow` | molecule | 一覧の 1 行。セル列（`[]string`）を返す。純粋関数。一覧を持つタブが 1 つずつ足す |
 | `ui/chrome` | molecule | 本体以外の領域（ヘッダ・タブ行・状態行・フッタ）の中身の組み立て。親 Model の型も bubbletea も知らない純粋関数。import するのは `ui/molecule` / `ui/atom` / `ui/token` だけで、**ドメインの型は受け取らない**（`chrome.View` はバッジの真偽値・件数・`[]molecule.TabView` といった表示用の値のみ）。`Caps` / `Result` / `[]tabset.Tab` からの写し替えは親 Model が行う |
@@ -530,7 +579,7 @@ bubbletea の Model 群。**内部を Atomic Design で階層化する。** 部�
 | `ui/token` | token | 色・記号・幅。色は背景の明暗で解決し、色を使わない場合の縮退をここに閉じる。`huh.Theme` もここで組み立てる |
 
 - タブ間で共有する状態は親のみが持つ。これを実際に守らせているのは `page/pagetest/import_test.go` の `TestOnlyTabsetImportsTabs` で、`ui/page/<tab>` を import してよいのは `ui/tabset` だけであることを本番ファイルの import から検査する（Go が禁じるのは `page` → `page/<tab>` の循環だけで、タブ同士の参照は止まらない）。**検出（`runner.Discover`）を呼ぶのは親 Model だけで、page は呼ばない。** page は親から配られたスナップショット（`page.StateMsg`）を描画に使う。端末サイズも親が持ち、`template.BodySize` で算出した領域を配る。
-- 一覧と確認ダイアログはそれぞれ `organism/table.Model` / `organism/dialog.Confirm` の 1 実装に統一する。個別のダイアログを追加しないことで「確認を経ない破壊的操作の経路を作らない」を構造として守る（`organism/dialog` の `Confirm` / `DrainWaiter` は実装済みで、未実装なのは `DiffApproval` / `Form` だけである。[TUI コンポーネント設計の実装状況](../ui/atomic-design.md#実装状況)）。
+- 一覧と確認ダイアログはそれぞれ `organism/table.Model` / `organism/dialog.Confirm` の 1 実装に統一する。個別のダイアログを追加しないことで「確認を経ない破壊的操作の経路を作らない」を構造として守る（`organism/dialog` で未実装なのは `DiffApproval` だけである。[TUI コンポーネント設計の実装状況](../ui/atomic-design.md#実装状況)）。
 - 操作の起点は複数あるが（一覧の直接キー / 詳細画面の操作リスト / Jobs タブ、[FR-45〜FR-47](../requirements/functional.md)）、いずれも同じ確認ダイアログを経る。選択肢を並べる UI は `organism.ChoiceList` の 1 実装に統一する。
 - **タブをまたぐ移動も親が担う。** Runners / Jobs の `l`（選択中 runner の直近ジョブの Worker ログを開く）は Logs タブへ移って対象を渡すが、タブ同士は互いを import しないため（上記の `TestOnlyTabsetImportsTabs`）、移動元は移動先の型もタブ番号も持てない。そこで移動元は `page.OpenTabMsg{Title: page.TabLogs, Msg: page.ShowLogMsg{...}}` を親へ投げ、親が `[]tabset.Tab` を**名前で**走査して移り、移動先へ用件を配る。この 3 つを `ui/page` に置くのは、**移動元と移動先の双方から見える場所がここしか無い**ためである（`ShowLogMsg` は Logs タブ固有の用件だが、同じ理由でここに置く）。名前は文字列で突き合わせるので、タブ名を変えると移動だけが静かに効かなくなる。`tabset` の `TestOpenTabTitlesMatchTabs` が `page.TabLogs` に対応する有効なタブの実在を検査してこれを防ぐ。一致するタブが無い・無効な場合、親は移動せず理由を状態行に出す（押しても何も起きないキーを作らないため）。
 - **page の寿命は親が知らせる。** タブを切り替えるときは離れるタブへ `page.DeactivateMsg`、移動先へ `page.ActivateMsg` を配る（長寿命の購読を張り直させるため）。終了時は有効な全タブへ `page.ShutdownMsg` を配り、各 page が返した後始末の `tea.Cmd` を `tea.Sequence` で `tea.Quit` より**前**に流す（`tea.Batch` では並走して後始末の前に止まりうる）。この契約は `q` / `ctrl+c` の終了でのみ働き、シグナル終了では `Update` を通らないため走らない。
@@ -556,6 +605,9 @@ interface はこの 3 つに留める。ドメインごとの interface は、�
 | `scope.Parse` | `internal/runner/scope` のテーブルテスト |
 | `normalize`（自前設定の検証） | `internal/appconfig` のテーブルテスト。範囲外・相対パス・`..`・`-` 始まりを網羅 |
 | `NextIndex` | `internal/setup` のテーブルテスト |
+| `Name` / `Labels` / `Dir` / `URL` / `Count`（入力検証） | `internal/setup/valid` のテーブルテスト。先頭が `-`・`..` を含むパス・予約ラベル・GitHub 以外のホストを網羅。**認証情報を埋め込んだ URL は、解析できるものと解析に失敗するもの（`%` の直後が 16 進でないなど）の両方**を含め、どちらもエラー文言に入力が載らないことを検証する——解析失敗の分岐だけが入力を echo する形の欠陥を再発させないためである |
+| tarball の検証と展開 | `internal/setup/tarball`。SHA-256 の不一致、絶対パス・`..`・展開先の外を指すリンクを含む tar、サイズ上限の超過を必ず含める。**一時ディレクトリが成功時・失敗時のどちらでも残らないこと**と、**保持対象へリンクで潜り込む tar**（`ErrPreservedLink`）は、リンクを 1 段辿るだけの tar と、リンクを鎖状に重ねた tar（`d -> .` の下に `d/link -> .runner` を置き `d/link` へ書き込む）の両方を含める——1 段しか見ない実装は前者だけでは落ちない |
+| 計画の組み立てと実行 | `internal/setup`。発行コマンド列（トークンの位置がプレースホルダのままであること）、失敗した台で中止して成功分を残すこと、上書きしない名前を網羅 |
 | `ValidatePath` | `internal/disk`。異常系（`..`、基準外、リンクによる逸脱、基準自身）を網羅 |
 | `Validate*`（ラベル・名前・パス） | `internal/config` のテーブルテスト |
 | コマンド発行を伴う処理 | 各ドメインで `Executor` のテスト実装に差し替え、発行コマンド列を検証 |
@@ -595,3 +647,6 @@ interface はこの 3 つに留める。ドメインごとの interface は、�
 | 1.24 | 2026-08-23 | `internal/svc` の責務表で `Kill` に「PID もユニット名も無ければ 1 本も発行せず `ErrNoKillTarget` を返す」、`Drain` に「ユニット名が無ければ待機に入らず `ErrNoUnit` を返す」を追記し、理由の文言の行に `ReasonNoCommand` を追加。`CanControl` の行を判定の順（非 root → systemd 不在 → `run.sh` 直起動 → 判定不能）に書き改め、3 段目がドレイン停止も塞ぐ理由と 4 段目が塞がない理由、`ReasonNoCommand` が `CanControl` の返す理由ではなく UI 側が確認ダイアログの手前で使う文言であることを段落で追記。`organism/dialog` を「未実装」と書いていた箇条書き（`Confirm` を 1 実装に統一する規則）を、`Confirm` / `DrainWaiter` は実装済みで未実装は `DiffApproval` / `Form` だけである記述に訂正 | 同じ文書の `internal/ui` のサブパッケージ表（1.19 で更新）が `organism/dialog` を実装済みと書く一方、箇条書きは「未実装」のままで**文書が自分自身と矛盾**しており、リンク先の [TUI コンポーネント設計の実装状況](../ui/atomic-design.md#実装状況) とも食い違っていた。`Kill` / `Drain` の「対象が無ければ発行しない」は本 PR で入れた振る舞いで、書かないと 0 本の実行を成功として報告する実装へ戻りうる。`CanControl` は 3 段目でドレイン停止も塞ぐようになったのに責務表は塞ぐ範囲を挙げておらず、`ReasonNoCommand` に至っては公開定数が本書のどこからも辿れなかった（PR #70 のレビュー指摘） |
 | 1.25 | 2026-08-23 | `internal/svc` の `CanControl` の段落を、`run.sh` 直起動（3 段目）と判定不能（4 段目）が**同じ 5 操作**（強制停止以外）を塞ぎ理由の文言だけが違う、という記述に書き改め。責務表の `CanControl` の行にも同じ旨を追記 | 4 段目がドレイン停止を通す仕様は、停止（`x`）が塞がれた runner に対し確認ダイアログ無しで同じ `systemctl stop` を発行させていた（ジョブを持たない runner では `Drainer.Drain` が初回走査で即停止へ抜ける）。3 段目が enable の切替を通す仕様は、`run.sh` 直起動の runner に `systemctl enable` を発行させ [FR-09](../requirements/functional.md) に反していた。「ユニット名は `<dir>/.service` から読めるため停止は成立しうる」という 4 段目の理由付けは、同じ理屈が `x` にも当てはまるのに `x` を塞いでいる事実と矛盾するため撤回した（PR #70 のレビュー指摘） |
 | 1.26 | 2026-08-23 | `ui/organism/pane` の行に Logs タブの `Log` を、`ui/organism/dialog` の行に `Confirm` / `DrainWaiter` を併記する形へ統合し、`organism/dialog` を「未実装」と書いていた箇条書きを削除 | Logs / Disk タブとサービス制御が同じ階層へ同時に部品を足したため、両方の記述が揃っていないと`organism/dialog` に何があるのかが本書から辿れなかった（PR #70 のベース追従） |
+| 1.27 | 2026-08-23 | runner の追加・削除・バージョン更新（Issue #8）の実装を反映。`internal/setup` の責務表を実際の API（`Plan` / `Unit` / `Step` / `Apply` / `Progress` / `Result`）へ書き直し、短命トークンを計画に載せない構造と `Token` / `TokenFor` の 2 系統を明記。`setup/valid` / `setup/tarball` / `setup/job` を「分割したパッケージ」として追加し、依存グラフの `Setup --> GH` を `SetupJob --> Setup` / `SetupJob --> GH` に訂正、`GH --> Appconf` を追加。UI 層が値の型として `setup.Plan` と `gh.Secrets` を参照するため `UIApp --> Setup` を残し、`Main --> GH` / `UIApp --> GH` を追加。`setup/job` が `setup/tarball` を直に import することを「分割したパッケージ」の依存の向きに追記。`internal/gh` の責務表に状況の列を足し、`Labels` 系と `TokenScopes` が未実装であることと `HasToken` / `APIError` / `Secrets` / `PickDownload` を追記。`hostcaps` の `HasToken` を新しい署名（1 コマンドあたりの上限を取る）と「nil はトークン無し」の規則へ更新。`cmd/gsr-helper` に `gh.Secrets` / `gh.HasToken` の配線を追記。`internal/ui` の表に `ProgressList` / `Form` / `WrapModal` / `TabSetup` / `SetupRequestMsg` を追加。テストの配置に `setup/valid` / `setup/tarball` / `setup` の行を追加 | `internal/setup` の表は `FetchTarball` のように実在しない API を挙げ、`internal/gh` は実装済みと未実装が混在したまま全件が「有る」ように読めた。**依存グラフの `Setup --> GH` は実装と逆で**、`internal/setup` は `gh` を import しない（外部資源を揃えるのは `setup/job` である）。`hostcaps.Options.HasToken` は既定の実装が消えて必須になっており、nil で渡す呼び出しが「既定の判定に落ちる」と読める記述のままだと、認証済みでも追加・削除がグレーアウトする起動を書いてしまう |
+| 1.28 | 2026-08-23 | `setup/tarball` の段落に、拒否対象として**保持対象へリンクで潜り込むエントリ**（`ErrPreservedLink`、`keeplink.go`）と、一時ディレクトリ（`.gsr-stage-<乱数>`）へ展開してから `rename` で移す段（`stage.go`）を追記。テストの観点表の「tarball の検証と展開」に、リンクを 1 段辿る tar と**鎖状に重ねた tar** の両方・一時ディレクトリが残らないことを追加し、「入力検証」の行に**認証情報つき URL は解析できるものと解析に失敗するものの両方**を含めることを追加 | [セキュリティ設計](../architecture/security.md) 1.11 と同じ穴が本書にもあった。本書の観点表は各パッケージの**テストが何を必ず含むか**の一次情報であり、`ErrPreservedLink` の検査を挙げないまま「1 段辿る tar」だけを求めると、`resolve()` の要素ごとの走査（鎖状のリンクを潰す部分）を単段の参照へ退化させても検証が緑のままになる。実際そのミューテーションはこの周まで検知されていなかった。同様に URL の行も、解析に失敗する経路だけが入力を echo する形の欠陥を捕まえられなかった（PR #78 の 2 周目レビュー指摘 B2 / C2） |
+| 1.29 | 2026-08-23 | 依存グラフに実装にあって描かれていなかった 5 本（`SetupJob --> Exec` / `SetupJob --> Runner` / `SetupJob --> RScope` / `Setup --> RScope` / `GH --> RScope`）を追加した | 1.27 で「依存グラフを実際の import と照合した」と記しながら、`setup/job` が `internal/exec` / `internal/runner` / `internal/runner/scope` を、`internal/setup` と `internal/gh` が `internal/runner/scope` を直に import している事実が落ちていた。**このグラフは §依存の規則 を突き合わせる先の一次情報である**ため、辺の欠落は「その依存は存在しない」と読まれる。とくに `setup/job → exec` は、外部コマンドを `exec` 経由に限定するという規則に**従った**正しい import であるにもかかわらず、グラフに無いことを根拠に規則違反（あるいは循環依存の持ち込み）と判定され、差し戻される側に倒れる。`GH --> RScope` も、`internal/gh` が `internal/runner` 全体ではなくスコープだけを参照するという [`internal/runner/scope`](#internalrunnerscope) の分離理由そのものが、グラフからは裏取りできない状態だった（PR #78 の 3 周目レビュー指摘） |

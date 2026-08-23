@@ -23,7 +23,8 @@ graph TD
         Logs[logs<br/>テール]
         Doctor[doctor<br/>診断チェック]
         Conf[config<br/>設定の読み書き・差分]
-        Setup[setup<br/>追加・削除・更新]
+        Setup[setup<br/>追加・削除・更新の計画と実行]
+        SetupJob[setup/job<br/>外部資源を揃えて実行まで運ぶ]
     end
 
     subgraph infra[インフラ層]
@@ -42,7 +43,9 @@ graph TD
     Disk --> Exec
     Doctor --> Exec
     Setup --> Exec
-    Setup --> GH
+    Setup --> Svc
+    SetupJob --> Setup
+    SetupJob --> GH
     Conf --> GH
     Exec --> Audit
 
@@ -279,3 +282,4 @@ internal/
 | 1.3 | 2026-08-22 | 起動シーケンスから「代替スクリーンで起動」を外し、代替スクリーンの宣言と panic 復元の担当を明記。初回検出も Tick の経路を通ることと能力判定の上限を追記 | 代替スクリーンは親 Model が宣言し panic 復元は bubbletea が行うため、`main` の責務としていた記述が実装と食い違っていた。`Init` が直接検出せず Tick を返す形にしたことで、検出の二重起動を防ぐ規則が初回にも効くようになった |
 | 1.4 | 2026-08-22 | 起動シーケンスに対応する終了シーケンスを追加し、`page.ShutdownMsg` を有効な全タブへ配って後始末を `tea.Sequence` で `tea.Quit` より前に流す契約と、シグナル終了では通らないことを明記。主要な設計判断に同じ行を追加 | 終了の契約は Issue #41 で実装されたが本書には起動シーケンスしかなく、page が長寿命の処理を持つ（Logs / Doctor / Setup）ときにいつ畳まれるかを本書から読み取れなかった。`tea.Batch` との違いは競合そのものであり、選択の理由を残さないと後から等価な変更に見える |
 | 1.5 | 2026-08-23 | 更新の駆動の表で「ログ」を `_diag` のファイルと systemd ユニットの 2 行に分け、前者が親ディレクトリを監視すること、後者が `journalctl -f` ではなく 2 秒ごとの再発行と差分で追従することを明記 | ログ閲覧を実装した（Issue #9）。ファイル自身に張った監視はログの入れ替えで古い inode に残り、以後の追記に反応しない。`journalctl -f` は `Executor` の契約（1 回の実行の出力をまとめて返す）と噛み合わず、表の 1 行が 2 つの異なる方式を指していた |
+| 1.6 | 2026-08-23 | 全体構成の図でドメイン層に `setup/job` を足し、`Setup --> GH` を `SetupJob --> Setup` / `SetupJob --> GH` へ訂正。`Setup --> Svc`（更新時のドレイン停止）を追記 | runner の追加・削除・バージョン更新を実装した（Issue #8）。`internal/setup` は `gh` を import しない——計画（Plan）を組んで実行するだけで、短命トークンや tarball といった外部資源を揃えるのは `setup/job` である。図が逆向きのままだと、計画の組み立てから API を呼んでよいと読める |

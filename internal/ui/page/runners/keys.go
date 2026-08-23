@@ -19,6 +19,9 @@ import (
 // この判定を持つ page だけであり（page.GlobalKeyMsg の doc）、ここで差し戻すと
 // 確認中に打った q でアプリが終わる。
 func (m Model) handleKey(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	// 直前の打鍵に対する案内は次の打鍵で消す（page/disk の handleKey と同じ）。
+	m.notice = ""
+
 	var cmd tea.Cmd
 	switch {
 	case m.tbl.Filtering(), m.overlay.Active():
@@ -34,6 +37,8 @@ func (m Model) handleKey(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		cmd = m.openLogs()
 	case key.Matches(press, m.st.Keys.Global.Back):
 		m.back()
+	case m.isSetupKey(press):
+		cmd = m.openSetup(press)
 	default:
 		// runner の操作キー（s / x / X / d / R / E）はここで解釈する。判定は
 		// key.Matches で行い、キー文字列のリテラルでは比較しない。**解釈したキーは
@@ -101,4 +106,61 @@ func (m *Model) back() {
 		return
 	}
 	m.tbl.ClearFilter()
+}
+
+// noticeNoTarget は対象が 1 台も無いときの理由。
+const noticeNoTarget = "対象の runner がありません"
+
+// isSetupKey は Setup タブへ移す操作キー（n / D / u）かを返す。
+func (m Model) isSetupKey(press tea.KeyPressMsg) bool {
+	k := m.st.Keys.Runner
+	return key.Matches(press, k.Add) || key.Matches(press, k.Delete) || key.Matches(press, k.Update)
+}
+
+// openSetup は追加・削除・バージョン更新を Setup タブへ引き渡す。
+//
+// **確認ダイアログはここで出さない。** 同じ操作の確認を移動元と移動先の 2
+// 箇所で組み立てると、起点によって確認の中身が食い違いうる。実行前プレビューは
+// 計画（setup.Plan）から組み立てる必要があり、その計画を持つのは Setup タブ側
+// である（functional.md の操作フロー「起点によって確認の強さを変えない」）。
+//
+// 可否は移動の前に判定する。押しても何も起きないキーを作らないためであり、
+// 判定はフッタに出す理由（action.Allow）と同じものを使う。
+func (m *Model) openSetup(press tea.KeyPressMsg) tea.Cmd {
+	k := m.st.Keys.Runner
+
+	op := page.SetupAdd
+	binding := k.Add
+	targets := []runner.Runner(nil)
+	switch {
+	case key.Matches(press, k.Delete):
+		op, binding, targets = page.SetupRemove, k.Delete, m.targets()
+	case key.Matches(press, k.Update):
+		op, binding, targets = page.SetupUpdate, k.Update, m.targets()
+	}
+
+	if op != page.SetupAdd && len(targets) == 0 {
+		m.notice = noticeNoTarget
+		return nil
+	}
+	if reason, ok := m.setupBlocked(binding, targets); !ok {
+		m.notice = reason
+		return nil
+	}
+	return page.OpenTab(page.TabSetup, page.SetupRequestMsg{Op: op, Runners: targets})
+}
+
+// setupBlocked は Setup タブへ渡す操作の可否を判定し、不可なら理由を返す。
+func (m Model) setupBlocked(b key.Binding, targets []runner.Runner) (string, bool) {
+	k := page.BindingKey(b)
+	if len(targets) == 0 {
+		ok, why := m.actions.Allowed(k, runner.Runner{}, m.st.Caps)
+		return why, ok
+	}
+	for _, r := range targets {
+		if ok, why := m.actions.Allowed(k, r, m.st.Caps); !ok {
+			return why, false
+		}
+	}
+	return "", true
 }

@@ -29,11 +29,12 @@ func testActions() Set { return NewSet(testKeys().Runner) }
 //
 // **一覧をここに書き下す。** meta から引くと被テスト関数で期待値を作ることになり、
 // 実装済みの印が丸ごと消えても両辺が一致して落ちない。実装済みなのは internal/svc が
-// 担うサービス制御の 6 つで、追加・削除・更新・設定編集・ログは後続の Issue が担う。
+// 担うサービス制御の 6 つ、Logs タブのログを開く操作、そして Setup タブが実装した
+// 追加・削除・バージョン更新である。設定編集（e）は後続の Issue が担う。
 func supported() map[ID]bool {
 	return map[ID]bool{
 		Start: true, Stop: true, Kill: true, Drain: true, Restart: true, Enable: true,
-		Logs: true,
+		Logs: true, Add: true, Delete: true, Update: true,
 	}
 }
 
@@ -43,9 +44,9 @@ func supported() map[ID]bool {
 // 仕様に固定している。ここでは page がそれに従うことと、識別子がキー定義から引かれて
 // いること（キーを差し替えても操作の同一性が保たれること）を見る。
 //
-// Supported が真なのは実装済みの操作（サービス制御の 6 つとログを開く操作）だけで
-// ある。未実装の操作に真を付けると「押せるが何も起きない」経路ができるため、
-// 実装済みの集合を supported() に固定する。
+// Supported が真なのは実装済みの操作（サービス制御の 6 つ・ログを開く操作・追加・
+// 削除・バージョン更新）だけである。未実装の操作に真を付けると「押せるが何も
+// 起きない」経路ができるため、実装済みの集合を supported() に固定する。
 func TestActionsFollowKeymap(t *testing.T) {
 	keys := testKeys().Runner
 	ids := testActions().byKey

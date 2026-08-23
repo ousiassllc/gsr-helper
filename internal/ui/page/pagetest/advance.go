@@ -1,6 +1,8 @@
 package pagetest
 
 import (
+	"time"
+
 	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/stopwatch"
 	tea "charm.land/bubbletea/v2"
@@ -49,6 +51,55 @@ func Advance(m tea.Model, cmd tea.Cmd, rounds int) tea.Model {
 		cmd = tea.Batch(next...)
 	}
 	return m
+}
+
+// AdvanceQuick は Advance と同じ配り直しを、1 本あたり timeout だけ待って行う。
+//
+// **入力欄のカーソルの点滅を辿らないためにある。** bubbles/cursor の点滅は
+// 0.53 秒待ってから Msg を返す Cmd で、その Msg を配るとまた点滅の Cmd が返る。
+// 打鍵でフォームを進める検証は 1 打鍵ごとにこれを何度も引き受けることになり、
+// テスト 1 本で数十秒かかる。点滅は検証の対象ではないので、戻らない Cmd と同じ
+// 扱いで諦める（RunCmd）。
+//
+// timeout は「配りたい Cmd が確実に間に合い、点滅は間に合わない」長さにすること。
+// ドメイン層の呼び出しを含む往復では、その処理時間を見込んだ値を渡す。
+func AdvanceQuick(m tea.Model, cmd tea.Cmd, rounds int, timeout time.Duration) tea.Model {
+	for range rounds {
+		if cmd == nil {
+			return m
+		}
+
+		next := make([]tea.Cmd, 0, 4)
+		for _, msg := range msgsWithin(cmd, timeout) {
+			inner, ok := deliverable(msg)
+			if !ok {
+				continue
+			}
+			var c tea.Cmd
+			m, c = m.Update(inner)
+			next = append(next, c)
+		}
+		cmd = tea.Batch(next...)
+	}
+	return m
+}
+
+// msgsWithin は Msgs と同じ平坦化を、1 本あたり timeout で諦めながら行う。
+func msgsWithin(cmd tea.Cmd, timeout time.Duration) []tea.Msg {
+	msg, ok := RunCmd(cmd, timeout)
+	if !ok {
+		return nil
+	}
+	inner, isBundle := Cmds(msg)
+	if !isBundle {
+		return []tea.Msg{msg}
+	}
+
+	out := make([]tea.Msg, 0, len(inner))
+	for _, c := range inner {
+		out = append(out, msgsWithin(c, timeout)...)
+	}
+	return out
 }
 
 // deliverable は Msg をタブへ配り直すかを返す。配る場合は包みを外した中身を返す。
