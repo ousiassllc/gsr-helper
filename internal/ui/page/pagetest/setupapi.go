@@ -9,12 +9,19 @@ import (
 	"strings"
 	"sync"
 
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/ousiassllc/gsr-helper/internal/appconfig"
+	"github.com/ousiassllc/gsr-helper/internal/exec"
 	"github.com/ousiassllc/gsr-helper/internal/gh"
+	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/setup/job"
 	"github.com/ousiassllc/gsr-helper/internal/setup/tarball"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 )
+
+// WideBody はコマンド全文が 1 行に収まる本体の幅。既定の 100 桁では切り詰められる。
+const WideBody = 160
 
 // ErrNoFetchInTests はテストが tarball の取得へ到達したことを表すエラー。
 //
@@ -135,4 +142,41 @@ func (a *SetupAPI) read(n *int) int {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return *n
+}
+
+// SetupState は Setup タブ用の共有状態と、そこに載せた外部資源の差し替えを返す。
+//
+// **外部資源は必ず差し替える。** 差し替えないと internal/setup/job は gh.Token へ
+// 落ち、周囲の GH_TOKEN で本物の api.github.com へ短命トークンを発行してしまう
+// （page.SetupDeps.NewClient の doc。テストは t.Parallel を使うので t.Setenv でも
+// 塞げない）。**Setup タブの共有状態は必ずここを通して作ること。**
+//
+// cleanup には t.Cleanup を渡す（NewSetupAPI と同じ理由）。
+func SetupState(cleanup func(func()), rs ...runner.Runner) (page.StateMsg, *SetupAPI) {
+	api := NewSetupAPI(cleanup)
+	st := State(100, 30, rs...)
+	st.Setup = api.Deps("build01", appconfig.Default().Defaults)
+	return st, api
+}
+
+// FakeOf は共有状態の Executor をテスト実装として取り出す。
+//
+// 偽を返すのは差し替えが外れた場合だけで、そのときは検証の組み立てを疑うこと。
+func FakeOf(st page.StateMsg) (*exec.Fake, bool) {
+	f, ok := st.Exec.(*exec.Fake)
+	return f, ok
+}
+
+// ChromeAfter は領域を配り直し、そのとき発行された状態行とフッタを返す。
+//
+// 状態行は Cmd としてしか外へ出ない（page.ChromeMsg）ため、読むには何か 1 つ
+// Msg を配る必要がある。表示を変えない tea.WindowSizeMsg を使う。
+func ChromeAfter(m tea.Model) (page.ChromeMsg, bool) {
+	_, cmd := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	return ChromeOf(cmd)
+}
+
+// RemoveRequest は runner の削除を一覧側から依頼する Msg を返す。
+func RemoveRequest(rs ...runner.Runner) page.SetupRequestMsg {
+	return page.SetupRequestMsg{Op: page.SetupRemove, Runners: rs}
 }

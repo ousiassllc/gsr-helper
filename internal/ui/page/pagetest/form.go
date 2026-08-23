@@ -21,6 +21,12 @@ const QuickTimeout = 100 * time.Millisecond
 // 打鍵の回数だけカーソルの点滅を辿らずに済む。
 func Paste(s string) tea.Msg { return tea.PasteMsg{Content: s} }
 
+// Backspace は入力欄の 1 文字消去を作る。
+//
+// 既定値の入った欄（台数など）を別の値に打ち替えるために要る。Paste は差し込む
+// だけなので、消さずに流すと元の値と繋がった別の入力になる。
+func Backspace() tea.Msg { return tea.KeyPressMsg{Code: tea.KeyBackspace} }
+
 // Quick は Msg を順に配り、そのつど AdvanceQuick で落ち着くまで進める。
 //
 // フォームの打鍵と実行中の描画はこちらを使う。Advance は点滅を辿って 1 打鍵

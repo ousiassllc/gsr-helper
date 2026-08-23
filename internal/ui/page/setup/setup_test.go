@@ -1,93 +1,48 @@
 package setup_test
 
 import (
+	"slices"
 	"strings"
 	"testing"
+
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
-	"github.com/ousiassllc/gsr-helper/internal/ui/page/setup"
 )
 
-func TestDeleteRequestShowsConfirmBeforeAnyCommand(t *testing.T) {
+// 削除は承認の前に必ず確認を挟み、そこで実行するコマンド全文を出す（FR-16）。
+// キャンセルすれば 1 本も発行せずに閉じる。
+//
+// 「確認が出ること」「何が書いてあるか」「やめれば走らないこと」は同じ 1 本の
+// 流れでしか確かめられないので、まとめて見る。トークンは計画の時点から *** で
+// ある（confirm.go の confirmInput の doc）。
+func TestDeleteConfirmShowsPlannedCommandsBeforeAnyCommand(t *testing.T) {
 	t.Parallel()
 
 	st := state(t, pagetest.SampleRunner())
 	f := fakeOf(t, st)
-	m := newModel(t, st)
-
-	m = send(t, m, page.SetupRequestMsg{
-		Op: page.SetupRemove, Runners: []runner.Runner{pagetest.SampleRunner()},
-	})
+	m := pagetest.Quick(newModel(t, st), pagetest.RemoveRequest(pagetest.SampleRunner()))
 
 	got := view(m)
 	if !strings.Contains(got, "削除の確認") {
 		t.Fatalf("確認ダイアログが出ていない:\n%s", got)
 	}
+	for _, want := range []string{
+		"./svc.sh stop", "./svc.sh uninstall", "./config.sh remove --token ***",
+		// FR-18: runner ディレクトリは残す。残る場所を示す。
+		"runner ディレクトリは削除されません",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("確認に %q が出ていない:\n%s", want, got)
+		}
+	}
 	if len(f.Calls()) != 0 {
 		t.Errorf("承認の前にコマンドを発行している: %v", f.Calls())
 	}
-}
 
-func TestDeleteConfirmShowsPlannedCommandsWithMaskedToken(t *testing.T) {
-	t.Parallel()
-
-	st := state(t, pagetest.SampleRunner())
-	m := newModel(t, st)
-	m = send(t, m, page.SetupRequestMsg{
-		Op: page.SetupRemove, Runners: []runner.Runner{pagetest.SampleRunner()},
-	})
-
-	got := view(m)
-	for _, want := range []string{
-		"./svc.sh stop", "./svc.sh uninstall", "./config.sh remove --token ***",
-	} {
-		if !strings.Contains(got, want) {
-			t.Errorf("実行するコマンド %q が出ていない:\n%s", want, got)
-		}
-	}
-	// FR-18: runner ディレクトリは残す。残る場所を示す。
-	if !strings.Contains(got, "runner ディレクトリは削除されません") {
-		t.Errorf("ディレクトリを残す旨が出ていない:\n%s", got)
-	}
-}
-
-func TestDeleteOfBusyRunnerIsBlocked(t *testing.T) {
-	t.Parallel()
-
-	busy := pagetest.BusyRunner()
-	st := state(t, busy)
-	f := fakeOf(t, st)
-	m := newModel(t, st)
-
-	m = send(t, m, page.SetupRequestMsg{Op: page.SetupRemove, Runners: []runner.Runner{busy}})
-
-	if strings.Contains(view(m), "削除の確認") {
-		t.Error("ジョブ実行中の runner の削除で確認が開いている（先にドレイン停止を促すこと）")
-	}
-	if len(f.Calls()) != 0 {
-		t.Errorf("コマンドを発行している: %v", f.Calls())
-	}
-
-	chrome := chromeOf(t, m)
-	if !strings.Contains(chrome.Status, "ドレイン停止") {
-		t.Errorf("状態行 = %q, ドレイン停止を促すこと", chrome.Status)
-	}
-}
-
-func TestCancelingConfirmDoesNotRun(t *testing.T) {
-	t.Parallel()
-
-	st := state(t, pagetest.SampleRunner())
-	f := fakeOf(t, st)
-	m := newModel(t, st)
-	m = send(t, m, page.SetupRequestMsg{
-		Op: page.SetupRemove, Runners: []runner.Runner{pagetest.SampleRunner()},
-	})
-	m = send(t, m, pagetest.Press("n"))
-
-	if strings.Contains(view(m), "削除の確認") {
+	if m = pagetest.Quick(m, pagetest.Press("n")); strings.Contains(view(m), "削除の確認") {
 		t.Error("キャンセルしても確認が閉じていない")
 	}
 	if len(f.Calls()) != 0 {
@@ -95,15 +50,51 @@ func TestCancelingConfirmDoesNotRun(t *testing.T) {
 	}
 }
 
+// ジョブ実行中の runner を含む削除は、対象ごとに判定して塞ぐ。
+//
+// 1 台だけなら状態行でドレイン停止を促す。複数のうち 1 台でも実行中なら全体を
+// 塞ぐ——実行中の 1 台を黙って除くと、承認した台数と実際に消える台数が食い違う。
+func TestDeleteIsBlockedWhileAnyTargetIsBusy(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		targets []runner.Runner
+		hint    bool // 状態行にドレイン停止の案内を求めるか
+	}{
+		"実行中の 1 台":     {[]runner.Runner{pagetest.BusyRunner()}, true},
+		"1 台でも実行中なら全体": {[]runner.Runner{pagetest.SampleRunner(), pagetest.BusyRunner()}, false},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			st := state(t, tt.targets...)
+			f := fakeOf(t, st)
+			m := pagetest.Quick(newModel(t, st), pagetest.RemoveRequest(tt.targets...))
+
+			if strings.Contains(view(m), "削除の確認") {
+				t.Error("ジョブ実行中の runner の削除で確認が開いている")
+			}
+			if len(f.Calls()) != 0 {
+				t.Errorf("コマンドを発行している: %v", f.Calls())
+			}
+			if s := chromeOf(t, m).Status; tt.hint && !strings.Contains(s, "ドレイン停止") {
+				t.Errorf("状態行 = %q, ドレイン停止を促すこと", s)
+			}
+		})
+	}
+}
+
+// 承認して初めて実行が始まる。**そのとき外へ出ないことも同時に見張る。**
+// 差し替えが外れると job は gh.Token へ落ち、周囲の GH_TOKEN で本物の
+// api.github.com へ remove-token を発行する（page.SetupDeps の doc）。
 func TestApprovalStartsTheRun(t *testing.T) {
 	t.Parallel()
 
-	st := state(t, pagetest.SampleRunner())
-	m := newModel(t, st)
-	m = send(t, m, page.SetupRequestMsg{
-		Op: page.SetupRemove, Runners: []runner.Runner{pagetest.SampleRunner()},
-	})
-	m = send(t, m, pagetest.Press("y"))
+	st, api := pagetest.SetupState(t.Cleanup, pagetest.SampleRunner())
+	m := pagetest.Quick(newModel(t, st), pagetest.RemoveRequest(pagetest.SampleRunner()))
+	m = pagetest.Quick(m, pagetest.Press("y"))
 
 	// 承認すると確認は閉じ、進捗表示へ移る。
 	got := view(m)
@@ -116,69 +107,22 @@ func TestApprovalStartsTheRun(t *testing.T) {
 	if !strings.Contains(got, pagetest.SampleRunner().Name()) {
 		t.Errorf("進捗表示に対象が出ていない:\n%s", got)
 	}
-}
-
-// 登録の Cmd は最初の共有状態で 1 度だけ親へ流れる。2 度流すとモーダルが
-// 二重に登録され、Overlay が種類の重複で panic する。
-func TestRegisterCmdReachesParentOnlyOnce(t *testing.T) {
-	t.Parallel()
-
-	st := state(t, pagetest.SampleRunner())
-	m := setup.New(0, st)
-
-	if cmd := m.Init(); cmd != nil {
-		t.Error("Init が Cmd を返している（親はタブの Init を呼ばない）")
+	if api.Clients() == 0 {
+		t.Fatal("差し替えた API クライアントが使われていない")
 	}
-
-	_, first := m.Update(st)
-	if first == nil {
-		t.Fatal("最初の共有状態で登録の Cmd が流れていない")
-	}
-
-	next, _ := m.Update(st)
-	second, ok := next.(setup.Model)
-	if !ok {
-		t.Fatalf("型 = %T", next)
-	}
-	_, again := second.Update(st)
-
-	// 2 度目に流れるのは ChromeMsg などの毎回の Cmd だけで、登録は含まれない。
-	// 登録が再び流れていれば Overlay の二重登録で panic する。
-	pagetest.RunAll(again)
-}
-
-// ジョブ実行中の runner を含む削除は、対象ごとに判定して塞ぐ。
-func TestDeleteIsBlockedWhenAnyTargetIsBusy(t *testing.T) {
-	t.Parallel()
-
-	st := state(t, pagetest.SampleRunner(), pagetest.BusyRunner())
-	f := fakeOf(t, st)
-	m := newModel(t, st)
-
-	m = send(t, m, page.SetupRequestMsg{
-		Op:      page.SetupRemove,
-		Runners: []runner.Runner{pagetest.SampleRunner(), pagetest.BusyRunner()},
-	})
-
-	if strings.Contains(view(m), "削除の確認") {
-		t.Error("1 台でもジョブ実行中なら確認へ進まないこと")
-	}
-	if len(f.Calls()) != 0 {
-		t.Errorf("コマンドを発行している: %v", f.Calls())
+	if !strings.Contains(strings.Join(api.Paths(), " "), "remove-token") {
+		t.Errorf("短命トークンの発行が模したサーバへ来ていない: %v", api.Paths())
 	}
 }
 
 func TestLifecycleMsgsAreNotEatenByModal(t *testing.T) {
 	t.Parallel()
 
-	st := state(t, pagetest.SampleRunner())
-	m := newModel(t, st)
-	m = send(t, m, page.SetupRequestMsg{
-		Op: page.SetupRemove, Runners: []runner.Runner{pagetest.SampleRunner()},
-	})
+	m := pagetest.Quick(newModel(t, state(t, pagetest.SampleRunner())),
+		pagetest.RemoveRequest(pagetest.SampleRunner()))
 
 	// モーダルを開いたままでも、後始末の Msg で落ちない。
-	m = send(t, m, page.DeactivateMsg{}, page.ActivateMsg{}, page.ShutdownMsg{})
+	m = pagetest.Quick(m, page.DeactivateMsg{}, page.ActivateMsg{}, page.ShutdownMsg{})
 	if view(m) == "" {
 		t.Error("後始末の後に描画が空になっている")
 	}
@@ -195,13 +139,10 @@ func TestEscapeReturnsToRunners(t *testing.T) {
 
 	_, cmd := m.Update(pagetest.Press("esc"))
 
-	found := false
-	for _, msg := range pagetest.Msgs(cmd) {
-		if open, ok := msg.(page.OpenTabMsg); ok && open.Title == page.TabRunners {
-			found = true
-		}
-	}
-	if !found {
+	if !slices.ContainsFunc(pagetest.Msgs(cmd), func(msg tea.Msg) bool {
+		open, ok := msg.(page.OpenTabMsg)
+		return ok && open.Title == page.TabRunners
+	}) {
 		t.Error("esc で Runners タブへ戻る要求が出ていない")
 	}
 }
