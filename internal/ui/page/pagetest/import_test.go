@@ -48,6 +48,8 @@ var shared = map[string]bool{
 	"diskclean": true,
 	// configmodal は Config タブのモーダル 3 種であり、タブではない（Issue #104）。
 	"configmodal": true,
+	// setupmodal は Setup タブのモーダル 2 種であり、タブではない（Issue #105）。
+	"setupmodal": true,
 }
 
 // テスト用の道具は本番の経路から import されない。

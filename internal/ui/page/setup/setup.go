@@ -25,6 +25,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/action"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/progressmodal"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/setupmodal"
 )
 
 // runState は実行中の 1 件。
@@ -83,9 +84,11 @@ var _ tea.Model = Model{}
 // New は Setup タブを組み立てる。
 func New(tab int, st page.StateMsg) Model {
 	overlay, help := page.NewOverlay(tab, st)
-	form := overlay.Register(formKind, newFormModal(st))
-	confirm := overlay.Register(confirmKind, newConfirmModal(st, confirmKind))
-	discard := overlay.Register(discardKind, newConfirmModal(st, discardKind))
+	form := overlay.Register(setupmodal.FormKind, setupmodal.NewForm(st))
+	confirm := overlay.Register(setupmodal.ConfirmKind,
+		setupmodal.NewConfirm(st, setupmodal.ConfirmKind))
+	discard := overlay.Register(setupmodal.DiscardKind,
+		setupmodal.NewConfirm(st, setupmodal.DiscardKind))
 	progress := overlay.Register(progressmodal.Kind, progressmodal.New(st))
 	scopeCmd := overlay.SetHelpScope(keymap.Set.SetupHelp)
 

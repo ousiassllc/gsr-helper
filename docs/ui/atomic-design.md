@@ -1068,7 +1068,6 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 
 | ディレクトリ | 行数 | 残り | 判定 |
 |------------|------|------|------|
-| `ui/page/setup` | 2081 | -81 | **WARN（超過中）** |
 | `ui/molecule` | 2034 | -34 | **WARN（超過中）** |
 | `ui/page/runners` | 2018 | -18 | **WARN（超過中）** |
 | `ui/organism/dialog` | 1994 | 6 | pass |
@@ -1077,6 +1076,7 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 | `ui/page` | 1970 | 30 | pass |
 | `ui/organism/table` | 1969 | 31 | pass |
 | `ui/page/disk` | 1940 | 60 | pass |
+| `ui/page/setup` | 1883 | 117 | pass |
 | `ui/page/config` | 1719 | 281 | pass |
 | `ui/page/jobs` | 1684 | 316 | pass |
 | `ui/page/pagetest` | 1674 | 326 | pass |
@@ -1095,6 +1095,7 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 | `ui/page/disk/cleanview` | 408 | 1592 | pass |
 | `ui/page/configmodal` | 448 | 1552 | pass |
 | `ui/page/diskclean` | 312 | 1688 | pass |
+| `ui/page/setupmodal` | 248 | 1752 | pass |
 | `ui/chrome` | 347 | 1653 | pass |
 | `ui/workscan` | 337 | 1663 | pass |
 | `ui/discovery` | 290 | 1710 | pass |
@@ -1178,7 +1179,7 @@ Disk タブは 1 ディレクトリに一覧・集計・クリーンアップ・
 
 **ただし同じ手が何度も使えるとは限らない。** 残っている道具は Logs タブに固有のもの（購読を張り直すたびに最新の `Model` を追う `track`、`_diag` を持つ共有状態の組み立て）だけであり、`page/pagetest` へ出すと他のタブが使わない道具が共有の置き場に溜まる。**その次に採るのはテストの重複削減であって、本文（`content.go` / `stream.go`）の分割ではない。** ファイルを分けても 1 ディレクトリの合計は 1 行も減らない（`ui/organism/table` の本体を分割しない判断と同じ理由）。
 
-#### `ui/page/setup` が警告帯に入った判断（Issue #8 の 2 周目）
+#### `ui/page/setup` を `page/setupmodal` へ分けた判断（Issue #8 の 2 周目 / 実施は Issue #105）
 
 Setup タブは追加・削除・バージョン更新の 3 操作と、フォーム・確認・進捗・結果の 4 つのモーダルを 1 ディレクトリに持つ。**2190 行で警告帯（2000〜2200）に入っている。エラー境界の 2200 まで 10 行しかない。**
 
@@ -1188,7 +1189,11 @@ Setup タブは追加・削除・バージョン更新の 3 操作と、フォ�
 
 **3 周目の空け方（実施済み）。** 2 周目に本節が挙げた 2 つの手をどちらも実行した。1 つはテストの道具を `page/pagetest` へ出すこと（上記）。もう 1 つは重複したテストの整理で、`TestDirtyFormAsksBeforeDiscarding` と `TestCleanFormClosesImmediately` を `pagetest.Quick` へ寄せて 1 本にまとめ、削除の確認を辿る 3 本・承認の 2 本・メニューの 2 本もそれぞれ 1 本に畳んだ（**表明は 1 つも落としていない**）。これで 2194 行から 2075 行まで空き、B3〜B7 の 5 本を足して 2190 行に収まった。パッケージの実行時間も `-race` で約 9.8 秒から約 2.4 秒（`-race` 無しで 0.88 秒）へ縮んだ——`bubbles/cursor` の点滅 `Cmd` が 1 回 530 ms 待ち、それが連なっていたためである。`pagetest.Quick` は `AdvanceQuick` で 1 本あたり 100 ms しか待たないので点滅を辿らない。
 
-**次にこのディレクトリへ手を入れる Issue は、1 行足す前に行数を空けること。** 残り 10 行は実質ゼロである。**ただし上の 2 つの手はもう使い切っている。** 残る道具は `newModel` だけで、それは上記の理由で出せない。テストの重複もこの 3 周目で畳んだので、次に取れるのは本文（`flow.go` / `form.go` / `setup.go`）ではなく**モーダル 4 種（`formmodal.go` / `confirm.go` / `progress.go`）を `page/setupmodal` として切り出すこと**である。ファイルを分けるだけでは 1 ディレクトリの合計は 1 行も減らない（`ui/organism/table` の本体を分割しない判断と同じ理由）ので、別ディレクトリへ出すこと自体が要件である。切り出すときは `page/pagetest/import_test.go` の `shared` マップに `"setupmodal"` を足すこと（足さないとタブとして扱われ `TestOnlyTabsetImportsTabs` が落ちる）。
+**3 周目の時点で上の 2 つの手はもう使い切っていた。** 残る道具は `newModel` だけで、それは上記の理由で出せない。テストの重複も 3 周目で畳んである。そこで本節は「次に取れるのは本文（`flow.go` / `form.go` / `setup.go`）ではなく**モーダルを `page/setupmodal` として切り出すこと**」と書き残した。ファイルを分けるだけでは 1 ディレクトリの合計は 1 行も減らない（`ui/organism/table` の本体を分割しない判断と同じ理由）ので、別ディレクトリへ出すこと自体が要件である。
+
+**4 周目（Issue #105）がその切り出しを実施し、2081 行から 1883 行（残り 117 行）へ戻した。** 出したのは 2 種類である——追加フォーム（`formmodal.go`）と確認ダイアログ（`confirm.go` の `confirmModal`。実行前プレビューと入力の破棄の 2 つの種類で使い回す 1 つのモーダル）。本節が挙げていた「モーダル 4 種」のうち進捗は既に `page/progressmodal` として出ており、そこには手を入れていない。`page/pagetest/import_test.go` の `shared` マップに `"setupmodal"` を登録してある（足さないとタブとして扱われ `TestOnlyTabsetImportsTabs` が落ちる）。
+
+**タブに残したものが境界を語っている。** モーダルは `organism/dialog` を包んで決定を `page.ResultMsg` で差し戻すだけで、**中身を組み立てない。** 計画から確認ダイアログの中身を作る `confirmInput` / `targetLines` / `commandLines` はタブ側（`confirm.go`、50 行）に残した——「追加はディレクトリを、削除・更新は runner 名とスコープを対象として出す」という判断は Setup タブ固有だからである（`page/progressmodal` が「見出しの文言・行の内容は呼び出し側が持つ」としているのと同じ分担）。フォームも同様で、`setupmodal.OpenForm` は組み立て済みの `huh.Form` ではなく**組み立てる関数**（`formValues.build`）を受け取る。何を入力させるかはタブが決め、配色（`token.HuhTheme`）の適用だけがモーダル側に残る。
 
 #### 一覧タブを 1 枚足せる余裕（Issue #35 / 実績は Issue #11）
 
@@ -1344,3 +1349,4 @@ Issue #31 で `table_test.go` の空振りしていたテスト（`View() != ""`
 | 1.50 | 2026-08-24 | 行数表を実測へ更新（`ui/page/disk` 2128 → 1940・pass、`ui/page/diskclean` 312 を追加）。`ui/page/disk` の節を「警告帯に入った判断」から「`page/diskclean` へ分けた判断」へ改め、Issue #102 で実施した分割の境界（実行は出し、承認の義務はタブに残す）とテストの分け方を追記。`ui/page/config` の節が参照する `ui/page/disk` の現在値も更新 | 本節が「次に手を入れる Issue は先に分割すること」と指示していた分割を Issue #102 が実施したため、指示のまま残すと実施済みの作業を次の Issue がもう一度探すことになる |
 | 1.51 | 2026-08-24 | 「UI 層の外のディレクトリ」の表を実測へ更新（`internal/setup` 2123 → 1970・pass、`internal/setup/setuptest` 170 を追加）し、フィクスチャを `setuptest` へ出した判断（Issue #103）と、(1) を採らなかった理由・残り 30 行に対する次の手を追記 | 本節は「警告帯に入ったディレクトリへ部品を足すときは判断と理由を残すこと」を求めており、UI 層の外も同じ扱いにすると 1.49 で決めたため |
 | 1.52 | 2026-08-24 | 行数表を実測へ更新（`ui/page/config` 2117 → 1719・pass、`ui/page/configmodal` 448 を追加）。`ui/page/config` の節を「`page/configmodal` へ分けた判断」へ改め、本節が挙げていた「`items.go` の要約・`form.go` の検証を `config/edit` へ出す」が既に実施済み（検証）または実施不能（`huh` / `listrow` に依るため UI からドメインへは出せない）であることと、代わりにモーダル 3 種を出した理由を記録（Issue #104） | 本節の指示どおりに着手すると、既に `config/edit` にある検証をもう一度探すことになり、`items.go` に残った部分も UI の型に依るため出せない。指示を実態に合わせないと、次の Issue も同じ空振りをする |
+| 1.53 | 2026-08-24 | 行数表を実測へ更新（`ui/page/setup` 2081 → 1883・pass、`ui/page/setupmodal` 248 を追加）。`ui/page/setup` の節を「`page/setupmodal` へ分けた判断」へ改め、Issue #105 で実施した切り出し（出したのはフォームと確認の 2 種で、進捗は既に `page/progressmodal` にある）と、タブ側に残した中身の組み立ての分担を追記 | 本節が「次に取れるのはモーダルの切り出し」と指示していた作業を Issue #105 が実施したため。「モーダル 4 種」という記述も実態（進捗は切り出し済み）と食い違っていた |

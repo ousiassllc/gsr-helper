@@ -1,7 +1,19 @@
-package setup
+// Package setupmodal は Setup タブのモーダル——追加フォームと確認ダイアログ
+// （実行前プレビュー / 入力の破棄）——を提供する。
+//
+// Setup タブ（page/setup）から分けているのは、**モーダルがタブの状態を 1 つも
+// 見ないため**である。どちらも organism/dialog を包み、開く指示を受けて完了・中断・
+// 決定を page.ResultMsg で差し戻すだけで、判断（何を入力させるか・何を確認に載せるか・
+// 承認後に何を実行するか）はタブ側に残る。先例は page/progressmodal と
+// page/disk/confirmmodal である。
+//
+// 1 ディレクトリ 2000 行の上限（atomic-design.md「ディレクトリの行数」）に対しては、
+// Setup タブで残っていた唯一の手でもある（同書「`ui/page/setup` が警告帯に入った判断」）。
+package setupmodal
 
 import (
 	tea "charm.land/bubbletea/v2"
+	"charm.land/huh/v2"
 
 	"github.com/ousiassllc/gsr-helper/internal/ui/atom"
 	"github.com/ousiassllc/gsr-helper/internal/ui/organism/dialog"
@@ -9,14 +21,25 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/ui/token"
 )
 
-// formKind は追加フォームのモーダルの種類。
-const formKind page.ModalKind = "setupform"
+// FormKind は追加フォームのモーダルの種類。
+const FormKind page.ModalKind = "setupform"
 
 // formOpenMsg は追加フォームを開く指示。
+//
+// 組み立て済みの huh.Form ではなく**組み立てる関数**を受けるのは、テーマ（配色）の
+// 決め方をモーダル側に残すためである。呼び出し側は「何を入力させるか」だけを持つ。
 type formOpenMsg struct {
-	kind   formKindOf
-	values *formValues
-	st     page.StateMsg
+	title string
+	build func(huh.Theme) *huh.Form
+	st    page.StateMsg
+}
+
+// OpenForm は追加フォームを開く。
+//
+// 種類と Msg の組を画面ごとに書かせないために用意する（progressmodal.Open と同じ
+// 理由）。戻り値の Cmd は呼び出し側まで返すこと。
+func OpenForm(o *page.Overlay, st page.StateMsg, title string, build func(huh.Theme) *huh.Form) tea.Cmd {
+	return o.Open(FormKind, formOpenMsg{title: title, build: build, st: st})
 }
 
 // formModal は追加フォーム。dialog.Form を包むだけで判断は持たない。
@@ -30,8 +53,8 @@ type formModal struct {
 // tea.Model を実装していることをコンパイル時に確かめる。
 var _ tea.Model = formModal{}
 
-// newFormModal は追加フォームのモーダルを組み立てる。
-func newFormModal(st page.StateMsg) page.Modal {
+// NewForm は追加フォームのモーダルを組み立てる。画面は page.Overlay.Register に渡す。
+func NewForm(st page.StateMsg) page.Modal {
 	color := st.Color
 	return page.Modal{
 		Model: formModal{tab: 0, form: dialog.NewForm(st.Styles, color), color: color},
@@ -55,7 +78,7 @@ func (m formModal) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case formOpenMsg:
 		return m.open(msg)
 	case dialog.FormDoneMsg, dialog.FormAbortedMsg, dialog.FormDiscardMsg:
-		res := page.ResultMsg{Kind: formKind, Msg: msg}
+		res := page.ResultMsg{Kind: FormKind, Msg: msg}
 		return m, page.Do(m.tab, func() tea.Msg { return res })
 	case page.StateMsg:
 		m.color = msg.Color
@@ -67,16 +90,16 @@ func (m formModal) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	default:
 		var cmd tea.Cmd
 		m.form, cmd = m.form.Update(msg)
-		return m, page.WrapModal(m.tab, formKind, cmd)
+		return m, page.WrapModal(m.tab, FormKind, cmd)
 	}
 }
 
-// open は指定された種類のフォームを組み立てて表示する。
+// open は渡された組み立て関数でフォームを作って表示する。
 func (m formModal) open(msg formOpenMsg) (tea.Model, tea.Cmd) {
 	m.color = msg.st.Color
-	m.form.SetTitle(msg.kind.title())
-	cmd := m.form.SetForm(msg.values.build(token.HuhTheme(msg.st.Styles, m.color)))
-	return m, page.WrapModal(m.tab, formKind, cmd)
+	m.form.SetTitle(msg.title)
+	cmd := m.form.SetForm(msg.build(token.HuhTheme(msg.st.Styles, m.color)))
+	return m, page.WrapModal(m.tab, FormKind, cmd)
 }
 
 // View はフォームの中身を返す。
