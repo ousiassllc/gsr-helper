@@ -36,6 +36,13 @@ type AddSpec struct {
 	Count int
 	// StartIndex は連番の開始値。NextIndex の結果を渡す。
 	StartIndex int
+	// Names は runner 名を明示する場合の一覧。空なら NamePrefix と StartIndex から
+	// 連番で作る（FR-11）。
+	//
+	// 1 台ずつのウィザード追加（FR-12）は利用者が入力した名前をそのまま使う。
+	// 連番の規則を通すと `gpu-box` が `gpu-box-1` になり、指定した名前で登録
+	// されない。指定があるときは Count もその件数に従う。
+	Names []string
 	// Labels は追加で付けるラベル。予約ラベルは含めない。
 	Labels []string
 	// WorkDir は config.sh --work の値。空なら _work。
@@ -68,7 +75,7 @@ func PlanAdd(spec AddSpec) (Plan, error) {
 		return Plan{}, err
 	}
 
-	names := Names(spec.NamePrefix, spec.StartIndex, spec.Count)
+	names := planNames(spec)
 	existing := append(append([]string(nil), spec.Existing...), names...)
 
 	units := make([]Unit, 0, len(names))
@@ -91,8 +98,21 @@ func PlanAdd(spec AddSpec) (Plan, error) {
 	}, nil
 }
 
+// planNames は計画に載せる runner 名を決める。
+func planNames(spec AddSpec) []string {
+	if len(spec.Names) > 0 {
+		return spec.Names
+	}
+	return Names(spec.NamePrefix, spec.StartIndex, spec.Count)
+}
+
 // prepareAdd は AddSpec を検証し、正規化した値を書き戻してベースディレクトリを返す。
 func prepareAdd(spec *AddSpec) (string, error) {
+	if len(spec.Names) > 0 {
+		// 名前を明示する場合は台数と連番の規則を使わない。件数だけを揃える。
+		spec.Count = len(spec.Names)
+		spec.StartIndex = 1
+	}
 	if err := valid.Count(spec.Count); err != nil {
 		return "", err
 	}
@@ -117,7 +137,7 @@ func prepareAdd(spec *AddSpec) (string, error) {
 	}
 	spec.Labels = labels
 
-	if spec.NamePrefix == "" {
+	if spec.NamePrefix == "" && len(spec.Names) == 0 {
 		return "", valid.ErrEmptyName
 	}
 	if strings.HasPrefix(spec.NamePrefix, "-") {

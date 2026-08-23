@@ -25,6 +25,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/jobs"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/logs"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/runners"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/setup"
 	"github.com/ousiassllc/gsr-helper/internal/ui/token"
 )
 
@@ -77,7 +78,7 @@ func specs() []spec {
 		{Title: page.TabLogs, New: func(i int, st page.StateMsg) tea.Model { return logs.New(i, st) }},
 		{Title: "Doctor", New: nil},
 		{Title: "Config", New: nil},
-		{Title: "Setup", New: nil},
+		{Title: page.TabSetup, New: func(i int, st page.StateMsg) tea.Model { return setup.New(i, st) }},
 	}
 }
 

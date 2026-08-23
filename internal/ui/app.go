@@ -208,6 +208,7 @@ func (a App) state() page.StateMsg {
 		Keys:   a.keys,
 		Exec:   a.ex,
 		Dark:   a.dark,
+		Color:  a.opts.Color,
 		BodyW:  w,
 		BodyH:  h,
 		Err:    a.err,

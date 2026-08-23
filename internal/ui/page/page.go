@@ -59,8 +59,12 @@ type StateMsg struct {
 	// 監査記録の失敗は Executor 自身が通知先（command.WithAuditErrorFunc）へ渡し、
 	// cmd 側が TUI の終了後にまとめて出す。**UI から stderr へ書かない**（描画が壊れる）ため、
 	// 監査エラーの受け皿を page へ配る必要はない。
-	Exec  exec.Executor
-	Dark  bool
+	Exec exec.Executor
+	Dark bool
+	// Color は色を使うか。NO_COLOR / --no-color / 非 TTY を cmd が 1 つの値に
+	// まとめたもので、UI 側で環境を読み直さない。Styles には畳み込み済みだが、
+	// huh のテーマを組み立てるには真偽値そのものが要る（token.HuhTheme）。
+	Color bool
 	BodyW int
 	BodyH int
 	Err   error // 直近の検出エラー

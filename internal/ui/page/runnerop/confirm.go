@@ -145,7 +145,7 @@ func (m confirmModal) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	default:
 		var cmd tea.Cmd
 		m.dlg, cmd = m.dlg.Update(msg)
-		return m, wrap(m.tab, ConfirmKind, cmd)
+		return m, page.WrapModal(m.tab, ConfirmKind, cmd)
 	}
 }
 

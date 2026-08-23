@@ -75,7 +75,7 @@ func (m drainModal) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.open(msg)
 	case drainStopMsg:
 		m.started = false
-		return m, wrap(m.tab, DrainKind, m.dlg.Stop())
+		return m, page.WrapModal(m.tab, DrainKind, m.dlg.Stop())
 	case page.StateMsg:
 		m.dlg.Restyle(msg.Keys.Global, msg.Styles)
 		m.refresh(msg)
@@ -86,7 +86,7 @@ func (m drainModal) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	default:
 		var cmd tea.Cmd
 		m.dlg, cmd = m.dlg.Update(msg)
-		return m, wrap(m.tab, DrainKind, cmd)
+		return m, page.WrapModal(m.tab, DrainKind, cmd)
 	}
 }
 
@@ -98,7 +98,7 @@ func (m drainModal) open(msg drainOpenMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.started = true
-	return m, wrap(m.tab, DrainKind, m.dlg.Start())
+	return m, page.WrapModal(m.tab, DrainKind, m.dlg.Start())
 }
 
 // refresh は待機中の対象を最新の検出結果で引き直す。
