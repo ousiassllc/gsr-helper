@@ -64,12 +64,14 @@ func (m Model) start(id string, checks []doctor.Check) tea.Cmd {
 // すべてゼロ値のままにする。実環境を見る既定へ落ちる（check.Input の doc）。
 //
 // **runner 一覧は親が検出したものを使う。** doctor は自分で検出しない
-// （atomic-design.md の page の責務）。
+// （atomic-design.md の page の責務）。ディスク使用率の閾値も同じ理由で共有状態
+// から取る（doctor は設定ファイルを読み直さない）。
 func (m Model) checkInput() doctor.Input {
 	return doctor.Input{
-		Runners: m.st.Result.Runners,
-		Caps:    m.st.Caps,
-		Exec:    m.st.Exec,
+		Runners:        m.st.Result.Runners,
+		Caps:           m.st.Caps,
+		Exec:           m.st.Exec,
+		DiskThresholds: m.st.Disk.Thresholds,
 	}
 }
 

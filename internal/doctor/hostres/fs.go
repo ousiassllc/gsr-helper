@@ -4,19 +4,9 @@ import (
 	"context"
 	"strconv"
 
+	"github.com/ousiassllc/gsr-helper/internal/appconfig"
 	"github.com/ousiassllc/gsr-helper/internal/disk"
 	"github.com/ousiassllc/gsr-helper/internal/doctor/check"
-)
-
-// 使用率の閾値。
-//
-// 90% を FAIL、80% を WARN にしたのは、ジョブ 1 本のチェックアウトとビルドで
-// 数 GiB を消費することがあり、80% を切った時点で手を打たないと次のジョブで
-// 詰まるためである。閾値そのものは Disk タブの設定とは独立に持つ（doctor は
-// 「今どうか」だけを見る）。
-const (
-	usageFail = 90
-	usageWarn = 80
 )
 
 // tmpPath はジョブが一時ファイルを置く場所。runner のディレクトリとは
@@ -46,17 +36,21 @@ type target struct {
 }
 
 // Run はファイルシステムごとに 1 行を返す。
+//
+// 閾値は先頭で 1 度だけ解決して全パスへ配る。行ごとに既定へ落とす判断を散らすと、
+// 1 回の実行の中で行によって違う閾値を見る形を許してしまう。
 func (c fsCheck) Run(_ context.Context, in check.Input) []check.Result {
+	th := in.DiskThresholds.OrDefault()
 	targets := fsTargets(in)
 	out := make([]check.Result, 0, len(targets))
 	for _, t := range targets {
-		out = append(out, c.judge(t))
+		out = append(out, c.judge(t, th))
 	}
 	return out
 }
 
-// judge はパス 1 つぶんの判定を返す。
-func (c fsCheck) judge(t target) check.Result {
+// judge はパス 1 つぶんの判定を返す。th は解決済みの閾値。
+func (c fsCheck) judge(t target, th appconfig.DiskThresholds) check.Result {
 	st, err := c.stat(t.path)
 	if err != nil {
 		return check.Of(c, check.Result{
@@ -68,7 +62,7 @@ func (c fsCheck) judge(t target) check.Result {
 	}
 
 	used, inodes := st.UsedPercent(), st.InodePercent()
-	status := worse(band(used), band(inodes))
+	status := worse(band(used, th), band(inodes, th))
 	detail := t.path + " の使用率 " + pct(used) + "（空き " + formatBytes(st.AvailBytes) + "）、" +
 		"inode 使用率 " + pct(inodes) + "（空き " + strconv.FormatInt(st.FreeInodes, 10) + "）。"
 
@@ -113,12 +107,23 @@ func fsTargets(in check.Input) []target {
 	return out
 }
 
-// band は使用率を判定に写す。
-func band(percent int) check.Status {
+// band は使用率を判定に写す。th はゼロ値を含まない解決済みの閾値。
+//
+// **設定ファイルの disk_thresholds に従う。** ここに独立の閾値を持つと、設定を
+// 変えた運用者が Disk タブの `⚠ 警告閾値超過` と doctor の判定で違うことを言われ、
+// 設定に書いた数字が何を動かすのか読み取れなくなる（Issue #89）。
+//
+// 既定値（80 / 90。appconfig の defaultDiskWarn / defaultDiskCritical）がこの値
+// なのは、ジョブ 1 本のチェックアウトとビルドで数 GiB を消費することがあり、
+// 80% を切った時点で手を打たないと次のジョブで詰まるためである。
+//
+// 比較を「以上」にしているのは Disk タブの要約行（page/disk の warnExceeded）に
+// 合わせるためで、同じ使用率に対して 2 つの画面が違うことを言わないようにしている。
+func band(percent int, th appconfig.DiskThresholds) check.Status {
 	switch {
-	case percent >= usageFail:
+	case percent >= th.Critical:
 		return check.Fail
-	case percent >= usageWarn:
+	case percent >= th.Warn:
 		return check.Warn
 	default:
 		return check.OK

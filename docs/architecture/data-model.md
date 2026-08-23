@@ -318,7 +318,7 @@ scan_depth: 2
 # 一覧の自動更新間隔（秒）
 refresh_interval: 3
 
-# ディスク使用率の警告閾値（%）
+# ディスク使用率の警告閾値（%）。Disk タブの要約行と doctor のリソース診断が読む
 disk_thresholds:
   warn: 80
   critical: 90
@@ -358,6 +358,8 @@ defaults:
 | `scan_roots` | 各要素は絶対パスで `..` を含まないこと。**相対パスは絶対化せず拒否する**（`appconfig.CleanScanRoot`）。通った値は `Clean` した上で重複除去し、空要素は捨て、結果が空なら未設定として扱う | 既定のルートのみ |
 | `defaults.name_prefix` | 前後の空白を除いた上で、先頭が `-` のもの・空白を含むものを拒否 | 空（ホスト名を使う） |
 | `defaults.labels` | 各要素を trim・重複除去し、先頭が `-` のものを拒否 | 空 |
+
+**`disk_thresholds` を読むのは 2 か所である。** Disk タブの要約行（`⚠ 警告閾値超過`。[画面仕様](../ui/screens.md)）が `warn` を、doctor のリソース診断（`internal/doctor/hostres`）が `warn`（WARN）と `critical`（FAIL）の両方を使う。どちらも比較は「以上」で、同じ値を見る。**とくに `critical` は doctor の FAIL 判定でだけ使う。** 診断が独立の閾値を持っていた間、`critical` は検証されるだけでどの画面も読んでおらず、設定を変えても Disk タブの表示しか動かなかった（Issue #89）。設定を配るのは `page.StateMsg.Disk.Thresholds` と `check.Input.DiskThresholds` で、未指定（0）を既定へ埋めるのは `appconfig.DiskThresholds.OrDefault` の 1 か所に閉じる。
 
 `..` を `Clean` の前に判定するのは、`/var/log/../../etc/passwd` のような指定が `Clean` 後には正当な絶対パスに見えてしまうためである。`-` 始まりを拒むのは、`config.sh` の引数として渡ったときにオプションと解釈されるためである。
 
@@ -436,3 +438,4 @@ defaults:
 | 1.10 | 2026-08-22 | `Started` に mtime を採る根拠から「差は表示単位（分）に出ない」という説明を削除し、差の出どころが `btime` の逆算側であることに置き換え | 経過時間の表示は 1 分未満が秒・1 時間未満が分秒であり、同じ節が記録している最大 +157 秒の差は `2m37s` として表示に出る。根拠が実際の表示形式と矛盾していた |
 | 1.11 | 2026-08-23 | `CheckResult` に `Summary`（一覧の CHECK 列）と `Impact`（詳細画面の「影響」）を追加し、1 つの `Check` が複数の `CheckResult` を返しうることを明記。`Remedy` が表示専用であることを追記 | doctor（Issue #11）を実装したため。[画面仕様](../ui/screens.md#doctor-タブ)の一覧は 1 行の要約を、詳細画面は 検出内容 / 影響 / 推奨する対処 の 3 節を要求しており、`Detail` と `Remedy` の 2 つでは足りない。**「何が起きているか」と「放置するとどうなるか」を 1 つの欄に混ぜると、対処の要否を判断できない。** 複数行を返す点も、runner ごとに判定する項目が TARGET 列に runner 名を出す以上、モデル側に書かれていないと単数で実装される |
 | 1.12 | 2026-08-23 | `Result` の警告表の `.runner` 読み取り失敗の行に、前置するのが `<dir>/.runner` ではなく runner ディレクトリであることを明記 | 表の `<dir>` がディレクトリともファイルパスとも読め、`LoadConfig` が `<dir>/.runner` を前置する実装になっていた。同じ行のスコープ判定失敗はディレクトリを前置しており、1 つの行に 2 つの形が混在していた |
+| 1.13 | 2026-08-24 | `disk_thresholds` を読むのが Disk タブの要約行と doctor のリソース診断の 2 か所であることを検証と既定値の節に明記し、`critical` が doctor の FAIL 判定で使われること・ゼロ埋めが `appconfig.DiskThresholds.OrDefault` に閉じることを追記。YAML サンプルのコメントにも読み手を添えた | doctor が設定を読まず独立の定数（80 / 90）で判定していたため、`critical` は検証されるだけで誰も読まない値だった。本書は範囲と既定値しか書いておらず、この値を変えると何が動くのかが読み取れなかった（Issue #89） |

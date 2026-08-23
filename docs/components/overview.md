@@ -388,7 +388,7 @@ type Check interface {
 
 | パッケージ | 持つもの |
 |-----------|---------|
-| `doctor/check` | `Check` / `Input` / `Result` / `Status` と、`Input` の補助（`Probe` / `ReadFile` / `DialAddr` / `Client`）。**葉のパッケージ**であり、項目もレジストリも import しない |
+| `doctor/check` | `Check` / `Input` / `Result` / `Status` と、`Input` の補助（`Probe` / `ReadFile` / `DialAddr` / `Client`）。`Input` は runner 一覧・能力・`Executor` に加えて設定のディスク使用率の閾値（`DiskThresholds`）を運び、判定が Disk タブの要約行と同じ設定を見るようにする。**葉のパッケージ**であり、項目もレジストリも import しない |
 | `doctor` | `check` の型の別名、レジストリ（`Default`）、並列実行と整列（`Run` / `Sort` / `Replace`）、件数の集計（`Count`） |
 | `doctor/authz` | 認証・権限（パーミッション・`hidepid`・トークンスコープ） |
 | `doctor/netcheck` | ネットワーク（到達性・プロキシ設定の整合） |
@@ -730,3 +730,4 @@ interface はこの 3 つに留める。ドメインごとの interface は、�
 | 1.32 | 2026-08-24 | 依存グラフに `UIApp --> Audit` を追加し、`internal/ui` のサブパッケージ表に本 PR が新設した 7 つ（`ui/discovery` / `ui/workscan` / `ui/ghscope` / `ui/page/progressmodal` / `ui/page/disk/confirmmodal` / `ui/page/disk/cleanview` / `ui/page/runners/rowview`）を追加 | `internal/ui` と `internal/ui/page` が新たに `internal/audit` を import した（#71 の配布経路）のにグラフには `Disk --> Audit` しか足しておらず、辺の欠落は「その依存は存在しない」と読まれて正当な import が規則違反と判定される（改訂 1.29 が同種の欠落を defect として直した前例がある）。サブパッケージ表は実在するパッケージを本書から辿れるようにするためのもので、7 つが grep 0 件だった |
 | 1.33 | 2026-08-24 | `internal/logs` の「先頭 1 MiB だけを読む」を実装（1 行ずつ抽出・優先順の保持・両方そろったら打ち切り・全体 8 MiB）へ書き換え。`internal/disk` に `WorkUsage` / `DockerLabel` の行と、シンボリックリンクを「読む」経路だけ辿る理由、行数が警告帯に入った記録を追加。依存グラフに `UIApp --> Exec` / `--> RScope` を追加し、サブパッケージ表に `ui/hostreq` を追加。`organism/dialog` の `DiffApproval` を実装済みへ訂正 | 「先頭 1 MiB」は旧実装の説明のままで、後続 Issue が上限を戻す修正を正当と判断しうる。`DiffApproval` は `docs/ui/atomic-design.md` と正反対を述べていた。辺の欠落は「その依存は存在しない」と読まれて正当な import が規則違反と判定される |
 | 1.34 | 2026-08-24 | `internal/ui` のサブパッケージ表に `ui/organism/table/tabletest` を追加し、テスト用フィクスチャの混入を止める検査の名前を `TestNoProductionCodeImportsPagetest` → `TestNoProductionCodeImportsTestFixtures` へ改めた（`pagetest` と `tabletest` の 2 つを見るようになったため） | Issue #65。`ui/organism/table` が行数上限を超えており、本体（`Model[T]`）を分割すると `section[T]` の export が要って「一覧の共通実装は 1 つ」を構造で守れなくなるため、テスト側のフィクスチャを一方向参照の別パッケージへ出して解消した。本表は「どのサブパッケージが何を持つか」を最初に引く場所であり、新設パッケージが載っていないと同じものをもう 1 つ作りかねない |
+| 1.35 | 2026-08-24 | `doctor/check` の行に、`Input` が設定のディスク使用率の閾値（`DiskThresholds`）を運ぶことを追記 | `doctor/hostres` が独立の定数（80 / 90）で判定しており、設定の `disk_thresholds` を変えても Disk タブの要約行しか動かなかった。`Input` の持ち物を列挙する唯一の表からは、診断へ何が配られるのかが読み取れなかった（Issue #89） |
