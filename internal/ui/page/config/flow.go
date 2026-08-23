@@ -7,6 +7,7 @@ import (
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/ousiassllc/gsr-helper/internal/config/edit"
 	"github.com/ousiassllc/gsr-helper/internal/exec"
 	"github.com/ousiassllc/gsr-helper/internal/gh"
 	"github.com/ousiassllc/gsr-helper/internal/runner"
@@ -21,7 +22,7 @@ const selfID = "/self"
 
 // loadedMsg は API から取った値。フォームを開く前に届く。
 type loadedMsg struct {
-	kind   kind
+	kind   edit.Kind
 	labels []string
 	groups []gh.RunnerGroup
 	err    error
@@ -160,17 +161,17 @@ func containsFold(s, q string) bool {
 }
 
 // commitInputOf は書き込みに渡す値を組み立てる。
-func (m Model) commitInputOf(c change) commitInput {
+func (m Model) commitInputOf(c edit.Change) edit.CommitInput {
 	ex := m.st.Exec
-	return commitInput{
-		change: c, runner: m.target,
-		client: func(ctx context.Context) (*gh.Client, error) { return m.newClient(ctx, ex) },
+	return edit.CommitInput{
+		Change: c, Runner: m.target,
+		Client: func(ctx context.Context) (*gh.Client, error) { return m.newClient(ctx, ex) },
 	}
 }
 
 // approve は差分の承認を開く（FR-37 / FR-38）。
-func (m *Model) approve(c change) tea.Cmd {
-	if !c.changed() {
+func (m *Model) approve(c edit.Change) tea.Cmd {
+	if !c.Changed() {
 		m.notice = "変更はありません"
 		m.overlay.Close()
 
@@ -181,6 +182,6 @@ func (m *Model) approve(c change) tea.Cmd {
 	m.overlay.Close()
 
 	return m.overlay.Open(diffKind, diffOpenMsg{input: dialog.DiffApprovalInput{
-		Path: c.title(), Diff: c.diffLines(), Backup: c.backupPath(),
+		Path: c.Title(), Diff: c.DiffLines(), Backup: c.BackupPath(),
 	}})
 }

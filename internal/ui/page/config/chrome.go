@@ -6,6 +6,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/ousiassllc/gsr-helper/internal/config"
+	"github.com/ousiassllc/gsr-helper/internal/config/edit"
 	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/ui/atom"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
@@ -62,58 +63,25 @@ func (m Model) footer() []atom.Hint {
 }
 
 // formTitleOf はフォームの見出しを返す。
-func formTitleOf(k kind) string {
+func formTitleOf(k edit.Kind) string {
 	switch k {
-	case kindEnv:
+	case edit.KindEnv:
 		return ".env の編集"
-	case kindPath:
+	case edit.KindPath:
 		return ".path の編集"
-	case kindDropIn:
+	case edit.KindDropIn:
 		return "systemd drop-in の編集"
-	case kindLabels:
+	case edit.KindLabels:
 		return "ラベルの編集"
-	case kindGroup:
+	case edit.KindGroup:
 		return "runner group の変更"
-	case kindCopy:
+	case edit.KindCopy:
 		return ".env を他の runner へ複製"
-	case kindReregister:
+	case edit.KindReregister:
 		return ""
 	default:
 		return ""
 	}
-}
-
-// title は差分の見出しに出す対象を返す。
-func (c change) title() string {
-	if c.path != "" {
-		return c.path
-	}
-
-	switch c.kind {
-	case kindLabels:
-		return "ラベル（GitHub）"
-	case kindGroup:
-		return "runner group（GitHub）"
-	case kindCopy:
-		return ".env の複製（" + itoa(len(c.copies)) + " 台）"
-	case kindEnv, kindPath, kindDropIn, kindReregister:
-		return ""
-	default:
-		return ""
-	}
-}
-
-// itoa は小さな整数を文字列にする。strconv を 1 か所のために import しない。
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-
-	var b []byte
-	for ; n > 0; n /= 10 {
-		b = append([]byte{byte('0' + n%10)}, b...)
-	}
-	return string(b)
 }
 
 // names は runner の名前を並べて返す。

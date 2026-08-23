@@ -9,6 +9,7 @@ import (
 
 	"github.com/ousiassllc/gsr-helper/internal/appconfig"
 	"github.com/ousiassllc/gsr-helper/internal/config"
+	"github.com/ousiassllc/gsr-helper/internal/config/edit"
 	"github.com/ousiassllc/gsr-helper/internal/ui/organism/dialog"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 )
@@ -42,7 +43,7 @@ const (
 func (m *Model) openSelfForm() tea.Cmd {
 	m.self = true
 	m.formShown = true
-	m.vals.kind = kindSelf
+	m.vals.kind = edit.KindSelf
 	m.vals.self = fromConfig(m.st.Config.Conf)
 
 	title := selfTitleEdit
@@ -129,7 +130,7 @@ func (m *Model) saveSelf() tea.Cmd {
 
 	return m.overlay.Open(diffKind, diffOpenMsg{input: dialog.DiffApprovalInput{
 		Path:   m.st.Config.Path,
-		Diff:   splitDiff(config.Diff(before, after)),
+		Diff:   edit.SplitDiff(config.Diff(before, after)),
 		Backup: "",
 	}})
 }

@@ -1,4 +1,4 @@
-package config
+package edit
 
 import (
 	"context"
@@ -17,12 +17,12 @@ import (
 // 一覧の取得で名前から引き当てる。
 var ErrNoRunnerID = errors.New("GitHub 側の runner が見つかりません")
 
-// commit は承認された変更を書き込む（FR-37 の承認後）。
+// Commit は承認された変更を書き込む（FR-37 の承認後）。
 //
 // **呼ぶのは承認を受けた 1 か所だけである。** page/setup と同じく、書き込みへ
 // 至る経路を 1 本に絞ることで、確認を経ない破壊的経路を作らない。
-func commit(ctx context.Context, in commitInput) error {
-	c := in.change
+func Commit(ctx context.Context, in CommitInput) error {
+	c := in.Change
 
 	if c.write != nil {
 		if c.path != "" {
@@ -36,12 +36,15 @@ func commit(ctx context.Context, in commitInput) error {
 	return commitAPI(ctx, in)
 }
 
-// commitInput は書き込みに要るもの。
-type commitInput struct {
-	change change
-	runner runner.Runner
-	// client は GitHub API のクライアントを作る。ラベル / runner group で使う。
-	client func(ctx context.Context) (*gh.Client, error)
+// CommitInput は書き込みに要るもの。
+type CommitInput struct {
+	// Change は書き込む変更。
+	Change Change
+	// Runner は対象。
+	Runner runner.Runner
+	// Client は GitHub API のクライアントを作る。ラベル / runner group で使う。
+	// テストでは httptest のサーバへ向けたクライアントを返す。
+	Client func(ctx context.Context) (*gh.Client, error)
 }
 
 // backupIfExists は書き込み前に退避する（FR-38）。
@@ -60,26 +63,26 @@ func backupIfExists(path string) error {
 }
 
 // commitAPI は GitHub 側の値（ラベル / runner group）を変更する。
-func commitAPI(ctx context.Context, in commitInput) error {
-	cl, err := in.client(ctx)
+func commitAPI(ctx context.Context, in CommitInput) error {
+	cl, err := in.Client(ctx)
 	if err != nil {
 		return fmt.Errorf("GitHub の認証に失敗しました: %w", err)
 	}
 
-	sc := in.runner.Scope
-	id, err := runnerID(ctx, cl, sc, in.runner.Name())
+	sc := in.Runner.Scope
+	id, err := runnerID(ctx, cl, sc, in.Runner.Name())
 	if err != nil {
 		return err
 	}
 
-	if in.change.kind == kindLabels {
-		if _, rerr := cl.ReplaceRunnerLabels(ctx, sc, id, in.change.labels); rerr != nil {
+	if in.Change.Kind == KindLabels {
+		if _, rerr := cl.ReplaceRunnerLabels(ctx, sc, id, in.Change.labels); rerr != nil {
 			return fmt.Errorf("ラベルの更新に失敗しました: %w", rerr)
 		}
 		return nil
 	}
 
-	if err := cl.AddRunnerToGroup(ctx, sc, in.change.groupID, id); err != nil {
+	if err := cl.AddRunnerToGroup(ctx, sc, in.Change.groupID, id); err != nil {
 		return fmt.Errorf("runner group の変更に失敗しました: %w", err)
 	}
 	return nil
@@ -104,15 +107,15 @@ func runnerID(ctx context.Context, cl *gh.Client, sc scope.Scope, name string) (
 	return 0, fmt.Errorf("%s: %w", name, ErrNoRunnerID)
 }
 
-// fetchLabels は現在のラベルを取得する（フォームの初期値に使う）。
-func fetchLabels(ctx context.Context, in commitInput) ([]string, error) {
-	cl, err := in.client(ctx)
+// FetchLabels は現在のラベルを取得する（フォームの初期値に使う）。
+func FetchLabels(ctx context.Context, in CommitInput) ([]string, error) {
+	cl, err := in.Client(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("GitHub の認証に失敗しました: %w", err)
 	}
 
-	sc := in.runner.Scope
-	id, err := runnerID(ctx, cl, sc, in.runner.Name())
+	sc := in.Runner.Scope
+	id, err := runnerID(ctx, cl, sc, in.Runner.Name())
 	if err != nil {
 		return nil, err
 	}
@@ -124,17 +127,17 @@ func fetchLabels(ctx context.Context, in commitInput) ([]string, error) {
 	return labels, nil
 }
 
-// fetchGroups は選べる runner group の一覧を取得する。
+// FetchGroups は選べる runner group の一覧を取得する。
 //
 // 名前だけでなく ID も返すのは、付け替えの API が ID を取るためである
 // （名前から引き直すともう 1 度一覧を取ることになる）。
-func fetchGroups(ctx context.Context, in commitInput) ([]gh.RunnerGroup, error) {
-	cl, err := in.client(ctx)
+func FetchGroups(ctx context.Context, in CommitInput) ([]gh.RunnerGroup, error) {
+	cl, err := in.Client(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("GitHub の認証に失敗しました: %w", err)
 	}
 
-	groups, err := cl.ListRunnerGroups(ctx, in.runner.Scope)
+	groups, err := cl.ListRunnerGroups(ctx, in.Runner.Scope)
 	if err != nil {
 		return nil, fmt.Errorf("runner group の一覧の取得に失敗しました: %w", err)
 	}

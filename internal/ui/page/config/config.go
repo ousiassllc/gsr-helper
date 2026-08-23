@@ -20,6 +20,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/ousiassllc/gsr-helper/internal/appconfig"
+	"github.com/ousiassllc/gsr-helper/internal/config/edit"
 	"github.com/ousiassllc/gsr-helper/internal/exec"
 	"github.com/ousiassllc/gsr-helper/internal/gh"
 	"github.com/ousiassllc/gsr-helper/internal/runner"
@@ -45,7 +46,7 @@ type Model struct {
 	// initCmd は modal の登録が返した Cmd。最初の StateMsg で親へ流す。
 	initCmd tea.Cmd
 
-	ld   loader
+	ld   edit.Loader
 	list table.Model[item]
 	// picker は対象の runner を選ぶ一覧。対象が決まるまで本文に出す。
 	picker organism.ChoiceList
@@ -53,7 +54,7 @@ type Model struct {
 	vals *values
 
 	target  runner.Runner
-	pending change
+	pending edit.Change
 	// pendingSelf は承認待ちの自身の設定（FR-41〜FR-42）。
 	pendingSelf appconfig.Config
 	// self は自身の設定（FR-41〜FR-42）を編集中か。
@@ -83,11 +84,11 @@ func New(tab int, st page.StateMsg) Model {
 	m := Model{
 		tab: tab, st: st, overlay: overlay,
 		initCmd: tea.Batch(help, form, diff, applyReg, scopeCmd),
-		ld:      loader{dropInRoot: ""},
+		ld:      edit.Loader{DropInRoot: ""},
 		list:    newList(st),
 		picker:  organism.NewChoiceList(st.Keys.List, st.Styles),
 		vals:    newValues(),
-		target:  runner.Runner{}, pending: change{}, pendingSelf: appconfig.Config{}, self: false,
+		target:  runner.Runner{}, pending: edit.Change{}, pendingSelf: appconfig.Config{}, self: false,
 		notice: "", report: "", busy: false, formShown: false,
 		newClient: defaultClient,
 	}

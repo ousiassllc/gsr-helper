@@ -7,36 +7,16 @@ import (
 	"charm.land/huh/v2"
 
 	"github.com/ousiassllc/gsr-helper/internal/config"
+	"github.com/ousiassllc/gsr-helper/internal/config/edit"
 )
-
-// envKey は .env のうちフォームに項目を出すキー。
-//
-// 並びと分類はデータモデルの「.env の扱い」の表に従う（ジョブ環境 / プロキシ /
-// job hooks）。**.env の全キーを出すことはしない。** 任意のキーを書ける形式なので
-// フォームに列挙しきれず、列挙していないキーは EnvFile が行ごと保持したまま
-// 素通しする（変更しない行は 1 バイトも変わらない）。
-var envKeys = []struct {
-	key   string
-	title string
-	desc  string
-}{
-	{"PATH", "PATH", "ジョブに渡す PATH"},
-	{"LANG", "LANG", "例: ja_JP.UTF-8"},
-	{"ImageOS", "ImageOS", "ランナーイメージの識別子"},
-	{"https_proxy", "https_proxy", ""},
-	{"http_proxy", "http_proxy", ""},
-	{"no_proxy", "no_proxy", "カンマ区切り"},
-	{"ACTIONS_RUNNER_HOOK_JOB_STARTED", "job hook（開始時）", "ジョブ開始時に実行するスクリプトのパス"},
-	{"ACTIONS_RUNNER_HOOK_JOB_COMPLETED", "job hook（完了時）", "ジョブ完了時に実行するスクリプトのパス"},
-}
 
 // values はフォームの入力先。
 //
 // **実体を Model が持ち続ける。** huh はポインタで値を束縛するため、Update の
 // たびに写しを作ると入力の書き込み先と読み出し先が別物になる（page/setup と同じ）。
 type values struct {
-	kind kind
-	// env は envKeys と同じ添字で並ぶ入力欄の値。
+	kind edit.Kind
+	// env は edit.EnvKeys と同じ添字で並ぶ入力欄の値。
 	env []string
 	// envBefore は開いた時点の値。空欄にした項目を「消す」と判断するために持つ。
 	envBefore []string
@@ -61,7 +41,7 @@ type values struct {
 // newValues は空の入力の受け皿を作る。
 func newValues() *values {
 	return &values{
-		kind: kindEnv, env: make([]string, len(envKeys)), envBefore: make([]string, len(envKeys)),
+		kind: edit.KindEnv, env: make([]string, len(edit.EnvKeys)), envBefore: make([]string, len(edit.EnvKeys)),
 		path: "", restart: "", memoryMax: "", labels: "", group: "",
 		groups: nil, groupIDs: nil, copyTo: nil, copyCandidates: nil,
 		self: selfValues{scanRoots: "", refresh: "", warn: "", critical: "", auditLog: ""},
@@ -80,29 +60,29 @@ func (v *values) build(theme huh.Theme) *huh.Form {
 // fields は種類ごとの入力欄を返す。
 func (v *values) fields() []huh.Field {
 	switch v.kind {
-	case kindEnv:
+	case edit.KindEnv:
 		return v.envFields()
-	case kindPath:
+	case edit.KindPath:
 		return []huh.Field{
 			huh.NewInput().Title(".path").
 				Description("ジョブの PATH を上書きする 1 行。空なら .path を空にします").
 				Value(&v.path).Validate(validateLine),
 		}
-	case kindDropIn:
+	case edit.KindDropIn:
 		return v.dropInFields()
-	case kindLabels:
+	case edit.KindLabels:
 		return []huh.Field{
 			huh.NewInput().Title("ラベル").
 				Description("カンマ区切り。self-hosted / linux / x64 は自動で付きます").
 				Value(&v.labels).Validate(validateLabels),
 		}
-	case kindGroup:
+	case edit.KindGroup:
 		return []huh.Field{v.groupField()}
-	case kindCopy:
+	case edit.KindCopy:
 		return []huh.Field{v.copyField()}
-	case kindSelf:
+	case edit.KindSelf:
 		return v.selfFields()
-	case kindReregister:
+	case edit.KindReregister:
 		return nil
 	default:
 		return nil
@@ -111,11 +91,11 @@ func (v *values) fields() []huh.Field {
 
 // envFields は .env の入力欄を返す。
 func (v *values) envFields() []huh.Field {
-	out := make([]huh.Field, 0, len(envKeys))
-	for i, k := range envKeys {
-		in := huh.NewInput().Title(k.title).Value(&v.env[i]).Validate(validateLine)
-		if k.desc != "" {
-			in = in.Description(k.desc)
+	out := make([]huh.Field, 0, len(edit.EnvKeys))
+	for i, k := range edit.EnvKeys {
+		in := huh.NewInput().Title(k.Title).Value(&v.env[i]).Validate(validateLine)
+		if k.Desc != "" {
+			in = in.Description(k.Desc)
 		}
 		out = append(out, in)
 	}
@@ -168,9 +148,6 @@ func (v *values) copyField() huh.Field {
 		Description("選んだ runner の .env を、この runner の .env で置き換えます").
 		Options(opts...).Value(&v.copyTo)
 }
-
-// ErrEmptyCopyTarget は複製先を 1 つも選ばずに確定した場合のエラー。
-var ErrEmptyCopyTarget = errors.New("複製先の runner を 1 つ以上選んでください")
 
 // groupID は選ばれた runner group の名前から ID を引く。
 // 一覧を取得できず名前を直接入力した場合は 0 と偽を返す。
