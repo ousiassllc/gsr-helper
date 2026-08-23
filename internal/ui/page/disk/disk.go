@@ -133,7 +133,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := m.onApplyDone(msg)
 		return m, tea.Batch(m.chrome(), cmd)
 	default:
-		return m.forward(msg)
+		next, cmd := m.forwardTo(msg)
+		return next, cmd
 	}
 }
 
@@ -181,16 +182,11 @@ func (m *Model) flushInit() tea.Cmd {
 	return cmd
 }
 
-// forward はキー以外の Msg を配る。宛先の判定は page.Overlay.Handles に任せる
+// forwardTo はキー以外の Msg を配る。宛先の判定は page.Overlay.Handles に任せる
 // （runners.go と同じ理由）。
-func (m Model) forward(msg tea.Msg) (tea.Model, tea.Cmd) {
-	return m.forwardTo(msg)
-}
-
-// forwardTo は forward と同じ配送を行い、具体型のまま返す。
 //
-// 型を保つのは、配送の直後に自分の状態を触る呼び出し元（handleKey の閉じ込め分岐）が
-// 型アサーションを挟まずに済むようにするためである。
+// 具体型のまま返すのは、配送の直後に自分の状態を触る呼び出し元（handleKey の
+// 閉じ込め分岐）が型アサーションを挟まずに済むようにするためである。
 func (m Model) forwardTo(msg tea.Msg) (Model, tea.Cmd) {
 	var cmd tea.Cmd
 	if m.overlay.Handles(msg) {
@@ -236,7 +232,7 @@ func (m Model) handleKey(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		// 自分が解釈しないキーは一覧へ渡し、同時に親へ差し戻す。一覧のキーと
 		// 衝突しないことは keymap の重複検査（Set.Contexts の「Disk タブ
 		// （通常モード）」）が担保する。
-		next, c := m.forward(press)
+		next, c := m.forwardTo(press)
 		return next, tea.Batch(c, page.BubbleKey(press))
 	}
 	return m, tea.Batch(m.chrome(), cmd)

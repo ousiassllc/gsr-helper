@@ -116,7 +116,7 @@ func (m *Model) startScan() tea.Cmd {
 	m.scan = &scanState{cancel: cancel, ch: ch}
 	m.seen = nil
 	if !useDocker {
-		m.seen = append(m.seen, dockerSkipUsage())
+		m.seen = append(m.seen, dockerUsage(dockerSkipLabel, -1, false, dockerSkipReason, nil))
 	}
 	m.tbl.SetItems(sectionTargets, usageRows(m.seen))
 	return tea.Batch(m.waitUsage(gen, ch), m.fsStats(gen))
@@ -210,35 +210,19 @@ func (m *Model) onFSStats(msg fsStatsMsg) {
 func scanDocker(ctx context.Context, ex exec.Executor, out chan<- disk.Usage) {
 	items, err := disk.DockerUsage(ctx, ex)
 	if err != nil {
-		sendUsage(ctx, out, disk.Usage{
-			Kind: disk.KindDocker, Runner: "", Base: "", Path: "",
-			Label: dockerSkipLabel, Bytes: -1, Files: -1,
-			Removable: false, Reason: dockerFailReason, Err: err,
-		})
+		sendUsage(ctx, out, dockerUsage(dockerSkipLabel, -1, false, dockerFailReason, err))
 		return
 	}
-	sendUsage(ctx, out, disk.Usage{
-		Kind: disk.KindDocker, Runner: "", Base: "", Path: "",
-		Label: dockerPruneLabel,
-		// prune -f が回収する種別だけの合計。どの種別が回収されるかを知っているのは
-		// 発行するコマンドを持つ internal/disk である。
-		Bytes: disk.PruneReclaimable(items), Files: -1,
-		Removable: true, Reason: "", Err: nil,
-	})
+	// 選べる 1 行に載せるのは prune -f が回収する種別だけの合計である。どの種別が
+	// 回収されるかを知っているのは、発行するコマンドを持つ internal/disk である。
+	sendUsage(ctx, out, dockerUsage(dockerPruneLabel, disk.PruneReclaimable(items), true, "", nil))
 	for _, it := range items {
-		sendUsage(ctx, out, disk.Usage{
-			Kind: disk.KindDocker, Runner: "", Base: "", Path: "",
-			Label: it.Label,
-			// 出すのは総容量ではなく解放できる量である。prune で消えるのは未使用
-			// 分だけなので、総容量を出すと内訳の合計が実際より大きくなる。
-			Bytes: it.Reclaimable,
-			// docker はファイル数を数えられない（disk.Usage.Files の doc）。
-			Files: -1,
-			// **内訳は選べない。** -f だけの prune はボリュームを 1 バイトも消さず
-			// dangling 以外のイメージも残すため、内訳の Reclaimable を選択合計に
-			// 載せると確認ダイアログが実現しない量を約束する。行を残すのは FR-27。
-			Removable: false, Reason: dockerBreakdownReason, Err: nil,
-		})
+		// 内訳に出すのは総容量ではなく解放できる量である（prune で消えるのは未使用分
+		// だけで、総容量を出すと内訳の合計が実際より大きくなる）。**内訳は選べない。**
+		// -f だけの prune はボリュームを 1 バイトも消さず dangling 以外のイメージも残す
+		// ため、内訳の Reclaimable を選択合計に載せると確認ダイアログが実現しない量を
+		// 約束する。行を残すのは FR-27。
+		sendUsage(ctx, out, dockerUsage(it.Label, it.Reclaimable, false, dockerBreakdownReason, nil))
 	}
 }
 
@@ -253,11 +237,13 @@ func sendUsage(ctx context.Context, out chan<- disk.Usage, u disk.Usage) {
 	}
 }
 
-// dockerSkipUsage は docker が使えない環境で出す SKIP 行を返す。
-func dockerSkipUsage() disk.Usage {
+// dockerUsage は docker の集計結果 1 行を組み立てる。docker の対象は runner にもパスにも
+// 紐付かず（Runner / Base / Path は常に空）、ファイル数も数えられない（disk.Usage.Files
+// の doc）。同じゼロ値を 4 か所へ書き写すと、フィールドが増えたときに一部だけ古く残る。
+func dockerUsage(label string, bytes int64, removable bool, reason string, err error) disk.Usage {
 	return disk.Usage{
 		Kind: disk.KindDocker, Runner: "", Base: "", Path: "",
-		Label: dockerSkipLabel, Bytes: -1, Files: -1,
-		Removable: false, Reason: dockerSkipReason, Err: nil,
+		Label: label, Bytes: bytes, Files: -1,
+		Removable: removable, Reason: reason, Err: err,
 	}
 }

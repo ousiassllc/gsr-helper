@@ -23,8 +23,14 @@ import (
 // tabIndex は Disk タブのタブ番号（tabset の並びの添字。画面の [3] と 1 ずれる）。
 const tabIndex = 2
 
-// dfJSON は docker system df の応答。ビルドキャッシュ 1 件だけを返す。
-const dfJSON = `{"Type":"Build Cache","Size":"12.4GB","Reclaimable":"12.4GB (100%)"}`
+// dfJSON は docker system df の応答。**prune -f が回収する種別（Containers /
+// Build Cache）と回収しない種別（Images / Local Volumes）の両方を含める。** 回収する
+// 種別だけを返すと、解放見込みが disk.PruneReclaimable でも「全 Reclaimable の素朴な
+// 合計」でも同じ値になり、取り違えを検出できない。容量は docker の 10 進接頭辞で書く。
+const dfJSON = `{"Type":"Images","Size":"9GB","Reclaimable":"8GB (88%)"}
+{"Type":"Containers","Size":"300MB","Reclaimable":"300MB (100%)"}
+{"Type":"Local Volumes","Size":"2GB","Reclaimable":"2GB (100%)"}
+{"Type":"Build Cache","Size":"12GB","Reclaimable":"12GB (100%)"}`
 
 // 行に出る文言の照合には**列幅に収まる長さの文字列**を使う（TARGET は 25 セル、
 // PATH は最終列なので実効 24 セル。token.DiskColumns）。収まる文言はリテラルの全文で
@@ -67,10 +73,11 @@ func dockerState() (page.StateMsg, *exec.Fake) {
 	return st, fake
 }
 
-// tempRunner は実体のあるディレクトリを持つ runner を返す（_work/bar に 1 ファイル）。
+// busyRunner は実体のあるディレクトリを持つジョブ実行中の runner を返す
+// （_work/bar に 1 ファイル）。
 //
 // pagetest の runner は実在しないパスを指すので、集計すると対象 0 件になる。
-func tempRunner(t *testing.T, busy bool) runner.Runner {
+func busyRunner(t *testing.T) runner.Runner {
 	t.Helper()
 
 	dir := t.TempDir()
@@ -82,10 +89,7 @@ func tempRunner(t *testing.T, busy bool) runner.Runner {
 		t.Fatalf("ファイルを作れない: %v", err)
 	}
 
-	r := pagetest.SampleRunner()
-	if busy {
-		r = pagetest.BusyRunner()
-	}
+	r := pagetest.BusyRunner()
 	r.Dir = dir
 	r.WorkDir = filepath.Join(dir, "_work")
 	return r
@@ -113,7 +117,11 @@ func send(t *testing.T, m Model, msg tea.Msg) (Model, page.ChromeMsg) {
 	t.Helper()
 
 	next, cmd := m.Update(msg)
-	return pump(t, as(t, next), cmd), chromeOf(t, cmd)
+	c, ok := findChrome(cmd)
+	if !ok {
+		t.Fatal("ChromeMsg が発行されていない")
+	}
+	return pump(t, as(t, next), cmd), c
 }
 
 // update は Msg を 1 つ渡すだけで、返った Cmd は実行しない。
@@ -154,21 +162,10 @@ func as(t *testing.T, m tea.Model) Model {
 	return got
 }
 
-// chromeOf は Cmd から最初の ChromeMsg を取り出す。
+// findChrome は Cmd を辿って最初の ChromeMsg を返す。
 //
 // 見つかった時点で打ち切るのは、集計や絞り込みの Cmd を走らせないためである
 // （page は ChromeMsg を束の先頭に置いている）。
-func chromeOf(t *testing.T, cmd tea.Cmd) page.ChromeMsg {
-	t.Helper()
-
-	c, ok := findChrome(cmd)
-	if !ok {
-		t.Fatal("ChromeMsg が発行されていない")
-	}
-	return c
-}
-
-// findChrome は Cmd を辿って最初の ChromeMsg を返す。
 func findChrome(cmd tea.Cmd) (page.ChromeMsg, bool) {
 	if cmd == nil {
 		return page.ChromeMsg{}, false

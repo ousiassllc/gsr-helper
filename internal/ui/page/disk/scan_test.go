@@ -1,11 +1,13 @@
 package disk
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/ousiassllc/gsr-helper/internal/disk"
 	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 )
@@ -98,7 +100,7 @@ func TestStaleScanResultIsDropped(t *testing.T) {
 // ジョブ実行中 runner の _work は選択できず、理由が行に出る（FR-31）。
 func TestBusyWorkTargetIsNotSelectable(t *testing.T) {
 	st, _ := baseState()
-	st.Result.Runners = []runner.Runner{tempRunner(t, true)}
+	st.Result.Runners = []runner.Runner{busyRunner(t)}
 	m := activate(t, newModel(t, st))
 
 	body := m.View().Content
@@ -156,8 +158,10 @@ func TestDockerUsageBecomesSelectableRow(t *testing.T) {
 	if len(m.tbl.Checked()) != 1 {
 		t.Fatal("未使用リソースの行を選択できない")
 	}
-	if !strings.Contains(c.Status, "選択: 1 件") {
-		t.Errorf("選択件数が状態行に出ていない（status = %q）", c.Status)
+	// 合計に載るのは prune -f が回収する種別（Containers / Build Cache）の Reclaimable
+	// だけであり、回収されない Images / Local Volumes を含む素朴な合計（20.8G）ではない。
+	if want := "選択: 1 件（合計 11.5G）"; !strings.Contains(c.Status, want) {
+		t.Errorf("状態行 = %q, want %q を含む", c.Status, want)
 	}
 
 	// 次の行（内訳）へ移しても選べない。
@@ -165,5 +169,23 @@ func TestDockerUsageBecomesSelectableRow(t *testing.T) {
 	m, _ = send(t, m, press("space"))
 	if n := len(m.tbl.Checked()); n != 1 {
 		t.Errorf("内訳の行が選ばれている（選択 %d 件, want 1 件）", n)
+	}
+}
+
+// FSStats の取得に失敗した状態では、要約行の使用率と inode を 0% ではなく「値なし」で
+// 出す。**固定するのは page 側の配線（statsErr → FSSummaryView.Unavailable）である。**
+// molecule の描画契約（TestFSSummaryLineUnavailable）は page が Unavailable を立て忘れ
+// ても緑のままで、立て忘れると「使用 0%」になり**枯渇しているのに潤沢に見える**。
+func TestFSStatsFailureShowsNoValueInSummary(t *testing.T) {
+	st, _ := baseState()
+	m := newModel(t, st)
+	// 取得できた場合は使用率が出る（この検証が常に「値なし」を見ていない裏取り）。
+	ok := disk.Stats{Path: "/", TotalBytes: 500, UsedBytes: 410, AvailBytes: 90, TotalInodes: 100, UsedInodes: 34, FreeInodes: 66}
+	if body := update(t, m, fsStatsMsg{gen: m.gen, stats: ok, err: nil}).View().Content; !strings.Contains(body, "使用 82%") {
+		t.Fatalf("取得できた使用率が要約行に出ていない（前提が崩れている）:\n%s", body)
+	}
+	body := update(t, m, fsStatsMsg{gen: m.gen, stats: disk.Stats{}, err: errors.New("statfs に失敗")}).View().Content
+	if !strings.Contains(body, "使用 -") || !strings.Contains(body, "inode -") || strings.Contains(body, "使用 0%") {
+		t.Errorf("取得に失敗した使用率と inode が「値なし」になっていない（0%% は枯渇を潤沢に見せる）:\n%s", body)
 	}
 }

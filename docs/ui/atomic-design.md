@@ -69,7 +69,7 @@ internal/ui/
   organism/         カーソルと選択を持つ対話的な部品（ChoiceList）
   organism/table/   区画に分かれた一覧の共通実装（Model[T]）
   organism/pane/    スクロールする表示専用の領域（Detail / Help）
-  organism/dialog/  承認・待機・入力（未実装。後述の「実装状況」）
+  organism/dialog/  承認・待機・入力（`Confirm` のみ実装済み。後述の「実装状況」）
   template/         画面共通の枠
   page/             タブ共通の Msg と、タブ間で共有する部品（モーダルの重なり・page の寿命）
   page/action/      runner に対する操作の識別・可否の判定・一覧の組み立て
@@ -101,7 +101,7 @@ graph TD
     Tmpl[template]
     Org[organism]
     OrgT[organism/table]
-    OrgP[organism/pane<br/>organism/dialog※未実装]
+    OrgP[organism/pane<br/>organism/dialog]
     Mol[molecule]
     Row[molecule/listrow]
     Atom[atom]
@@ -939,7 +939,7 @@ Disk / Logs / Doctor タブの部品を足すときは、まずその部品が�
 | ディレクトリ | 行数 | 残り | 判定 |
 |------------|------|------|------|
 | `ui/organism/table` | 2157 | -157 | **WARN（超過中）** |
-| `ui/page/disk` | 1997 | 3 | pass |
+| `ui/page/disk` | 1998 | 2 | pass |
 | `ui` | 1875 | 125 | pass |
 | `ui/page` | 1608 | 392 | pass |
 | `ui/molecule` | 1583 | 417 | pass |
@@ -959,9 +959,9 @@ Disk / Logs / Doctor タブの部品を足すときは、まずその部品が�
 | `ui/tabset` | 345 | 1655 | pass |
 | `ui/chrome` | 283 | 1717 | pass |
 
-#### `ui/page/disk` の残り 3 行（Issue #13）
+#### `ui/page/disk` の残り 2 行（Issue #13）
 
-Disk タブは 1 ディレクトリに一覧・集計・クリーンアップ・確認モーダルの 4 つの関心事を持つため、タブ 1 枚としては最も大きい。**次にこのタブへ手を入れる Issue は、機能を足すかどうかに関わらず先に分割すること。** 残りは 3 行しかなく、doc コメントを数行足すだけで警告帯に入る。分けるとすれば境界は明確で、クリーンアップ（`clean.go` / `confirm.go`、計 491 行）は集計・表示と独立しており `page/diskclean` として切り出せる。今分けないのは、切り出す先が `page/<tab>` の命名規約（1 ディレクトリ 1 タブ）から外れるうえ、現時点ではまだ上限内に収まっているためである。
+Disk タブは 1 ディレクトリに一覧・集計・クリーンアップ・確認モーダルの 4 つの関心事を持つため、タブ 1 枚としては最も大きい。**次にこのタブへ手を入れる Issue は、機能を足すかどうかに関わらず先に分割すること。** 残りは 2 行しかなく、doc コメントを数行足すだけで警告帯に入る。分けるとすれば境界は明確で、クリーンアップ（`clean.go` / `confirm.go`、計 491 行）は集計・表示と独立しており `page/diskclean` として切り出せる。今分けないのは、切り出す先が `page/<tab>` の命名規約（1 ディレクトリ 1 タブ）から外れるうえ、現時点ではまだ上限内に収まっているためである。
 
 #### 一覧タブを 2 枚足せる余裕（Issue #35）
 
@@ -1041,3 +1041,4 @@ Issue #31 で `table_test.go` の空振りしていたテスト（`View() != ""`
 | 1.25 | 2026-08-23 | `ui/organism/table` の本番/テスト内訳を実測（本番 1053 行 / テスト 1104 行）へ訂正し、行数表と節の数字を 2157 行・エラー境界まで 43 行へ更新。`ui` 直下のピークを 1967 行（残り 33 行）に、「export を 1 つも増やさず」を「`App` の非公開な状態を 1 つも export せず」に訂正し、WARN 帯の `ui/organism/table` へテスト整理を先行させずに足した例外の理由を記録 | 1.24 は「本番 1053 行 / テスト 1095 行に訂正」と記録していたが**その編集は実際には適用されておらず**、本文は 1058 行のままだった。1053+1058=2111 は `fitcells_test.go` 追加前の古い合計で、同じ節の見出し（2148 行）と食い違い、エラー境界までの余裕を 37 行ぶん甘く見せていた。改訂履歴が行っていない訂正を主張する形であり、1.21 が是正した「1 つの節が 2 つの値を主張する」欠陥の再発でもある（Issue #31 の最終ゲート指摘） |
 | 1.26 | 2026-08-23 | `organism/dialog` と `Confirm`、atom の `Bytes` / `Files` / `Ratio`、`molecule` の `FSSummaryLine` / `CommandBlock`、`molecule/listrow` の `DiskTargetRow`、`page/disk` を実装済みに更新。`ProgressList` の未実装対象から Disk を外し、クリーンアップの進捗を状態行で示すことを注記。ディレクトリの行数を実測値に更新し、`ui/page/disk` の残り 65 行に対する分割の指針（次に機能を足す Issue が `clean.go` / `confirm.go` を切り出す）を追加 | Issue #13 で Disk タブと確認ダイアログを実装したため。`organism/dialog` は「パッケージ自体が無い」と書かれていたが `Confirm` が入って存在するようになり、未実装の区分がそのままでは実態と食い違った。`ui/page/disk` は上限まで 65 行しかなく、印を残さないと次の Issue が上限に当たってから分割を考えることになる |
 | 1.27 | 2026-08-23 | atom 一覧の「タブ 3〜7 でのみ使う atom は未実装」を「未実装は `DoctorStatus` だけ」に訂正。page 一覧の `disk.Model` の行を実装済みにし、使う organism を実態（`Table` / `Confirm`）へ修正。「`bubbles/progress` を使う範囲」からクリーンアップを外し、バーを出さない理由（`ProgressList` が未実装で状態行のテキストのみ）を明記。行数表を実測値へ更新し（`ui/page/disk` 1997 行・残り 3 行、`ui/molecule` 1583 行、`ui/keymap` 1273 行、`ui/molecule/listrow` 900 行、`ui/token` 817 行）、`ui/page/disk` の節の見出しと本文を残り 3 行に合わせて「次に手を入れる Issue は機能追加でなくても先に分割する」に改訂。「一覧タブを 2 枚足せる余裕」の散文を表に合わせ、Disk を実装済み側へ移して `disk_row` 292 行を実測に加えた。1.11 が重複していた行を末尾へ 1.26 として付け直した | 実装状況表が「未実装の atom は `DoctorStatus` のみ」としているのに atom 一覧の散文は `Bytes` / `Files` / `Ratio` も未実装だと書いており、**同じコミットが更新した 2 箇所が正面から矛盾**していた。page 一覧の表だけが `disk.Model` を未実装のまま残し、しかも `page/disk` が使っていない `ProgressList` を挙げていた。「進捗バーを出す範囲」はクリーンアップを対象に含めていたが、`page/disk` は意図的にバーを描かず、同文書の organism 一覧の `ProgressList` の行とも食い違っていた。行数表の直後の散文は `残り 1392 行` という旧値と「残る Disk / Logs / Doctor」という旧状況のままだった。改訂履歴に追加された行は版番号が既存の 1.11 と重複し、しかも表の途中（1.10 の直後）に挿入されていた。本文が版番号で相互参照するため、重複は参照を壊す |
+| 1.28 | 2026-08-23 | ディレクトリ構成の `organism/dialog/` の注記を「未実装」から「`Confirm` のみ実装済み」へ変更し、依存グラフのノードラベルから `※未実装` を外した。行数表と `ui/page/disk` の節（見出し・本文）を実測値（1998 行・残り 2 行）へ更新 | 1.26 がまさに `organism/dialog` の実装済み／未実装の区分を訂正した理由を挙げているのに、ディレクトリ構成と依存グラフの 2 箇所だけが「未実装」のまま取り残されていた。同文書の organism 一覧（`Confirm` は実装済み）・「`organism/dialog` は `Confirm` だけが実装済みである」・実装状況表・行数表（`ui/organism/dialog` 451 行）と正面から矛盾しており、構成図だけを読むとパッケージが無いと誤読する。行数は Issue #13 の回帰テスト（`FSStats` 失敗時の配線と docker の解放見込み）を足したため 1997 → 1998 行になった |
