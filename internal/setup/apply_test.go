@@ -177,6 +177,57 @@ func TestApplyReportsProgressPerPhase(t *testing.T) {
 	}
 }
 
+// 終了要求を受けたら、着手していない台には一切手を付けない
+// （docs/architecture/security.md「context でキャンセルできる」）。
+func TestApplyStopsOnCancelAndLeavesRemainingUntouched(t *testing.T) {
+	t.Parallel()
+
+	base := t.TempDir()
+	ctx, cancel := context.WithCancel(t.Context())
+
+	f := exec.NewFake()
+	// 1 台目の登録が済んだところで終了要求が来た状況を作る。
+	f.SetFunc(func(name string, _ []string) (exec.Result, error) {
+		if name == "./config.sh" {
+			cancel()
+		}
+		return exec.Result{Stdout: nil, Stderr: nil, ExitCode: 0}, nil
+	})
+
+	res, err := setup.Apply(ctx, setup.ApplyInput{
+		Exec:     f,
+		Plan:     addPlanIn(t, base, 3),
+		Token:    "TOKENTOKENTOKEN",
+		TokenFor: nil,
+		Tarball:  makeTarball(t),
+		Drain:    nil,
+		Progress: nil,
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	if len(res.Succeeded) != 0 {
+		t.Errorf("成功 = %v, want 空（1 台目は途中で止まっている）", res.Succeeded)
+	}
+	if res.Failed != "build01-5" {
+		t.Errorf("中断した台 = %q, want build01-5", res.Failed)
+	}
+	if want := []string{"build01-6", "build01-7"}; !slices.Equal(res.Remaining, want) {
+		t.Errorf("未着手 = %v, want %v", res.Remaining, want)
+	}
+
+	for _, c := range f.Calls() {
+		if c.Options.Runner != "build01-5" {
+			t.Errorf("未着手の台にコマンドを発行している: %v", c)
+		}
+	}
+	for _, name := range []string{"build01-6", "build01-7"} {
+		if _, serr := os.Stat(filepath.Join(base, name)); !errors.Is(serr, os.ErrNotExist) {
+			t.Errorf("未着手の台のディレクトリを作っている: %s (%v)", name, serr)
+		}
+	}
+}
+
 func TestApplyValidatesInput(t *testing.T) {
 	t.Parallel()
 

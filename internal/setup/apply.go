@@ -91,6 +91,10 @@ func (r Result) OK() bool { return r.Failed == "" && r.Err == nil }
 // **途中で失敗した場合はその台で中止し、成功済みの runner は残す**（FR-15）。
 // 何台目までが成功し、どこで何が失敗したかを Result に載せて返す。戻り値の
 // error は Result.Err と同じもので、呼び出し側が errors.Is で扱えるようにしてある。
+//
+// ctx は台と手順の境界で見る（docs/architecture/security.md「context で
+// キャンセルできる」）。打ち切った時点で着手していない台は、失敗のときと同じく
+// Result.Remaining に載る。
 func Apply(ctx context.Context, in ApplyInput) (Result, error) {
 	if err := validateApply(in); err != nil {
 		return Result{
@@ -102,6 +106,14 @@ func Apply(ctx context.Context, in ApplyInput) (Result, error) {
 	done := make([]string, 0, len(units))
 
 	for i, u := range units {
+		// 着手前に打ち切るので、この台は「失敗」ではなく未着手として扱う。
+		// Failed を空にしておかないと、手を付けていない台を壊したように見える。
+		if err := ctx.Err(); err != nil {
+			return Result{
+				Succeeded: done, Failed: "", Phase: "", Err: err, Remaining: remaining(units, i),
+			}, err
+		}
+
 		if err := applyUnit(ctx, in, u, i, len(units)); err != nil {
 			return Result{
 				Succeeded: done,
@@ -138,21 +150,34 @@ func validateApply(in ApplyInput) error {
 }
 
 // applyUnit は 1 台分の手順を順に実行する。
+//
+// 手順の境界ごとに ctx を見る。着手済みの台での打ち切りは失敗と同じ StepError に
+// 包む。こうしておくと Result.Failed / Result.Phase が「どこまで進んだ台か」を
+// 失敗時と同じ経路で表せ、呼び出し側は errors.Is で context.Canceled を見分けられる。
 func applyUnit(ctx context.Context, in ApplyInput, u Unit, index, total int) error {
 	for _, s := range u.Steps {
+		if err := ctx.Err(); err != nil {
+			return stepFailed(in, u, s, index, total, err)
+		}
+
 		notify(in.Progress, Progress{
 			Index: index, Total: total, Name: u.Name, Phase: s.Phase, Done: false, Err: nil,
 		})
 
 		if err := runStep(ctx, in, u, s); err != nil {
-			werr := &StepError{Unit: u.Name, Phase: s.Phase, Err: err}
-			notify(in.Progress, Progress{
-				Index: index, Total: total, Name: u.Name, Phase: s.Phase, Done: true, Err: werr,
-			})
-			return werr
+			return stepFailed(in, u, s, index, total, err)
 		}
 	}
 	return nil
+}
+
+// stepFailed は手順の失敗（打ち切りを含む）を StepError に包み、進捗にも流す。
+func stepFailed(in ApplyInput, u Unit, s Step, index, total int, err error) error {
+	werr := &StepError{Unit: u.Name, Phase: s.Phase, Err: err}
+	notify(in.Progress, Progress{
+		Index: index, Total: total, Name: u.Name, Phase: s.Phase, Done: true, Err: werr,
+	})
+	return werr
 }
 
 // runStep は 1 手順を実行する。
@@ -161,7 +186,7 @@ func runStep(ctx context.Context, in ApplyInput, u Unit, s Step) error {
 	case StepMkdir:
 		return os.MkdirAll(s.Dir, dirMode)
 	case StepExtract:
-		return tarball.Extract(in.Tarball, s.Dir, s.Keep)
+		return tarball.Extract(ctx, in.Tarball, s.Dir, s.Keep)
 	case StepDrain:
 		return drainWith(ctx, in, u.Runner)
 	case StepCommand:
