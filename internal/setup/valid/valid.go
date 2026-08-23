@@ -36,6 +36,14 @@ var (
 	ErrHasDotDot = errors.New(".. を含むパスは使えません")
 	// ErrNotGitHub は GitHub 以外のホストを指定した場合のエラー。
 	ErrNotGitHub = errors.New("GitHub の URL を指定してください")
+	// ErrURLUserInfo は URL に認証情報を埋め込んだ場合のエラー。
+	//
+	// `https://x:<PAT>@github.com/...` は config.sh --url にそのまま渡り、確認
+	// プレビューにも監査ログにも平文で載る。利用者が打ち込んだ PAT は
+	// gh.Secrets に登録されないため、値一致マスク（exec/mask の段 2）では
+	// 消せない（internal/exec/command/command.go が言う「URL 埋め込み」）。
+	// 消せない以上、そもそも受け取らない。
+	ErrURLUserInfo = errors.New("URL に認証情報を埋め込まないでください")
 	// ErrBadCount は台数が範囲外の場合のエラー。
 	ErrBadCount = errors.New("追加する台数は 1〜50 の範囲で指定してください")
 )
@@ -130,6 +138,10 @@ func Dir(field, path string) (string, error) {
 }
 
 // URL は登録先の URL を検証する。ホストが GitHub であることを求める。
+//
+// 認証情報を埋め込んだ URL も拒否する。エラー文言に URL そのものは載せない。
+// 載せると、埋め込まれた認証情報を守るための検証がその認証情報を監査ログへ
+// 書き出すことになる。
 func URL(raw string) (string, error) {
 	s := strings.TrimSpace(raw)
 	if s == "" {
@@ -138,6 +150,9 @@ func URL(raw string) (string, error) {
 	u, err := url.Parse(s)
 	if err != nil {
 		return "", fmt.Errorf("URL %q: %w", s, ErrNotGitHub)
+	}
+	if u.User != nil {
+		return "", fmt.Errorf("登録先の URL: %w", ErrURLUserInfo)
 	}
 	if u.Scheme != "https" || !isGitHubHost(u.Host) {
 		return "", fmt.Errorf("URL %q: %w", s, ErrNotGitHub)

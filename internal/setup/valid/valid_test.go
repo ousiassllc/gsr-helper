@@ -149,17 +149,23 @@ func TestURL(t *testing.T) {
 	tests := map[string]struct {
 		in      string
 		want    string
-		wantErr bool
+		wantErr error
 	}{
-		"org":           {"https://github.com/orgs/foo", "https://github.com/orgs/foo", false},
-		"repo":          {"https://github.com/foo/bar", "https://github.com/foo/bar", false},
-		"末尾のスラッシュは落とす":  {"https://github.com/foo/bar/", "https://github.com/foo/bar", false},
-		"www も許す":       {"https://www.github.com/foo", "https://www.github.com/foo", false},
-		"http は拒否":      {"http://github.com/foo", "", true},
-		"GitHub 以外のホスト": {"https://example.test/foo", "", true},
-		"よく似たホスト":       {"https://github.com.evil.test/foo", "", true},
-		"スキーム無し":        {"github.com/foo/bar", "", true},
-		"空":             {"", "", true},
+		"org":           {"https://github.com/orgs/foo", "https://github.com/orgs/foo", nil},
+		"repo":          {"https://github.com/foo/bar", "https://github.com/foo/bar", nil},
+		"末尾のスラッシュは落とす":  {"https://github.com/foo/bar/", "https://github.com/foo/bar", nil},
+		"www も許す":       {"https://www.github.com/foo", "https://www.github.com/foo", nil},
+		"http は拒否":      {"http://github.com/foo", "", valid.ErrNotGitHub},
+		"GitHub 以外のホスト": {"https://example.test/foo", "", valid.ErrNotGitHub},
+		"よく似たホスト":       {"https://github.com.evil.test/foo", "", valid.ErrNotGitHub},
+		"スキーム無し":        {"github.com/foo/bar", "", valid.ErrNotGitHub},
+		"空":             {"", "", valid.ErrNotGitHub},
+		// 認証情報を埋め込んだ URL は config.sh --url と監査ログへ平文で流れる。
+		"利用者名とパスワードの埋め込み": {
+			"https://x:ghp_AAAABBBBCCCCDDDDEEEEFFFFGGGGHHHH@github.com/orgs/foo", "",
+			valid.ErrURLUserInfo,
+		},
+		"利用者名だけの埋め込み": {"https://ghp_AAAA@github.com/orgs/foo", "", valid.ErrURLUserInfo},
 	}
 
 	for label, tt := range tests {
@@ -167,9 +173,9 @@ func TestURL(t *testing.T) {
 			t.Parallel()
 
 			got, err := valid.URL(tt.in)
-			if tt.wantErr {
-				if !errors.Is(err, valid.ErrNotGitHub) {
-					t.Errorf("err = %v, want ErrNotGitHub", err)
+			if tt.wantErr != nil {
+				if !errors.Is(err, tt.wantErr) {
+					t.Errorf("err = %v, want %v", err, tt.wantErr)
 				}
 				return
 			}
@@ -180,6 +186,21 @@ func TestURL(t *testing.T) {
 				t.Errorf("URL = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+// 埋め込まれた認証情報を守るための検証が、その認証情報を文言に載せてはならない。
+func TestURLErrorDoesNotEchoCredentials(t *testing.T) {
+	t.Parallel()
+
+	const secret = "ghp_AAAABBBBCCCCDDDDEEEEFFFFGGGGHHHH"
+
+	_, err := valid.URL("https://x:" + secret + "@github.com/orgs/foo")
+	if err == nil {
+		t.Fatal("err = nil, want ErrURLUserInfo")
+	}
+	if strings.Contains(err.Error(), secret) {
+		t.Errorf("エラー文言に認証情報が載っている: %s", err)
 	}
 }
 
