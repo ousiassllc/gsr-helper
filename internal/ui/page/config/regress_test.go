@@ -13,6 +13,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/ui/organism"
 	"github.com/ousiassllc/gsr-helper/internal/ui/organism/dialog"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/configmodal"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
 )
 
@@ -29,13 +30,13 @@ func TestApprovalIsAcceptedOnce(t *testing.T) {
 	m, _ = send(t, m, page.EditConfigMsg{Runner: r})
 	m = openEnvForm(t, m)
 
-	m, cmd := send(t, m, page.ResultMsg{Kind: diffKind, Msg: dialog.DecidedMsg{Confirmed: true}})
+	m, cmd := send(t, m, page.ResultMsg{Kind: configmodal.DiffKind, Msg: dialog.DecidedMsg{Confirmed: true}})
 	if _, ok := doneOf(cmd); !ok {
 		t.Fatal("1 回目の書き込みが走っていない")
 	}
 
 	// 2 回目の決定（連打・貼り付け）は捨てる。
-	_, again := send(t, m, page.ResultMsg{Kind: diffKind, Msg: dialog.DecidedMsg{Confirmed: true}})
+	_, again := send(t, m, page.ResultMsg{Kind: configmodal.DiffKind, Msg: dialog.DecidedMsg{Confirmed: true}})
 	if _, ok := doneOf(again); ok {
 		t.Error("同じ承認で 2 回書き込んだ")
 	}
@@ -81,12 +82,12 @@ func TestCopyAppliesToTargetsNotSource(t *testing.T) {
 
 	m.vals.Kind = edit.KindCopy
 	m.vals.CopyTo = []string{dst.Name()}
-	m, _ = send(t, m, page.ResultMsg{Kind: formKind, Msg: dialog.FormDoneMsg{Form: nil}})
-	m, _ = send(t, m, page.ResultMsg{Kind: diffKind, Msg: dialog.DecidedMsg{Confirmed: true}})
+	m, _ = send(t, m, page.ResultMsg{Kind: configmodal.FormKind, Msg: dialog.FormDoneMsg{Form: nil}})
+	m, _ = send(t, m, page.ResultMsg{Kind: configmodal.DiffKind, Msg: dialog.DecidedMsg{Confirmed: true}})
 	m, _ = send(t, m, doneMsg{text: "書き込みました", err: nil})
 
 	_, cmd := send(t, m, page.ResultMsg{
-		Kind: applyKind, Msg: organism.ChosenMsg{ID: apply.Force.Label(), Key: ""},
+		Kind: configmodal.ApplyKind, Msg: organism.ChosenMsg{ID: apply.Force.Label(), Key: ""},
 	})
 	if _, ok := doneOf(cmd); !ok {
 		t.Fatal("反映が走っていない")
@@ -127,7 +128,7 @@ func TestUnchangedLabelsAreNotWritten(t *testing.T) {
 		t.Fatalf("フォームの初期値 = %q, want gpu（予約ラベルは除く）", m.vals.Labels)
 	}
 
-	m, _ = send(t, m, page.ResultMsg{Kind: formKind, Msg: dialog.FormDoneMsg{Form: nil}})
+	m, _ = send(t, m, page.ResultMsg{Kind: configmodal.FormKind, Msg: dialog.FormDoneMsg{Form: nil}})
 	if !strings.Contains(m.status(), "変更はありません") {
 		t.Errorf("状態行 = %q, want 変更はありません", m.status())
 	}
@@ -146,9 +147,9 @@ func TestSelfConfigReopensWithSavedValues(t *testing.T) {
 
 	m, _ = send(t, m, organism.ChosenMsg{ID: selfID, Key: ""})
 	m.vals.Self.Refresh = "42"
-	m, _ = send(t, m, page.ResultMsg{Kind: formKind, Msg: dialog.FormDoneMsg{Form: nil}})
+	m, _ = send(t, m, page.ResultMsg{Kind: configmodal.FormKind, Msg: dialog.FormDoneMsg{Form: nil}})
 
-	m, cmd := send(t, m, page.ResultMsg{Kind: diffKind, Msg: dialog.DecidedMsg{Confirmed: true}})
+	m, cmd := send(t, m, page.ResultMsg{Kind: configmodal.DiffKind, Msg: dialog.DecidedMsg{Confirmed: true}})
 	done, ok := doneOf(cmd)
 	if !ok || done.err != nil {
 		t.Fatalf("設定の書き込みに失敗: %v", done.err)
@@ -184,9 +185,9 @@ func TestFirstRunWizardWritesWithoutEdits(t *testing.T) {
 	}
 
 	// 値を触らずに確定する。
-	m, _ = send(t, m, page.ResultMsg{Kind: formKind, Msg: dialog.FormDoneMsg{Form: nil}})
+	m, _ = send(t, m, page.ResultMsg{Kind: configmodal.FormKind, Msg: dialog.FormDoneMsg{Form: nil}})
 
-	m, cmd = send(t, m, page.ResultMsg{Kind: diffKind, Msg: dialog.DecidedMsg{Confirmed: true}})
+	m, cmd = send(t, m, page.ResultMsg{Kind: configmodal.DiffKind, Msg: dialog.DecidedMsg{Confirmed: true}})
 	done, ok := doneOf(cmd)
 	if !ok {
 		t.Fatalf("書き込みの Cmd が出ていない（差分なしで飛ばされた）: %s", view(m))
@@ -210,7 +211,7 @@ func TestApplyModalBackChoosesNone(t *testing.T) {
 	m := newPage(t, r)
 	m, _ = send(t, m, page.EditConfigMsg{Runner: r})
 	m = openEnvForm(t, m)
-	m, _ = send(t, m, page.ResultMsg{Kind: diffKind, Msg: dialog.DecidedMsg{Confirmed: true}})
+	m, _ = send(t, m, page.ResultMsg{Kind: configmodal.DiffKind, Msg: dialog.DecidedMsg{Confirmed: true}})
 	m, cmd := send(t, m, doneMsg{text: "書き込みました", err: nil})
 	m = pagetest.Advance(m, cmd, 4).(Model)
 

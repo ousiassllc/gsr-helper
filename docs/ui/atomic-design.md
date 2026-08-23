@@ -1068,7 +1068,6 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 
 | ディレクトリ | 行数 | 残り | 判定 |
 |------------|------|------|------|
-| `ui/page/config` | 2117 | -117 | **WARN（超過中）** |
 | `ui/page/setup` | 2081 | -81 | **WARN（超過中）** |
 | `ui/molecule` | 2034 | -34 | **WARN（超過中）** |
 | `ui/page/runners` | 2018 | -18 | **WARN（超過中）** |
@@ -1078,6 +1077,7 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 | `ui/page` | 1970 | 30 | pass |
 | `ui/organism/table` | 1969 | 31 | pass |
 | `ui/page/disk` | 1940 | 60 | pass |
+| `ui/page/config` | 1719 | 281 | pass |
 | `ui/page/jobs` | 1684 | 316 | pass |
 | `ui/page/pagetest` | 1674 | 326 | pass |
 | `ui/keymap` | 1666 | 334 | pass |
@@ -1093,6 +1093,7 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 | `ui/tabset` | 625 | 1375 | pass |
 | `ui/organism` | 521 | 1479 | pass |
 | `ui/page/disk/cleanview` | 408 | 1592 | pass |
+| `ui/page/configmodal` | 448 | 1552 | pass |
 | `ui/page/diskclean` | 312 | 1688 | pass |
 | `ui/chrome` | 347 | 1653 | pass |
 | `ui/workscan` | 337 | 1663 | pass |
@@ -1142,7 +1143,7 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 
 結果は 1970 行（残り 30 行）である。**残り 30 行は実質ゼロなので、次にこのディレクトリへ手を入れる Issue は 1 行足す前に空けること。** (3) はこの 1 周で使い切った（残る道具は無い）ので、次に採るのはテストの重複削減か、上記の (1)——`apply.go` とその 4 つのテストファイル（`apply_test.go` / `applycancel_test.go` / `applyscope_test.go`）を `internal/setup/setupapply` へ出すこと——である。
 
-#### `ui/page/config` を警告帯に入れない判断（Issue #12）
+#### `ui/page/config` を `page/configmodal` へ分けた判断（Issue #12 / 実施は Issue #104）
 
 Config タブは項目の一覧・フォーム 6 種・差分の承認・反映方法の選択・初回設定ウィザードを持ち、素直に書くと 2100 行を超えた。**そこで tea に依らない部分を `internal/config/edit`（設定項目ごとの変更の組み立て・差分・書き込み・ラベルの API）へ出し、1985 行に収めた。**
 
@@ -1150,7 +1151,16 @@ Config タブは項目の一覧・フォーム 6 種・差分の承認・反映�
 
 **その後の研磨で 2059 行になり、警告帯に入った（残り -59 行）。** 押し上げたのは critical 7 件の回帰テストである（二重承認でバックアップが壊れる、実行中の対象切り替えで別の runner へ書く、処理中に新しい編集を始められる、など）。**安全側の検証を行数の都合で落とさない方を採った。** 同じ判断を `ui/page/disk`（当時 2101 行、現在 1940 行。Issue #102 で分割済み）と `ui/page/runners`（当時 2164 行、現在 2018 行）も記録している。エラー境界の 2200 まで 141 行。
 
-**次にこのタブへ足す Issue は、まず行数を空けること。** 残った tea 非依存の部分（`items.go` の要約、`form.go` の検証）を `config/edit` へ出すのが最初の候補である。画面の状態遷移（`config.go` / `flow.go` / `results.go`）とモーダル（`modals.go`）は tea に依るので出せない。
+**Issue #104 で 2117 行から 1719 行（残り 281 行）へ戻した。** ただし本節がそれまで挙げていた候補——「残った tea 非依存の部分（`items.go` の要約、`form.go` の検証）を `config/edit` へ出す」——は**もう使えなかった。**
+
+- **`form.go` の検証は既に出ている。** `ValidateLine` / `ValidateHook` / `ValidateLabelInput` / `ValidateRoots` / `ValidateRefresh` / `ValidatePercent` / `ValidateAuditLog` はすべて `config/edit` にあり、`form.go` に残っていたのは `huh.Field` の組み立てだけだった。**`huh` は端末の入力欄なので、ドメインの `config/edit` へは出せない**（依存が UI → ドメインの一方向でなくなる）。
+- **`items.go` の要約も同じである。** 現在値の読み取りは `edit.Summarize` / `edit.Summary` として既に出ており、残っていたのは `listrow.SettingView` と `token.Column` を組む部分である。これも UI の型なのでドメインへは出せない。
+
+**そこで代わりにモーダル 3 種を `page/configmodal` へ出した。** `modals.go` は `tea` に依るので「tea 非依存を出す」という上の方針からは外れるが、**タブの状態を 1 つも見ない**——フォーム・差分の承認・反映方法の選択はどれも `organism/dialog` と `organism.ChoiceList` を包み、開く指示を受けて決定を `page.ResultMsg` で差し戻すだけである。判断（何を差分に載せるか・どの反映方法を並べるか・承認後に何を書くか）はタブ側に残っている。**先例は `page/progressmodal` と `page/disk/confirmmodal`** で、どちらも同じ形のモーダルを page から分けたものである。入力欄の組み立て（`form.go` と `selfconf.go` の `selfFields`）も、フォームのモーダルと同じ場所に置いた。
+
+`page/pagetest/import_test.go` の `shared` マップに `"configmodal"` を登録してある（足さないとタブとして扱われ `TestOnlyTabsetImportsTabs` が落ちる）。
+
+**次にこのタブへ手を入れる Issue は 281 行を使ってよい。** それを使い切った場合に残る手は、`config.go` / `flow.go` / `results.go` の状態遷移そのものではなく、初回設定ウィザード（`selfconf.go`。編集対象が runner ではなくアプリ自身で、FR-41 / FR-42 と他の項目で要件が分かれている）を出すことである。
 
 #### `ui/page/disk` を `page/diskclean` へ分けた判断（Issue #13 / 実施は Issue #102）
 
@@ -1333,3 +1343,4 @@ Issue #31 で `table_test.go` の空振りしていたテスト（`View() != ""`
 | 1.49 | 2026-08-24 | 「ディレクトリの行数」に「UI 層の外のディレクトリ」を新設し、`internal/setup` / `internal/disk` / `internal/disk/pathguard` の実測値と、`internal/disk` から削除パスの検証を `pathguard` へ切り出した判断（Issue #101）を記録 | 行数チェックはリポジトリ全体を見るのに、空け方の判断は本書にしか無かった。UI 層の外で超過したディレクトリの判断を別の場所に書くと、同じ 3 つの手の使い分けが 2 か所に分かれて片方だけが古くなる |
 | 1.50 | 2026-08-24 | 行数表を実測へ更新（`ui/page/disk` 2128 → 1940・pass、`ui/page/diskclean` 312 を追加）。`ui/page/disk` の節を「警告帯に入った判断」から「`page/diskclean` へ分けた判断」へ改め、Issue #102 で実施した分割の境界（実行は出し、承認の義務はタブに残す）とテストの分け方を追記。`ui/page/config` の節が参照する `ui/page/disk` の現在値も更新 | 本節が「次に手を入れる Issue は先に分割すること」と指示していた分割を Issue #102 が実施したため、指示のまま残すと実施済みの作業を次の Issue がもう一度探すことになる |
 | 1.51 | 2026-08-24 | 「UI 層の外のディレクトリ」の表を実測へ更新（`internal/setup` 2123 → 1970・pass、`internal/setup/setuptest` 170 を追加）し、フィクスチャを `setuptest` へ出した判断（Issue #103）と、(1) を採らなかった理由・残り 30 行に対する次の手を追記 | 本節は「警告帯に入ったディレクトリへ部品を足すときは判断と理由を残すこと」を求めており、UI 層の外も同じ扱いにすると 1.49 で決めたため |
+| 1.52 | 2026-08-24 | 行数表を実測へ更新（`ui/page/config` 2117 → 1719・pass、`ui/page/configmodal` 448 を追加）。`ui/page/config` の節を「`page/configmodal` へ分けた判断」へ改め、本節が挙げていた「`items.go` の要約・`form.go` の検証を `config/edit` へ出す」が既に実施済み（検証）または実施不能（`huh` / `listrow` に依るため UI からドメインへは出せない）であることと、代わりにモーダル 3 種を出した理由を記録（Issue #104） | 本節の指示どおりに着手すると、既に `config/edit` にある検証をもう一度探すことになり、`items.go` に残った部分も UI の型に依るため出せない。指示を実態に合わせないと、次の Issue も同じ空振りをする |

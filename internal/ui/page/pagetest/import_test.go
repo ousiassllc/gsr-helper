@@ -46,6 +46,8 @@ var shared = map[string]bool{
 	"progressmodal": true,
 	// diskclean は Disk タブのクリーンアップ実行部であり、タブではない（Issue #102）。
 	"diskclean": true,
+	// configmodal は Config タブのモーダル 3 種であり、タブではない（Issue #104）。
+	"configmodal": true,
 }
 
 // テスト用の道具は本番の経路から import されない。

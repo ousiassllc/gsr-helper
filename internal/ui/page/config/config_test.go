@@ -9,6 +9,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/ui/organism"
 	"github.com/ousiassllc/gsr-helper/internal/ui/organism/dialog"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/configmodal"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
 )
 
@@ -128,7 +129,7 @@ func TestCancelledApprovalDoesNotWrite(t *testing.T) {
 	m, _ = send(t, m, page.EditConfigMsg{Runner: r})
 
 	m = openEnvForm(t, m)
-	m, _ = send(t, m, page.ResultMsg{Kind: diffKind, Msg: dialog.DecidedMsg{Confirmed: false}})
+	m, _ = send(t, m, page.ResultMsg{Kind: configmodal.DiffKind, Msg: dialog.DecidedMsg{Confirmed: false}})
 
 	got, err := readFile(filepath.Join(r.Dir, ".env"))
 	if err != nil {
@@ -152,7 +153,7 @@ func TestApprovedWriteBacksUpAndAsksApplyMethod(t *testing.T) {
 	m = openEnvForm(t, m)
 
 	// 差分の承認。書き込みは Cmd として返る。
-	m, cmd := send(t, m, page.ResultMsg{Kind: diffKind, Msg: dialog.DecidedMsg{Confirmed: true}})
+	m, cmd := send(t, m, page.ResultMsg{Kind: configmodal.DiffKind, Msg: dialog.DecidedMsg{Confirmed: true}})
 	done, ok := doneOf(cmd)
 	if !ok {
 		t.Fatal("書き込みの Cmd が返らなかった")
