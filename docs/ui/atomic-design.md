@@ -333,7 +333,7 @@ func Columns(all []token.Column, width int, rules token.ColumnRules) []token.Col
 | `Truncate` / `Pad` / `Justify` | 文字列・幅 | 幅に収めた文字列 | 全画面 |
 | `Hint` | — | `KeyHint` の入力（キー・説明・可否・理由） | フッタ / 詳細画面 |
 
-未実装の atom は `DoctorStatus` だけである（後述の「実装状況」）。`Bytes` / `Files` / `Ratio` は Disk タブ（[FR-27](../requirements/functional.md)〜[FR-29](../requirements/functional.md)）で使うため実装済みである。`Bytes` は Logs タブのファイル一覧の `SIZE` 列でも使うため、最長の表記（`1023.9K` / `8192.0P` の 7 桁）が `token.SizeColumnWidth` に収まることをテストで固定してある。
+**atom はすべて実装済みである。** 最後まで残っていた `DoctorStatus` は Doctor タブ（Issue #11）が実装した。`Bytes` / `Files` / `Ratio` は Disk タブ（[FR-27](../requirements/functional.md)〜[FR-29](../requirements/functional.md)）で使うため実装済みである。`Bytes` は Logs タブのファイル一覧の `SIZE` 列でも使うため、最長の表記（`1023.9K` / `8192.0P` の 7 桁）が `token.SizeColumnWidth` に収まることをテストで固定してある。
 
 `Cell` は日本語を含む表の桁ずれを防ぐための atom。**文字列の表示幅の計算は `lipgloss.Width` に一本化し、この atom に閉じる。** 上位の階層は「どの列を何文字幅で置くか」を決めるだけで、幅そのものを数えない。
 
@@ -364,7 +364,9 @@ func Columns(all []token.Column, width int, rules token.ColumnRules) []token.Col
 | `CapsBar` | `host: build01  root  gh: 認証済み`（root が無ければ `read-only`、systemctl が無ければ `systemd なし` を挟む） | ヘッダ |
 | `SummaryCounts` | `OK 14  WARN 2  FAIL 1  SKIP 1` | Doctor / 状態行 |
 
-このうち実装済みは `Columns` / `RunnerRow` / `OrphanRow` / `JobRow` / `DiskTargetRow` / `FSSummaryLine` / `LogRow` / `LogLine` / `CommandBlock` / `ActionRow` / `KeyBar` / `TabBar` / `CapsBar` / `ProgressRow` である。残りはタブ 5〜6（Doctor / Config）のものなので未実装である（後述の「実装状況」）。
+このうち実装済みは `Columns` / `RunnerRow` / `OrphanRow` / `JobRow` / `DiskTargetRow` / `FSSummaryLine` / `DoctorRow` / `LogRow` / `LogLine` / `CommandBlock` / `ActionRow` / `KeyBar` / `TabBar` / `CapsBar` / `SummaryCounts` / `ProgressRow` である。残る `SettingRow` / `DiffLine` はタブ 6（Config）のものなので未実装である（後述の「実装状況」）。
+
+`SummaryCounts` は `molecule` 直下に置く（`molecule/listrow` ではない）。一覧タブの数に比例して増える行ビルダではなく、判定ごとの件数を要約する部品が 1 つしかないからである。**0 件の判定も出す**——「FAIL 0」が消えると、FAIL が無いのか数え忘れているのかを画面から区別できない。
 
 `ProgressRow` は `molecule` 直下に置く（`molecule/listrow` ではない）。一覧タブの数に比例して増える行ビルダではなく、進捗表示に 1 つしかない部品だからである。**対応する画面のうち実装済みなのは Setup だけで、Disk のクリーンアップはまだこの行に切り替えていない**（後述の `ProgressList` の項）。
 
@@ -626,7 +628,7 @@ func ModalPadding() (w, h int)
 | `jobs.Model` | 2 | 同上 | 同上（対象は runner） | 実装済み（同上。直接受ける操作は `d` / `X` / `R` の 3 つ） |
 | `disk.Model` | 3 | `Table` / `Confirm` | `disk` | 実装済み（集計・クリーンアップ・確認ダイアログまで） |
 | `logs.Model` | 4 | `organism/table` / `organism/pane`（`Log`） | `logs` | 実装済み |
-| `doctor.Model` | 5 | `Table` / `Detail` | `doctor` | 未実装 |
+| `doctor.Model` | 5 | `organism/table` / `organism/pane`（`Detail`） | `doctor` | 実装済み（一覧・詳細・全体 / 個別の再実行） |
 | `config.Model` | 6 | `ChoiceList` / `Form` / `DiffApproval` | `config` / `gh` | 未実装 |
 | `setup.Model` | 7 | `ChoiceList` / `Form` / `Confirm` / `ProgressList` | `setup` / `setup/job`（`gh` と `setup/tarball` はその内側） | 実装済み（追加・削除・バージョン更新） |
 
@@ -649,6 +651,8 @@ runner のサービス制御（開始 / 停止 / 強制停止 / ドレイン停�
 | `internal/ui/keymap/` | そのタブ固有のキーがある場合のみ、定義と `Set` への 1 フィールド、および `Set.Contexts()` への登録（そのキーが同時に有効になるコンテキスト）。登録漏れは `TestContextsCoverEverySetField` が落とす | 任意 |
 
 **`internal/ui` 直下（親 Model）は 1 行も触らない。** タブを知っているのは `tabset` だけであり、この分担は `page/<tab>` を import するのが `tabset` に限られることで強制される。
+
+**例外は「タブが要する起動時の値」である。** Setup タブの `Options.Secrets`（Issue #8）と、Doctor タブが誘導先になる起動時の前提チェック（FR-44。Issue #11）がこれにあたる。どちらも**タブの中では成立しない**——前者は cmd が起動時に決めた値であり、後者はどのタブを開いていても状態行に出る必要がある。この 2 つは「起動時に決めた値を親が配る」という既存の分担そのものなので `tabset` へは寄せられない。
 
 **例外はタブをまたぐ移動である。** Runners / Jobs タブの `l` は Logs タブへ移って対象を渡す（[画面仕様](screens.md#l-でログを開く)）。タブ同士は互いを import しないため、移動元は移動先の番号も型も持てず、移動できるのは有効タブを切り替える唯一の主体である親 Model だけである。そこで `page.OpenTabMsg{Title, Msg}` を親が受け、名前（`tabset.Tab.Title`）でタブを引いて `activate` してから用件を配る。
 
@@ -973,7 +977,7 @@ Context の登録漏れは人の注意に頼らない。`Set` の全フィール
 | Disk タブ | `Frame` | `Table` | `FSSummaryLine` / `DiskTargetRow` | 実装済み |
 | クリーンアップの確認 | `Modal` | `Confirm` | `CommandBlock` | 実装済み |
 | Logs タブ | `Frame` | `Table` + `Log` | `Columns` / `LogRow` / `LogLine` | 実装済み |
-| Doctor タブ | `Frame` | `Table` | `SummaryCounts` / `DoctorRow` | 未実装 |
+| Doctor タブ | `Frame` / `Modal` | `Table` / `Detail` | `SummaryCounts` / `DoctorRow` | 実装済み |
 | Doctor の詳細 | `Modal` | `Detail` | `CommandBlock`（対処コマンドの表示） | 未実装 |
 | Config タブ | `Frame` + `Split` | `ChoiceList` / `Form` | `SettingRow` | 未実装 |
 | 変更内容の確認 | `Modal` | `DiffApproval` | `DiffLine` | 未実装 |
@@ -1028,8 +1032,8 @@ Context の登録漏れは人の注意に頼らない。`Set` の全フィール
 
 | 区分 | 対象 |
 |------|------|
-| 実装済み | `token`（`huh.Theme` の組み立てを含む）/ `keymap` / `atom` / `molecule`（フッタ・タブ行・ヘッダ・操作リスト・列選択・`FSSummaryLine` / `CommandBlock` / `LogLine` / `ProgressRow`）/ `molecule/listrow`（`RunnerRow` / `JobRow` / `OrphanRow` / `DiskTargetRow` / `LogRow`）/ `chrome` / `tabset` / `organism`（`ChoiceList`）/ `organism/table` / `organism/pane`（`Detail` / `Help` / `Log` / `ProgressList`）/ `organism/dialog`（`Confirm` / `DrainWaiter` / `Form`）/ `template`（`Frame` / `Modal`）/ `page` / `page/runners` / `page/jobs` / `page/disk` / `page/logs` / `page/setup` / `page/runnerdetail` / `page/runnerop` |
-| 未実装（タブ 5〜6 の Issue が持ち込む） | `page/doctor` / `page/config`、`template.Split`、atom の `DoctorStatus`、`molecule/listrow` の `DoctorRow` / `SettingRow` / `DiffLine`、molecule の `SummaryCounts` |
+| 実装済み | `token`（`huh.Theme` の組み立てを含む）/ `keymap` / `atom` / `molecule`（フッタ・タブ行・ヘッダ・操作リスト・列選択・`FSSummaryLine` / `CommandBlock` / `LogLine` / `SummaryCounts` / `ProgressRow`）/ `molecule/listrow`（`RunnerRow` / `JobRow` / `OrphanRow` / `DiskTargetRow` / `LogRow` / `DoctorRow`）/ `chrome` / `hostreq` / `tabset` / `organism`（`ChoiceList`）/ `organism/table` / `organism/pane`（`Detail` / `Help` / `Log` / `ProgressList`）/ `organism/dialog`（`Confirm` / `DrainWaiter` / `Form`）/ `template`（`Frame` / `Modal`）/ `page` / `page/runners` / `page/jobs` / `page/disk` / `page/logs` / `page/doctor` / `page/setup` / `page/runnerdetail` / `page/runnerop` |
+| 未実装（タブ 6 の Issue が持ち込む） | `page/config`、`template.Split`、`molecule/listrow` の `SettingRow` / `DiffLine` |
 | 未実装（部品が無い） | `organism/dialog` の `DiffApproval`（Config タブ）、`organism.ErrorBanner` |
 | 実装済みだが未接続 | `page/disk` の進捗（`ProgressList` へ切り替えていない） |
 
@@ -1047,29 +1051,40 @@ runner に対する操作のうち、**サービス制御の 6 つ（開始 / �
 
 | ディレクトリ | 行数 | 残り | 判定 |
 |------------|------|------|------|
+| `ui` | 2191 | -191 | **WARN（超過中）** |
 | `ui/page/setup` | 2190 | -190 | **WARN（超過中）** |
 | `ui/page/runners` | 2164 | -164 | **WARN（超過中）** |
 | `ui/organism/table` | 2157 | -157 | **WARN（超過中）** |
 | `ui/page/disk` | 2101 | -101 | **WARN（超過中）** |
-| `ui` | 2035 | -35 | **WARN（超過中）** |
+| `ui/molecule` | 2035 | -35 | **WARN（超過中）** |
 | `ui/page/logs` | 1994 | 6 | pass |
-| `ui/molecule` | 1860 | 140 | pass |
-| `ui/page` | 1841 | 159 | pass |
+| `ui/page` | 1851 | 149 | pass |
 | `ui/organism/dialog` | 1654 | 346 | pass |
+| `ui/keymap` | 1560 | 440 | pass |
 | `ui/organism/pane` | 1559 | 441 | pass |
-| `ui/keymap` | 1547 | 453 | pass |
+| `ui/page/pagetest` | 1420 | 580 | pass |
 | `ui/page/runnerop` | 1399 | 601 | pass |
-| `ui/page/pagetest` | 1370 | 630 | pass |
 | `ui/page/jobs` | 1282 | 718 | pass |
+| `ui/atom` | 1262 | 738 | pass |
+| `ui/token` | 1217 | 783 | pass |
+| `ui/molecule/listrow` | 1183 | 817 | pass |
 | `ui/page/runnerdetail` | 1174 | 826 | pass |
-| `ui/token` | 1163 | 837 | pass |
-| `ui/atom` | 1154 | 846 | pass |
-| `ui/molecule/listrow` | 1041 | 959 | pass |
+| `ui/page/doctor` | 1160 | 840 | pass |
 | `ui/page/action` | 988 | 1012 | pass |
 | `ui/template` | 657 | 1343 | pass |
 | `ui/organism` | 521 | 1479 | pass |
-| `ui/tabset` | 376 | 1624 | pass |
-| `ui/chrome` | 283 | 1717 | pass |
+| `ui/tabset` | 415 | 1585 | pass |
+| `ui/chrome` | 306 | 1694 | pass |
+| `ui/hostreq` | 175 | 1825 | pass |
+
+#### `ui/molecule` が警告帯に入った判断（Issue #11）
+
+**2035 行で警告帯（2000〜2200）に入った。** エラー境界の 2200 まで 165 行。押し上げたのは Doctor タブが要する `SummaryCounts`（本文 91 行 + 検査 83 行）である。
+
+**分割せず警告帯に入ることを選んだ。** `molecule` 直下にあるのは「一覧タブの数に比例しない部品」——フッタ・タブ行・ヘッダ・進捗 1 行・ログ 1 行・件数の要約——であり、共通するのは *`molecule/listrow` へ出せないこと* だけである。切り出すとしたら部品 1 つにつき 1 ディレクトリになり、`molecule/keybar` のようなパッケージが並ぶ。行数は減るが、部品を探す手掛かりが増えない。
+
+**次にこのディレクトリへ足す Issue は、`molecule/listrow` へ出せる部品かをまず見ること。** 行ビルダ（一覧タブに比例して増えるもの）はすべて `listrow` の側であり、そちらは 817 行空いている。行ビルダでない部品を足すなら、そのときに分割の是非を改めて判断する。
+
 #### `ui/page/disk` が警告帯に入った判断（Issue #13）
 
 Disk タブは 1 ディレクトリに一覧・集計・クリーンアップ・確認モーダルの 4 つの関心事を持つため、タブ 1 枚としては最も大きい。**2101 行で警告帯（2000〜2200）に入っている。** エラー境界の 2200 まで 99 行。
@@ -1096,15 +1111,23 @@ Setup タブは追加・削除・バージョン更新の 3 操作と、フォ�
 
 **次にこのディレクトリへ手を入れる Issue は、1 行足す前に行数を空けること。** 残り 10 行は実質ゼロである。**ただし上の 2 つの手はもう使い切っている。** 残る道具は `newModel` だけで、それは上記の理由で出せない。テストの重複もこの 3 周目で畳んだので、次に取れるのは本文（`flow.go` / `form.go` / `setup.go`）ではなく**モーダル 4 種（`formmodal.go` / `confirm.go` / `progress.go`）を `page/setupmodal` として切り出すこと**である。ファイルを分けるだけでは 1 ディレクトリの合計は 1 行も減らない（`ui/organism/table` を分割しない判断と同じ理由）ので、別ディレクトリへ出すこと自体が要件である。切り出すときは `page/pagetest/import_test.go` の `shared` マップに `"setupmodal"` を足すこと（足さないとタブとして扱われ `TestOnlyTabsetImportsTabs` が落ちる）。
 
-#### 一覧タブを 1 枚足せる余裕（Issue #35）
+#### 一覧タブを 1 枚足せる余裕（Issue #35 / 実績は Issue #11）
 
-残る一覧を持つタブは **Doctor の 1 枚だけ**である（Disk は Issue #13、Logs は Issue #9 で実装済み）。行ビルダを `ui/molecule/listrow` へ、列定義を `ui/token` へ足す。既存の行ビルダはテスト込みで `disk_row` 292 行 / `runner_row` 272 行 / `log_row` 141 行 / `orphan_row` 116 行 / `job_row` 110 行なので、**1 枚ぶんは最大でも 300 行程度**である。`ui/molecule/listrow` の残り 959 行はこれを 3 枚ぶん受けられる。
+**この見積りは実績で確かめられた。** 最後の一覧タブである Doctor（Issue #11）が消費したのは `molecule/listrow` で 142 行（`doctor_row` 本文 50 行 + 検査 92 行）、`ui/token` で 34 行（列定義と落とし方）であり、見積り（1 枚ぶん最大 300 行程度）に収まった。`ui/molecule/listrow` の残りは 817 行、`ui/token` の残りは 783 行である。
+
+**一覧を持つタブはこれで打ち止めである。** 残る未実装のタブは Config（タブ 6）1 枚だけで、こちらは一覧ではなくフォームと差分の画面なので、行ビルダも列定義も要らない（`SettingRow` / `DiffLine` は `molecule` 側の部品である）。
 
 **Disk / Logs の 2 枚ぶんは既に消費済みである。** 残りは 1392 行から `disk_row`（122 + 170 = 292 行）と `log_row`（62 + 79 = 141 行）を引いて 959 行になった。**足す必要のある一覧タブも 2 枚減り、見出しどおり Doctor の 1 枚だけになった**ので、余裕の判定は変わらない。むしろ 2 枚ぶんの実測値（292 行 / 141 行）が得られたことで、見積り 272 行が概ね妥当であること（Disk のように選択不可の理由まで持つ行は上振れすること）が確かめられた。
 
 `ui` 直下は**タブが増えても 1 行も増えない**——ただしこれは「タブを 1 枚足すだけなら」の意味である。タブを知るのは `ui/tabset` だけであり、親 Model は `[]tabset.Tab` を走査するだけだからである（「タブを 1 つ追加するときに触る箇所」）。
 
 **Setup タブ（Issue #8）で `ui` 直下は 1974 行から 2035 行へ増え、警告帯に入った（残り -35 行）。** 増えたのは 2 箇所で、どちらもタブそのものではなく**タブが要する起動時の値とタブ間の移動**である。`app.go` は Setup タブへ配る値（`Options.Secrets` と `page.SetupDeps` への写し）で 9 行、`route_test.go` は `n` / `D` / `u` による Setup タブへの移動の検証で 48 行である。前者は「起動時に決めた値を親が配る」という既存の分担そのもの（`Host` / `Color` と同じ形）、後者は「タブをまたぐ移動は親でしか実現できない」という既に記した例外にあたり、いずれも `tabset` へは寄せられない。**次に `ui` 直下へ足す Issue は、まず既存の検証が `page/pagetest` へ出せないかを見ること**（下記）。
+
+**Issue #11（Doctor タブ）で 2035 行から 2191 行へ増えた。** 増えたのは 2 箇所で、どちらも**タブそのものではない**。1 つは起動時のジョブ実行の前提チェック（FR-44）が親に持ち込む状態（`hostReq` / `hostReqDone` / `hostChecks` の 3 フィールドと `hostreq.Msg` の分岐）と、状態行・ヘッダへの写し（`chromeView`）である。もう 1 つはその検証（`hostreq_test.go`）で、ヘッダと状態行まで届くことは親を通さないと確かめられない。前者は「起動時に決めた値を親が配る」という既存の分担そのもの（Setup タブの `Options.Secrets` と同じ形）にあたる。
+
+**この Issue も本節の指示どおり、足す前に道具を出した。** 出したのは 3 つである。(1) Cmd の束から `ChromeMsg` を拾う走査を `pagetest.ChromeMsgs` へ（`applyChrome` は 5 行になった）。(2) 診断項目の差し替えを `pagetest.StubCheck` へ。(3) `sampleRunner` の写しを捨てて `pagetest.SampleRunner` を呼ぶだけにした。さらに**発行そのものを `internal/ui/hostreq` へ切り出した**（`hostreq.Start`。親の非公開な状態に触れないため出せる）。番号キーの検索も `tabset.KeyOf` へ寄せた（タブの番号を知るのは `tabset` だけ、という分担そのものである）。それでも 2191 行で、エラー境界の 2200 まで **9 行**しかない。
+
+**次に `ui` 直下へ手を入れる Issue は、1 行足す前に必ず行数を空けること。** 残っている手は「親の非公開な状態に触れない検証を `page/pagetest` へ出す」ことだけである（`gate_test.go` / `app_keys_test.go` は `a.chrome` / `a.tabs` / `a.active` / `a.inflight` に触るので出せない。**これらを出すために export を増やすのは採らない**）。
 
 **残りは Issue #9 で 125 行から 27 行へ減り、Issue #8 でついに超過した。** タブをまたぐ移動（`page.OpenTabMsg`）は親でしか実現できず、`keys.go` の `openTab` とその検証（`route_test.go` の 3 本）が加わったためである。検証に使う道具のうち App の非公開な状態に触れないもの（受け取った `Msg` を型で数える `Delivered`）は `page/pagetest` へ出してある。**次に `ui` 直下へ足す Issue は、まず既存のテストで `page/pagetest` へ出せるものを探すこと。** 超過した以上、テストを足す前に道具を出すこと。
 
@@ -1206,3 +1229,4 @@ Issue #31 で `table_test.go` の空振りしていたテスト（`View() != ""`
 | 1.38 | 2026-08-23 | Logs タブ（Issue #9）/ Disk タブ（Issue #13）とサービス制御（Issue #5）を突き合わせた。`organism/dialog` の `Confirm` は両者が別々に作っていたため Disk 側の 1 実装に寄せ（`DecidedMsg` / `NewConfirm(keymap.Set, …)`）、サービス制御はそれを使う側に回った。`DrainWaiter` は #5 のものを残す。部品・page 一覧・実装状況の各表を両タブ分の実装済みへ統合し、ディレクトリの行数表を `linterly check -f json` の実測へ更新（`ui/page/runners` が 2091 行で警告帯に入った）。`ui` 直下の余裕の段落が 2 つに重複していたので実測の残り 26 行の側へ寄せた。`pagetest` の往復の道具は Logs 側の総称 `Pump` と名前が衝突したため #5 側を `Advance` に改名 | 3 つの Issue が同じ階層へ同時に部品を足した結果、`Confirm` が 2 実装になり（本書が「1 実装に統一する」と定めた当の部品である）、`Pump` が同名で 2 つ、実装状況の表と行数表が互いの変更を打ち消していた。マージで両方の記述を残すと、後続の Issue がどちらを使うか決められない（PR #70 のベース追従） |
 | 1.39 | 2026-08-23 | Setup タブ（Issue #8）の実装を反映。`organism/pane.ProgressList`・`organism/dialog.Form`・`molecule.ProgressRow`・`page/setup`・`token` の `huh.Theme` を実装済みへ反転し、ディレクトリ構成・依存の規則・molecule / organism / page / 画面と部品の各表・実装状況の区分をそろえた。実装状況に「実装済みだが未接続」の区分を新設し、`page/disk` が `ProgressList` へ切り替えていないことをそこへ入れた。「`bubbles/progress` を使う範囲」のクリーンアップの理由を「部品が無いから」から「まだ差し替えていないから」へ書き換え。「画面と部品の対応」の追加中の進捗を `Frame` から `Modal` へ改め、その理由（背後へキーを流さない・実行中は `esc` を握る）を追記。`ProgressRow` の置き場所が `molecule` 直下であることを明記。ディレクトリの行数表を実測へ更新し（`ui/page/runners` 2164 行・`ui` 2035 行・`ui/page/setup` 2194 行が新たに警告帯）、`ui` 直下が超過した内訳（`app.go` の 9 行と `route_test.go` の 48 行）と、それが「タブを 1 枚足すだけなら親を触らない」の例外にあたる理由を追記。`ui/page/setup` が警告帯に入った判断（エラー境界まで 6 行、押し上げたのは本物の API を叩くテストを潰すための注入の継ぎ目と追加経路のテスト、次に触る Issue は先に行数を空けること）を節へ追加 | runner の追加・削除・バージョン更新を実装したため。実装状況の表と各表の「状況」列は**後続 Issue が「部品が有るか」を最初に引く場所**であり、`ProgressList` を未実装のまま残すと Disk タブを触る Issue がもう 1 つ進捗部品を作りかねない。`page/disk` は部品が揃っていても経路が繋がっておらず、実装済みに丸めると「動くはず」と読まれてしまうため、区分を分けて残した。行数表は次の Issue が読む予算の規範なので、`ui` 直下の超過を記さないと親 Model へテストを足す Issue が境界に当たってから気付くことになる |
 | 1.40 | 2026-08-23 | ディレクトリの行数表を `linterly check -f json` の実測値へ更新（`ui/page/setup` 2190 行・残り -190 行、`ui/page/pagetest` 1370 行・残り 630 行）し、表が行数の降順であることを明記。散文の誤記 2 件を訂正した——`ui` 直下を「1974 行から 2031 行へ（残り -31 行）」から **2035 行・残り -35 行**へ、`page/pagetest` を「現在 1082 行」から **1370 行（残り 630 行）**へ。`ui/page/setup` の節を、2 周目が挙げた 2 つの空け方を**両方実施した記録**に書き換え（道具の `page/pagetest` への移動、および `pagetest.Quick` への寄せと重複テストの畳み込みで 2194 → 2075 行を確保し、B3〜B7 の 5 本を足して 2190 行。`-race` の実行時間は約 9.8 秒から約 2.4 秒へ）、`newModel` だけは import の循環になるため出せないこと、**次に取れる手はモーダル 4 種の `page/setupmodal` への切り出しだけ**であることを追記 | 同じコミットが追加した行数表（2035 行）と散文（2031 行）が正面から食い違い、`page/pagetest` の散文に至っては**移動を記録した同じ節の別の文（1320 行）とも表とも食い違う** 1082 行のままだった。本節は「警告帯に入ったディレクトリへ部品を足すときは先に分割の是非を検討する」という判断をこの数字に依存させているため、`page/pagetest` の余裕を 288 行ぶん過大に見せる誤記は、後続 Issue に「まだ道具を出す余地がある」と誤読させる。また 2 周目が処方した空け方を 3 周目が実行して使い切ったのに、節が処方のまま残っていると次の Issue が**もう存在しない余地**を当てにする。1.21 / 1.24 / 1.25 / 1.37 が繰り返し是正してきた「改訂履歴が行っていない更新を主張する」「1 つの節が 2 つの値を主張する」欠陥の再発である（PR #78 の 2 周目レビュー指摘 C3 / C4 / C6） |
+| 1.41 | 2026-08-23 | Doctor タブ（Issue #11）の実装を反映。page 一覧の `doctor.Model` を実装済みにし、atom 一覧を「すべて実装済み」へ、molecule 一覧の実装済みに `DoctorRow` / `SummaryCounts` を加えて未実装を Config タブの 2 つに絞った。`SummaryCounts` を `molecule` 直下に置く理由と 0 件も出す理由を追記。実装状況の表から `page/doctor` / `DoctorStatus` / `DoctorRow` / `SummaryCounts` を外し、`hostreq` を実装済みへ追加。画面と部品の対応の Doctor タブを実装済みにした。行数表を実測へ更新し、`ui/molecule` が警告帯に入った判断（分割せず、次は `molecule/listrow` へ出せるかを先に見る）を新設。「一覧タブを 1 枚足せる余裕」を実績（`listrow` 142 行 / `token` 34 行）で裏付け、一覧タブがこれで打ち止めであることを明記。「`ui` 直下」の節に Issue #11 の増分（FR-44 が親に持ち込む状態と検証）と、足す前に出した 4 つの道具（`pagetest.ChromeMsgs` / `pagetest.StubCheck` / `pagetest.SampleRunner` への統合 / `internal/ui/hostreq` の切り出しと `tabset.KeyOf`）、残り 9 行しかないことを追記。「タブを 1 つ追加するときに触る箇所」に、親 Model を触る唯一の例外が「タブが要する起動時の値」であることを明記 | doctor を実装したため。**行数表と実装状況の表は、次にこの階層へ手を入れる Issue が置き場所を決める唯一の材料である。** `ui` 直下は残り 9 行で、更新せずに残すと次の Issue が「残り 27 行」を信じてエラー境界を越える。`ui/molecule` は新たに警告帯へ入ったので、本節の規約（警告帯へ部品を足すときは先に分割の是非を検討し、判断を残す）に従って記録が要る。「親 Model は 1 行も触らない」は Setup タブの時点で既に例外があり、明文化しないと FR-44 のような「どのタブを開いていても出る警告」を実装できないと読める |
