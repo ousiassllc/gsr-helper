@@ -2,6 +2,7 @@ package runner
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -90,5 +91,31 @@ func TestReadVersionAndUnitName(t *testing.T) {
 	// ファイルが無い場合は空文字（エラーにしない）。
 	if got, got2 := readVersion(empty), readUnitName(empty); got != "" || got2 != "" {
 		t.Errorf("ファイル不在で (%q, %q), want 空文字", got, got2)
+	}
+}
+
+// LoadConfig のエラーは読み込み失敗・解析失敗のいずれも `<dir>: <原因>` の形にする
+// （[データモデル]の「Result の警告」表）。`<dir>/.runner` を前置すると、同じ行が
+// 定めるスコープ判定失敗（Discover 側でディレクトリを前置する）と形が食い違う。
+//
+// [データモデル]: ../../docs/architecture/data-model.md
+func TestLoadConfigErrorPrefix(t *testing.T) {
+	base := t.TempDir()
+	missing := mkDir(t, filepath.Join(base, "missing"), nil)
+	broken := mkDir(t, filepath.Join(base, "broken"), map[string]string{".runner": "{"})
+
+	tests := []struct{ name, dir, wantPrefix string }{
+		{".runner が無い", missing, missing + ": .runner の読み込みに失敗しました: "},
+		{".runner が壊れている", broken, broken + ": .runner の JSON 解析に失敗しました: "},
+	}
+	for _, tt := range tests {
+		_, err := LoadConfig(tt.dir)
+		if err == nil {
+			t.Errorf("%s: err = nil, want エラー", tt.name)
+			continue
+		}
+		if !strings.HasPrefix(err.Error(), tt.wantPrefix) {
+			t.Errorf("%s: err = %q, want prefix %q", tt.name, err, tt.wantPrefix)
+		}
 	}
 }

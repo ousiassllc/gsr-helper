@@ -71,7 +71,7 @@ func TestDiscover(t *testing.T) {
 	// 分かるようディレクトリを含む。件数・内容とも完全一致で固定する。
 	wantWarns := []string{
 		noScope + ": gitHubUrl が空です",
-		filepath.Join(broken, ".runner") + ": .runner の JSON 解析に失敗しました: unexpected end of JSON input",
+		broken + ": .runner の JSON 解析に失敗しました: unexpected end of JSON input",
 	}
 	if !slices.Equal(warnStrings(res.Warnings), wantWarns) {
 		t.Errorf("Warnings\n got: %q\nwant: %q", warnStrings(res.Warnings), wantWarns)
