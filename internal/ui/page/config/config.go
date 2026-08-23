@@ -3,12 +3,9 @@
 // 画面は「対象の runner を選ぶ → 項目を選ぶ → フォーム → 差分の承認 → 書き込み →
 // 反映方法の選択」と進む（docs/ui/screens.md の Config タブ、FR-35〜FR-40）。
 //
-// **差分に出す内容と実際に書き込む内容を同じ値から作る**（change の doc）。別々に
-// 組むと、承認した内容と書かれる内容が食い違う余地ができる。
-//
-// **確認を経ない書き込み経路を作らない。** commit を呼ぶのは差分の承認
-// （dialog.DecidedMsg{Confirmed: true}）を受けた onResult 1 か所だけである
-// （page/setup・page/disk と同じ構造）。
+// **差分に出す内容と実際に書き込む内容を同じ値から作る**（edit.Change の doc）。
+// **確認を経ない書き込み経路を作らない。** edit.Commit を呼ぶのは差分の承認を
+// 受けた 1 か所だけである（page/setup・page/disk と同じ構造）。
 //
 // ラベルと runner group は GitHub 側の値なので internal/gh へ委ね、再起動を伴わない。
 // ファイルを書き換える項目だけが反映方法の選択へ進む。
@@ -51,14 +48,26 @@ type Model struct {
 	// picker は対象の runner を選ぶ一覧。対象が決まるまで本文に出す。
 	picker organism.ChoiceList
 	// vals はフォームの入力先。huh がポインタで束縛するため実体を持ち続ける。
-	vals *values
+	vals *edit.Values
 
 	target  runner.Runner
 	pending edit.Change
 	// pendingSelf は承認待ちの自身の設定（FR-41〜FR-42）。
 	pendingSelf appconfig.Config
+	// pendingSet は承認待ちの変更があるか。**承認を 1 度しか受けない印である。**
+	// DiffApproval は y を押すたびに決定を出し、決定はモーダルから page へ 2 度
+	// 非同期の橋を渡って届く。連打や貼り付けで同じ変更が 2 回書き込まれると、
+	// 2 回目の退避が「既に新しくなったファイル」を .bak へ写し、FR-38 の
+	// バックアップ（元の内容）が消える。
+	pendingSet bool
 	// self は自身の設定（FR-41〜FR-42）を編集中か。
 	self bool
+	// conf / confSet は保存済みの自身の設定（selfConf の doc）。
+	conf    appconfig.Config
+	confSet bool
+	// savingSelf / savedSelf は書き込み中の自身の設定。成功を見てから conf へ移す。
+	savingSelf bool
+	savedSelf  appconfig.Config
 
 	notice string
 	report string
@@ -87,8 +96,11 @@ func New(tab int, st page.StateMsg) Model {
 		ld:      edit.Loader{DropInRoot: ""},
 		list:    newList(st),
 		picker:  organism.NewChoiceList(st.Keys.List, st.Styles),
-		vals:    newValues(),
-		target:  runner.Runner{}, pending: edit.Change{}, pendingSelf: appconfig.Config{}, self: false,
+		vals:    edit.NewValues(),
+		target:  runner.Runner{}, pending: edit.Change{}, pendingSelf: appconfig.Config{},
+		pendingSet: false, self: false,
+		conf: appconfig.Config{}, confSet: false,
+		savingSelf: false, savedSelf: appconfig.Config{},
 		notice: "", report: "", busy: false, formShown: false,
 		newClient: defaultClient,
 	}
@@ -170,12 +182,17 @@ func (m Model) setState(st page.StateMsg) (tea.Model, tea.Cmd) {
 	scopeCmd := m.overlay.SetHelpScope(keymap.Set.ConfigHelp)
 
 	// 設定ファイルが無い状態で起動したら初回ウィザードを出す（FR-41）。
-	var wizard tea.Cmd
+	//
+	// **同時にタブを前面へ出すよう親へ求める。** アプリは Runners タブで始まる
+	// ので、モーダルを開くだけでは Config タブの中で開いたきり誰にも見えない。
+	// page.OpenTab は親（tabset）宛ての Msg なので page.Do で包まない。
+	var wizard, toFront tea.Cmd
 	if first && st.Config.FirstRun && !m.self {
 		wizard = m.openSelfForm()
+		toFront = page.OpenTab(page.TabConfig, nil)
 	}
 
-	return m, tea.Batch(m.chrome(), init, state, scopeCmd, wizard)
+	return m, tea.Batch(m.chrome(), init, state, scopeCmd, wizard, toFront)
 }
 
 // flushInit は登録の Cmd を 1 度だけ返す。
@@ -192,7 +209,7 @@ func (m *Model) refresh(policy organism.CursorPolicy) {
 		return
 	}
 
-	s := summarize(m.target, m.ld)
+	s := edit.Summarize(m.target, m.ld)
 	m.list.SetItems(secMain, mainItems(s))
 	m.list.SetItems(secReregister, reregisterItems())
 	m.list.SetItems(secCopy, copyItems(len(m.others()) > 0))

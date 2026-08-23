@@ -103,10 +103,10 @@ func readFile(path string) (string, error) {
 func openEnvForm(t *testing.T, m Model) Model {
 	t.Helper()
 
-	m.vals.kind = edit.KindEnv
+	m.vals.Kind = edit.KindEnv
 	for i, spec := range edit.EnvKeys {
 		if spec.Key == "PATH" {
-			m.vals.env[i], m.vals.envBefore[i] = "/opt/bin", "/usr/bin"
+			m.vals.Env[i], m.vals.EnvBefore[i] = "/opt/bin", "/usr/bin"
 		}
 	}
 

@@ -22,7 +22,10 @@ const selfID = "/self"
 
 // loadedMsg は API から取った値。フォームを開く前に届く。
 type loadedMsg struct {
-	kind   edit.Kind
+	kind edit.Kind
+	// dir は取得を始めた時点の対象。届いたときに対象が変わっていたら捨てる
+	// （fetchFor の doc）。
+	dir    string
 	labels []string
 	groups []gh.RunnerGroup
 	err    error
@@ -49,7 +52,12 @@ func (m Model) handleKey(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	var cmd tea.Cmd
 	switch {
-	case m.overlay.Active():
+	// 絞り込みの入力中とモーダル表示中は**親へ差し戻さない**。差し戻すと、
+	// 絞り込みに打った q でアプリが終わり、数字でタブが切り替わる
+	// （page.GlobalKeyMsg の doc、page/runners の handleKey と同じ判定）。
+	// enter / esc をここで解釈しないのも同じ理由で、絞り込みの確定と取消が
+	// 「編集を開く」「対象を捨てる」に化けないようにする。
+	case m.filtering(), m.overlay.Active():
 		return m.forwardTo(press)
 	case key.Matches(press, m.st.Keys.Global.Help):
 		cmd = m.overlay.OpenHelp()
@@ -64,7 +72,7 @@ func (m Model) handleKey(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(m.chrome(), cmd)
 }
 
-// goBack は esc を処理する。対象を選んでいれば対象の選択へ、そうでなければ
+// goBack は esc を処理する。対象を選んでいれば対象の選択へ、無ければ
 // Runners タブへ戻る（戻り先が一意に決まるので自分で移動を要求する）。
 func (m Model) goBack() (tea.Model, tea.Cmd) {
 	if m.target.Dir != "" {
@@ -76,6 +84,12 @@ func (m Model) goBack() (tea.Model, tea.Cmd) {
 	}
 	return m, tea.Batch(m.chrome(), page.OpenTab(page.TabRunners, nil))
 }
+
+// filtering は本文の一覧で絞り込みを入力中かを返す。
+//
+// 対象を選ぶ前の画面（picker）は絞り込みを持たないので、対象が決まっている
+// ときだけ見る。
+func (m Model) filtering() bool { return m.target.Dir != "" && m.list.Filtering() }
 
 // forwardTo はモーダルか本文へ Msg を配る。
 func (m Model) forwardTo(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -94,7 +108,7 @@ func (m Model) forwardTo(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(m.chrome(), m.wrap(cmd))
 }
 
-// wrap は本文が返した Cmd の結果をこのタブへ戻す（page/setup の wrapMenu と同じ）。
+// wrap は本文の Cmd の結果をこのタブへ戻す（page/setup の wrapMenu と同じ）。
 func (m Model) wrap(cmd tea.Cmd) tea.Cmd {
 	if cmd == nil {
 		return nil
@@ -146,13 +160,7 @@ func (m *Model) setTarget(r runner.Runner) {
 
 // others は複製先の候補（対象以外の runner）を返す。
 func (m Model) others() []runner.Runner {
-	out := make([]runner.Runner, 0, len(m.st.Result.Runners))
-	for _, r := range m.st.Result.Runners {
-		if r.Dir != m.target.Dir {
-			out = append(out, r)
-		}
-	}
-	return out
+	return edit.OtherRunners(m.st.Result.Runners, m.target.Dir)
 }
 
 // containsFold は大文字小文字を無視して含むかを返す。
@@ -178,7 +186,7 @@ func (m *Model) approve(c edit.Change) tea.Cmd {
 		return nil
 	}
 
-	m.pending = c
+	m.pending, m.pendingSet = c, true
 	m.overlay.Close()
 
 	return m.overlay.Open(diffKind, diffOpenMsg{input: dialog.DiffApprovalInput{

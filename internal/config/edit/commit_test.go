@@ -87,7 +87,7 @@ func TestCommitReplacesLabels(t *testing.T) {
 	defer srv.Close()
 
 	r := sample(t, "build01-1", "")
-	c := edit.BuildLabels([]string{"old"}, []string{"gpu", "cuda"})
+	c := edit.BuildLabels("build01-1", []string{"old"}, []string{"gpu", "cuda"})
 
 	err := edit.Commit(context.Background(), edit.CommitInput{
 		Change: c, Runner: r,
@@ -121,7 +121,7 @@ func TestCommitReportsMissingRunner(t *testing.T) {
 
 	r := sample(t, "build01-1", "")
 	err := edit.Commit(context.Background(), edit.CommitInput{
-		Change: edit.BuildLabels(nil, []string{"gpu"}), Runner: r,
+		Change: edit.BuildLabels("build01-1", nil, []string{"gpu"}), Runner: r,
 		Client: func(context.Context) (*gh.Client, error) {
 			return gh.New("t", gh.WithBaseURL(srv.URL), gh.WithHTTPClient(srv.Client()))
 		},
@@ -137,7 +137,7 @@ func TestCommitReportsClientFailure(t *testing.T) {
 
 	sentinel := errors.New("トークンがありません")
 	err := edit.Commit(context.Background(), edit.CommitInput{
-		Change: edit.BuildLabels(nil, []string{"gpu"}), Runner: sample(t, "build01-1", ""),
+		Change: edit.BuildLabels("build01-1", nil, []string{"gpu"}), Runner: sample(t, "build01-1", ""),
 		Client: func(context.Context) (*gh.Client, error) { return nil, sentinel },
 	})
 	if !errors.Is(err, sentinel) {

@@ -52,6 +52,20 @@ func (m Method) Label() string {
 	return labels[m]
 }
 
+// FromLabel は選択肢の文言から反映方法を引く。
+//
+// 表示層は選択肢の識別子に文言をそのまま使うため、戻ってきた文言をここで
+// 解く。対応が無ければ既定（ドレイン再起動）に倒す。危険側（強制再起動）へ
+// 倒すと、文言を変えた拍子に実行中のジョブを中断しうる。
+func FromLabel(id string) Method {
+	for _, m := range Methods() {
+		if m.Label() == id {
+			return m
+		}
+	}
+	return Drain
+}
+
 // Methods は選択肢を既定（ドレイン再起動）を先頭にした順で返す。
 func Methods() []Method { return []Method{Drain, Force, None} }
 
@@ -120,4 +134,25 @@ func drainRestart(ctx context.Context, in Input) error {
 		return fmt.Errorf("再起動に失敗しました: %w", err)
 	}
 	return nil
+}
+
+// RunAll は targets それぞれへ同じ反映を行い、済んだ runner 名を返す。
+//
+// **複製（FR-40）のためにある。** 1 度の書き込みで複数台の .env が書き換わるので、
+// 反映も台数ぶん要る。in.Runner は台ごとに差し替えるため、呼び出し側は
+// ゼロ値を入れておけばよい。
+//
+// 途中で失敗したらそこで止め、済んだぶんを返す。残りも試すと、同じ原因で
+// 全台のジョブを止めて回ることになりかねない。
+func RunAll(ctx context.Context, in Input, targets []runner.Runner) ([]string, error) {
+	done := make([]string, 0, len(targets))
+	for _, t := range targets {
+		one := in
+		one.Runner = t
+		if err := Run(ctx, one); err != nil {
+			return done, fmt.Errorf("%s: %w", t.Name(), err)
+		}
+		done = append(done, t.Name())
+	}
+	return done, nil
 }

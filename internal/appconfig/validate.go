@@ -19,6 +19,15 @@ const (
 	maxDiskCritical = 100
 )
 
+// Normalize は設定を正規化した写しを返す（normalize の公開口）。
+//
+// **設定編集のフォームが差分を出す前に通すためにある。** Save は書き込む直前に
+// normalize を通すので、正規化前の値で差分を組むと「承認した文字列」と「実際に
+// 書かれる文字列」が食い違う（scan_roots の Clean、audit_log の既定値の補完、
+// warn >= critical の拒否がここで起きる）。差分に出す内容と書き込む内容を同じ値
+// から作る、という約束を自身の設定でも守るための口である。
+func Normalize(c Config) (Config, error) { return normalize(c) }
+
 // normalize は設定を正規化する純粋関数。Load と Save の両方が通す。
 //
 // 0 や空文字は「未指定」として既定値で埋め、構造的に誤った値（範囲外・相対パス・

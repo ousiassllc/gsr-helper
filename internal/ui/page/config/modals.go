@@ -1,8 +1,12 @@
 package config
 
 import (
+	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/ousiassllc/gsr-helper/internal/config/apply"
+
+	"github.com/ousiassllc/gsr-helper/internal/config/edit"
 	"github.com/ousiassllc/gsr-helper/internal/ui/atom"
 	"github.com/ousiassllc/gsr-helper/internal/ui/keymap"
 	"github.com/ousiassllc/gsr-helper/internal/ui/organism"
@@ -21,7 +25,7 @@ const (
 // formOpenMsg はフォームを開く指示。
 type formOpenMsg struct {
 	title  string
-	values *values
+	values *edit.Values
 	st     page.StateMsg
 }
 
@@ -41,8 +45,7 @@ func newFormModal(st page.StateMsg) page.Modal {
 		Model: formModal{tab: 0, form: dialog.NewForm(st.Styles, color), color: color},
 		Title: formTitle,
 		Hints: formHints,
-		// esc は dialog.Form が受ける。入力済みなら破棄の確認を出すため、
-		// Overlay に閉じさせてはならない（atomic-design.md「Form と huh」）。
+		// esc は dialog.Form が受ける。Overlay に閉じさせてはならない。
 		HandlesBack: func(tea.Model) bool { return true },
 	}
 }
@@ -59,7 +62,7 @@ func (m formModal) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case formOpenMsg:
 		m.color = msg.st.Color
 		m.form.SetTitle(msg.title)
-		cmd := m.form.SetForm(msg.values.build(token.HuhTheme(msg.st.Styles, m.color)))
+		cmd := m.form.SetForm(buildForm(msg.values, token.HuhTheme(msg.st.Styles, m.color)))
 		return m, page.WrapModal(m.tab, formKind, cmd)
 	case dialog.FormDoneMsg, dialog.FormAbortedMsg, dialog.FormDiscardMsg:
 		res := page.ResultMsg{Kind: formKind, Msg: msg}
@@ -176,10 +179,8 @@ type applyOpenMsg struct {
 	items []organism.Choice
 }
 
-// applyModal は反映方法の選択（FR-39）。
-//
-// 選択肢を並べる UI は organism.ChoiceList に統一されているため、包むだけで
-// 並び順も既定も持たない（既定は呼び出し側が先頭に置く）。
+// applyModal は反映方法の選択（FR-39）。選択肢を並べる UI は
+// organism.ChoiceList に統一されているため、包むだけで並び順も既定も持たない。
 type applyModal struct {
 	tab  int
 	list organism.ChoiceList
@@ -194,9 +195,11 @@ func newApplyModal(st page.StateMsg) page.Modal {
 		Model: applyModal{
 			tab: 0, list: organism.NewChoiceList(st.Keys.List, st.Styles), keys: st.Keys,
 		},
-		Title:       func(tea.Model) string { return titleApply },
-		Hints:       applyHints,
-		HandlesBack: nil,
+		Title: func(tea.Model) string { return titleApply },
+		Hints: applyHints,
+		// esc は自分で解釈する。Overlay に閉じさせると apply.Run を通らず、
+		// drop-in に要る daemon-reload まで飛んでしまう（Update の doc）。
+		HandlesBack: func(tea.Model) bool { return true },
 	}
 }
 
@@ -213,8 +216,20 @@ func (m applyModal) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.list.SetItems(msg.items, organism.ResetCursor)
 		return m, nil
 	case organism.ChosenMsg:
-		res := page.ResultMsg{Kind: applyKind, Msg: msg}
-		return m, page.Do(m.tab, func() tea.Msg { return res })
+		return m, m.chose(msg.ID)
+	case tea.KeyPressMsg:
+		// **esc は「反映しない」を選んだことにする。** フッタにそう書いてあるうえ、
+		// 単に閉じると apply.Run を通らない。apply.None は「今すぐ再起動はしない」
+		// であって「daemon-reload もしない」ではないので、閉じるだけでは
+		// drop-in を置いた systemd が新しい内容を読まないままになる。
+		if key.Matches(msg, m.keys.Global.Back) {
+			return m, m.chose(apply.None.Label())
+		}
+
+		var cmd tea.Cmd
+		m.list, cmd = m.list.Update(msg)
+
+		return m, page.WrapModal(m.tab, applyKind, cmd)
 	case page.StateMsg:
 		m.keys = msg.Keys
 		m.list.Restyle(msg.Keys.List, msg.Styles)
@@ -230,12 +245,16 @@ func (m applyModal) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 }
 
+// chose は選ばれた反映方法を page へ差し戻す Cmd を返す。
+func (m applyModal) chose(id string) tea.Cmd {
+	res := page.ResultMsg{Kind: applyKind, Msg: organism.ChosenMsg{ID: id, Key: ""}}
+	return page.Do(m.tab, func() tea.Msg { return res })
+}
+
 // View は選択肢を描く。
 func (m applyModal) View() tea.View { return tea.NewView(m.list.View()) }
 
-// applyHints は反映方法の選択のフッタを返す。
-//
-// esc で閉じた場合は書き込み済みの設定が次回起動時に効く（「反映しない」と同じ）。
+// applyHints は反映方法の選択のフッタを返す。esc は「反映しない」を選ぶ。
 func applyHints(model tea.Model) []atom.Hint {
 	m, ok := model.(applyModal)
 	if !ok {

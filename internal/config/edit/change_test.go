@@ -231,7 +231,7 @@ func TestBuildCopyWithoutTargets(t *testing.T) {
 func TestLabelAndGroupChangesAreNotFileBacked(t *testing.T) {
 	t.Parallel()
 
-	labels := edit.BuildLabels([]string{"gpu"}, []string{"gpu", "cuda"})
+	labels := edit.BuildLabels("build01-1", []string{"gpu"}, []string{"gpu", "cuda"})
 	if labels.FileBacked() || labels.BackupPath() != "" {
 		t.Errorf("ラベルの変更がファイル扱いになっている: %+v", labels)
 	}
@@ -242,7 +242,7 @@ func TestLabelAndGroupChangesAreNotFileBacked(t *testing.T) {
 		t.Errorf("見出し = %q", labels.Title())
 	}
 
-	group := edit.BuildGroup("Default", "gpu", 7)
+	group := edit.BuildGroup("build01-1", "Default", "gpu", 7)
 	if group.FileBacked() {
 		t.Error("runner group の変更がファイル扱いになっている")
 	}

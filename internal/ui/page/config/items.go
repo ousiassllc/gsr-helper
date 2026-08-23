@@ -2,10 +2,8 @@ package config
 
 import (
 	"strconv"
-	"strings"
 
 	"github.com/ousiassllc/gsr-helper/internal/config/edit"
-	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/ui/molecule/listrow"
 	"github.com/ousiassllc/gsr-helper/internal/ui/token"
 )
@@ -40,31 +38,28 @@ func settingColumns() []token.Column {
 	}
 }
 
-// summary は対象 runner の現在値をまとめたもの。
+// mainItems は編集できる 5 項目を返す。
 //
-// 画面の組み立てに要る値だけを持ち、ドメインの型を一覧へ持ち込まない。
-// 読み取りに失敗した項目は空文字にして「値なし」として描く（一覧が出せなく
-// なるより、その項目だけ値が読めていないと分かる方がよい）。
-//
-// **ラベルと runner group の現在値は持たない。** どちらも GitHub 側の値であり、
-// 一覧を組み直すたびに API を呼ぶことになる。3 秒ポーリングでは API を呼ばない
-// 方針（docs/api/external-interfaces.md）に従い、項目を選んだ時点で取りに行く。
-type summary struct {
-	envCount int
-	path     string
-	dropIn   string
-	editable bool
+// drop-in は systemd ユニットが無ければ選べない。置く先が決まらず BuildDropIn が
+// ErrNoUnit を返すだけなので、他の行と同じく**選ぶ前に理由を備考へ出す**
+// （screens.md の無効な操作の表示）。
+func mainItems(s edit.Summary) []item {
+	return []item{
+		newItem(edit.KindEnv, ".env", envValue(s.EnvCount), "環境変数・プロキシ", false, s.Editable),
+		newItem(edit.KindPath, ".path", s.Path, "", false, s.Editable),
+		newItem(edit.KindDropIn, "systemd drop-in", s.DropIn, dropInNote(s.HasUnit),
+			false, s.Editable && s.HasUnit),
+		newItem(edit.KindLabels, "ラベル", "", "即時反映（GitHub）", false, s.Editable),
+		newItem(edit.KindGroup, "runner group", "", "即時反映（GitHub）", false, s.Editable),
+	}
 }
 
-// mainItems は編集できる 5 項目を返す。
-func mainItems(s summary) []item {
-	return []item{
-		newItem(edit.KindEnv, ".env", envValue(s.envCount), "環境変数・プロキシ", false, s.editable),
-		newItem(edit.KindPath, ".path", s.path, "", false, s.editable),
-		newItem(edit.KindDropIn, "systemd drop-in", s.dropIn, "daemon-reload が要る", false, s.editable),
-		newItem(edit.KindLabels, "ラベル", "", "即時反映（GitHub）", false, s.editable),
-		newItem(edit.KindGroup, "runner group", "", "即時反映（GitHub）", false, s.editable),
+// dropInNote は drop-in の行の備考を返す。
+func dropInNote(hasUnit bool) string {
+	if !hasUnit {
+		return "systemd ユニット無し"
 	}
+	return "daemon-reload が要る"
 }
 
 // reregisterItems は再登録が要る項目を返す。選べない行として出す。
@@ -99,44 +94,4 @@ func envValue(n int) string {
 		return ""
 	}
 	return strconv.Itoa(n) + " 項目"
-}
-
-// summarize は runner の現在値を読み取って要約する。
-//
-// 読み取りはファイル 3 つと検出済みの値だけで、GitHub API は呼ばない（3 秒
-// ポーリングで API を呼ばない方針に沿う。ラベルは検出結果が持っている）。
-func summarize(r runner.Runner, ld edit.Loader) summary {
-	s := summary{envCount: 0, path: "", dropIn: "", editable: true}
-	if r.Dir == "" {
-		s.editable = false
-		return s
-	}
-
-	if env, err := ld.Env(r); err == nil {
-		s.envCount = len(env.Keys())
-	}
-	if p, err := ld.PathFile(r); err == nil {
-		s.path = p.Value
-	}
-	s.dropIn = dropInValue(r, ld)
-
-	return s
-}
-
-// dropInValue は drop-in の現在値の要約を返す。
-func dropInValue(r runner.Runner, ld edit.Loader) string {
-	if r.UnitName == "" {
-		return ""
-	}
-
-	d, err := ld.DropIn(r)
-	if err != nil || len(d.Directives) == 0 {
-		return ""
-	}
-
-	parts := make([]string, 0, len(d.Directives))
-	for _, dir := range d.Directives {
-		parts = append(parts, dir.Key+"="+dir.Value)
-	}
-	return strings.Join(parts, ", ")
 }

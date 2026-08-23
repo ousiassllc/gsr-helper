@@ -1,87 +1,48 @@
 package config
 
 import (
-	"errors"
-	"strings"
-
 	"charm.land/huh/v2"
 
-	"github.com/ousiassllc/gsr-helper/internal/config"
 	"github.com/ousiassllc/gsr-helper/internal/config/edit"
 )
 
-// values はフォームの入力先。
-//
-// **実体を Model が持ち続ける。** huh はポインタで値を束縛するため、Update の
-// たびに写しを作ると入力の書き込み先と読み出し先が別物になる（page/setup と同じ）。
-type values struct {
-	kind edit.Kind
-	// env は edit.EnvKeys と同じ添字で並ぶ入力欄の値。
-	env []string
-	// envBefore は開いた時点の値。空欄にした項目を「消す」と判断するために持つ。
-	envBefore []string
-	path      string
-	restart   string
-	memoryMax string
-	labels    string
-	group     string
-	// groups は選べる runner group の名前。API から取る。
-	groups []string
-	// groupIDs は groups と同じ添字で並ぶ runner group の ID。
-	// API は名前ではなく ID を取るため、選ばれた名前から引き当てるために持つ。
-	groupIDs []int64
-	// copyTo は複製先に選ばれた runner 名（FR-40）。
-	copyTo []string
-	// copyFrom は複製元の一覧に出す runner 名。
-	copyCandidates []string
-	// self は本ツール自身の設定の入力先（FR-41〜FR-42）。
-	self selfValues
-}
-
-// newValues は空の入力の受け皿を作る。
-func newValues() *values {
-	return &values{
-		kind: edit.KindEnv, env: make([]string, len(edit.EnvKeys)), envBefore: make([]string, len(edit.EnvKeys)),
-		path: "", restart: "", memoryMax: "", labels: "", group: "",
-		groups: nil, groupIDs: nil, copyTo: nil, copyCandidates: nil,
-		self: selfValues{scanRoots: "", refresh: "", warn: "", critical: "", auditLog: ""},
-	}
-}
+// 入力欄（huh.Field）の組み立て。入力先そのものは edit.Values が持つ
+// （画面が huh を、ドメインが値と組み立てを受け持つ）。
 
 // restartChoices は Restart= に選べる値。systemd の取り得る値のうち runner で
 // 意味のあるものだけを出す。空は「本体の設定のまま」を表す。
 var restartChoices = []string{"", "always", "on-failure", "no"}
 
-// build は種類に応じた huh のフォームを組み立てる。
-func (v *values) build(theme huh.Theme) *huh.Form {
-	return huh.NewForm(huh.NewGroup(v.fields()...)).WithTheme(theme).WithShowHelp(true)
+// buildForm は種類に応じた huh のフォームを組み立てる。
+func buildForm(v *edit.Values, theme huh.Theme) *huh.Form {
+	return huh.NewForm(huh.NewGroup(fields(v)...)).WithTheme(theme).WithShowHelp(true)
 }
 
 // fields は種類ごとの入力欄を返す。
-func (v *values) fields() []huh.Field {
-	switch v.kind {
+func fields(v *edit.Values) []huh.Field {
+	switch v.Kind {
 	case edit.KindEnv:
-		return v.envFields()
+		return envFields(v)
 	case edit.KindPath:
 		return []huh.Field{
 			huh.NewInput().Title(".path").
 				Description("ジョブの PATH を上書きする 1 行。空なら .path を空にします").
-				Value(&v.path).Validate(validateLine),
+				Value(&v.Path).Validate(edit.ValidateLine),
 		}
 	case edit.KindDropIn:
-		return v.dropInFields()
+		return dropInFields(v)
 	case edit.KindLabels:
 		return []huh.Field{
 			huh.NewInput().Title("ラベル").
 				Description("カンマ区切り。self-hosted / linux / x64 は自動で付きます").
-				Value(&v.labels).Validate(validateLabels),
+				Value(&v.Labels).Validate(edit.ValidateLabelInput),
 		}
 	case edit.KindGroup:
-		return []huh.Field{v.groupField()}
+		return []huh.Field{groupField(v)}
 	case edit.KindCopy:
-		return []huh.Field{v.copyField()}
+		return []huh.Field{copyField(v)}
 	case edit.KindSelf:
-		return v.selfFields()
+		return selfFields(v)
 	case edit.KindReregister:
 		return nil
 	default:
@@ -90,15 +51,15 @@ func (v *values) fields() []huh.Field {
 }
 
 // envFields は .env の入力欄を返す。
-func (v *values) envFields() []huh.Field {
+func envFields(v *edit.Values) []huh.Field {
 	out := make([]huh.Field, 0, len(edit.EnvKeys))
 	for i, k := range edit.EnvKeys {
-		check := validateLine
+		check := edit.ValidateLine
 		if k.Hook {
-			check = validateHook
+			check = edit.ValidateHook
 		}
 
-		in := huh.NewInput().Title(k.Title).Value(&v.env[i]).Validate(check)
+		in := huh.NewInput().Title(k.Title).Value(&v.Env[i]).Validate(check)
 		if k.Desc != "" {
 			in = in.Description(k.Desc)
 		}
@@ -108,7 +69,7 @@ func (v *values) envFields() []huh.Field {
 }
 
 // dropInFields は drop-in の入力欄を返す。
-func (v *values) dropInFields() []huh.Field {
+func dropInFields(v *edit.Values) []huh.Field {
 	opts := make([]huh.Option[string], 0, len(restartChoices))
 	for _, c := range restartChoices {
 		label := c
@@ -119,95 +80,36 @@ func (v *values) dropInFields() []huh.Field {
 	}
 
 	return []huh.Field{
-		huh.NewSelect[string]().Title("Restart").Options(opts...).Value(&v.restart),
+		huh.NewSelect[string]().Title("Restart").Options(opts...).Value(&v.Restart),
 		huh.NewInput().Title("MemoryMax").
 			Description("例: 4G。空なら設定しません").
-			Value(&v.memoryMax).Validate(validateLine),
+			Value(&v.MemoryMax).Validate(edit.ValidateLine),
 	}
 }
 
 // groupField は runner group の選択欄を返す。
-func (v *values) groupField() huh.Field {
-	opts := make([]huh.Option[string], 0, len(v.groups))
-	for _, g := range v.groups {
+//
+// 一覧が空の場合は考えなくてよい。付け替えの API は ID を取るため名前を直接
+// 入力させても必ず弾かれる（行き止まり）ので、一覧を取れなかった時点で
+// フォームを開かないようにしてある（openGroupForm）。
+func groupField(v *edit.Values) huh.Field {
+	opts := make([]huh.Option[string], 0, len(v.Groups))
+	for _, g := range v.Groups {
 		opts = append(opts, huh.NewOption(g, g))
 	}
-	if len(opts) == 0 {
-		return huh.NewInput().Title("runner group").
-			Description("一覧を取得できませんでした。名前を直接入力します").
-			Value(&v.group).Validate(validateLine)
-	}
 
-	return huh.NewSelect[string]().Title("runner group").Options(opts...).Value(&v.group)
+	return huh.NewSelect[string]().Title("runner group").Options(opts...).Value(&v.Group)
 }
 
 // copyField は複製先の複数選択欄を返す（FR-40）。
-func (v *values) copyField() huh.Field {
-	opts := make([]huh.Option[string], 0, len(v.copyCandidates))
-	for _, n := range v.copyCandidates {
+func copyField(v *edit.Values) huh.Field {
+	opts := make([]huh.Option[string], 0, len(v.CopyCandidates))
+	for _, n := range v.CopyCandidates {
 		opts = append(opts, huh.NewOption(n, n))
 	}
 
 	return huh.NewMultiSelect[string]().
 		Title("複製先の runner").
 		Description("選んだ runner の .env を、この runner の .env で置き換えます").
-		Options(opts...).Value(&v.copyTo)
-}
-
-// groupID は選ばれた runner group の名前から ID を引く。
-// 一覧を取得できず名前を直接入力した場合は 0 と偽を返す。
-func (v *values) groupID() (int64, bool) {
-	for i, n := range v.groups {
-		if n == v.group && i < len(v.groupIDs) {
-			return v.groupIDs[i], true
-		}
-	}
-	return 0, false
-}
-
-// validateLine は 1 行に収まる値かを見る。改行が入ると設定ファイルの行が壊れる。
-func validateLine(s string) error {
-	if strings.ContainsAny(s, "\r\n") {
-		return errNewline
-	}
-	return nil
-}
-
-// 入力の形式に関するエラー。
-var (
-	// errNewline は改行を含む入力のエラー。
-	errNewline = errors.New("改行は入力できません")
-	// errBadNumber は数として読めない入力のエラー。
-	errBadNumber = errors.New("数値を入力してください")
-	// errPercentRange は割合が 1〜100 の外にある場合のエラー。
-	errPercentRange = errors.New("1〜100 の範囲で入力してください")
-)
-
-// validateHook は job hooks のスクリプトパスを検証する。
-//
-// 他のキーより強く見るのは、この値が runner にジョブごとシェルで実行される
-// ためである（docs/architecture/security.md）。
-func validateHook(s string) error {
-	if err := validateLine(s); err != nil {
-		return err
-	}
-
-	_, err := config.ValidateHookPath(s, config.StatHook)
-
-	return err
-}
-
-// validateLabels はラベルの入力を検証する（FR-36）。
-func validateLabels(s string) error {
-	_, err := config.ValidateLabels(splitLabels(s))
-	return err
-}
-
-// splitLabels はカンマ区切りのラベルを分ける。空要素の除去と trim は
-// config.ValidateLabels に任せる。
-func splitLabels(s string) []string {
-	if strings.TrimSpace(s) == "" {
-		return nil
-	}
-	return strings.Split(s, ",")
+		Options(opts...).Value(&v.CopyTo)
 }

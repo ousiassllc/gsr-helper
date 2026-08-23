@@ -26,6 +26,12 @@ type Change struct {
 	after  string
 	// labels は置き換えるラベル（KindLabels）。
 	labels []string
+	// runner は変更の対象となる runner の名前。差分の見出しに出す。
+	//
+	// ラベルと runner group は書き込み先が Commit の時点で決まる（名前から ID を
+	// 引く）。承認の時点でどの runner への変更かを見せないと、対象を取り違えた
+	// まま GitHub 側の破壊的な変更を承認できてしまう。
+	runner string
 	// group は設定する runner group の名前（KindGroup）。
 	group string
 	// groupID は設定する runner group の ID（KindGroup）。API はこちらを取る。
@@ -135,11 +141,16 @@ func BuildDropIn(ld Loader, r runner.Runner, restart, memoryMax string) (Change,
 		return Change{}, ErrNoUnit
 	}
 
-	d, err := config.LoadDropIn(path)
+	// before は解析結果の再描画ではなくファイルの中身そのものにする。
+	// **Parse はコメント・[Unit]・[Install]・未知のセクションを捨て、Render は
+	// [Service] だけを書き出す。** 再描画を before にすると、手書きの
+	// override.conf を編集したときに消える行が差分に 1 行も出ず、失われることを
+	// 知らないまま承認させてしまう（FR-37）。
+	before, err := config.ReadDropInRaw(path)
 	if err != nil {
 		return Change{}, err
 	}
-	before := d.Render()
+	d := config.ParseDropIn(before)
 
 	setOrUnset(&d, "Restart", restart)
 	setOrUnset(&d, "MemoryMax", memoryMax)
@@ -165,94 +176,36 @@ func setOrUnset(d *config.DropIn, key, value string) {
 func newFileChange(k Kind, path, before, after string, reload bool, write func() error) Change {
 	return Change{
 		Kind: k, path: path, body: after, before: before, after: after,
-		labels: nil, group: "", groupID: 0, copies: nil, reload: reload, lines: nil, write: write,
+		runner: "", labels: nil, group: "", groupID: 0, copies: nil, reload: reload,
+		lines: nil, write: write,
 	}
 }
 
 // BuildLabels はラベルの変更を組み立てる（GitHub API で即時反映）。
-func BuildLabels(before, after []string) Change {
+//
+// name は対象の runner 名で、差分の見出しに出す。before には取得した現在の
+// カスタムラベルを渡す。渡さないと差分が全行 + になり、同じ内容で確定しても
+// 置換 API を呼んでしまう。
+func BuildLabels(name string, before, after []string) Change {
 	return Change{
 		Kind: KindLabels, path: "", body: "",
 		before: strings.Join(before, "\n"), after: strings.Join(after, "\n"),
-		labels: after, group: "", groupID: 0, copies: nil, reload: false, lines: nil, write: nil,
+		runner: name, labels: after, group: "", groupID: 0, copies: nil, reload: false,
+		lines: nil, write: nil,
 	}
-}
-
-// writeCopies は複製先それぞれへ .env を書き込む（FR-40）。
-//
-// 1 台ごとに退避してから書く。途中で失敗した場合、それまでに書いた台は
-// 新しい内容で、残りは元のままになる。どこまで進んだかは呼び出し側が
-// 結果として報告する。
-func writeCopies(body config.EnvFile, copies []CopyTarget) error {
-	for _, t := range copies {
-		if err := backupIfExists(t.path); err != nil {
-			return err
-		}
-		if err := config.SaveEnv(body, t.path); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 // BuildGroup は runner group の変更を組み立てる（GitHub API で即時反映）。
-func BuildGroup(before, after string, id int64) Change {
+//
+// name は対象の runner 名で、差分の見出しに出す。before にはフォームを開いた
+// 時点で選ばれていた group を渡す。渡さないと同じ group を選び直しただけでも
+// 付け替えの API を呼んでしまう。
+func BuildGroup(name, before, after string, id int64) Change {
 	return Change{
 		Kind: KindGroup, path: "", body: "", before: before, after: after,
-		labels: nil, group: after, groupID: id, copies: nil, reload: false,
+		runner: name, labels: nil, group: after, groupID: id, copies: nil, reload: false,
 		lines: nil, write: nil,
 	}
-}
-
-// BuildCopy は .env の複製を組み立てる（FR-40）。
-//
-// 差分は複製先ごとに見出しを付けて並べる。見出しを変更なしの印で始めるのは、
-// 差分の行として色が付かないようにするためである（描画側は行頭の印だけを見る）。
-func BuildCopy(ld Loader, src runner.Runner, targets []runner.Runner, chosen []string) (Change, error) {
-	body, err := config.LoadEnv(ld.EnvPath(src))
-	if err != nil {
-		return Change{}, err
-	}
-	after := body.String()
-
-	picked := make(map[string]bool, len(chosen))
-	for _, n := range chosen {
-		picked[n] = true
-	}
-
-	c := Change{
-		Kind: KindCopy, path: "", body: after, before: "", after: "",
-		labels: nil, group: "", groupID: 0, copies: nil, reload: false,
-		lines: nil, write: nil,
-	}
-
-	var lines []string
-	for _, t := range targets {
-		if !picked[t.Name()] {
-			continue
-		}
-
-		p := ld.EnvPath(t)
-		cur, lerr := config.LoadEnv(p)
-		if lerr != nil {
-			return Change{}, lerr
-		}
-
-		c.copies = append(c.copies, CopyTarget{name: t.Name(), path: p})
-		lines = append(lines, config.MarkContext+"=== "+t.Name()+" ===")
-		lines = append(lines, SplitDiff(config.Diff(cur.String(), after))...)
-	}
-
-	if len(c.copies) == 0 {
-		return Change{}, ErrEmptyCopyTarget
-	}
-
-	// 複製は差分を組み立て済みなので、before/after ではなくこの行を出す。
-	c.lines = lines
-	copies := c.copies
-	c.write = func() error { return writeCopies(body, copies) }
-
-	return c, nil
 }
 
 // SplitDiff は Diff の結果を行へ分ける。
@@ -272,6 +225,19 @@ func (c Change) Labels() []string { return c.labels }
 // Copies は複製先の台数を返す（KindCopy のとき）。
 func (c Change) Copies() int { return len(c.copies) }
 
+// CopyNames は複製先の runner 名を返す（KindCopy のとき）。
+//
+// **反映（再起動）の対象は複製元ではなくこちらである。** .env が書き換わったのは
+// 複製先であり、複製元の設定は 1 バイトも変わっていない。取り違えると、変更が
+// 効いていない複製先を放置したまま、無関係な複製元のジョブを止めることになる。
+func (c Change) CopyNames() []string {
+	out := make([]string, 0, len(c.copies))
+	for _, t := range c.copies {
+		out = append(out, t.name)
+	}
+	return out
+}
+
 // Title は差分の見出しに出す対象を返す。
 func (c Change) Title() string {
 	if c.path != "" {
@@ -280,9 +246,9 @@ func (c Change) Title() string {
 
 	switch c.Kind {
 	case KindLabels:
-		return "ラベル（GitHub）"
+		return c.withRunner("ラベル（GitHub）")
 	case KindGroup:
-		return "runner group（GitHub）"
+		return c.withRunner("runner group（GitHub）")
 	case KindCopy:
 		return ".env の複製（" + strconv.Itoa(len(c.copies)) + " 台）"
 	case KindEnv, KindPath, KindDropIn, KindReregister, KindSelf:
@@ -290,4 +256,12 @@ func (c Change) Title() string {
 	default:
 		return ""
 	}
+}
+
+// withRunner は見出しへ対象の runner 名を添える。
+func (c Change) withRunner(s string) string {
+	if c.runner == "" {
+		return s
+	}
+	return c.runner + " の" + s
 }

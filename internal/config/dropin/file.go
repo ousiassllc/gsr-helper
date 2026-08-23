@@ -88,14 +88,29 @@ func checkUnit(unit string) error {
 //
 // 「まだ drop-in が無い」は普通の状態であり、異常として扱うと編集を始められない。
 func Load(path string) (DropIn, error) {
+	s, err := ReadRaw(path)
+	if err != nil {
+		return DropIn{Directives: nil}, err
+	}
+	return Parse(s), nil
+}
+
+// ReadRaw は path の drop-in を書かれているままの文字列で読む。
+// ファイルが無ければ空文字を返す。
+//
+// **差分の before に使う。** Parse はコメント・[Unit]・[Install]・未知の
+// セクションを捨て、Render は [Service] だけを書き出す。Render の結果を before に
+// すると、手書きの override.conf を編集したときに消える行が差分に 1 行も出ず、
+// 利用者は失われることを知らないまま承認してしまう（FR-37）。
+func ReadRaw(path string) (string, error) {
 	b, err := fileio.Read(path, MaxSize)
 	if errors.Is(err, fs.ErrNotExist) {
-		return DropIn{Directives: nil}, nil
+		return "", nil
 	}
 	if err != nil {
-		return DropIn{Directives: nil}, fmt.Errorf("drop-in の読み込みに失敗しました: %w", err)
+		return "", fmt.Errorf("drop-in の読み込みに失敗しました: %w", err)
 	}
-	return Parse(string(b)), nil
+	return string(b), nil
 }
 
 // Save は d を path へ書き出す。親ディレクトリが無ければ作る。

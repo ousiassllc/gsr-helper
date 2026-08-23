@@ -63,6 +63,21 @@ const (
 // reservedLabels は runner が自動で付けるため指定できないラベル。
 func reservedLabels() []string { return []string{"self-hosted", "linux", "x64"} }
 
+// IsReserved は runner が自動で付ける予約ラベルかを返す（大文字小文字を無視する）。
+//
+// 判定を公開するのは、GitHub の一覧 API が予約ラベル（self-hosted / Linux / X64）を
+// 含む全量を返すためである。それをそのままフォームの初期値にすると Labels が
+// 弾き、開いた時点で自分の検証に落ちて確定できないフォームになる。除外する側が
+// 予約ラベルの一覧を写し持つと、片方だけが増えたときに気付けない。
+func IsReserved(label string) bool {
+	for _, r := range reservedLabels() {
+		if strings.EqualFold(strings.TrimSpace(label), r) {
+			return true
+		}
+	}
+	return false
+}
+
 // Name は runner 名を検証する。
 //
 // existing はホスト内の既存 runner 名。重複を弾くために渡す。

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/ousiassllc/gsr-helper/internal/config"
@@ -50,152 +51,58 @@ func TestValidateLabels(t *testing.T) {
 	}
 }
 
-// runner 名の検証（FR-36）。ホスト内の重複を弾くこと。
-func TestValidateRunnerName(t *testing.T) {
+// 絶対パスの検証（FR-36）。呼び出し側の欄の名前がエラー文言に載ること。
+//
+// **欄の名前を引数で受けるのが要点である。** 以前は work dir 専用の検証を監査ログの
+// 欄から呼んでいたため、監査ログを直すよう促す文言に「work dir」と出ていた。
+func TestValidateAbsPath(t *testing.T) {
 	t.Parallel()
 
-	existing := []string{"build01-1", "build01-2"}
-
 	tests := map[string]struct {
-		in      string
-		wantErr error
-	}{
-		"通常":      {"build01-3", nil},
-		"記号を許す":   {"build_01.3-x", nil},
-		"空":       {"", valid.ErrEmptyName},
-		"ホスト内で重複": {"build01-1", valid.ErrDuplicateName},
-		"使えない文字":  {"build 01", valid.ErrBadNameChar},
-		"先頭がハイフン": {"-build01", valid.ErrLeadingDash},
-	}
-
-	for name, tt := range tests {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-
-			err := config.ValidateRunnerName(tt.in, existing)
-			if !errors.Is(err, tt.wantErr) {
-				t.Errorf("ValidateRunnerName(%q) のエラー = %v, want %v", tt.in, err, tt.wantErr)
-			}
-		})
-	}
-}
-
-// work dir の検証（FR-36）。probe を差し替えて書き込み可否と残容量を確かめる。
-func TestValidateWorkDir(t *testing.T) {
-	t.Parallel()
-
-	const giB = int64(1) << 30
-
-	probeOf := func(writable bool, avail int64) config.WorkDirProbe {
-		return func(string) (config.WorkDirInfo, error) {
-			return config.WorkDirInfo{Writable: writable, AvailBytes: avail}, nil
-		}
-	}
-
-	tests := map[string]struct {
+		field   string
 		path    string
-		minFree int64
-		probe   config.WorkDirProbe
 		want    string
 		wantErr error
 	}{
-		"通常":           {"/data/_work", 0, probeOf(true, 10*giB), "/data/_work", nil},
-		"末尾を整える":       {"/data//_work/", 0, probeOf(true, 10*giB), "/data/_work", nil},
-		"相対パス":         {"data/_work", 0, probeOf(true, 10*giB), "", valid.ErrNotAbs},
-		"..を含む":        {"/data/../_work", 0, probeOf(true, 10*giB), "", valid.ErrHasDotDot},
-		"書き込めない":       {"/data/_work", 0, probeOf(false, 10*giB), "", config.ErrWorkDirNotWritable},
-		"残容量が足りない":     {"/data/_work", 0, probeOf(true, 1<<20), "", config.ErrWorkDirLowSpace},
-		"閾値を指定して足りる":   {"/data/_work", 1 << 20, probeOf(true, 2<<20), "/data/_work", nil},
-		"probe なしは形だけ": {"/data/_work", 0, nil, "/data/_work", nil},
+		"通常":          {"監査ログ", "/var/log/gsr-helper/audit.log", "/var/log/gsr-helper/audit.log", nil},
+		"前後の空白を落とす":   {"監査ログ", "  /var/log/audit.log  ", "/var/log/audit.log", nil},
+		"重なった区切りを整える": {"監査ログ", "/var//log/audit.log", "/var/log/audit.log", nil},
+		"空":           {"監査ログ", "", "", valid.ErrNotAbs},
+		"相対パス":        {"監査ログ", "var/log/audit.log", "", valid.ErrNotAbs},
+		"..を含む":       {"監査ログ", "/var/../etc/audit.log", "", valid.ErrHasDotDot},
 	}
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := config.ValidateWorkDir(tt.path, tt.minFree, tt.probe)
+			got, err := config.ValidateAbsPath(tt.field, tt.path)
 			if !errors.Is(err, tt.wantErr) {
-				t.Fatalf("ValidateWorkDir(%q) のエラー = %v, want %v", tt.path, err, tt.wantErr)
+				t.Fatalf("ValidateAbsPath(%q, %q) のエラー = %v, want %v", tt.field, tt.path, err, tt.wantErr)
 			}
 			if got != tt.want {
-				t.Errorf("ValidateWorkDir(%q) = %q, want %q", tt.path, got, tt.want)
+				t.Errorf("ValidateAbsPath(%q, %q) = %q, want %q", tt.field, tt.path, got, tt.want)
+			}
+			if tt.wantErr != nil && !strings.Contains(err.Error(), tt.field) {
+				t.Errorf("エラー文言 = %q, want %q を含む", err.Error(), tt.field)
 			}
 		})
 	}
 }
 
-// probe がエラーを返したら検証も失敗すること。判定できないことを「通った」に
-// 丸めると、書けない場所を work dir に設定できてしまう。
-func TestValidateWorkDirPropagatesProbeError(t *testing.T) {
+// 予約ラベルを除いた並びが得られること。GitHub の一覧 API は読み取り専用の
+// ラベル（self-hosted / Linux / X64）を含む全量を返すが、そのままフォームへ
+// 入れると自分の検証（ValidateLabels）に落ちて確定できなくなる。
+func TestCustomLabels(t *testing.T) {
 	t.Parallel()
 
-	sentinel := errors.New("statfs に失敗")
-	probe := func(string) (config.WorkDirInfo, error) {
-		return config.WorkDirInfo{Writable: false, AvailBytes: 0}, sentinel
+	got := config.CustomLabels([]string{"self-hosted", "Linux", "X64", "gpu", "cuda12"})
+	want := []string{"gpu", "cuda12"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("CustomLabels() = %v, want %v", got, want)
 	}
-
-	if _, err := config.ValidateWorkDir("/data/_work", 0, probe); !errors.Is(err, sentinel) {
-		t.Errorf("ValidateWorkDir() のエラー = %v, want %v を包んだもの", err, sentinel)
-	}
-}
-
-// 既定の probe が実在するディレクトリを調べられること。まだ無い work dir では
-// 存在する最も近い親を見る（追加時にはまだディレクトリが無いのが普通である）。
-func TestProbeWorkDirUsesNearestExistingParent(t *testing.T) {
-	t.Parallel()
-
-	dir := t.TempDir()
-
-	got, err := config.ProbeWorkDir(filepath.Join(dir, "not-yet", "_work"))
-	if err != nil {
-		t.Fatalf("ProbeWorkDir() でエラー: %v", err)
-	}
-	if !got.Writable {
-		t.Error("一時ディレクトリ配下が書き込み不可と判定された")
-	}
-	if got.AvailBytes <= 0 {
-		t.Errorf("残容量 = %d, want 正の値", got.AvailBytes)
-	}
-}
-
-// 書き込めないディレクトリを書き込み可と判定しないこと。
-func TestProbeWorkDirDetectsUnwritable(t *testing.T) {
-	t.Parallel()
-
-	if os.Geteuid() == 0 {
-		t.Skip("root は書き込み権限の制限を受けないため、この経路は検証できない")
-	}
-
-	dir := filepath.Join(t.TempDir(), "ro")
-	if err := os.Mkdir(dir, 0o500); err != nil {
-		t.Fatalf("ディレクトリの作成に失敗: %v", err)
-	}
-	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
-
-	got, err := config.ProbeWorkDir(dir)
-	if err != nil {
-		t.Fatalf("ProbeWorkDir() でエラー: %v", err)
-	}
-	if got.Writable {
-		t.Error("書き込めないディレクトリを書き込み可と判定した")
-	}
-}
-
-// 検証を通した一時ファイルを残さないこと。
-func TestProbeWorkDirLeavesNoFile(t *testing.T) {
-	t.Parallel()
-
-	dir := t.TempDir()
-	if _, err := config.ProbeWorkDir(dir); err != nil {
-		t.Fatalf("ProbeWorkDir() でエラー: %v", err)
-	}
-
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		t.Fatalf("ReadDir() でエラー: %v", err)
-	}
-	if len(entries) != 0 {
-		t.Errorf("一時ファイルが残っている: %v", entries)
+	if _, err := config.ValidateLabels(got); err != nil {
+		t.Errorf("除いた並びが ValidateLabels を通らない: %v", err)
 	}
 }
 

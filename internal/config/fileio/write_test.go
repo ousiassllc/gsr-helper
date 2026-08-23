@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/ousiassllc/gsr-helper/internal/config/fileio"
@@ -191,5 +192,76 @@ func TestRead(t *testing.T) {
 	}
 	if _, err := fileio.Read(link, 1024); !errors.Is(err, fileio.ErrSymlink) {
 		t.Errorf("リンクの Read() のエラー = %v, want ErrSymlink", err)
+	}
+}
+
+// 新規作成のファイルが親ディレクトリの所有者を引き継ぐこと。
+//
+// **root で動く本ツールが runner 所有のディレクトリに root:root の .env を作る
+// 事故を防ぐ回帰テストである。** .env が無いのは普通の状態なので、新規作成で
+// chown を省くと runner が自分の設定を読めなくなる。
+func TestWriteNewFileInheritsDirOwner(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".env")
+
+	if err := fileio.Write(path, []byte("A=1\n"), 0o600); err != nil {
+		t.Fatalf("Write() でエラー: %v", err)
+	}
+
+	fi, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("Stat() でエラー: %v", err)
+	}
+	if got := fi.Mode().Perm(); got != 0o600 {
+		t.Errorf("パーミッション = %o, want 600", got)
+	}
+
+	di, err := os.Stat(dir)
+	if err != nil {
+		t.Fatalf("親ディレクトリの Stat() でエラー: %v", err)
+	}
+	fst, fok := fi.Sys().(*syscall.Stat_t)
+	dst, dok := di.Sys().(*syscall.Stat_t)
+	if !fok || !dok {
+		t.Skip("uid/gid を取り出せない環境では検証できない")
+	}
+	if fst.Uid != dst.Uid || fst.Gid != dst.Gid {
+		t.Errorf("所有者 = %d:%d, want 親ディレクトリと同じ %d:%d", fst.Uid, fst.Gid, dst.Uid, dst.Gid)
+	}
+}
+
+// 所有者が違う親ディレクトリでも、新規作成のファイルがその所有者になること。
+//
+// chown(2) は root でないと他人の uid へ変えられないため、非 root では飛ばす。
+func TestWriteNewFileChownsToDirOwner(t *testing.T) {
+	t.Parallel()
+
+	if os.Geteuid() != 0 {
+		t.Skip("root でないと他の所有者への chown を検証できない")
+	}
+
+	dir := t.TempDir()
+	const uid, gid = 65534, 65534 // nobody:nogroup
+	if err := os.Chown(dir, uid, gid); err != nil {
+		t.Skipf("親ディレクトリの chown に失敗（uid %d が無い環境）: %v", uid, err)
+	}
+
+	path := filepath.Join(dir, ".env")
+	if err := fileio.Write(path, []byte("A=1\n"), 0o600); err != nil {
+		t.Fatalf("Write() でエラー: %v", err)
+	}
+
+	fi, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("Stat() でエラー: %v", err)
+	}
+	st, ok := fi.Sys().(*syscall.Stat_t)
+	if !ok {
+		t.Skip("uid/gid を取り出せない環境では検証できない")
+	}
+	if int(st.Uid) != uid || int(st.Gid) != gid {
+		t.Errorf("所有者 = %d:%d, want %d:%d", st.Uid, st.Gid, uid, gid)
 	}
 }

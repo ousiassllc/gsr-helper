@@ -1,9 +1,6 @@
 package config
 
 import (
-	"strconv"
-	"strings"
-
 	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
 
@@ -14,24 +11,12 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 )
 
-// 自身の設定（FR-41〜FR-42）のフォーム。
+// 自身の設定（FR-41〜FR-42）のフォーム。初回起動時（設定ファイルが無い）は
+// 自動で開き、以後も対象の一覧から選び直せる。編集できるのは要件が挙げる
+// 4 つ——走査ルート・ディスク閾値・ポーリング間隔・監査ログ出力先——である。
 //
-// 初回起動時（設定ファイルが無い）は自動で開き、以後も対象の一覧から選んで
-// 開き直せる。編集できるのは要件が挙げる 4 つ——走査ルート・ディスク閾値・
-// ポーリング間隔・監査ログ出力先——である。
-//
-// **書き込みは appconfig.Save に委ねる。** 一時ファイル + rename で常に 0600 かつ
-// SUDO_USER の所有権にする処理を持っているのはそちらであり、ここで書くと
-// 所有権の扱いが 2 か所に分かれる。
-
-// selfValues は自身の設定フォームの入力先。
-type selfValues struct {
-	scanRoots string
-	refresh   string
-	warn      string
-	critical  string
-	auditLog  string
-}
+// 値の変換・正規化・検証は edit.SelfValues が持つ（tea にも huh にも依らない）。
+// ここに残すのは入力欄の組み立てと、承認から書き込みまでの画面の流れだけである。
 
 // selfTitle はフォームの見出し。初回かどうかで変える。
 const (
@@ -39,12 +24,29 @@ const (
 	selfTitleEdit  = "gsr-helper 自身の設定"
 )
 
+// selfConf は自身の設定の現在値を返す。
+//
+// **保存済みの値があればそちらを優先する。** page.ConfigDeps.Conf は ui.New が
+// 起動時に決めた写しで、書き込んでも更新されない。優先しないと、保存した直後に
+// 開き直したフォームが古い値を出し、その古い値を基準に差分を組んでしまう
+// （FR-42 の黙ったデータ喪失）。
+//
+// なお**動いているアプリ自体は再起動まで起動時の設定で動き続ける。** 親 App の
+// 設定を書き換える経路は作らない（自動更新間隔などを走行中に差し替えると、
+// 設定を保存しただけでポーリングやしきい値の挙動が変わる）。
+func (m Model) selfConf() appconfig.Config {
+	if m.confSet {
+		return m.conf
+	}
+	return m.st.Config.Conf
+}
+
 // openSelfForm は自身の設定のフォームを開く（FR-41 / FR-42）。
 func (m *Model) openSelfForm() tea.Cmd {
 	m.self = true
 	m.formShown = true
-	m.vals.kind = edit.KindSelf
-	m.vals.self = fromConfig(m.st.Config.Conf)
+	m.vals.Kind = edit.KindSelf
+	m.vals.Self = edit.NewSelfValues(m.selfConf())
 
 	title := selfTitleEdit
 	if m.st.Config.FirstRun {
@@ -54,62 +56,38 @@ func (m *Model) openSelfForm() tea.Cmd {
 	return m.overlay.Open(formKind, formOpenMsg{title: title, values: m.vals, st: m.st})
 }
 
-// fromConfig は現在の設定をフォームの初期値へ写す。
-func fromConfig(c appconfig.Config) selfValues {
-	return selfValues{
-		scanRoots: strings.Join(c.ScanRoots, ","),
-		refresh:   strconv.Itoa(c.RefreshInterval),
-		warn:      strconv.Itoa(c.DiskThresholds.Warn),
-		critical:  strconv.Itoa(c.DiskThresholds.Critical),
-		auditLog:  c.AuditLog,
-	}
-}
-
 // selfFields は自身の設定の入力欄を返す。
-func (v *values) selfFields() []huh.Field {
-	s := &v.self
+func selfFields(v *edit.Values) []huh.Field {
+	s := &v.Self
 	return []huh.Field{
 		huh.NewInput().Title("追加の走査ルート").
 			Description("カンマ区切りの絶対パス。空なら既定の場所だけを探します").
-			Value(&s.scanRoots).Validate(validateRoots),
+			Value(&s.ScanRoots).Validate(edit.ValidateRoots),
 		huh.NewInput().Title("一覧の自動更新間隔（秒）").
-			Description("1〜3600").Value(&s.refresh).Validate(validateRefresh),
+			Description("1〜3600").Value(&s.Refresh).Validate(edit.ValidateRefresh),
 		huh.NewInput().Title("ディスク使用率の警告閾値（%）").
-			Description("1〜99").Value(&s.warn).Validate(validatePercent),
+			Description("1〜99").Value(&s.Warn).Validate(edit.ValidatePercent),
 		huh.NewInput().Title("ディスク使用率の危険閾値（%）").
-			Description("1〜100。警告より大きくします").Value(&s.critical).Validate(validatePercent),
+			Description("1〜100。警告より大きくします").Value(&s.Critical).Validate(edit.ValidatePercent),
 		huh.NewInput().Title("監査ログの出力先").
-			Description("絶対パス").Value(&s.auditLog).Validate(validateAbs),
+			Description("絶対パス").Value(&s.AuditLog).Validate(edit.ValidateAuditLog),
 	}
 }
 
-// apply はフォームの入力を設定へ反映した写しを返す。
-func (v selfValues) apply(base appconfig.Config) (appconfig.Config, error) {
-	out := base
-	out.ScanRoots = splitRoots(v.scanRoots)
-
-	var err error
-	if out.RefreshInterval, err = strconv.Atoi(strings.TrimSpace(v.refresh)); err != nil {
-		return base, errBadNumber
-	}
-	if out.DiskThresholds.Warn, err = strconv.Atoi(strings.TrimSpace(v.warn)); err != nil {
-		return base, errBadNumber
-	}
-	if out.DiskThresholds.Critical, err = strconv.Atoi(strings.TrimSpace(v.critical)); err != nil {
-		return base, errBadNumber
-	}
-	out.AuditLog = strings.TrimSpace(v.auditLog)
-
-	return out, nil
-}
-
-// saveSelf は自身の設定を書き込む（FR-41 / FR-42）。
+// saveSelf は自身の設定の差分を出して承認を求める（FR-41 / FR-42）。
 //
 // 差分の承認はここでも経る。破壊的な書き込みであることは runner 側の設定と
 // 変わらないためである（FR-37）。バックアップは appconfig.Save が一時ファイル +
 // rename で置き換えるため、書き損じで元の設定が壊れることはない。
+//
+// Apply は appconfig の正規化まで通す。**欄をまたぐ検証（警告 < 危険）が効くのは
+// ここだけである**——huh の Validate は 1 欄しか見えないので、警告 90 / 危険 80 の
+// ような組み合わせはフォームでは弾けない。通してしまうと差分の承認まで進み、
+// 書き込みの直前で初めて失敗する。
 func (m *Model) saveSelf() tea.Cmd {
-	next, err := m.vals.self.apply(m.st.Config.Conf)
+	base := m.selfConf()
+
+	next, err := m.vals.Self.Apply(base)
 	if err != nil {
 		m.notice = err.Error()
 		m.overlay.Close()
@@ -117,7 +95,7 @@ func (m *Model) saveSelf() tea.Cmd {
 		return nil
 	}
 
-	before, after := renderConfig(m.st.Config.Conf), renderConfig(next)
+	before, after := edit.RenderConfig(base), edit.RenderConfig(next)
 	if before == after {
 		m.notice = "変更はありません"
 		m.overlay.Close()
@@ -125,7 +103,7 @@ func (m *Model) saveSelf() tea.Cmd {
 		return nil
 	}
 
-	m.pendingSelf = next
+	m.pendingSelf, m.pendingSet = next, true
 	m.overlay.Close()
 
 	return m.overlay.Open(diffKind, diffOpenMsg{input: dialog.DiffApprovalInput{
@@ -136,8 +114,14 @@ func (m *Model) saveSelf() tea.Cmd {
 }
 
 // commitSelf は承認された自身の設定を書き込む。
+//
+// 書き込んだ設定は savingSelf / savedSelf に控え、成功した doneMsg を受けた
+// 時点で selfConf の答えに昇格させる（onDone）。失敗した場合に昇格させないのは、
+// 書けなかった値を次の編集の基準にすると差分が現実と食い違うためである。
 func (m *Model) commitSelf() tea.Cmd {
 	cfg, path := m.pendingSelf, m.st.Config.Path
+	m.pendingSelf = appconfig.Config{}
+	m.savingSelf, m.savedSelf = true, cfg
 	m.busy = true
 
 	return page.Do(m.tab, func() tea.Msg {
@@ -146,74 +130,4 @@ func (m *Model) commitSelf() tea.Cmd {
 		}
 		return doneMsg{text: "設定を書き込みました", err: nil}
 	})
-}
-
-// renderConfig は差分に出す設定の表現を返す。
-//
-// YAML そのものではなくキーと値の並びにするのは、編集した項目だけを差分に
-// 出すためである。書き出す内容そのものは appconfig.Save が組み立てる。
-func renderConfig(c appconfig.Config) string {
-	lines := []string{
-		"scan_roots: " + strings.Join(c.ScanRoots, ","),
-		"refresh_interval: " + strconv.Itoa(c.RefreshInterval),
-		"disk_thresholds.warn: " + strconv.Itoa(c.DiskThresholds.Warn),
-		"disk_thresholds.critical: " + strconv.Itoa(c.DiskThresholds.Critical),
-		"audit_log: " + c.AuditLog,
-	}
-	return strings.Join(lines, "\n") + "\n"
-}
-
-// splitRoots はカンマ区切りの走査ルートを分ける。
-func splitRoots(s string) []string {
-	if strings.TrimSpace(s) == "" {
-		return nil
-	}
-
-	parts := strings.Split(s, ",")
-	out := make([]string, 0, len(parts))
-	for _, p := range parts {
-		if t := strings.TrimSpace(p); t != "" {
-			out = append(out, t)
-		}
-	}
-	return out
-}
-
-// 検証は appconfig の規則をそのまま使う。設定ファイルから読む場合と
-// フォームから入れる場合で通る値が違うと、書いた設定で起動できなくなる。
-func validateRoots(s string) error {
-	for _, r := range splitRoots(s) {
-		if _, err := appconfig.CleanScanRoot("scan_roots", r); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// validateRefresh は更新間隔を検証する。
-func validateRefresh(s string) error {
-	n, err := strconv.Atoi(strings.TrimSpace(s))
-	if err != nil {
-		return errBadNumber
-	}
-	return appconfig.ValidateRefresh("refresh_interval", n)
-}
-
-// validatePercent は 1〜100 の整数かを見る。範囲の詳細は appconfig が起動時に検証する。
-func validatePercent(s string) error {
-	n, err := strconv.Atoi(strings.TrimSpace(s))
-	if err != nil {
-		return errBadNumber
-	}
-	if n < 1 || n > 100 {
-		return errPercentRange
-	}
-	return nil
-}
-
-// validateAbs は絶対パスかを見る。
-func validateAbs(s string) error {
-	_, err := config.ValidateWorkDir(strings.TrimSpace(s), 0, nil)
-
-	return err
 }

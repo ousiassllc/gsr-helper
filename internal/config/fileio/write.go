@@ -60,10 +60,15 @@ type owner struct {
 }
 
 // target は書き込み先の現状から、引き継ぐパーミッションと所有者を決める。
+//
+// **まだファイルが無い場合は親ディレクトリの所有者を引き継ぐ。** runner の .env が
+// 無いのは普通の状態であり（envfile.Load の doc）、chown を省くと sudo 実行時に
+// runner 所有のディレクトリの中へ root:root のファイルができて runner が自分の
+// 設定を読めなくなる——このパッケージが防ぐと言っている事故そのものである。
 func target(path string, newMode fs.FileMode) (fs.FileMode, owner, error) {
 	fi, err := os.Lstat(path)
 	if errors.Is(err, fs.ErrNotExist) {
-		return newMode.Perm(), owner{uid: 0, gid: 0, ok: false}, nil
+		return newMode.Perm(), dirOwner(filepath.Dir(path)), nil
 	}
 	if err != nil {
 		return 0, owner{uid: 0, gid: 0, ok: false}, fmt.Errorf("%s の状態の取得に失敗しました: %w", path, err)
@@ -75,6 +80,18 @@ func target(path string, newMode fs.FileMode) (fs.FileMode, owner, error) {
 		return 0, owner{uid: 0, gid: 0, ok: false}, fmt.Errorf("%s: %w", path, ErrNotRegular)
 	}
 	return fi.Mode().Perm(), ownerOf(fi), nil
+}
+
+// dirOwner は親ディレクトリの所有者を返す。読めなければ chown しない。
+//
+// 読めない場合に諦めるのは、ここで失敗させると「所有者を合わせられないから
+// 書けない」という止め方になり、書き込み自体は成功しうる場面を潰すためである。
+func dirOwner(dir string) owner {
+	fi, err := os.Stat(dir)
+	if err != nil {
+		return owner{uid: 0, gid: 0, ok: false}
+	}
+	return ownerOf(fi)
 }
 
 // ownerOf は FileInfo から uid/gid を取り出す。取り出せない環境では ok が false になる。

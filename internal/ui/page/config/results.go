@@ -2,13 +2,13 @@ package config
 
 import (
 	"context"
-	"errors"
-	"github.com/ousiassllc/gsr-helper/internal/config/edit"
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/ousiassllc/gsr-helper/internal/config/apply"
-	"github.com/ousiassllc/gsr-helper/internal/ui/organism"
+	"github.com/ousiassllc/gsr-helper/internal/appconfig"
+	"github.com/ousiassllc/gsr-helper/internal/config"
+	"github.com/ousiassllc/gsr-helper/internal/config/edit"
+	"github.com/ousiassllc/gsr-helper/internal/gh"
 	"github.com/ousiassllc/gsr-helper/internal/ui/organism/dialog"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 )
@@ -33,52 +33,77 @@ func (m *Model) openSelected() tea.Cmd {
 	}
 }
 
-// fetchFor は GitHub 側の現在値を取ってからフォームを開く。
+// fetchFor は GitHub 側の現在値を取ってからフォームを開く。一覧の組み立てでは
+// API を呼ばず、項目を選んだこの時点で呼ぶ（3 秒ポーリングでは呼ばない方針）。
 //
-// 一覧の組み立てでは API を呼ばず、項目を選んだこの時点で呼ぶ
-// （3 秒ポーリングで API を呼ばない方針）。
+// **取得を始めた時点の対象を Msg に載せる。** 通信の最中に esc で別の runner へ
+// 移れるため、載せずに戻ってくると A から取った値を B のフォームへ入れ、
+// そのまま確定すれば B へ書き込まれる。
 func (m *Model) fetchFor(k edit.Kind) tea.Cmd {
 	m.busy = true
 	in := m.commitInputOf(edit.Change{})
+	dir := m.target.Dir
 
 	return page.Do(m.tab, func() tea.Msg {
 		ctx := context.Background()
 		if k == edit.KindLabels {
 			labels, err := edit.FetchLabels(ctx, in)
-			return loadedMsg{kind: k, labels: labels, groups: nil, err: err}
+			return loadedMsg{kind: k, dir: dir, labels: labels, groups: nil, err: err}
 		}
 
 		groups, err := edit.FetchGroups(ctx, in)
-		return loadedMsg{kind: k, labels: nil, groups: groups, err: err}
+		return loadedMsg{kind: k, dir: dir, labels: nil, groups: groups, err: err}
 	})
 }
 
 // onLoaded は取得した現在値をフォームへ入れて開く。
 func (m *Model) onLoaded(msg loadedMsg) tea.Cmd {
 	m.busy = false
+
+	// 取得中に対象が変わっていたら捨てる（fetchFor の doc）。
+	if msg.dir != m.target.Dir {
+		return nil
+	}
 	if msg.err != nil {
 		m.notice = msg.err.Error()
 		return nil
 	}
 
 	if msg.kind == edit.KindLabels {
-		m.vals.labels = joinLabels(msg.labels)
+		// 予約ラベル（self-hosted / Linux / X64）を落としてから初期値にする。
+		// 落とさないと、開いた時点でフォーム自身の検証に落ちて確定できない。
+		m.vals.LabelsBefore = config.CustomLabels(msg.labels)
+		m.vals.Labels = edit.JoinLabels(m.vals.LabelsBefore)
+
 		return m.openForm(edit.KindLabels)
 	}
+	return m.openGroupForm(msg.groups)
+}
 
-	m.vals.groups = m.vals.groups[:0]
-	m.vals.groupIDs = m.vals.groupIDs[:0]
-	for _, g := range msg.groups {
-		m.vals.groups = append(m.vals.groups, g.Name)
-		m.vals.groupIDs = append(m.vals.groupIDs, g.ID)
+// openGroupForm は取得した runner group の一覧でフォームを開く。
+//
+// 一覧が空なら開かない。以前は名前を直接入力させていたが、ID を引けない値は
+// 必ず ErrUnknownGroup で弾かれるため、入力させるだけの行き止まりだった。
+func (m *Model) openGroupForm(groups []gh.RunnerGroup) tea.Cmd {
+	if len(groups) == 0 {
+		m.notice = "runner group の一覧を取得できませんでした"
+		return nil
 	}
+
+	names := make([]string, 0, len(groups))
+	ids := make([]int64, 0, len(groups))
+	for _, g := range groups {
+		names = append(names, g.Name)
+		ids = append(ids, g.ID)
+	}
+	m.vals.SetGroups(names, ids)
+
 	return m.openForm(edit.KindGroup)
 }
 
 // openForm は種類に応じてフォームの初期値を入れて開く。
 func (m *Model) openForm(k edit.Kind) tea.Cmd {
-	m.vals.kind = k
-	if err := m.fillForm(k); err != nil {
+	if err := m.vals.Fill(k, m.ld, m.target, m.others()); err != nil {
 		m.notice = err.Error()
 		return nil
 	}
@@ -86,45 +111,6 @@ func (m *Model) openForm(k edit.Kind) tea.Cmd {
 	m.formShown = true
 
 	return m.overlay.Open(formKind, formOpenMsg{title: k.FormTitle(), values: m.vals, st: m.st})
-}
-
-// fillForm はフォームの初期値を現在の設定から入れる。
-func (m *Model) fillForm(k edit.Kind) error {
-	switch k {
-	case edit.KindEnv:
-		f, err := m.ld.Env(m.target)
-		if err != nil {
-			return err
-		}
-		for i, spec := range edit.EnvKeys {
-			v, _ := f.Get(spec.Key)
-			m.vals.env[i], m.vals.envBefore[i] = v, v
-		}
-		return nil
-	case edit.KindPath:
-		p, err := m.ld.PathFile(m.target)
-		if err != nil {
-			return err
-		}
-		m.vals.path = p.Value
-		return nil
-	case edit.KindDropIn:
-		d, err := m.ld.DropIn(m.target)
-		if err != nil {
-			return err
-		}
-		m.vals.restart, _ = d.Get("Restart")
-		m.vals.memoryMax, _ = d.Get("MemoryMax")
-		return nil
-	case edit.KindCopy:
-		m.vals.copyTo = nil
-		m.vals.copyCandidates = names(m.others())
-		return nil
-	case edit.KindLabels, edit.KindGroup, edit.KindReregister:
-		return nil
-	default:
-		return nil
-	}
 }
 
 // onResult はモーダルの決定を処理する。
@@ -156,7 +142,7 @@ func (m *Model) onForm(msg tea.Msg) tea.Cmd {
 		return m.saveSelf()
 	}
 
-	c, err := m.buildChange()
+	c, err := m.vals.Build(m.ld, m.target, m.others())
 	if err != nil {
 		m.notice = err.Error()
 		m.overlay.Close()
@@ -166,50 +152,21 @@ func (m *Model) onForm(msg tea.Msg) tea.Cmd {
 	return m.approve(c)
 }
 
-// buildChange はフォームの入力から変更を組み立てる。
-func (m Model) buildChange() (edit.Change, error) {
-	switch m.vals.kind {
-	case edit.KindEnv:
-		return edit.BuildEnv(m.ld, m.target, m.vals.env, m.vals.envBefore)
-	case edit.KindPath:
-		return edit.BuildPath(m.ld, m.target, m.vals.path)
-	case edit.KindDropIn:
-		return edit.BuildDropIn(m.ld, m.target, m.vals.restart, m.vals.memoryMax)
-	case edit.KindLabels:
-		return m.buildLabelChange()
-	case edit.KindGroup:
-		id, ok := m.vals.groupID()
-		if !ok {
-			return edit.Change{}, ErrUnknownGroup
-		}
-		return edit.BuildGroup("", m.vals.group, id), nil
-	case edit.KindCopy:
-		return edit.BuildCopy(m.ld, m.target, m.others(), m.vals.copyTo)
-	case edit.KindSelf, edit.KindReregister:
-		return edit.Change{}, edit.ErrNoUnit
-	default:
-		return edit.Change{}, edit.ErrNoUnit
-	}
-}
-
-// ErrUnknownGroup は一覧に無い runner group を指定した場合のエラー。
-var ErrUnknownGroup = errors.New("runner group の ID が分からないため変更できません")
-
-// buildLabelChange はラベルの変更を組み立てる。検証はドメイン層に委ねる。
-func (m Model) buildLabelChange() (edit.Change, error) {
-	after, err := validateLabelList(m.vals.labels)
-	if err != nil {
-		return edit.Change{}, err
-	}
-	return edit.BuildLabels(nil, after), nil
-}
-
 // onApproved は差分の承認を処理する。承認されたときだけ書き込む。
+//
+// **決定は 1 度しか受けない**（Model.pendingSet の doc）。承認待ちの変更が無い
+// 決定と、書き込みが走っている最中の決定は捨てる。
 func (m *Model) onApproved(msg tea.Msg) tea.Cmd {
 	d, ok := msg.(dialog.DecidedMsg)
 	m.overlay.Close()
 
+	if !m.pendingSet || m.busy {
+		return nil
+	}
+	m.pendingSet = false
+
 	if !ok || !d.Confirmed {
+		m.pending, m.pendingSelf = edit.Change{}, appconfig.Config{}
 		m.notice = "書き込みを取りやめました"
 		m.self = false
 
@@ -229,71 +186,5 @@ func (m *Model) onApproved(msg tea.Msg) tea.Cmd {
 			return doneMsg{text: "", err: err}
 		}
 		return doneMsg{text: "書き込みました", err: nil}
-	})
-}
-
-// onDone は書き込みと反映の結果を処理する。
-//
-// ファイルを書き換えた場合だけ反映方法の選択へ進む（FR-39）。ラベルと runner
-// group は GitHub 側で即時に反映され、再起動が要らない。
-func (m *Model) onDone(msg doneMsg) tea.Cmd {
-	m.busy = false
-	if msg.err != nil {
-		m.report = "失敗: " + msg.err.Error()
-		return nil
-	}
-	m.report = msg.text
-	m.refresh(organism.KeepCursor)
-
-	if m.pending.FileBacked() && m.target.UnitName != "" {
-		return m.overlay.Open(applyKind, applyOpenMsg{items: applyChoices()})
-	}
-	m.pending = edit.Change{}
-
-	return nil
-}
-
-// applyChoices は反映方法の選択肢を返す。既定（ドレイン再起動）を先頭に置く。
-func applyChoices() []organism.Choice {
-	ms := apply.Methods()
-	out := make([]organism.Choice, 0, len(ms))
-
-	for _, method := range ms {
-		out = append(out, organism.Choice{
-			ID: method.Label(), Key: "", Desc: method.Label(), Impact: "", Reason: "",
-			Enabled: true, DividerBefore: false,
-		})
-	}
-	return out
-}
-
-// onApplyChosen は選ばれた反映方法を実行する。
-func (m *Model) onApplyChosen(msg tea.Msg) tea.Cmd {
-	chosen, ok := msg.(organism.ChosenMsg)
-	m.overlay.Close()
-
-	if !ok {
-		return nil
-	}
-
-	method := apply.Drain
-	for _, cand := range apply.Methods() {
-		if cand.Label() == chosen.ID {
-			method = cand
-		}
-	}
-
-	in := apply.Input{
-		Exec: m.st.Exec, Runner: m.target, Method: method,
-		Reload: m.pending.Reload(), Progress: nil, Drain: nil,
-	}
-	m.pending = edit.Change{}
-	m.busy = true
-
-	return page.Do(m.tab, func() tea.Msg {
-		if err := apply.Run(context.Background(), in); err != nil {
-			return doneMsg{text: "", err: err}
-		}
-		return doneMsg{text: "反映しました", err: nil}
 	})
 }

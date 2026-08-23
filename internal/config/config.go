@@ -56,6 +56,13 @@ func SavePathFile(p PathFile, path string) error { return envfile.SavePath(p, pa
 // LoadDropIn は path の drop-in を読む。ファイルが無ければ空の DropIn を返す。
 func LoadDropIn(path string) (DropIn, error) { return dropin.Load(path) }
 
+// ReadDropInRaw は path の drop-in を書かれているままの文字列で読む。
+// ファイルが無ければ空文字を返す。差分の before に使う（dropin.ReadRaw の doc）。
+func ReadDropInRaw(path string) (string, error) { return dropin.ReadRaw(path) }
+
+// ParseDropIn は drop-in の内容を解析する。[Service] 以外は落ちる。
+func ParseDropIn(s string) DropIn { return dropin.Parse(s) }
+
 // SaveDropIn は d を path へ書き出す。親ディレクトリが無ければ作る。
 //
 // 反映には systemctl daemon-reload が要る（FR-35 の反映方法の表）。

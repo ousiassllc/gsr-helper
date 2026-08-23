@@ -17,6 +17,10 @@ import (
 // 一覧の取得で名前から引き当てる。
 var ErrNoRunnerID = errors.New("GitHub 側の runner が見つかりません")
 
+// ErrNotAPIChange は GitHub API で反映できない種類の変更を API 経路へ渡した
+// 場合のエラー。ファイルを書く変更は Change.write を持つのでここへは来ない。
+var ErrNotAPIChange = errors.New("GitHub API で反映できる変更ではありません")
+
 // Commit は承認された変更を書き込む（FR-37 の承認後）。
 //
 // **呼ぶのは承認を受けた 1 か所だけである。** page/setup と同じく、書き込みへ
@@ -73,7 +77,16 @@ func backupIfExists(path string) error {
 }
 
 // commitAPI は GitHub 側の値（ラベル / runner group）を変更する。
+//
+// **扱える種類を先に絞る。** 「ラベルでなければ runner group」とだけ書くと、
+// 想定外の Kind（ファイルを書くはずの変更や Change のゼロ値）が groupID 0 のまま
+// 付け替えの API へ落ちる。書き込み経路の既定を破壊的な側に倒さない。判定を通信の
+// 前に置くのは、そもそも GitHub を叩かないためである。
 func commitAPI(ctx context.Context, in CommitInput) error {
+	if in.Change.Kind != KindLabels && in.Change.Kind != KindGroup {
+		return fmt.Errorf("kind=%d: %w", int(in.Change.Kind), ErrNotAPIChange)
+	}
+
 	cl, err := in.Client(ctx)
 	if err != nil {
 		return fmt.Errorf("GitHub の認証に失敗しました: %w", err)

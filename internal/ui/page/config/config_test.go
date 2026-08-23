@@ -194,7 +194,7 @@ func TestLabelChangeSkipsApplyMethod(t *testing.T) {
 	m := newPage(t, r)
 	m, _ = send(t, m, page.EditConfigMsg{Runner: r})
 
-	m.pending = edit.BuildLabels([]string{"old"}, []string{"gpu"})
+	m.pending = edit.BuildLabels(r.Name(), []string{"old"}, []string{"gpu"})
 	m, cmd := send(t, m, doneMsg{text: "書き込みました", err: nil})
 	m = pagetest.Advance(m, cmd, 3).(Model)
 

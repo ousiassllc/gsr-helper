@@ -162,3 +162,35 @@ func TestLabels(t *testing.T) {
 		t.Error("ドレイン再起動の文言に警告記号があってはいけない")
 	}
 }
+
+// 複数台への反映が台ごとに走ること（FR-40 の複製の反映先）。
+//
+// in.Runner に入れた値ではなく targets の各台が対象になる。取り違えると、
+// 変更が効いていない複製先を放置したまま無関係な台を再起動することになる。
+func TestRunAllTargetsEachRunner(t *testing.T) {
+	t.Parallel()
+
+	fake := exec.NewFake()
+	targets := []runner.Runner{
+		{Dir: "/opt/runners/a", Config: runner.Config{AgentName: "a"}, UnitName: "unit-a.service"},
+		{Dir: "/opt/runners/b", Config: runner.Config{AgentName: "b"}, UnitName: "unit-b.service"},
+	}
+
+	done, err := apply.RunAll(context.Background(), apply.Input{
+		Exec: fake, Runner: runner.Runner{}, Method: apply.Force, Reload: false,
+		Progress: nil, Drain: nil,
+	}, targets)
+	if err != nil {
+		t.Fatalf("RunAll() でエラー: %v", err)
+	}
+	if len(done) != 2 || done[0] != "a" || done[1] != "b" {
+		t.Errorf("済んだ台 = %v, want [a b]", done)
+	}
+
+	all := strings.Join(commands(fake), "\n")
+	for _, want := range []string{"unit-a.service", "unit-b.service"} {
+		if !strings.Contains(all, want) {
+			t.Errorf("%q への再起動が走っていない:\n%s", want, all)
+		}
+	}
+}
