@@ -125,6 +125,22 @@ type WorkUsage struct {
 	Err error
 }
 
+// WorkText は runner の _work 使用量を表示用の文字列で返す（Issue #73）。
+//
+// **未集計と集計失敗はどちらも空文字を返す。** 呼び出し側はそれを "-" に縮退させる
+// （listrow の dashCell）。書き分けないのは、利用者にとってどちらも「今は分からない」で
+// あり、一覧の 1 セルに理由を書く余地が無いためである。集計は起動直後には終わって
+// いないので、未集計は異常ではない。
+//
+// 0 バイトは有効な値としてそのまま出す（空の _work を持つ runner がある）。
+func (d DiskState) WorkText(dir string) string {
+	u, ok := d.Work[dir]
+	if !ok || u.Err != nil {
+		return ""
+	}
+	return atom.Bytes(u.Bytes)
+}
+
 // ScopeState は起動時に 1 度だけ引いたトークンの保有スコープ（Issue #79）。
 //
 // **Caps に載せていない。** 能力判定（appconfig/hostcaps.Detect）は起動シーケンス上で

@@ -16,6 +16,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/action"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/runnerdetail"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/runnerop"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/runners/rowview"
 )
 
 const (
@@ -29,7 +30,7 @@ const (
 type Model struct {
 	tab     int
 	st      page.StateMsg
-	tbl     table.Model[row]
+	tbl     table.Model[rowview.Row]
 	overlay page.Overlay
 	// actions はキー定義から 1 度だけ組んだ操作の表。描画のたびに組み直さない
 	// （action.Set の doc）。
@@ -69,7 +70,7 @@ func New(tab int, st page.StateMsg) Model {
 	return Model{
 		tab:     tab,
 		st:      st,
-		tbl:     newTable(st.Keys, st.Styles),
+		tbl:     rowview.NewTable(st.Keys, st.Styles),
 		overlay: overlay,
 		actions: action.NewSet(st.Keys.Runner),
 		ops:     ops,
@@ -166,8 +167,8 @@ func (m Model) setState(st page.StateMsg) (tea.Model, tea.Cmd) {
 	// 古い明暗のまま残る（table.Model.Restyle の doc）。
 	m.tbl.Restyle(st.Keys.List, st.Styles)
 	m.tbl.SetSize(st.BodyW, st.BodyH)
-	m.tbl.SetItems(sectionRunners, runnerRows(st.Result.Runners))
-	m.tbl.SetItems(sectionOrphans, orphanRows(st.Result.OrphanUnits))
+	m.tbl.SetItems(rowview.SectionRunners, rowview.Runners(st.Result.Runners, st.Disk))
+	m.tbl.SetItems(rowview.SectionOrphans, rowview.Orphans(st.Result.OrphanUnits))
 	m.ops.SetState(st, m.actions)
 	// 登録の Cmd は return より前に取り出す。**同じ return 文に置いてはならない。**
 	// 返り値の m（非関数オペランド）の読み取りと m.flushInit() による m.initCmd の
@@ -266,10 +267,10 @@ func (m Model) footer() []atom.Hint {
 		return m.overlay.Hints()
 	}
 	cur, ok := m.tbl.Selected()
-	if !ok || cur.isOrphan {
+	if !ok || cur.IsOrphan {
 		return m.listHints()
 	}
-	return m.actions.Hints(cur.runner, m.st.Caps, m.st.Keys.Runner)
+	return m.actions.Hints(cur.Runner, m.st.Caps, m.st.Keys.Runner)
 }
 
 // listHints は操作の対象が無いときのフッタを返す。

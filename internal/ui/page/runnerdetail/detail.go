@@ -60,6 +60,9 @@ type Model struct {
 
 	target runner.Runner
 	caps   appconfig.Caps
+	// disk は _work 使用量を引くための共有状態（Issue #73）。未集計なら work 行は
+	// パスだけになる。
+	disk page.DiskState
 
 	info    pane.Detail
 	list    organism.ChoiceList
@@ -130,6 +133,7 @@ func (d *Model) SetState(st page.StateMsg) {
 	d.actions = action.NewSet(st.Keys.Runner)
 	d.list.Restyle(st.Keys.List, st.Styles)
 	d.caps = st.Caps
+	d.disk = st.Disk
 	if r, ok := findRunner(st.Result.Runners, d.target.Dir); ok {
 		d.target = r
 	}

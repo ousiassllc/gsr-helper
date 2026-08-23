@@ -69,16 +69,16 @@ func (m Model) targets() []runner.Runner {
 	checked := m.tbl.Checked()
 	out := make([]runner.Runner, 0, len(checked))
 	for _, r := range checked {
-		if !r.isOrphan {
-			out = append(out, r.runner)
+		if !r.IsOrphan {
+			out = append(out, r.Runner)
 		}
 	}
 
 	cur, ok := m.tbl.Selected()
-	if cur.isOrphan {
+	if cur.IsOrphan {
 		ok = false
 	}
-	return runnerop.Targets(out, cur.runner, ok)
+	return runnerop.Targets(out, cur.Runner, ok)
 }
 
 // openDetail はカーソル位置の runner の詳細画面を開く。
@@ -87,10 +87,10 @@ func (m Model) targets() []runner.Runner {
 // 無く、詳細画面の項目（スコープ・バージョン・ディレクトリ）を埋められないためである。
 func (m *Model) openDetail() tea.Cmd {
 	cur, ok := m.tbl.Selected()
-	if !ok || cur.isOrphan {
+	if !ok || cur.IsOrphan {
 		return nil
 	}
-	return runnerdetail.Open(&m.overlay, cur.runner, m.st.Caps)
+	return runnerdetail.Open(&m.overlay, cur.Runner, m.st.Caps)
 }
 
 // back は esc の「選択のクリア / 1 つ前の状態へ戻る」を処理する。
