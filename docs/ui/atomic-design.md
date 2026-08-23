@@ -1079,7 +1079,7 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 | `ui/page/disk` | 1940 | 60 | pass |
 | `ui/page/setup` | 1883 | 117 | pass |
 | `ui/page/runners` | 1983 | 17 | pass |
-| `ui/page/config` | 1719 | 281 | pass |
+| `ui/page/config` | 1737 | 263 | pass |
 | `ui/page/jobs` | 1684 | 316 | pass |
 | `ui/page/pagetest` | 1696 | 304 | pass |
 | `ui/keymap` | 1666 | 334 | pass |
