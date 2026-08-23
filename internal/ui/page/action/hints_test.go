@@ -59,6 +59,7 @@ func TestHintsCarryReasons(t *testing.T) {
 		page.BindingKey(testKeys().Runner.Add):    true,
 		page.BindingKey(testKeys().Runner.Delete): true,
 		page.BindingKey(testKeys().Runner.Update): true,
+		page.BindingKey(testKeys().Runner.Edit):   true,
 	}
 
 	hints := testActions().Hints(sampleRunner(), fullCaps(), testKeys().Runner)
@@ -66,8 +67,8 @@ func TestHintsCarryReasons(t *testing.T) {
 		t.Fatalf("ヒントの件数 = %d, want %d", len(hints), want)
 	}
 
-	// 実装済みの操作は有効で理由を持たず、未実装の操作は無効で理由を持つ。
-	// どちらか一方だけを見ると、全件が無効／全件が有効になった日に気づけない。
+	// 有効な操作は理由を持たず、無効な操作は必ず理由を持つ。どちらか一方だけを
+	// 見ると、全件が無効／全件が有効になった日に気づけない。
 	for _, h := range hints {
 		if h.Enabled != enabled[h.Key] {
 			t.Errorf("キー %q の可否 = %v, want %v", h.Key, h.Enabled, enabled[h.Key])

@@ -248,8 +248,8 @@ func TestKeyOf(t *testing.T) {
 	if got := KeyOf(tabs, page.TabDoctor); got != "5" {
 		t.Errorf("KeyOf(Doctor) = %q, want %q", got, "5")
 	}
-	if got := KeyOf(tabs, "Config"); got != "" {
-		t.Errorf("KeyOf(Config) = %q, want 空（無効なタブへは誘導しない）", got)
+	if got := KeyOf(tabs, page.TabConfig); got != "6" {
+		t.Errorf("KeyOf(Config) = %q, want %q", got, "6")
 	}
 	if got := KeyOf(tabs, "存在しない"); got != "" {
 		t.Errorf("KeyOf(存在しない) = %q, want 空", got)

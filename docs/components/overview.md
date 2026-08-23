@@ -396,6 +396,18 @@ runner 側の設定ファイルの読み書き。
 
 ラベルと runner group の変更は GitHub API 側なので `gh` パッケージに委譲する。
 
+実体は下位パッケージに分かれており、上の名前は `internal/config` が別名として見せる。
+
+| サブパッケージ | 責務 |
+|---------------|------|
+| `config/fileio` | どう読み書きするか。シンボリックリンクの拒否（`O_NOFOLLOW`）・一時ファイル + rename の原子的な置き換え・**既存ファイルの所有者とパーミッションの引き継ぎ**・`Backup` |
+| `config/envfile` | `.env` と `.path` の表現 |
+| `config/dropin` | drop-in の表現と配置（`<root>/<unit>.d/override.conf`）。ユニット名は `.service` 由来で runner 実行ユーザーが書き換えられるため、パス区切りを含む名前を拒む |
+| `config/apply` | 反映方法（[FR-39](../requirements/functional.md)）。ドレイン再起動は `svc` に無いので `svc.Drain` と `svc.Start` を組み合わせる |
+| `config/edit` | 設定項目ごとの変更の組み立て・差分・書き込み・ラベルの API 呼び出し。Config タブから tea に依らない部分を切り出したもの |
+
+**分ける理由は 1 ディレクトリ 2000 行の上限だけではない。** 書き込みの安全策（リンクの拒否・原子的な置き換え・所有者の引き継ぎ）を `fileio` に集めておけば、対象が `.env` / `.path` / drop-in と増えても守り方が分岐しない。
+
 ### `internal/gh`
 
 GitHub API とトークンの取得。**GitHub と通信するのはこのパッケージだけである。** ドメイン層は `Client` のメソッド越しにしか API を触らず、`go-github` の型は外へ出さない。
@@ -411,7 +423,8 @@ GitHub API とトークンの取得。**GitHub と通信するのはこのパッ
 | `LatestRunnerVersion` | runner 本体の最新版。タグの先頭の `v` を落として `bin/runnerversion` と同じ表記に揃える | 実装済み |
 | `APIError` | 失敗を「次に何をすればよいか」まで含めて表す（不足スコープ・待機時間・確認コマンドを `Hint` に載せる）。**自動リトライはしない**（レート制限を再消費しないため） | 実装済み |
 | `Secrets` | マスク対象の秘密文字列をメモリ上だけで保持する。`command.New` の秘密情報の提供元として渡す（下記） | 実装済み |
-| `Labels` 系 | ラベルの取得・置換・追加・削除 | **未実装**（FR-35 の設定編集で使う。Config タブの Issue が足す） |
+| `Labels` 系 | ラベルの取得・置換 | 実装済み（`RunnerLabels` / `ReplaceRunnerLabels`。FR-35 の設定編集で使う）。**追加（POST）と個別削除（DELETE）は未実装**——全量の置き換えで足り、呼び出し元の無い公開 API は置かないため |
+| `RunnerGroups` 系 | runner group の一覧と付け替え | 実装済み（`ListRunnerGroups` / `AddRunnerToGroup`。**org / enterprise のみ**で、repo スコープは `ErrNoRunnerGroups`） |
 | `TokenScopes` / `Scopes` / `RequiredScope` | 保有スコープの取得と、必要なスコープを満たすかの判定。`X-OAuth-Scopes` を返さないトークン（fine-grained PAT / GitHub App）を「スコープを持たない」と区別する（`Scopes.Classic`）。判定は `admin:x ⊃ write:x ⊃ read:x` の包含を辿る | 実装済み（doctor の「認証・権限」が使う） |
 
 **`Secrets` は `command.New` の契約を満たすために、保持済みの値を複製して返すだけの実装にしてある。** 提供元は `Run` のたびに呼ばれるので並行安全であることと、**外部コマンドを起動しないこと**が要る（起動すると `gh auth token` が無限に再帰する）。`cmd/gsr-helper` が 1 つ作って `command.New` と UI（`page.StateMsg.Setup.Secrets`）の両方へ渡し、`setup/job` が取得した短命トークンをここへ預ける。
@@ -517,7 +530,11 @@ type Executor interface {
 | `DefaultPath() (string, error)` | 配置先の決定（`SUDO_USER` を考慮） |
 | `Detect(ctx, Executor, Options) Caps` | root / systemd / docker / journalctl / トークンの能力判定（下記） |
 
-**呼び出し元の無い公開 API は置かない。** 設定ファイルの有無を返す `Exists` は初回起動ウィザード（FR-41）のための API として用意してあったが、FR-41 が未実装で呼び出し元が無く、実際の必要に対して形が正しいかを確かめる手段が無かったため削除した。FR-41 を実装する際に、その時の必要に合わせて追加する。
+`Exists(path) (bool, error)` は設定ファイルの有無を返す。`Load` はファイルが無くても既定値を返すため、戻り値からは初回起動を判別できない。初回設定ウィザード（[FR-41](../requirements/functional.md)）の判定に使う。
+
+**権限などで確認できなかった場合を「無い」に丸めない。** 丸めると、ウィザードが毎回立ち上がったうえで書き込みも失敗し続ける状態を黙って作ることになる。呼び出し側（`cmd`）はエラーを報告したうえでウィザードを出さずに起動する。
+
+なお `Exists` は一度削除されている。**呼び出し元の無い公開 API は置かない**という規則に従い、FR-41 が未実装の間は形が正しいかを確かめる手段が無かったためである。Issue #12 で呼び出し元ができたので、その必要に合わせて戻した。
 
 #### 能力判定（`appconfig/hostcaps`）
 

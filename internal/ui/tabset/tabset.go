@@ -21,6 +21,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/ui/keymap"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/config"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/disk"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/doctor"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/jobs"
@@ -67,8 +68,9 @@ type spec struct {
 // specs は表示するタブの並びを返す。タブを増やすときに触るのはこの関数だけ。
 //
 // タブ行に 7 枚すべてを出すのは、押しても何も起きないキーを作らないためである
-// （screens.md の共通レイアウトは 7 タブを常に出す）。6 は未実装なので New を
-// 持たず、無効なタブになる。無効なタブはグレーアウトし、番号キーを押したら理由を
+// （screens.md の共通レイアウトは 7 タブを常に出す）。7 枚すべてが実装済みに
+// なったので、この版で無効になるタブは無い。無効なタブはグレーアウトし、
+// 番号キーを押したら理由を
 // 状態行に出す。無効なタブへはキーも StateMsg も配らない（ui の live）。
 // 後続 Issue は該当する 1 行に New を足すだけで有効化できる。
 func specs() []spec {
@@ -78,7 +80,7 @@ func specs() []spec {
 		{Title: "Disk", New: func(i int, st page.StateMsg) tea.Model { return disk.New(i, st) }},
 		{Title: page.TabLogs, New: func(i int, st page.StateMsg) tea.Model { return logs.New(i, st) }},
 		{Title: page.TabDoctor, New: func(i int, st page.StateMsg) tea.Model { return doctor.New(i, st) }},
-		{Title: "Config", New: nil},
+		{Title: page.TabConfig, New: func(i int, st page.StateMsg) tea.Model { return config.New(i, st) }},
 		{Title: page.TabSetup, New: func(i int, st page.StateMsg) tea.Model { return setup.New(i, st) }},
 	}
 }

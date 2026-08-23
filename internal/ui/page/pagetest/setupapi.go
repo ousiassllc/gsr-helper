@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -136,6 +137,31 @@ func (a *SetupAPI) record(n *int) {
 	defer a.mu.Unlock()
 	*n++
 }
+
+// WaitFetches は tarball の取得が試みられるまで待ち、その回数を返す。
+//
+// **Fetch は承認後に走る worker の goroutine から呼ばれる**（Deps の doc）ため、
+// 承認のキーを送った直後に Fetches() を読むと、まだ 0 のことがある。実際に
+// CI（負荷の高い環境）でだけ 0 になって落ちた。取得そのものは同期的に待てる
+// 対象ではないので、上限つきで待つ。
+//
+// 上限に達しても 0 を返すだけで、失敗の判定は呼び出し側に委ねる。
+func (a *SetupAPI) WaitFetches(timeout time.Duration) int {
+	deadline := time.Now().Add(timeout)
+	for {
+		if n := a.Fetches(); n > 0 {
+			return n
+		}
+		if time.Now().After(deadline) {
+			return 0
+		}
+
+		time.Sleep(waitPoll)
+	}
+}
+
+// waitPoll は WaitFetches の見に行く間隔。
+const waitPoll = 5 * time.Millisecond
 
 // read は数え上げを読む。
 func (a *SetupAPI) read(n *int) int {

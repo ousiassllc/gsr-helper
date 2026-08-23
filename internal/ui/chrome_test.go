@@ -60,11 +60,26 @@ func TestFooterShowsEverySpecKeyAtWidth80(t *testing.T) {
 		t.Errorf("フッタ 1 行目の幅 = %d, want 80 以下（%q）", w, line)
 	}
 
-	// 無効なキーはフッタ 2 行目で丸括弧付きに並べ、理由を添える（設計原則 4）。
-	// 能力の揃ったホストで無効なのは、この版で未実装の操作（設定編集など）だけである。
-	reason := strings.Split(chrome.Footer(a.chromeView()), "\n")[1]
-	if !strings.Contains(reason, "(e)") || !strings.Contains(reason, "この版では未対応です") {
-		t.Errorf("フッタ 2 行目 = %q, 無効なキーと理由が出ていない", reason)
+	// 7 タブすべてが実装済みなので、未対応で塞がる操作はもう無い。
+	if strings.Contains(chrome.Footer(a.chromeView()), "この版では未対応です") {
+		t.Error("未対応の操作が残っている")
+	}
+}
+
+// 無効なキーはフッタ 2 行目に丸括弧付きで並べ、理由を添える（設計原則 4）。
+func TestFooterShowsReasonForDisabledKey(t *testing.T) {
+	a, _ := update(newApp(exec.NewFake()), tea.WindowSizeMsg{Width: 80, Height: 24})
+	a, cmd := update(a, discoveredMsg{
+		result: runner.Result{Runners: []runner.Runner{pagetest.BusyRunner()}},
+		err:    nil,
+	})
+
+	lines := strings.Split(chrome.Footer(applyChrome(a, cmd).chromeView()), "\n")
+	if len(lines) < 2 {
+		t.Fatalf("フッタが 2 行に足りない: %q", lines)
+	}
+	if !strings.Contains(lines[1], "(D)") || !strings.Contains(lines[1], "ジョブ実行中") {
+		t.Errorf("フッタ 2 行目 = %q, 無効なキーと理由が出ていない", lines[1])
 	}
 }
 

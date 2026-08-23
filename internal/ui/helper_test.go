@@ -13,13 +13,10 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/ui/tabset"
 )
 
-// テストは内部テスト（package ui）にしてある。タブのメタ情報・tickMsg・chrome は
-// 非公開であり、タブを差し替えて「共有状態が全 page に配られるか」を見るために
-// 内側へ触る必要があるためである。
+// 内部テスト（package ui）にしてある。タブのメタ情報・tickMsg・chrome が非公開で、
+// タブを差し替えて共有状態の配布を見るには内側へ触る必要があるためである。
 //
-// 共通の道具（キー入力の組み立て・能力・Cmd の展開・長寿命の処理を持つ page）は
-// page/pagetest から取る。ここへ書き写すと、親と page で検証の前提が食い違ううえ、
-// ui 直下の行数（1 ディレクトリ 2000 行）を道具立てで押し上げることになる。
+// 共通の道具は page/pagetest から取る（書き写すと前提が食い違い、行数も増える）。
 
 // press はキー入力の Msg を作る。
 func press(k string) tea.KeyPressMsg { return pagetest.Press(k) }
@@ -48,15 +45,10 @@ func withHostChecks(a App, checks ...doctor.Check) App {
 	return a
 }
 
-// withSpies は有効なタブを pagetest.Spy に差し替える。
+// withSpies は有効なタブを pagetest.Spy に差し替える。並びはタブの並びと同じ。
 //
-// 無効なタブ（この版で未実装のタブ）は Model を持たないため差し替えない。返す
-// spy の並びはタブの並びと同じで、添字 0 が Runners、1 が Jobs である。
-//
-// **差し戻し（Bubble）を立てる。** 親はグローバルキーを、page が「自分では使わない」
-// と判断して差し戻してきたときにだけ解釈する（keys.go の配送）。立てないとキーの
-// 配送そのものを検証できない。ui 直下はこの 1 つの振る舞いのために同じ spy を
-// 写し持っていたが、pagetest.Spy の任意の振る舞いにして寄せた（Issue #45）。
+// **差し戻し（Bubble）を立てる。** 親はグローバルキーを page が差し戻してきた
+// ときにだけ解釈する（keys.go の配送）。立てないとキーの配送を検証できない。
 func withSpies(a App) (App, []*pagetest.Spy) {
 	spies := make([]*pagetest.Spy, 0, len(a.tabs))
 	for i := range a.tabs {
@@ -72,7 +64,7 @@ func withSpies(a App) (App, []*pagetest.Spy) {
 	return a, spies
 }
 
-// lastEnabledTab は最後の有効なタブの添字を返す。
+// lastEnabledTab は最後の有効なタブの添字を返す。無ければ -1。
 func lastEnabledTab(tabs []tabset.Tab) int {
 	last := -1
 	for i := range tabs {
@@ -80,6 +72,7 @@ func lastEnabledTab(tabs []tabset.Tab) int {
 			last = i
 		}
 	}
+
 	return last
 }
 

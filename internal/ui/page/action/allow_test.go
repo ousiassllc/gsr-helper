@@ -34,7 +34,7 @@ func testActions() Set { return NewSet(testKeys().Runner) }
 func supported() map[ID]bool {
 	return map[ID]bool{
 		Start: true, Stop: true, Kill: true, Drain: true, Restart: true, Enable: true,
-		Logs: true, Add: true, Delete: true, Update: true,
+		Logs: true, Add: true, Delete: true, Update: true, Edit: true,
 	}
 }
 
@@ -45,8 +45,8 @@ func supported() map[ID]bool {
 // いること（キーを差し替えても操作の同一性が保たれること）を見る。
 //
 // Supported が真なのは実装済みの操作（サービス制御の 6 つ・ログを開く操作・追加・
-// 削除・バージョン更新）だけである。未実装の操作に真を付けると「押せるが何も
-// 起きない」経路ができるため、実装済みの集合を supported() に固定する。
+// 削除・バージョン更新・設定編集）だけである。未実装の操作に真を付けると「押せるが
+// 何も起きない」経路ができるため、実装済みの集合を supported() に固定する。
 func TestActionsFollowKeymap(t *testing.T) {
 	keys := testKeys().Runner
 	ids := testActions().byKey
@@ -195,7 +195,10 @@ func TestAllowPermitsAndAllowedAgrees(t *testing.T) {
 		"s": svc.ReasonRoot, "x": svc.ReasonRoot, "X": svc.ReasonRoot, "R": svc.ReasonRoot,
 		"u": svc.ReasonRoot, "n": svc.ReasonRoot, "D": svc.ReasonRoot,
 		"d": "", "E": "",
-		"e": page.ReasonUnsupported,
+		// e（設定を編集）は Config タブが実装した。ラベルの編集のように root を
+		// 要さない経路があるため、非 root でも塞がない（screens.md の判定表は
+		// 1 段目の root 必須に e を挙げていない）。
+		"e": "",
 		// l（ログを開く）は実装済みで、管理経路にも権限にも依存しない
 		// （screens.md の「無効な操作の表示」）。非 root でも塞がらない。
 		"l": "",

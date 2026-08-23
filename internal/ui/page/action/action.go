@@ -81,11 +81,10 @@ func Of(id string) (ID, bool) {
 
 // Def は詳細画面の操作リスト 1 項目の定義。
 //
-// Supported は「この版で実装済みか」を表す。偽なのは設定編集（e）だけで、
-// 残る 10 個はサービス制御・ログ・追加・削除・バージョン更新として実装済みである
-// （内訳は meta の doc）。Def の定義にこのフィールドを置くことで、後続 Issue は
-// meta の 1 箇所を真にするだけで操作を有効化でき、可否の判定（Allow）とフッタ・
-// 操作リストの描画には手を入れずに済む。
+// Supported は「この版で実装済みか」を表す。11 個すべてが実装済みになった今も
+// フィールドを残すのは、操作を先に定義してから実装する Issue が同じ手順を使える
+// ようにするためである。meta の 1 箇所を偽にするだけで、可否の判定（Allow）と
+// フッタ・操作リストの描画に手を入れずに操作を塞げる。
 type Def struct {
 	ID          ID // どの操作か（判定はキーではなくこれで引く）
 	Key         string
@@ -142,8 +141,9 @@ const (
 //
 // Supported が真なのはサービス制御の 6 つ（internal/svc が実装した開始・停止・強制
 // 停止・ドレイン停止・再起動・enable の切替）、Logs タブが実装したログを開く操作、
-// および Setup タブが実装した追加・削除・バージョン更新である。設定編集（e）は
-// 後続の Issue が担うため偽のままで、「押せるが何も起きない」経路を作らない。
+// Setup タブが実装した追加・削除・バージョン更新、および Config タブが実装した
+// 設定編集（e）である。偽になるのは Unknown（どのキーにも対応しない打鍵）だけで、
+// 「押せるが何も起きない」経路を作らない。
 //
 // **追加とバージョン更新は影響の文言を持たない。** 出どころである詳細画面のモック
 // （screens.md）が `u  バージョン更新` を括弧無しで書いているためである。更新が伴う
@@ -164,7 +164,7 @@ func meta(id ID) (impact string, destructive, supported bool) {
 		return "", false, true
 	case Delete:
 		return impactDelete, true, true
-	case Logs:
+	case Logs, Edit:
 		return "", false, true
 	default:
 		return "", false, false

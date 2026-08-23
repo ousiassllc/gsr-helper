@@ -152,7 +152,11 @@ func TestDisabledTabNumberShowsReason(t *testing.T) {
 		}
 	}
 	if target < 0 {
-		t.Fatal("無効なタブが 1 枚も無いため検証できない")
+		// 7 枚すべて実装済みなので、能力で無効にする枠のために 1 枚を無効にする。
+		target = len(a.tabs) - 1
+		a.tabs[target].Enabled = false
+		a.tabs[target].Model = nil
+		a.tabs[target].Reason = page.ReasonUnsupported
 	}
 
 	next, _ := sendKey(a, a.tabs[target].Key)

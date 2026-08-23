@@ -75,6 +75,29 @@ type StateMsg struct {
 	// Setup は Setup タブが要る起動時の決定事項。1 つにまとめてあるのは、
 	// タブ 1 枚のためだけに StateMsg のフィールドを 3 つ増やさないためである。
 	Setup SetupDeps
+	// Config は Config タブが要る起動時の決定事項。Setup と同じ理由で 1 つに
+	// まとめてある。
+	Config ConfigDeps
+}
+
+// ConfigDeps は Config タブ（対話型設定編集）が要る値。
+//
+// 本ツール自身の設定（FR-41〜FR-42）を扱うために要るもので、runner 側の設定
+// （.env / .path / drop-in）は検出結果（Result）から引けるためここには無い。
+//
+// いずれも cmd が起動時に決め、UI 側で環境や設定を読み直さない（SetupDeps と
+// 同じ方針）。**設定ファイルのパスを UI 側で決め直さない**のは、配置先の決定が
+// appconfig/confpath の責務であり、SUDO_USER の扱いを 2 か所に分けないためである。
+type ConfigDeps struct {
+	// Conf は読み込み済みの自身の設定。ウィザードの初期値に使う。
+	Conf appconfig.Config
+	// Path は設定ファイルの配置先。書き込み先と差分の見出しに使う。
+	Path string
+	// FirstRun は設定ファイルが無い状態で起動したか（FR-41）。
+	//
+	// appconfig.Load はファイルが無くても既定値を返すため、Conf からは初回起動を
+	// 判別できない。判定は cmd が appconfig.Exists で行う。
+	FirstRun bool
 }
 
 // SetupDeps は Setup タブ（runner の追加・削除・バージョン更新）が要る値。

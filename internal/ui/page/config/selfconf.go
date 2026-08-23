@@ -1,0 +1,133 @@
+package config
+
+import (
+	tea "charm.land/bubbletea/v2"
+	"charm.land/huh/v2"
+
+	"github.com/ousiassllc/gsr-helper/internal/appconfig"
+	"github.com/ousiassllc/gsr-helper/internal/config"
+	"github.com/ousiassllc/gsr-helper/internal/config/edit"
+	"github.com/ousiassllc/gsr-helper/internal/ui/organism/dialog"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page"
+)
+
+// 自身の設定（FR-41〜FR-42）のフォーム。初回起動時（設定ファイルが無い）は
+// 自動で開き、以後も対象の一覧から選び直せる。編集できるのは要件が挙げる
+// 4 つ——走査ルート・ディスク閾値・ポーリング間隔・監査ログ出力先——である。
+//
+// 値の変換・正規化・検証は edit.SelfValues が持つ（tea にも huh にも依らない）。
+// ここに残すのは入力欄の組み立てと、承認から書き込みまでの画面の流れだけである。
+
+// selfTitle はフォームの見出し。初回かどうかで変える。
+const (
+	selfTitleFirst = "初回設定（gsr-helper 自身の設定）"
+	selfTitleEdit  = "gsr-helper 自身の設定"
+)
+
+// selfConf は自身の設定の現在値を返す。
+//
+// **保存済みの値があればそちらを優先する。** page.ConfigDeps.Conf は ui.New が
+// 起動時に決めた写しで、書き込んでも更新されない。優先しないと、保存した直後に
+// 開き直したフォームが古い値を出し、その古い値を基準に差分を組んでしまう
+// （FR-42 の黙ったデータ喪失）。
+//
+// なお**動いているアプリ自体は再起動まで起動時の設定で動き続ける。** 親 App の
+// 設定を書き換える経路は作らない（自動更新間隔などを走行中に差し替えると、
+// 設定を保存しただけでポーリングやしきい値の挙動が変わる）。
+func (m Model) selfConf() appconfig.Config {
+	if m.confSet {
+		return m.conf
+	}
+	return m.st.Config.Conf
+}
+
+// openSelfForm は自身の設定のフォームを開く（FR-41 / FR-42）。
+func (m *Model) openSelfForm() tea.Cmd {
+	m.self = true
+	m.formShown = true
+	m.vals.Kind = edit.KindSelf
+	m.vals.Self = edit.NewSelfValues(m.selfConf())
+
+	title := selfTitleEdit
+	if m.st.Config.FirstRun {
+		title = selfTitleFirst
+	}
+
+	return m.overlay.Open(formKind, formOpenMsg{title: title, values: m.vals, st: m.st})
+}
+
+// selfFields は自身の設定の入力欄を返す。
+func selfFields(v *edit.Values) []huh.Field {
+	s := &v.Self
+	return []huh.Field{
+		huh.NewInput().Title("追加の走査ルート").
+			Description("カンマ区切りの絶対パス。空なら既定の場所だけを探します").
+			Value(&s.ScanRoots).Validate(edit.ValidateRoots),
+		huh.NewInput().Title("一覧の自動更新間隔（秒）").
+			Description("1〜3600").Value(&s.Refresh).Validate(edit.ValidateRefresh),
+		huh.NewInput().Title("ディスク使用率の警告閾値（%）").
+			Description("1〜99").Value(&s.Warn).Validate(edit.ValidatePercent),
+		huh.NewInput().Title("ディスク使用率の危険閾値（%）").
+			Description("1〜100。警告より大きくします").Value(&s.Critical).Validate(edit.ValidatePercent),
+		huh.NewInput().Title("監査ログの出力先").
+			Description("絶対パス").Value(&s.AuditLog).Validate(edit.ValidateAuditLog),
+	}
+}
+
+// saveSelf は自身の設定の差分を出して承認を求める（FR-41 / FR-42）。
+//
+// 差分の承認はここでも経る。破壊的な書き込みであることは runner 側の設定と
+// 変わらないためである（FR-37）。バックアップは appconfig.Save が一時ファイル +
+// rename で置き換えるため、書き損じで元の設定が壊れることはない。
+//
+// Apply は appconfig の正規化まで通す。**欄をまたぐ検証（警告 < 危険）が効くのは
+// ここだけである**——huh の Validate は 1 欄しか見えないので、警告 90 / 危険 80 の
+// ような組み合わせはフォームでは弾けない。通してしまうと差分の承認まで進み、
+// 書き込みの直前で初めて失敗する。
+func (m *Model) saveSelf() tea.Cmd {
+	base := m.selfConf()
+
+	next, err := m.vals.Self.Apply(base)
+	if err != nil {
+		m.notice = err.Error()
+		m.overlay.Close()
+
+		return nil
+	}
+
+	before, after := edit.RenderConfig(base), edit.RenderConfig(next)
+	if before == after {
+		m.notice = "変更はありません"
+		m.overlay.Close()
+
+		return nil
+	}
+
+	m.pendingSelf, m.pendingSet = next, true
+	m.overlay.Close()
+
+	return m.overlay.Open(diffKind, diffOpenMsg{input: dialog.DiffApprovalInput{
+		Path:   m.st.Config.Path,
+		Diff:   edit.SplitDiff(config.Diff(before, after)),
+		Backup: "",
+	}})
+}
+
+// commitSelf は承認された自身の設定を書き込む。
+//
+// 書き込んだ設定は savingSelf / savedSelf に控え、成功した doneMsg を受けた
+// 時点で selfConf の答えに昇格させる（onDone）。失敗した場合に昇格させないのは、
+// 書けなかった値を次の編集の基準にすると差分が現実と食い違うためである。
+func (m *Model) commitSelf() tea.Cmd {
+	cfg, path := m.pendingSelf, m.st.Config.Path
+	m.pendingSelf = appconfig.Config{}
+	m.savingSelf, m.savedSelf = true, cfg
+	m.busy = true
+
+	return page.Do(m.tab, func() tea.Msg {
+		if err := appconfig.Save(cfg, path); err != nil {
+			return doneMsg{text: "", err: err}
+		}
+		return doneMsg{text: "設定を書き込みました", err: nil}
+	})
+}

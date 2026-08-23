@@ -66,7 +66,7 @@
 | `charm.land/bubbletea/v2` | TUI フレームワーク | Go の TUI で最も広く使われ、非同期処理を `Cmd` / `Msg` で扱うモデルが本ツールの要件（重い処理を UI から分離）に合う | 導入済み |
 | `charm.land/bubbles/v2` | `table` / `viewport` / `textinput` / `key` / `help` / `spinner` / `progress` / `stopwatch` | 一覧・ログ表示・キー定義・進捗・計時を自前実装せずに済む。使う部品と担当する organism の対応は [TUI コンポーネント設計](../ui/atomic-design.md#organism-一覧) に定める | 導入済み（列挙した 8 部品すべてを使用。`progress` は Setup タブの一括処理の進捗バー、`spinner` / `stopwatch` はドレイン待機と進捗表示） |
 | `charm.land/lipgloss/v2` | スタイリングと表示幅の計算 | 端末のカラープロファイル判定を任せられる。全角を含む文字列の幅計算も `lipgloss.Width` に寄せる | 導入済み |
-| `huh`（Charm。v2 系） | 対話フォーム | 入力検証・条件分岐・確認ステップを備え、`tea.Model` として既存画面に組み込める。フォームを自前実装する理由がない | 導入済み（`charm.land/huh/v2`）。使うのは `internal/ui/token` の `HuhTheme`（テーマの組み立て）・`organism/dialog.Form`（ラッパー）・`ui/page/setup` の追加フォームの 3 箇所 |
+| `huh`（Charm。v2 系） | 対話フォーム | 入力検証・条件分岐・確認ステップを備え、`tea.Model` として既存画面に組み込める。フォームを自前実装する理由がない | 導入済み（`charm.land/huh/v2`）。使うのは `internal/ui/token` の `HuhTheme`（テーマの組み立て）・`organism/dialog.Form`（ラッパー）・`ui/page/setup` の追加フォーム・`ui/page/config` の設定編集と初回設定ウィザードの 4 箇所 |
 | `google/go-github` | GitHub API クライアント | トークン取得・ラベル操作・runner 情報取得。API のバージョン差分をライブラリに任せる | 導入済み（`github.com/google/go-github/v83`）。**import してよいのは `internal/gh` だけ**で、go-github の型は同パッケージの外へ出さない。ラベル操作は FR-35（設定編集）のものなので未使用 |
 | `fsnotify/fsnotify` | ファイル監視 | ログのライブテールでポーリングを避ける。`inotify` を直に扱わずに済み、Linux 以外でも同じコードが動く | 導入済み（`internal/logs` の `Tail`）。**追加ではなく直接依存への昇格である**——`golangci-lint` の推移依存として `go.mod` に既に載っていた |
 | `gopkg.in/yaml.v3` | 設定ファイルの読み書き | 自前設定を人が手編集できる形式（コメント可）にするため。監査ログは JSON Lines なので標準ライブラリで扱う | 導入済み |

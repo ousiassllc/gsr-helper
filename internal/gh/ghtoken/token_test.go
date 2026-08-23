@@ -1,4 +1,4 @@
-package gh_test
+package ghtoken_test
 
 import (
 	"context"
@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/ousiassllc/gsr-helper/internal/exec"
-	"github.com/ousiassllc/gsr-helper/internal/gh"
+	"github.com/ousiassllc/gsr-helper/internal/gh/ghtoken"
 )
 
 // env は差し替え用の環境変数マップから Getenv を作る。
@@ -30,9 +30,9 @@ func TestTokenPrefersEnvAndIssuesNoCommand(t *testing.T) {
 	t.Parallel()
 
 	f := exec.NewFake()
-	src := gh.Source{
+	src := ghtoken.Source{
 		Exec:     f,
-		Getenv:   env(map[string]string{gh.EnvToken: "  env-token-value  "}),
+		Getenv:   env(map[string]string{ghtoken.EnvToken: "  env-token-value  "}),
 		Geteuid:  func() int { return 0 },
 		LookPath: found,
 		Timeout:  0,
@@ -61,7 +61,7 @@ func TestTokenUsesSudoPathWhenRootWithSudoUser(t *testing.T) {
 		return exec.Result{Stdout: nil, Stderr: nil, ExitCode: 1}, nil
 	})
 
-	src := gh.Source{
+	src := ghtoken.Source{
 		Exec:     f,
 		Getenv:   env(map[string]string{"SUDO_USER": "ousiass"}),
 		Geteuid:  func() int { return 0 },
@@ -131,7 +131,7 @@ func TestTokenFallsBackToDirectGh(t *testing.T) {
 				return okResult("direct-token\n"), nil
 			})
 
-			src := gh.Source{
+			src := ghtoken.Source{
 				Exec:     f,
 				Getenv:   env(tt.envs),
 				Geteuid:  func() int { return tt.euid },
@@ -168,10 +168,10 @@ func TestTokenReturnsErrNoTokenWhenNothingWorks(t *testing.T) {
 		return exec.Result{Stdout: nil, Stderr: nil, ExitCode: 1}, nil
 	})
 
-	src := gh.Source{Exec: f, Getenv: env(nil), Geteuid: func() int { return 1000 }, LookPath: found, Timeout: 0}
+	src := ghtoken.Source{Exec: f, Getenv: env(nil), Geteuid: func() int { return 1000 }, LookPath: found, Timeout: 0}
 
 	_, err := src.Token(context.Background())
-	if !errors.Is(err, gh.ErrNoToken) {
+	if !errors.Is(err, ghtoken.ErrNoToken) {
 		t.Errorf("err = %v, want ErrNoToken", err)
 	}
 }
@@ -182,9 +182,9 @@ func TestTokenTreatsEmptyStdoutAsFailure(t *testing.T) {
 	f := exec.NewFake()
 	f.SetFunc(func(string, []string) (exec.Result, error) { return okResult("   \n"), nil })
 
-	src := gh.Source{Exec: f, Getenv: env(nil), Geteuid: func() int { return 1000 }, LookPath: found, Timeout: 0}
+	src := ghtoken.Source{Exec: f, Getenv: env(nil), Geteuid: func() int { return 1000 }, LookPath: found, Timeout: 0}
 
-	if _, err := src.Token(context.Background()); !errors.Is(err, gh.ErrNoToken) {
+	if _, err := src.Token(context.Background()); !errors.Is(err, ghtoken.ErrNoToken) {
 		t.Errorf("終了コード 0 でも標準出力が空なら失敗として扱うこと: err = %v", err)
 	}
 }
@@ -193,7 +193,7 @@ func TestTokenSkipsCommandsWhenGhIsMissing(t *testing.T) {
 	t.Parallel()
 
 	f := exec.NewFake()
-	src := gh.Source{
+	src := ghtoken.Source{
 		Exec:     f,
 		Getenv:   env(nil),
 		Geteuid:  func() int { return 0 },
@@ -201,7 +201,7 @@ func TestTokenSkipsCommandsWhenGhIsMissing(t *testing.T) {
 		Timeout:  0,
 	}
 
-	if _, err := src.Token(context.Background()); !errors.Is(err, gh.ErrNoToken) {
+	if _, err := src.Token(context.Background()); !errors.Is(err, ghtoken.ErrNoToken) {
 		t.Errorf("err = %v, want ErrNoToken", err)
 	}
 	if calls := f.Calls(); len(calls) != 0 {
@@ -212,8 +212,8 @@ func TestTokenSkipsCommandsWhenGhIsMissing(t *testing.T) {
 func TestTokenWithoutExecutorOnlyReadsEnv(t *testing.T) {
 	t.Parallel()
 
-	src := gh.Source{Exec: nil, Getenv: env(nil), Geteuid: func() int { return 0 }, Timeout: 0}
-	if _, err := src.Token(context.Background()); !errors.Is(err, gh.ErrNoToken) {
+	src := ghtoken.Source{Exec: nil, Getenv: env(nil), Geteuid: func() int { return 0 }, Timeout: 0}
+	if _, err := src.Token(context.Background()); !errors.Is(err, ghtoken.ErrNoToken) {
 		t.Errorf("Executor が無ければ ErrNoToken を返すこと: err = %v", err)
 	}
 }
@@ -224,7 +224,7 @@ func TestTokenAppliesPerCommandTimeout(t *testing.T) {
 	f := exec.NewFake()
 	f.SetFunc(func(string, []string) (exec.Result, error) { return okResult("tok"), nil })
 
-	src := gh.Source{
+	src := ghtoken.Source{
 		Exec:     f,
 		Getenv:   env(nil),
 		Geteuid:  func() int { return 1000 },
@@ -251,7 +251,7 @@ func TestHasTokenDoesNotReturnValue(t *testing.T) {
 	f := exec.NewFake()
 	f.SetFunc(func(string, []string) (exec.Result, error) { return okResult("secret-token"), nil })
 
-	if !gh.HasToken(context.Background(), f, 100*time.Millisecond) {
+	if !ghtoken.HasToken(context.Background(), f, 100*time.Millisecond) {
 		t.Error("HasToken = false, want true")
 	}
 
@@ -259,7 +259,7 @@ func TestHasTokenDoesNotReturnValue(t *testing.T) {
 	f2.SetFunc(func(string, []string) (exec.Result, error) {
 		return exec.Result{Stdout: nil, Stderr: nil, ExitCode: 1}, nil
 	})
-	if gh.HasToken(context.Background(), f2, 100*time.Millisecond) {
+	if ghtoken.HasToken(context.Background(), f2, 100*time.Millisecond) {
 		t.Error("HasToken = true, want false")
 	}
 }

@@ -3,6 +3,7 @@ package gh
 import (
 	"errors"
 	"fmt"
+	"github.com/ousiassllc/gsr-helper/internal/gh/ghtoken"
 	"net/http"
 	"time"
 
@@ -15,13 +16,20 @@ import (
 var ErrUnknownScope = errors.New("runner の登録先（repo / org / enterprise）が判定できません")
 
 // ErrNoToken はトークンを 1 つも取得できなかった場合のエラー。
-var ErrNoToken = errors.New("GitHub のトークンを取得できません（GH_TOKEN も gh auth token も使えません）")
+//
+// 実体は internal/gh/ghtoken にある（トークンの取得を分けたため）。ここで
+// 別名を残すのは、errors.Is(err, gh.ErrNoToken) と書いている既存の判定を
+// そのまま通すためである。
+var ErrNoToken = ghtoken.ErrNoToken
 
 // ErrNoDownload は対象の OS / アーキテクチャ向けの tarball が見つからない場合のエラー。
 var ErrNoDownload = errors.New("この OS / アーキテクチャ向けの runner tarball が見つかりません")
 
 // ErrNoVersion は最新バージョンのタグが空だった場合のエラー。
 var ErrNoVersion = errors.New("runner の最新バージョンを判定できません")
+
+// ErrNoRunnerGroups は repo スコープの runner に runner group を問い合わせた場合のエラー。
+var ErrNoRunnerGroups = errors.New("runner group は org / enterprise スコープでのみ使えます")
 
 // APIError は GitHub API の失敗を、利用者が次に何をすればよいかまで含めて表す。
 //

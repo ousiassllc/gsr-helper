@@ -69,6 +69,23 @@ const TabDoctor = "Doctor"
 // TabLogs と同じく、対応するタブが実在することを tabset のテストが検査する。
 const TabSetup = "Setup"
 
+// TabConfig は Config タブの名前。OpenTabMsg.Title に渡す。
+//
+// Runners タブと詳細画面の e（設定を編集）が使う。TabLogs と同じく、対応する
+// タブが実在することを tabset のテストが検査する。
+const TabConfig = "Config"
+
+// EditConfigMsg は設定を編集する runner を Config タブへ渡す（FR-35）。
+//
+// OpenTabMsg.Msg に載せる。ShowLogMsg と同じく、移動元（Runners / 詳細画面）と
+// 移動先（Config）の双方から見える場所が page しか無いためここに置く。
+//
+// Runner がゼロ値なら対象を選ぶところから始める（Config タブを番号キーで直接
+// 開いた場合）。
+type EditConfigMsg struct {
+	Runner runner.Runner
+}
+
 // SetupOp は Setup タブへ依頼する操作。
 //
 // action.ID を使わないのは、依存が action → page の一方向であり page から

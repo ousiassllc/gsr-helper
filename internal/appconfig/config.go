@@ -183,7 +183,7 @@ func emptyDocument(doc *yaml.Node) bool {
 	return true
 }
 
-// pathOrDefault は空のパスを既定の配置先で埋める。Load が通す。
+// pathOrDefault は空のパスを既定の配置先で埋める。Load と Exists が通す。
 func pathOrDefault(path string) (string, error) {
 	if path == "" {
 		return DefaultPath()

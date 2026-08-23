@@ -178,9 +178,18 @@ func (c *Client) DeleteRunner(ctx context.Context, sc scope.Scope, id int64) err
 	return nil
 }
 
-// do は 1 本の API 呼び出しを行う。out が nil ならレスポンス本文を読み捨てる。
+// do はリクエスト本文を伴わない API 呼び出しを行う。out が nil ならレスポンス本文を読み捨てる。
 func (c *Client) do(ctx context.Context, method, path string, out any) (*github.Response, error) {
-	req, err := c.api.NewRequest(method, path, nil)
+	return c.doJSON(ctx, method, path, nil, out)
+}
+
+// doJSON は 1 本の API 呼び出しを行う。body は JSON にして送る（nil なら
+// 本文を付けない）。out が nil ならレスポンス本文を読み捨てる。組み立てを
+// ここ 1 箇所に集め、認証ヘッダとベース URL の解決を go-github に一元化する。
+func (c *Client) doJSON(
+	ctx context.Context, method, path string, body, out any,
+) (*github.Response, error) {
+	req, err := c.api.NewRequest(method, path, body)
 	if err != nil {
 		return nil, err
 	}

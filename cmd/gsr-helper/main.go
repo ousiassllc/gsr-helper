@@ -64,10 +64,18 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return exitError
 	}
 
-	// 設定ファイルが無い場合も appconfig.Load は既定値を返す。初回設定ウィザード
-	// （FR-41）は別 Issue の担当なので、この版では既定値で静かに起動する。案内を
-	// 状態行に出さないのは、既定値でも全機能が動くため異常ではなく、ウィザードを
-	// 実装する Issue でその案内を消す変更が必要になるためである。
+	// 設定ファイルが無い場合も appconfig.Load は既定値を返すため、戻り値からは
+	// 初回起動を判別できない。Config タブが初回設定ウィザード（FR-41）を出せる
+	// よう、ここで有無を確かめて渡す。確認そのものに失敗した場合（権限など）は
+	// ウィザードを出さずに既定値で起動する。毎回ウィザードが立ち上がったうえで
+	// 書き込みも失敗し続けるより、読み取り専用で使える方がよい。
+	exists, err := appconfig.Exists(o.config)
+	if err != nil {
+		_, _ = fmt.Fprintln(stderr, err)
+		exists = true
+	}
+	confPath := configPath(o.config, stderr)
+
 	lg := openAudit(cfg.AuditLog, stderr)
 	// クローズの失敗も報告する。バッファに残ったレコードが書けなかった場合が
 	// 黙って消えると、監査ログのエラーのうちこれだけが利用者に見えない。
@@ -91,11 +99,13 @@ func run(args []string, stdout, stderr io.Writer) int {
 	)
 
 	app := ui.New(cfg, caps, ex, ui.Options{
-		Color:   colorEnabled(o.noColor, os.Getenv, isTerminal(os.Stdout)),
-		Refresh: o.refresh,
-		Roots:   appconfig.MergeScanRoots(cfg.ScanRoots, o.roots),
-		Host:    hostname(),
-		Secrets: secrets,
+		Color:      colorEnabled(o.noColor, os.Getenv, isTerminal(os.Stdout)),
+		Refresh:    o.refresh,
+		Roots:      appconfig.MergeScanRoots(cfg.ScanRoots, o.roots),
+		Host:       hostname(),
+		Secrets:    secrets,
+		ConfigPath: confPath,
+		FirstRun:   !exists,
 	})
 	return runProgram(app, stderr)
 }
@@ -114,6 +124,25 @@ func runProgram(app ui.App, stderr io.Writer) int {
 		return exitError
 	}
 	return exitOK
+}
+
+// configPath は設定ファイルの配置先を解決する。
+//
+// 空（--config 未指定）なら既定の配置先を引く。UI へ空文字を渡さないのは、
+// 差分プレビューの見出しと初回ウィザードの書き込み先に実際のパスを出すためで
+// ある。解決に失敗した場合は空のまま渡す。書き込み時に appconfig が同じ決定を
+// やり直して同じ失敗を返すので、起動をここで止める理由は無い。
+func configPath(configured string, stderr io.Writer) string {
+	if configured != "" {
+		return configured
+	}
+
+	path, err := appconfig.DefaultPath()
+	if err != nil {
+		_, _ = fmt.Fprintln(stderr, err)
+		return ""
+	}
+	return path
 }
 
 // openAudit は監査ログを開く。失敗しても起動は続け、警告だけを出す。

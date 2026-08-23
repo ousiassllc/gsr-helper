@@ -30,10 +30,10 @@ func TestTabMsgGoesBackToIssuingTab(t *testing.T) {
 
 	a, _ = update(a, cmd())
 
-	if got := received(spies[0]); len(got) != 1 || got[0] != (domainResult{n: 7}) {
+	if got := pagetest.MsgsOf[domainResult](spies[0]); len(got) != 1 || got[0] != (domainResult{n: 7}) {
 		t.Errorf("発行元のタブ 0 が受け取った Msg = %v, want [domainResult{7}]", got)
 	}
-	if got := received(spies[1]); len(got) != 0 {
+	if got := pagetest.MsgsOf[domainResult](spies[1]); len(got) != 0 {
 		t.Errorf("別のタブ 1 に結果が渡っている（%v）", got)
 	}
 }
@@ -41,31 +41,22 @@ func TestTabMsgGoesBackToIssuingTab(t *testing.T) {
 // 無効になったタブ宛の結果は捨てる（配る先の Model が無い）。
 //
 // **他のタブへ回さないことまで見る。** Cmd が nil であることだけを見ていた頃は、
-// 結果がタブ 0 へ誤配送されても緑のままだった（Issue #31）。捨てるべき Msg が別の
-// タブへ入ると、そのタブは自分が始めていない処理の結果で状態を書き換える。
+// 結果がタブ 0 へ誤配送されても緑のままだった（Issue #31）。
 func TestTabMsgForDeadTabIsDropped(t *testing.T) {
 	a, spies := withSpies(newApp(exec.NewFake()))
 
-	// タブ 5（Config）はこの版では Model を持たない。
-	if _, cmd := update(a, page.TabMsg{Tab: 5, Msg: domainResult{n: 1}}); cmd != nil {
+	// Model を持たないタブを 1 枚作って「配る先が無い結果」を再現する。
+	dead := len(a.tabs) - 1
+	a.tabs[dead].Enabled, a.tabs[dead].Model = false, nil
+
+	if _, cmd := update(a, page.TabMsg{Tab: dead, Msg: domainResult{n: 1}}); cmd != nil {
 		t.Errorf("無効タブ宛の結果で Cmd が発行された（%T）", cmd)
 	}
 	for i, s := range spies {
-		if got := received(s); len(got) != 0 {
+		if got := pagetest.MsgsOf[domainResult](s); len(got) != 0 {
 			t.Errorf("無効タブ宛の結果が有効なタブ %d へ配られた（%v）", i, got)
 		}
 	}
-}
-
-// received は spy が受け取った domainResult を並び順に返す。
-func received(s *pagetest.Spy) []domainResult {
-	out := make([]domainResult, 0, len(s.Msgs()))
-	for _, m := range s.Msgs() {
-		if r, ok := m.(domainResult); ok {
-			out = append(out, r)
-		}
-	}
-	return out
 }
 
 // 共有状態は Executor を全タブへ配る。

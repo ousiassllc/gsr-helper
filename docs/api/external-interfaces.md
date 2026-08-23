@@ -76,17 +76,18 @@ gh auth refresh -h github.com -s admin:org
 | ラベルの置換 | `PUT {scope}/actions/runners/{runner_id}/labels` | FR-35 |
 | ラベルの追加 | `POST {scope}/actions/runners/{runner_id}/labels` | FR-35 |
 | ラベルの個別削除 | `DELETE {scope}/actions/runners/{runner_id}/labels/{name}` | FR-35 |
-| runner group の一覧 | `GET /orgs/{org}/actions/runner-groups` | FR-12、FR-35（org / enterprise のみ） |
+| runner group の一覧 | `GET /orgs/{org}/actions/runner-groups`（enterprise は `GET /enterprises/{enterprise}/actions/runner-groups`） | FR-12、FR-35（org / enterprise のみ。repo スコープには無い） |
+| runner group の付け替え | `PUT {org|enterprise}/actions/runner-groups/{runner_group_id}/runners/{runner_id}` | FR-35（org / enterprise のみ） |
 | runner 本体の最新版 | `GET /repos/actions/runner/releases/latest` | FR-20（更新の必要性判定） |
 | 保有スコープの確認 | `GET /rate_limit` | doctor。応答の `X-OAuth-Scopes` ヘッダから保有スコープを読む。**レート制限を消費しない唯一の endpoint**であるため確認先に選んでいる（前述） |
 
 **tarball の SHA-256 は `downloads` エンドポイントが返す値を使う。** 自前でハッシュ一覧を持たず、取得したチェックサムと展開前のファイルを照合する。
 
-**上表のうち実際に呼んでいるのは 5 つである**（登録トークン / 登録解除トークン / tarball の取得情報 / runner 本体の最新版 / 保有スコープの確認）。
+**上表のうち実際に呼んでいるのは 9 つである**（登録トークン / 登録解除トークン / tarball の取得情報 / runner 本体の最新版 / 保有スコープの確認 / runner 一覧 / ラベルの取得・置換 / runner group の一覧・付け替え）。
 
-**runner 一覧の取得と runner の削除は `internal/gh` に実装済みだが、本番の呼び出し元がまだ無い**（`ListRunners` / `DeleteRunner` を呼ぶのはテストだけである）。一覧の照合と孤児検出は、3 秒ポーリングで API を呼ばない方針（後述）に沿ってホスト内の情報だけで構成しており、API 側の一覧と突き合わせる画面がまだ無い。削除は `svc.sh stop` → `svc.sh uninstall` → `config.sh remove --token` の 3 本で完結しており（`internal/setup/remove.go`）、**`config.sh remove` が使えない場合に DELETE へ切り替える経路は実装していない**。runner ディレクトリを失ったなどで `config.sh` を起動できない台の後始末は、この DELETE を使う将来の機能に委ねる。
+**runner の削除は `internal/gh` に実装済みだが、本番の呼び出し元がまだ無い**（`DeleteRunner` を呼ぶのはテストだけである）。runner 一覧は Config タブが GitHub 側の runner ID を名前から引き当てるのに使う（ラベルの API が ID を要求するため）。一覧の照合と孤児検出は、3 秒ポーリングで API を呼ばない方針（後述）に沿ってホスト内の情報だけで構成しており、API 側の一覧と突き合わせる画面がまだ無い。削除は `svc.sh stop` → `svc.sh uninstall` → `config.sh remove --token` の 3 本で完結しており（`internal/setup/remove.go`）、**`config.sh remove` が使えない場合に DELETE へ切り替える経路は実装していない**。runner ディレクトリを失ったなどで `config.sh` を起動できない台の後始末は、この DELETE を使う将来の機能に委ねる。
 
-**ラベルの 4 つと runner group の一覧は実装自体がまだ無い**——どちらも FR-35（設定編集）と FR-12 の runner group 指定に付随するもので、Config タブが未実装だからである。runner group は追加のフォームで名前を入力する形にしてあり（`config.sh --runnergroup`）、一覧から選ばせる段階でこのエンドポイントが要る。呼び出しはすべて `internal/gh` の `Client` を通り、**GitHub と通信するパッケージはここ 1 つだけである**（[コンポーネント設計](../components/overview.md#internalgh)）。
+**ラベルは取得と置換、runner group は一覧と付け替えを Config タブ（FR-35）が実装した**（`internal/gh` の `RunnerLabels` / `ReplaceRunnerLabels` / `ListRunnerGroups` / `AddRunnerToGroup`）。**ラベルの追加（POST）と個別削除（DELETE）は実装していない。** 設定編集は現在値を取って全量を置き換える形（GET → PUT）で足りており、呼び出し元の無い公開 API は置かないためである（[コンポーネント設計](../components/overview.md)）。必要になった Issue が同じ共通処理へメソッドとパス末尾を足せる形にしてある。ラベルと runner group は GitHub 側の値なので、変更は再起動を伴わず即時に反映される。runner group は追加のフォームでは名前を入力する形のままで（`config.sh --runnergroup`）、一覧から選ばせるのは Config タブである。**runner group は org / enterprise にしか無く、repo スコープでは `ErrNoRunnerGroups` を返して要求を送らない。** 呼び出しはすべて `internal/gh` の `Client` を通り、**GitHub と通信するパッケージはここ 1 つだけである**（[コンポーネント設計](../components/overview.md#internalgh)）。
 
 ### レート制限とエラー
 
