@@ -66,7 +66,7 @@ func TestNewActionSetRejectsDuplicateKey(t *testing.T) {
 		key.WithKeys(page.BindingKey(keys.Stop)),
 		key.WithHelp("x", "削除"),
 	)
-	NewSet(keys)
+	NewSet(keys, page.ScopeState{})
 }
 
 // 表はキー定義から 1 度だけ組み、描画のたびには組み直さない。
@@ -75,7 +75,7 @@ func TestNewActionSetRejectsDuplicateKey(t *testing.T) {
 // 9 回作っていた（Issue #34）。
 func TestActionSetIsBuiltOnce(t *testing.T) {
 	keys := testKeys().Runner
-	set := NewSet(keys)
+	set := NewSet(keys, page.ScopeState{})
 	r, caps := sampleRunner(), fullCaps()
 
 	// 組み済みの表を引くだけの判定は 1 度も確保しない。
@@ -89,7 +89,7 @@ func TestActionSetIsBuiltOnce(t *testing.T) {
 
 	// 表を組む側は確保する。0 回の主張が「そもそも何も確保しない処理」を見ている
 	// だけではないことを確かめる。
-	if got := testing.AllocsPerRun(100, func() { NewSet(keys) }); got == 0 {
+	if got := testing.AllocsPerRun(100, func() { NewSet(keys, page.ScopeState{}) }); got == 0 {
 		t.Error("表の組み立てで 1 度も確保していない（前提が崩れている）")
 	}
 }

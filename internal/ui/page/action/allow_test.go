@@ -11,10 +11,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 )
 
-// スコープ不足（admin:org）の判定はここに無い。トークンの保有スコープが必要で
-// appconfig.Caps にその情報が無く、gh.TokenScopes も未実装であるためである
-// （screens.md の「無効な操作の表示」の 5 行目は、gh パッケージができてから
-// Allow に足す）。
+// スコープ不足（screens.md「無効な操作の表示」の 6 段目）の判定は scope_test.go にある。
 
 // action は Allow の検証に使う操作を返す。識別子は既定のキー定義から引く（判定はキー
 // ではなく識別子で行うため、キーだけを渡すテストも本体と同じ対応表を通す）。
@@ -23,7 +20,7 @@ func action(k string, supported bool) Def {
 }
 
 // testActions は既定のキー定義から組んだ操作の表を返す。
-func testActions() Set { return NewSet(testKeys().Runner) }
+func testActions() Set { return NewSet(testKeys().Runner, page.ScopeState{}) }
 
 // supported はこの版で実装済みの操作を返す。
 //
@@ -123,7 +120,7 @@ func TestAllowReasons(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			for _, k := range tt.keys {
 				// 実装済みの操作でも能力不足の理由が優先される。
-				ok, reason := Allow(action(k, true), tt.runner, tt.caps)
+				ok, reason := Allow(action(k, true), tt.runner, tt.caps, page.ScopeState{})
 				if ok {
 					t.Errorf("キー %q が許可されている", k)
 				}
@@ -168,7 +165,7 @@ func TestAllowPrecedence(t *testing.T) {
 			// 未対応の判定が最後に来ることを見るため、実装済みとして渡す
 			// （最後のケースだけは未実装として渡す）。
 			supported := tt.want != page.ReasonUnsupported
-			ok, reason := Allow(action(tt.key, supported), tt.runner, tt.caps)
+			ok, reason := Allow(action(tt.key, supported), tt.runner, tt.caps, page.ScopeState{})
 			if ok {
 				t.Fatalf("キー %q が許可されている", tt.key)
 			}
@@ -206,14 +203,14 @@ func TestAllowPermitsAndAllowedAgrees(t *testing.T) {
 
 	// キー定義が持つ操作を 1 つ足したら、ここも足さないと落ちる（Detail は n を
 	// 載せないため List() ではなくキーの表と突き合わせる）。
-	set := NewSet(testKeys().Runner)
+	set := NewSet(testKeys().Runner, page.ScopeState{})
 	if got := len(keyIDs(testKeys().Runner)); got != len(want) {
 		t.Fatalf("検証するキーの数 = %d, want %d（キー定義が持つ操作の全件）", len(want), got)
 	}
 
 	noRoot := capsWithout(func(c *appconfig.Caps) { c.Root = false })
 	for k, wantReason := range want {
-		if ok, reason := Allow(action(k, true), sampleRunner(), fullCaps()); !ok || reason != "" {
+		if ok, reason := Allow(action(k, true), sampleRunner(), fullCaps(), page.ScopeState{}); !ok || reason != "" {
 			t.Errorf("キー %q = %v/%q, want true/空", k, ok, reason)
 		}
 		ok, reason := set.Allowed(k, sampleRunner(), noRoot)
@@ -233,13 +230,13 @@ func TestAllowBlocksManagedUnknown(t *testing.T) {
 	r.Managed = runner.ManagedUnavailable
 
 	for _, k := range []string{"s", "x", "d", "R", "E"} {
-		ok, reason := Allow(action(k, true), r, fullCaps())
+		ok, reason := Allow(action(k, true), r, fullCaps(), page.ScopeState{})
 		if ok || reason != svc.ReasonManagedUnknown {
 			t.Errorf("キー %q = %v/%q, want false/%q", k, ok, reason, svc.ReasonManagedUnknown)
 		}
 	}
 	for _, k := range []string{"X", "l"} {
-		if _, reason := Allow(action(k, true), r, fullCaps()); reason == svc.ReasonManagedUnknown {
+		if _, reason := Allow(action(k, true), r, fullCaps(), page.ScopeState{}); reason == svc.ReasonManagedUnknown {
 			t.Errorf("キー %q が管理状態不明で塞がれている", k)
 		}
 	}
@@ -254,10 +251,10 @@ func TestAllowFollowsReboundKey(t *testing.T) {
 	keys.Stop = key.NewBinding(key.WithKeys("Q"), key.WithHelp("Q", "停止"))
 	caps := fullCaps()
 
-	if _, reason := NewSet(keys).Allowed("Q", standaloneRunner(), caps); reason != svc.ReasonStandalone {
+	if _, reason := NewSet(keys, page.ScopeState{}).Allowed("Q", standaloneRunner(), caps); reason != svc.ReasonStandalone {
 		t.Errorf("差し替え後の停止キーの理由 = %q, want %q", reason, svc.ReasonStandalone)
 	}
-	if _, reason := NewSet(keys).Allowed("x", standaloneRunner(), caps); reason == svc.ReasonStandalone {
+	if _, reason := NewSet(keys, page.ScopeState{}).Allowed("x", standaloneRunner(), caps); reason == svc.ReasonStandalone {
 		t.Error("差し替え前の x に停止の判定が残っている")
 	}
 }

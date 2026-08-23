@@ -116,7 +116,7 @@ func TestNeedsConfirm(t *testing.T) {
 // コマンドは svc.CommandLine から引く。**UI 側で組み立て直すと、承認した内容と
 // 実際に走るコマンドが食い違う**（svc/commandline.go の doc）。
 func TestConfirmInput(t *testing.T) {
-	set := action.NewSet(keymap.NewRunnerKeys())
+	set := action.NewSet(keymap.NewRunnerKeys(), page.ScopeState{})
 	def := action.Def{}
 	for _, d := range set.List() {
 		if d.ID == action.Stop {

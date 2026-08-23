@@ -71,7 +71,7 @@ func New(tab int, st page.StateMsg) Model {
 		st:      st,
 		tbl:     newTable(st.Keys, st.Styles),
 		overlay: overlay,
-		actions: action.NewSet(st.Keys.Runner),
+		actions: action.NewSet(st.Keys.Runner, st.Scopes),
 		ops:     ops,
 		initCmd: cmd,
 	}
@@ -131,7 +131,7 @@ func (m Model) View() tea.View {
 // setState は共有状態のスナップショットを反映する。ドメイン層は呼ばない。
 func (m Model) setState(st page.StateMsg) (tea.Model, tea.Cmd) {
 	m.st = st
-	m.actions = action.NewSet(st.Keys.Runner)
+	m.actions = action.NewSet(st.Keys.Runner, st.Scopes)
 	// 配色を配り直すのは runners.go と同じ理由（table.Model.Restyle の doc）。
 	m.tbl.Restyle(st.Keys.List, st.Styles)
 	m.tbl.SetSize(st.BodyW, st.BodyH)

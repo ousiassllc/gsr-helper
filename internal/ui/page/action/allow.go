@@ -10,7 +10,9 @@ import (
 	"slices"
 
 	"github.com/ousiassllc/gsr-helper/internal/appconfig"
+	"github.com/ousiassllc/gsr-helper/internal/gh"
 	"github.com/ousiassllc/gsr-helper/internal/runner"
+	"github.com/ousiassllc/gsr-helper/internal/runner/scope"
 	"github.com/ousiassllc/gsr-helper/internal/svc"
 	"github.com/ousiassllc/gsr-helper/internal/ui/atom"
 	"github.com/ousiassllc/gsr-helper/internal/ui/keymap"
@@ -33,6 +35,49 @@ const (
 	reasonBusy  = "ジョブ実行中です。先に d でドレイン停止してください"
 )
 
+// scopeLevelName は登録先の言い換え。理由の文言に使う（screens.md の 6 段目
+// `org レベルの操作には admin:org が必要です`）。
+func scopeLevelName(sc scope.Scope) string {
+	switch sc.Kind {
+	case scope.Repo:
+		return "repo"
+	case scope.Org:
+		return "org"
+	case scope.Enterprise:
+		return "enterprise"
+	case scope.Unknown:
+		return ""
+	default:
+		return ""
+	}
+}
+
+// missingScope は保有スコープが足りない場合に理由を返す。足りていれば空文字。
+//
+// 判定は次の 3 つがそろったときだけ行う。**塞ぐ側ではなく通す側に倒す**のがこの
+// 関数の要点である（screens.md「無効な操作の表示」の 6 段目）。
+//
+//   - 取得を終えている（ScopeState.Known）。判定前に塞ぐと、権限の足りている
+//     トークンで起動直後だけ操作できなくなる。取得に失敗した場合も Known は偽の
+//     ままなので、ここで通る
+//   - スコープという概念を持つトークンである（gh.Scopes.Classic）。fine-grained PAT と
+//     GitHub App のトークンは X-OAuth-Scopes を返さない。「スコープが無い」と扱うと、
+//     権限が十分なトークンを誤って塞ぐ
+//   - 登録先から必要なスコープが決まる。Runners タブに runner が 1 台も無い場合や
+//     Setup タブのメニューのように対象が定まらない場合は判定材料が無いので塞がない
+func missingScope(r runner.Runner, sc page.ScopeState) string {
+	if !sc.Known || !sc.Scopes.Classic {
+		return ""
+	}
+	need := gh.RequiredScope(r.Scope)
+	if need == "" || sc.Scopes.Has(need) {
+		return ""
+	}
+	level := scopeLevelName(r.Scope)
+	return level + " レベルの操作には " + need +
+		" が必要です（gh auth refresh -h github.com -s " + need + "）"
+}
+
 // Set はキー定義から 1 度だけ組んだ操作の表。
 //
 // **描画のたびに組み直さない。** 以前は可否を 1 件求めるたびにキーから操作を引く
@@ -41,6 +86,12 @@ const (
 type Set struct {
 	list  []Def
 	byKey map[string]ID
+	// scopes は保有スコープ。可否の判定に使う（Issue #79）。
+	//
+	// **Set が持つのは、判定が 1 フレームに何度も走るためである。** 取得は GitHub API
+	// への往復を要するのでそこからは引けず、共有状態として届いた値を組み立て時に
+	// 写し取る（page が StateMsg を受けるたびに Set を組み直す）。
+	scopes page.ScopeState
 }
 
 // NewSet はキー定義から操作の表を組む。
@@ -53,7 +104,7 @@ type Set struct {
 // **2 つの操作が同じ先頭キーを持つと panic する。** 黙って上書きすると片方の操作が
 // 判定表のどの行にも当たらなくなり、理由が page.ReasonUnsupported にすり替わる。キー定義は
 // 起動時に決まるので、誤りは最初の起動で必ず表面化する。
-func NewSet(keys keymap.RunnerKeys) Set {
+func NewSet(keys keymap.RunnerKeys, scopes page.ScopeState) Set {
 	byKey := make(map[string]ID, len(names))
 	for _, a := range keyIDs(keys) {
 		if prev, dup := byKey[a.key]; dup {
@@ -68,7 +119,17 @@ func NewSet(keys keymap.RunnerKeys) Set {
 		k := page.BindingKey(b)
 		list = append(list, newDef(byKey[k], k, b.Help().Desc))
 	}
-	return Set{list: list, byKey: byKey}
+	return Set{list: list, byKey: byKey, scopes: scopes}
+}
+
+// withScopes は保有スコープだけを差し替えた写しを返す。
+//
+// キー定義から表を組み直さずに済ませるための小道具である。検証で状態を並べるときに
+// 使うほか、共有状態のうちスコープだけが後から確定する経路（親が起動後に 1 度だけ
+// 引く。Issue #79）にも合う。
+func (s Set) withScopes(scopes page.ScopeState) Set {
+	s.scopes = scopes
+	return s
 }
 
 // keyID はキーストロークと操作の識別子の対。
@@ -113,7 +174,7 @@ func (s Set) List() []Def { return s.list }
 //
 // 判定は下の順で行い、最初に一致した理由を返す。能力の問題（root / systemd / 認証）を
 // 実装状況（Supported）で隠さないため、未対応の判定を最後に置く。
-func Allow(a Def, r runner.Runner, caps appconfig.Caps) (bool, string) {
+func Allow(a Def, r runner.Runner, caps appconfig.Caps, scopes page.ScopeState) (bool, string) {
 	if op, ok := SvcOp(a.ID); ok {
 		if allowed, reason := svc.CanControl(op, r, caps); !allowed {
 			return false, reason
@@ -124,6 +185,10 @@ func Allow(a Def, r runner.Runner, caps appconfig.Caps) (bool, string) {
 		return false, svc.ReasonRoot
 	case !caps.GitHubToken && is(a, Add, Delete, Update):
 		return false, reasonToken
+	case is(a, Add, Delete) && missingScope(r, scopes) != "":
+		// 6 段目「スコープ不足」。塞ぐのは n / D の 2 つで、u（更新）は含めない
+		// （screens.md「無効な操作の表示」の表）。
+		return false, missingScope(r, scopes)
 	case r.Busy() && a.ID == Delete:
 		return false, reasonBusy
 	case !a.Supported:
@@ -193,7 +258,7 @@ func (s Set) Hints(r runner.Runner, caps appconfig.Caps, keys keymap.RunnerKeys)
 // 判定はキーではなく操作で行うので、キーだけしか持たない呼び出し側は組み済みの
 // 対応表（Set）を通す。
 func (s Set) Allowed(k string, r runner.Runner, caps appconfig.Caps) (bool, string) {
-	return Allow(newDef(s.byKey[k], k, ""), r, caps)
+	return Allow(newDef(s.byKey[k], k, ""), r, caps, s.scopes)
 }
 
 // Choices は詳細画面の操作リストの項目を返す。
@@ -201,18 +266,18 @@ func (s Set) Allowed(k string, r runner.Runner, caps appconfig.Caps) (bool, stri
 // 区切り線は最初の破壊的な操作の前に 1 本だけ置く。organism.ChoiceList は
 // 区切り線より下を破壊的な操作の区画として描く。
 func (s Set) Choices(r runner.Runner, caps appconfig.Caps) []organism.Choice {
-	return choices(s.list, r, caps)
+	return choices(s.list, r, caps, s.scopes)
 }
 
 // choices は操作の定義から選択肢を組み立てる。
 //
 // Actions と分けているのは、操作の一覧（何を並べるか）と可否の判定（押せるか）を
 // 別々に検証できるようにするためである。
-func choices(acts []Def, r runner.Runner, caps appconfig.Caps) []organism.Choice {
+func choices(acts []Def, r runner.Runner, caps appconfig.Caps, scopes page.ScopeState) []organism.Choice {
 	out := make([]organism.Choice, 0, len(acts))
 	divided := false
 	for _, a := range acts {
-		enabled, reason := Allow(a, r, caps)
+		enabled, reason := Allow(a, r, caps, scopes)
 		divider := a.Destructive && !divided
 		if divider {
 			divided = true

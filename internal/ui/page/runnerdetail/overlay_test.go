@@ -72,7 +72,7 @@ func TestDetailInOverlayReceivesKeysWhenTopmost(t *testing.T) {
 // （Model.SetState の doc）。
 func TestDetailRefreshesFromState(t *testing.T) {
 	keys := pagetest.Keys()
-	acts := action.NewSet(keys.Runner)
+	acts := action.NewSet(keys.Runner, page.ScopeState{})
 	_, busyReason := acts.Allowed("D", pagetest.BusyRunner(), pagetest.Caps())
 	if busyReason == "" {
 		t.Fatal("ジョブ実行中の削除が塞がれていない（前提が崩れている）")

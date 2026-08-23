@@ -77,7 +77,7 @@ func newModel(keys keymap.Set, s token.Styles) Model {
 	return Model{
 		keys:    keys,
 		styles:  s,
-		actions: action.NewSet(keys.Runner),
+		actions: action.NewSet(keys.Runner, page.ScopeState{}),
 		target:  runner.Runner{},
 		caps:    appconfig.Caps{},
 		info:    pane.NewDetail(),
@@ -130,7 +130,7 @@ func (d *Model) SetSize(w, h int) {
 // 差し替える Open は逆に先頭へ戻す（FR-46）。
 func (d *Model) SetState(st page.StateMsg) {
 	d.keys, d.styles = st.Keys, st.Styles
-	d.actions = action.NewSet(st.Keys.Runner)
+	d.actions = action.NewSet(st.Keys.Runner, st.Scopes)
 	d.list.Restyle(st.Keys.List, st.Styles)
 	d.caps = st.Caps
 	d.disk = st.Disk

@@ -72,7 +72,7 @@ func New(tab int, st page.StateMsg) Model {
 		st:      st,
 		tbl:     rowview.NewTable(st.Keys, st.Styles),
 		overlay: overlay,
-		actions: action.NewSet(st.Keys.Runner),
+		actions: action.NewSet(st.Keys.Runner, st.Scopes),
 		ops:     ops,
 		initCmd: cmd,
 		notice:  "",
@@ -162,7 +162,7 @@ func (m Model) View() tea.View {
 // 検出は親が 1 本の Cmd で駆動する（同じ検出が重複実行されないようにするため）。
 func (m Model) setState(st page.StateMsg) (tea.Model, tea.Cmd) {
 	m.st = st
-	m.actions = action.NewSet(st.Keys.Runner)
+	m.actions = action.NewSet(st.Keys.Runner, st.Scopes)
 	// 背景色は起動後に届き、切り替わることもある。配色を配り直さないと一覧の中身だけが
 	// 古い明暗のまま残る（table.Model.Restyle の doc）。
 	m.tbl.Restyle(st.Keys.List, st.Styles)
