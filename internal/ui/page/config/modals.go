@@ -4,6 +4,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/ousiassllc/gsr-helper/internal/ui/atom"
+	"github.com/ousiassllc/gsr-helper/internal/ui/keymap"
 	"github.com/ousiassllc/gsr-helper/internal/ui/organism"
 	"github.com/ousiassllc/gsr-helper/internal/ui/organism/dialog"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
@@ -182,6 +183,7 @@ type applyOpenMsg struct {
 type applyModal struct {
 	tab  int
 	list organism.ChoiceList
+	keys keymap.Set
 }
 
 var _ tea.Model = applyModal{}
@@ -189,9 +191,11 @@ var _ tea.Model = applyModal{}
 // newApplyModal は反映方法の選択のモーダルを組み立てる。
 func newApplyModal(st page.StateMsg) page.Modal {
 	return page.Modal{
-		Model:       applyModal{tab: 0, list: organism.NewChoiceList(st.Keys.List, st.Styles)},
+		Model: applyModal{
+			tab: 0, list: organism.NewChoiceList(st.Keys.List, st.Styles), keys: st.Keys,
+		},
 		Title:       func(tea.Model) string { return titleApply },
-		Hints:       nil,
+		Hints:       applyHints,
 		HandlesBack: nil,
 	}
 }
@@ -212,7 +216,9 @@ func (m applyModal) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		res := page.ResultMsg{Kind: applyKind, Msg: msg}
 		return m, page.Do(m.tab, func() tea.Msg { return res })
 	case page.StateMsg:
+		m.keys = msg.Keys
 		m.list.Restyle(msg.Keys.List, msg.Styles)
+
 		return m, nil
 	case page.SizeMsg:
 		m.list.SetWidth(msg.W)
@@ -226,3 +232,19 @@ func (m applyModal) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // View は選択肢を描く。
 func (m applyModal) View() tea.View { return tea.NewView(m.list.View()) }
+
+// applyHints は反映方法の選択のフッタを返す。
+//
+// 既定（ドレイン再起動）に合わせるだけなら enter でよく、esc は選ばずに閉じる。
+// 閉じた場合は書き込み済みの設定が次回起動時に効く（「反映しない」と同じ）。
+func applyHints(model tea.Model) []atom.Hint {
+	m, ok := model.(applyModal)
+	if !ok {
+		return nil
+	}
+
+	return []atom.Hint{
+		{Key: page.BindingKey(m.keys.List.Enter), Desc: "この方法で反映", Enabled: true, Reason: ""},
+		{Key: page.BindingKey(m.keys.Global.Back), Desc: "反映しない", Enabled: true, Reason: ""},
+	}
+}

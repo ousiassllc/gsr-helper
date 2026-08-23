@@ -27,12 +27,16 @@ const (
 	secCount
 )
 
-// 一覧の列。幅 80 に収まるよう定める（行頭 6 + 列幅 70 + 列間 4 = 80）。
+// 一覧の列。幅 80 に収まるよう定める（行頭 2 + 列幅 70 + 列間 4 = 76）。
+//
+// 項目名は切り詰めない幅を確保し、現在値と備考を詰める。値は長さがまちまち
+// （PATH は 1 行で数十文字になる）で、切り詰めても「どの項目か」は失われないが、
+// 項目名が切れると何を選ぶ行なのか読めなくなるためである。
 func settingColumns() []token.Column {
 	return []token.Column{
 		{ID: token.ColName, Title: "項目", Width: 26, Right: false},
-		{ID: listrow.ColValue, Title: "現在値", Width: 30, Right: false},
-		{ID: token.ColNote, Title: "備考", Width: 14, Right: false},
+		{ID: listrow.ColValue, Title: "現在値", Width: 22, Right: false},
+		{ID: token.ColNote, Title: "備考", Width: 22, Right: false},
 	}
 }
 
@@ -55,11 +59,11 @@ type summary struct {
 // mainItems は編集できる 5 項目を返す。
 func mainItems(s summary) []item {
 	return []item{
-		newItem(edit.KindEnv, ".env", envValue(s.envCount), "環境変数・プロキシ・job hooks", false, s.editable),
+		newItem(edit.KindEnv, ".env", envValue(s.envCount), "環境変数・プロキシ", false, s.editable),
 		newItem(edit.KindPath, ".path", s.path, "", false, s.editable),
-		newItem(edit.KindDropIn, "systemd drop-in", s.dropIn, "再起動に daemon-reload", false, s.editable),
-		newItem(edit.KindLabels, "ラベル", "", "選ぶと取得（即時反映）", false, s.editable),
-		newItem(edit.KindGroup, "runner group", "", "選ぶと取得（即時反映）", false, s.editable),
+		newItem(edit.KindDropIn, "systemd drop-in", s.dropIn, "daemon-reload が要る", false, s.editable),
+		newItem(edit.KindLabels, "ラベル", "", "即時反映（GitHub）", false, s.editable),
+		newItem(edit.KindGroup, "runner group", "", "即時反映（GitHub）", false, s.editable),
 	}
 }
 
@@ -69,14 +73,14 @@ func mainItems(s summary) []item {
 // 同じ場所で示すためである（screens.md の無効な操作の表示と同じ考え方）。
 func reregisterItems() []item {
 	return []item{
-		newItem(edit.KindReregister, "名前 / work dir / ephemeral", "", "変更には再登録が必要", true, false),
+		newItem(edit.KindReregister, "名前・work dir・ephemeral", "", "再登録が必要", true, false),
 	}
 }
 
 // copyItems は複製の行を返す（FR-40）。
 func copyItems(editable bool) []item {
 	return []item{
-		newItem(edit.KindCopy, "この設定を他の runner に複製", ".env をまとめて適用", "", false, editable),
+		newItem(edit.KindCopy, "他の runner へ複製", ".env をまとめて適用", "", false, editable),
 	}
 }
 
