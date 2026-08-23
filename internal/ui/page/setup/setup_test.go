@@ -4,62 +4,12 @@ import (
 	"strings"
 	"testing"
 
-	tea "charm.land/bubbletea/v2"
-
 	"github.com/ousiassllc/gsr-helper/internal/appconfig"
-	"github.com/ousiassllc/gsr-helper/internal/exec"
-	"github.com/ousiassllc/gsr-helper/internal/gh"
 	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/setup"
 )
-
-// state は Setup タブ用の共有状態を返す。
-func state(t *testing.T, rs ...runner.Runner) page.StateMsg {
-	t.Helper()
-
-	st := pagetest.State(100, 30, rs...)
-	st.Setup = page.SetupDeps{
-		Host:     "build01",
-		Defaults: appconfig.Default().Defaults,
-		Secrets:  gh.NewSecrets(),
-	}
-	return st
-}
-
-// newModel は最初の共有状態まで流した Model を返す。
-func newModel(t *testing.T, st page.StateMsg) tea.Model {
-	t.Helper()
-
-	next, cmd := setup.New(0, st).Update(st)
-	return pagetest.Advance(next, cmd, pagetest.AdvanceRounds)
-}
-
-// send は Msg を配って落ち着くまで進める。
-func send(t *testing.T, m tea.Model, msgs ...tea.Msg) tea.Model {
-	t.Helper()
-
-	for _, msg := range msgs {
-		next, cmd := m.Update(msg)
-		m = pagetest.Advance(next, cmd, pagetest.AdvanceRounds)
-	}
-	return m
-}
-
-// view は現在の描画を返す。
-func view(m tea.Model) string { return m.View().Content }
-
-// fakeOf は共有状態の Executor をテスト実装として取り出す。
-func fakeOf(t *testing.T, st page.StateMsg) *exec.Fake {
-	t.Helper()
-
-	f, ok := st.Exec.(*exec.Fake)
-	if !ok {
-		t.Fatalf("Exec の型 = %T, want *exec.Fake", st.Exec)
-	}
-	return f
-}
 
 func TestMenuListsThreeEntries(t *testing.T) {
 	t.Parallel()
@@ -166,18 +116,6 @@ func TestDeleteOfBusyRunnerIsBlocked(t *testing.T) {
 	if !strings.Contains(chrome.Status, "ドレイン停止") {
 		t.Errorf("状態行 = %q, ドレイン停止を促すこと", chrome.Status)
 	}
-}
-
-// chromeOf は現在の状態行とフッタを取り出す。
-func chromeOf(t *testing.T, m tea.Model) page.ChromeMsg {
-	t.Helper()
-
-	_, cmd := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
-	c, ok := pagetest.ChromeOf(cmd)
-	if !ok {
-		t.Fatal("ChromeMsg が発行されていない")
-	}
-	return c
 }
 
 func TestCancelingConfirmDoesNotRun(t *testing.T) {
@@ -307,5 +245,40 @@ func TestEscapeReturnsToRunners(t *testing.T) {
 	}
 	if !found {
 		t.Error("esc で Runners タブへ戻る要求が出ていない")
+	}
+}
+
+// フッタは実行・追加・更新のキーを可否つきで出す。
+//
+// 可否の理由は action.Allow から引くので、Runners タブのフッタと同じ文言になる。
+func TestFooterCarriesKeysAndReasons(t *testing.T) {
+	t.Parallel()
+
+	st := state(t, pagetest.SampleRunner())
+	st.Caps.GitHubToken = false
+	m := newModel(t, st)
+
+	hints := chromeOf(t, m).Footer
+	if len(hints) == 0 {
+		t.Fatal("フッタが空である")
+	}
+
+	seen := make(map[string]string, len(hints))
+	for _, h := range hints {
+		if h.Enabled == (h.Reason != "") {
+			t.Errorf("キー %q = %v/%q, 可否と理由の有無が食い違う", h.Key, h.Enabled, h.Reason)
+		}
+		seen[h.Key] = h.Reason
+	}
+
+	for _, k := range []string{"n", "u"} {
+		why, ok := seen[k]
+		if !ok {
+			t.Errorf("フッタに %q が無い: %v", k, seen)
+			continue
+		}
+		if !strings.Contains(why, "GitHub の認証が必要です") {
+			t.Errorf("キー %q の理由 = %q, want 認証を促す文言", k, why)
+		}
 	}
 }
