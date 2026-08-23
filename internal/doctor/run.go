@@ -30,18 +30,26 @@ func Run(ctx context.Context, in Input, checks []Check) []CheckResult {
 	}
 	wg.Wait()
 
-	return sorted(out)
+	var all []CheckResult
+	for _, g := range out {
+		all = append(all, g...)
+	}
+	return Sort(all)
 }
 
-// sorted は項目ごとの結果を 1 本にまとめ、表示順に整列して返す。
+// Sort は結果を表示順に整列して返す。
 //
 // 並べる順は 分類 → 識別子 → 対象 である。並列実行の完了順に並べると、
 // 再実行のたびに行が入れ替わってカーソルの位置が意味を失う。
-func sorted(groups [][]CheckResult) []CheckResult {
-	var all []CheckResult
-	for _, g := range groups {
-		all = append(all, g...)
-	}
+//
+// 公開するのは、個別の再実行（Replace）が同じ規則で並べ直す必要があるためで
+// ある。UI 側に並べ替えを書くと、整列の規則が 2 箇所へ分かれる。
+//
+// **引数は書き換えない。** 呼び出し側（page）は結果のスナップショットを保持した
+// まま描画に使うので、その場で並べ替えると描画中のスライスが動く。並べ替えの
+// 費用より、共有された値を壊さないことを採る。
+func Sort(results []CheckResult) []CheckResult {
+	all := slices.Clone(results)
 	slices.SortStableFunc(all, func(a, b CheckResult) int {
 		if n := cmp.Compare(check.CategoryRank(a.Category), check.CategoryRank(b.Category)); n != 0 {
 			return n
@@ -112,4 +120,23 @@ func Count(results []CheckResult) Summary {
 		}
 	}
 	return s
+}
+
+// Replace は既存の結果から id の行を取り除き、再実行の結果で置き換えて返す。
+//
+// 個別の再実行（FR-34）に使う。1 項目が返す行数は実行のたびに変わりうる
+// （runner が増減する）ので、同じ識別子の行をまとめて捨ててから入れ替える。
+// 差分を取って部分的に更新すると、消えた対象の行が残る。
+//
+// 元のスライスは書き換えない。呼び出し側（page）が保持しているスナップショットを
+// 別の goroutine から壊さないためである。
+func Replace(results, fresh []CheckResult, id string) []CheckResult {
+	out := make([]CheckResult, 0, len(results)+len(fresh))
+	for _, r := range results {
+		if r.ID != id {
+			out = append(out, r)
+		}
+	}
+	out = append(out, fresh...)
+	return Sort(out)
 }

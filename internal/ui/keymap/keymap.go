@@ -202,6 +202,19 @@ func (s Set) DiskHelp() [][]key.Binding {
 	return s.Help(s.listBindingsWithoutEnter(), s.List.FilterBindings(), s.Disk.Bindings())
 }
 
+// DoctorHelp は Doctor タブが ? に出すグループを返す。
+//
+// 一覧のキー（enter を含む）と絞り込み中のキーだけを載せる。**Doctor 固有の
+// キー集合は無い。** 詳細を開く enter は List.Enter、全項目の再実行 r は
+// Global.Refresh そのものであり、同じキーを別の定義として重ねると同時に有効な
+// Binding が 2 つになる（DiskKeys の doc と同じ理由）。
+//
+// enter を残すのは Disk タブと違って詳細画面があるためである（screens.md の
+// Doctor タブのキーマップ）。runner の操作キーはこの画面で効かないので渡さない。
+func (s Set) DoctorHelp() [][]key.Binding {
+	return s.Help(s.List.Bindings(), s.List.FilterBindings())
+}
+
 // SetupHelp は Setup タブが ? に出すグループを返す。
 //
 // 一覧のキー（メニューの上下と決定）と、runner に対する追加・削除・バージョン更新の
