@@ -74,9 +74,10 @@ func Bytes(n int64) string {
 		return strconv.FormatInt(n, 10) + "B"
 	}
 
-	// T より大きい単位は置かない。1 台のホストのディスクを扱う画面であり、
-	// P を出す状況では別の問題が起きている。
-	suffixes := []string{"K", "M", "G", "T"}
+	// P まで置く。int64 の最大値（8 EiB 弱）でも 8192.0P の 7 セルに収まり、
+	// SIZE 列を最も狭く取る Logs タブの幅（token.SizeColumnWidth）を超えない。
+	// T で打ち切ると同じ値が 8388608.0T の 10 セルになり、列から溢れる。
+	suffixes := []string{"K", "M", "G", "T", "P"}
 	v := float64(n) / byteUnit
 	i := 0
 	for i < len(suffixes)-1 && v >= byteCarry {

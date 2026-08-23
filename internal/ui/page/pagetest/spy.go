@@ -111,3 +111,18 @@ func (s *Spy) Msgs() []tea.Msg {
 	defer s.mu.Unlock()
 	return append([]tea.Msg(nil), s.msgs...)
 }
+
+// Delivered は spy がキー・共有状態以外で受け取った Msg のうち、型 T のものを数える。
+//
+// **親 Model（internal/ui）の検証のために置いてある。** 親がタブへ配った Msg を
+// 型で数えるだけで App の非公開な状態に触れないので、`ui` 直下ではなくここに置ける
+// （atomic-design.md の「余裕は道具を page/pagetest へ出すことで作る」）。
+func Delivered[T tea.Msg](s *Spy) int {
+	n := 0
+	for _, m := range s.Msgs() {
+		if _, ok := m.(T); ok {
+			n++
+		}
+	}
+	return n
+}

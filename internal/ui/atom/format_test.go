@@ -106,12 +106,14 @@ func TestBytes(t *testing.T) {
 		{512, "512B"},
 		{1023, "1023B"},
 		{1024, "1.0K"},
+		{1536, "1.5K"},
 		{1024*1024 - 1, "1.0M"}, // 丸めると 1024.0K になる値は 1 段上げる
 		{104858, "102.4K"},
 		{25877477785, "24.1G"},
 		{107374182, "102.4M"},
+		{2 << 30, "2.0G"},
 		{1024 * 1024 * 1024 * 1024, "1.0T"},
-		{math.MaxInt64, "8388608.0T"}, // T より上の単位は置かない
+		{math.MaxInt64, "8192.0P"}, // P より上の単位は置かない
 		{-1, token.IconNoUnit},
 		{-1024, token.IconNoUnit},
 	}
@@ -166,6 +168,15 @@ func TestRatio(t *testing.T) {
 		}
 		if role != c.wantRole {
 			t.Errorf("%s: Ratio(%d, %v) の役割 = %d, want %d", c.name, c.pct, c.warn, role, c.wantRole)
+		}
+	}
+}
+
+// どの桁でも SIZE 列の幅（7）に収まる。収まらないと一覧の桁が溢れる。
+func TestBytesFitsColumnWidth(t *testing.T) {
+	for _, n := range []int64{0, 1023, 1024, 1<<20 - 1, 1 << 40, 1 << 50, 1<<63 - 1} {
+		if got := Bytes(n); len(got) > token.SizeColumnWidth {
+			t.Errorf("Bytes(%d) = %q（%d 桁）, want %d 桁以内", n, got, len(got), token.SizeColumnWidth)
 		}
 	}
 }

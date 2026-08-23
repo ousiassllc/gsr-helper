@@ -29,6 +29,8 @@ const (
 	ColSize       = "SIZE"
 	ColFiles      = "FILES"
 	ColPath       = "PATH"
+	ColLog        = "LOG"
+	ColUpdated    = "UPDATED"
 )
 
 // Column は一覧の列 1 つ分の定義。organism.Table が table.Column に変換する。
@@ -159,5 +161,43 @@ func DiskColumnRules() ColumnRules {
 	return ColumnRules{
 		Drop: []string{ColPath, ColFiles},
 		Keep: []string{ColTarget, ColSize},
+	}
+}
+
+// SizeColumnWidth はサイズ列（SIZE）の幅。
+//
+// atom.Bytes の最長表記（`1023.9K` の 7 桁）に合わせてある。定数にするのは、
+// 表記を変えたときに列幅との食い違いをテストで検出できるようにするためである
+// （atom.TestBytesFitsColumnWidth）。
+const SizeColumnWidth = 7
+
+// LogColumns は Logs タブのファイル一覧の列を返す。
+//
+// 必要幅は行頭 2（カーソル 1 + 間隔 1。選択できない一覧なのでチェックボックスの
+// ガターは無い）+ 列幅合計 66 + 列間 3 = 71 セルで、WidthTarget（80）に収まる。
+//
+// RUNNER を持つのは、この一覧が runner をまたいで `_diag` のログを 1 つに並べる
+// ためである（対象の runner を選ぶ画面を別に設けない）。
+func LogColumns() []Column {
+	return []Column{
+		{ID: ColRunner, Title: "RUNNER", Width: 13, Right: false},
+		{ID: ColLog, Title: "LOG", Width: 30, Right: false},
+		{ID: ColSize, Title: "SIZE", Width: SizeColumnWidth, Right: true},
+		{ID: ColUpdated, Title: "UPDATED", Width: 16, Right: false},
+	}
+}
+
+// LogColumnRules は Logs タブのファイル一覧の落とし方を返す。
+//
+// 最初に落とすのは UPDATED である。並びが更新時刻の降順であること（FR-23）は
+// 列が無くても順序から読み取れる。次が RUNNER で、選択中のログがどの runner の
+// ものかは本文の見出しに出るため、狭い端末では一覧から省ける。
+//
+// LOG（ファイル名）と SIZE は落とさない。FR-23 が要求する「ログの一覧（サイズ付き）」
+// そのものであり、落とすと一覧の目的を満たせない。
+func LogColumnRules() ColumnRules {
+	return ColumnRules{
+		Drop: []string{ColUpdated, ColRunner},
+		Keep: []string{ColLog, ColSize},
 	}
 }

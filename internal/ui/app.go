@@ -153,6 +153,10 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case page.GlobalKeyMsg:
 		// page が解釈しなかったキーだけがここへ戻る（page.GlobalKeyMsg の doc）。
 		return a.handleGlobalKey(msg.Press)
+	case page.OpenTabMsg:
+		// タブをまたぐ移動は親が担う。タブ同士は互いを知らないため、移動元は
+		// 移動先の番号も型も持てない（page.OpenTabMsg の doc）。
+		return a.openTab(msg)
 	case page.TabMsg:
 		// ドメイン層の呼び出し結果は発行元のタブへ戻す（page.TabMsg の doc）。
 		return a.forwardTo(msg.Tab, msg.Msg)

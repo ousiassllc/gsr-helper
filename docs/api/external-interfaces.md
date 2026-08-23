@@ -91,7 +91,7 @@ gh auth refresh -h github.com -s admin:org
 
 ## 実行する外部コマンド
 
-すべて `Executor` 経由で実行し、シェルは経由しない。**監査ログには原則として全件記録するが、下記 systemd の表の `list-units` / `show` のうち再検出（`internal/runner/systemd` の `Scan`）が発行するものだけは記録対象外である**（`exec.Options.SkipAudit`。理由と規則は [セキュリティ設計](../architecture/security.md#記録対象外とする再検出の読み取りコマンド)）。実行の共通の約束（既定 30 秒のタイムアウト、期限切れ時のプロセスグループへの SIGKILL、親の環境変数の継承、出力の上限）は [コンポーネント設計](../components/overview.md#internalexec) に定める。
+すべて `Executor` 経由で実行し、シェルは経由しない。**監査ログには原則として全件記録するが、下記 systemd の表のうち、再検出（`internal/runner/systemd` の `Scan`）が発行する `list-units` / `show` と、ログ追従（`internal/logs` の `Journal`）が発行する `journalctl -u <unit> -n <N>` だけは記録対象外である**（`exec.Options.SkipAudit`。理由と規則は [セキュリティ設計](../architecture/security.md#記録対象外とする読み取りコマンド)）。実行の共通の約束（既定 30 秒のタイムアウト、期限切れ時のプロセスグループへの SIGKILL、親の環境変数の継承、出力の上限）は [コンポーネント設計](../components/overview.md#internalexec) に定める。
 
 ### systemd
 
@@ -101,11 +101,11 @@ gh auth refresh -h github.com -s admin:org
 | `systemctl show <unit> --no-pager -p Id -p LoadState -p ActiveState -p SubState -p UnitFileState -p WorkingDirectory -p MainPID -p User` | ユニット状態の取得。`User` は runner 実行ユーザーの特定に使う（FR-43） | FR-01、FR-03、FR-43 |
 | `systemctl start` / `stop` / `restart` / `enable` / `disable` `<unit>` | サービス制御 | FR-06 |
 | `systemctl daemon-reload` | drop-in 変更の反映 | FR-35 |
-| `journalctl -u <unit> -n <N>` / `-f` | ユニットログの参照・追従 | FR-26 |
+| `journalctl -u <unit> -n <N> --no-pager` | ユニットログの参照・追従。追従は 2 秒ごとの再発行と差分の送出で行う（`-f` は使わない。理由は [コンポーネント設計](../components/overview.md#journalctl--f-を使わない理由)） | FR-26 |
 | `journalctl -k --since <時刻>` | OOM Killer の履歴確認 | doctor |
 | `timedatectl show` | NTP 同期状態と時刻ずれの確認 | doctor |
 
-**上表の `list-units` / `show` は、再検出（`internal/runner/systemd` の `Scan`）が発行する分に限り監査ログに記録しない**（成功・失敗とも。詳細は [セキュリティ設計](../architecture/security.md#記録対象外とする再検出の読み取りコマンド)）。3 秒ごとの自動更新か利用者のキー操作（`r`）による手動再読み込みかは問わない。判定するのは発行契機ではなく発行元である。表の他のコマンドは全件記録する。
+**上表の `list-units` / `show` は、再検出（`internal/runner/systemd` の `Scan`）が発行する分に限り監査ログに記録しない**（成功・失敗とも。詳細は [セキュリティ設計](../architecture/security.md#記録対象外とする読み取りコマンド)）。3 秒ごとの自動更新か利用者のキー操作（`r`）による手動再読み込みかは問わない。**`journalctl -u <unit> -n <N> --no-pager` も、ログ追従（`internal/logs` の `Journal`）が発行する分に限り記録しない。** 同じ `journalctl` でも doctor の `-k --since` は診断 1 回につき 1 本なので記録する。判定するのは発行契機でもコマンド名でもなく発行元である。表の他のコマンドは全件記録する。
 
 `systemctl show` は出力順が保証されないため、`KEY=VALUE` を辞書として解釈する。`list-units` は `--plain` を付けても行頭に記号が付く場合があるため、位置ではなく「`actions.runner.` で始まり `.service` で終わるフィールド」を探す。`WorkingDirectory` は `-/path`（存在しなければ無視する指定）を取り得るため、先頭の `-` を除いてから runner ディレクトリと照合する。
 
@@ -186,3 +186,4 @@ TCP 接続の成否とレイテンシを確認する。到達先は runner が�
 | 1.4 | 2026-08-22 | `list-units` 自体の失敗が走査全体を中止することと `LoadState=not-found` のユニットの扱いを追記。`os/user.LookupId` をその他のシステムコマンドに追加。実行の共通の約束への参照を追加 | 「1 ユニットの失敗で全体を止めない」だけを書いていたため、最も影響範囲の広い縮退が仕様から読み取れなかった。`RunAsUser` の取得元に NSS 参照があることが未記載だった |
 | 1.5 | 2026-08-22 | 再検出が発行する `list-units` / `show` が監査ログの記録対象外であることを注記 | 「すべて Executor 経由で実行し、監査ログに記録する」と systemd の表が無条件のままで、記録対象外になった当のコマンドが表に載っていた |
 | 1.6 | 2026-08-22 | 記録対象外の判定を発行契機ではなく発行元（再検出の `Scan`）に統一し、「利用者の操作を起点に発行する場合は記録する」を削除 | 手動再読み込み（`r`）も同じ `Scan` を通るため記録されず、記述が実装と矛盾していた |
+| 1.7 | 2026-08-23 | `journalctl` の行を実装に合わせ、追従を `-f` ではなく `-n <N> --no-pager` の再発行と差分の送出で行うことに変更。ログ追従が発行する `journalctl` を監査ログの記録対象外に追加し、doctor の `-k --since` は記録することを明記 | ログ閲覧を実装した（Issue #9）。`Executor` は 1 回の実行の出力をまとめて返す契約であり `-f` はタイムアウトまで 1 行も届かない（理由は [コンポーネント設計](../components/overview.md#journalctl--f-を使わない理由)）。追従中は同じ読み取りが繰り返し発行され、記録すると破壊的操作のレコードを押し流す |

@@ -22,11 +22,16 @@ type Options struct {
 	// **既定は false（記録する）。** 記録漏れが既定にならないよう、記録しないこと
 	// を呼び出し側の明示的な意思表示に限る。
 	//
-	// 使ってよいのは**再検出（internal/runner/systemd の Scan）が発行する読み取り
-	// 専用コマンド**（systemctl list-units / show）だけである。3 秒ごとの自動更新か
-	// キー操作 r による手動再読み込みかは問わない。判定するのは発行契機ではなく
-	// 発行元で、いずれの契機でも同じ本数が繰り返し発行され他のレコードを押し流す。
-	// 破壊的操作（svc.* / runner.* / disk.clean）には決して使わない。理由は
+	// 使ってよいのは次の 2 つの発行元が出す**読み取り専用コマンド**だけである。
+	//   - 再検出（internal/runner/systemd の Scan）の systemctl list-units / show。
+	//     3 秒ごとの自動更新かキー操作 r による手動再読み込みかは問わない。
+	//   - ログ追従（internal/logs の Journal）の journalctl -u <unit> -n <N>。
+	//     Logs タブが journalctl ビューを開いている間だけ発行される。
+	//
+	// 判定するのは発行契機でもコマンド名でもなく**発行元**である。いずれの発行元も
+	// 同じ本数を繰り返し出し、他のレコードを押し流す。同じ journalctl でも doctor の
+	// -k --since は診断 1 回につき 1 本なので記録する。破壊的操作
+	// （svc.* / runner.* / disk.clean）には決して使わない。理由は
 	// docs/architecture/security.md の「監査ログ」を参照。
 	SkipAudit bool
 }

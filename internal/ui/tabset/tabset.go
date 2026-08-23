@@ -23,6 +23,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/disk"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/jobs"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/logs"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/runners"
 	"github.com/ousiassllc/gsr-helper/internal/ui/token"
 )
@@ -64,7 +65,7 @@ type spec struct {
 // specs は表示するタブの並びを返す。タブを増やすときに触るのはこの関数だけ。
 //
 // タブ行に 7 枚すべてを出すのは、押しても何も起きないキーを作らないためである
-// （screens.md の共通レイアウトは 7 タブを常に出す）。3〜7 は未実装なので New を
+// （screens.md の共通レイアウトは 7 タブを常に出す）。5〜7 は未実装なので New を
 // 持たず、無効なタブになる。無効なタブはグレーアウトし、番号キーを押したら理由を
 // 状態行に出す。無効なタブへはキーも StateMsg も配らない（ui の live）。
 // 後続 Issue は該当する 1 行に New を足すだけで有効化できる。
@@ -73,7 +74,7 @@ func specs() []spec {
 		{Title: "Runners", New: func(i int, st page.StateMsg) tea.Model { return runners.New(i, st) }},
 		{Title: "Jobs", New: func(i int, st page.StateMsg) tea.Model { return jobs.New(i, st) }},
 		{Title: "Disk", New: func(i int, st page.StateMsg) tea.Model { return disk.New(i, st) }},
-		{Title: "Logs", New: nil},
+		{Title: page.TabLogs, New: func(i int, st page.StateMsg) tea.Model { return logs.New(i, st) }},
 		{Title: "Doctor", New: nil},
 		{Title: "Config", New: nil},
 		{Title: "Setup", New: nil},
@@ -93,11 +94,12 @@ func specs() []spec {
 // 同じ文言になるのは、利用者にとって「この版ではまだ使えない」という同じ意味だから
 // である。
 //
-// Enabled / Reason は能力（Caps）でタブを無効化する枠も兼ねる。実装済みの 2 枚は
-// いずれも能力を必要としない（runner の一覧とジョブの一覧はホスト内の読み取りだけで
-// 成立し、systemd が無くても run.sh 直起動の runner を表示できる）ため、常に有効で
-// ある。能力を必要とするタブ（追加・削除を行う Setup など）を足す Issue が、Caps を
-// 見て Enabled と Reason を決める判断を spec に足す。
+// Enabled / Reason は能力（Caps）でタブを無効化する枠も兼ねる。実装済みの 4 枚は
+// いずれもタブ自体は能力を必要としない（runner の一覧とジョブの一覧はホスト内の
+// 読み取りだけで成立し、systemd が無くても run.sh 直起動の runner を表示できる。
+// Disk と Logs も、docker や journal が無ければタブの中で該当する行や操作だけを
+// 縮退させる）ため、常に有効である。能力を必要とするタブ（追加・削除を行う Setup
+// など）を足す Issue が、Caps を見て Enabled と Reason を決める判断を spec に足す。
 func New(caps appconfig.Caps, ex exec.Executor, keys keymap.Set, s token.Styles, dark bool) []Tab {
 	init := page.StateMsg{
 		Result: runner.Result{},

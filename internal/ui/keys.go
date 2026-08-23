@@ -99,7 +99,39 @@ func (a App) selectTab(k string) (tea.Model, tea.Cmd) {
 			a.notice = a.tabs[i].Notice()
 			return a, nil
 		}
-		return a.activate(i)
+		next, cmd := a.activate(i)
+		return next, cmd
+	}
+	return a, nil
+}
+
+// openTab は page が求めたタブへ移り、用件をそのタブへ配る（page.OpenTabMsg）。
+//
+// 移動先は名前で指す。タブ同士が互いを知らないため、移動元は番号も型も持てない
+// （page.OpenTabMsg の doc）。名前とタブ番号の対応を知っているのは親だけである。
+//
+// **既に前面に居る場合も用件は配る。** activate は同じタブへの移動を何もせずに
+// 返すので、そこで打ち切ると Logs タブを開いたまま `l` を押した場合だけ何も
+// 起きない。
+//
+// 無効なタブへは移らず、理由を状態行に出す（番号キーと同じ扱い。selectTab）。
+// 名前が一致するタブが無い場合は何もしない。実装の誤りだが、利用者から見れば
+// 「効かないキー」であり、落とすより静かに無視するほうが害が小さい。
+func (a App) openTab(msg page.OpenTabMsg) (tea.Model, tea.Cmd) {
+	for i := range a.tabs {
+		if a.tabs[i].Title != msg.Title {
+			continue
+		}
+		if !a.tabs[i].Enabled {
+			a.notice = a.tabs[i].Notice()
+			return a, nil
+		}
+		next, move := a.activate(i)
+		if msg.Msg == nil {
+			return next, move
+		}
+		next, deliver := next.forwardTo(i, msg.Msg)
+		return next, tea.Batch(move, deliver)
 	}
 	return a, nil
 }
@@ -112,9 +144,10 @@ func (a App) moveTab(step int) (tea.Model, tea.Cmd) {
 	}
 
 	for i := 1; i <= n; i++ {
-		next := ((a.active+step*i)%n + n) % n
-		if a.tabs[next].Enabled {
-			return a.activate(next)
+		target := ((a.active+step*i)%n + n) % n
+		if a.tabs[target].Enabled {
+			next, cmd := a.activate(target)
+			return next, cmd
 		}
 	}
 	return a, nil
@@ -124,7 +157,9 @@ func (a App) moveTab(step int) (tea.Model, tea.Cmd) {
 //
 // 切り替えた直後に chrome を初期化するのは、前のタブのモーダル・入力中・フッタが
 // 1 フレームだけ残ることを防ぐためである。
-func (a App) activate(i int) (tea.Model, tea.Cmd) {
+// 戻りを tea.Model ではなく App にするのは、移動のあとに用件を配る呼び出し元
+// （openTab）が親の値を受け取る必要があるためである（forward と同じ理由）。
+func (a App) activate(i int) (App, tea.Cmd) {
 	if i < 0 || i >= len(a.tabs) || !a.tabs[i].Enabled || i == a.active {
 		return a, nil
 	}
