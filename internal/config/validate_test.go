@@ -2,6 +2,7 @@ package config_test
 
 import (
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -195,5 +196,78 @@ func TestProbeWorkDirLeavesNoFile(t *testing.T) {
 	}
 	if len(entries) != 0 {
 		t.Errorf("一時ファイルが残っている: %v", entries)
+	}
+}
+
+// job hooks のスクリプトパスの検証。runner がジョブごとにシェルで実行する値
+// なので、絶対パス・存在・実行権を書き込む前に確かめる。
+func TestValidateHookPath(t *testing.T) {
+	t.Parallel()
+
+	statOf := func(mode fs.FileMode, err error) config.HookStat {
+		return func(string) (fs.FileMode, error) { return mode, err }
+	}
+	missing := errors.New("見つからない")
+
+	tests := map[string]struct {
+		path    string
+		stat    config.HookStat
+		want    string
+		wantErr error
+	}{
+		"実行できるスクリプト": {
+			"/opt/hooks/cleanup.sh", statOf(0o755, nil), "/opt/hooks/cleanup.sh", nil,
+		},
+		"空は設定しない扱い":    {"", statOf(0o755, nil), "", nil},
+		"空白だけも設定しない扱い": {"   ", statOf(0o755, nil), "", nil},
+		"相対パス":         {"hooks/cleanup.sh", statOf(0o755, nil), "", valid.ErrNotAbs},
+		"..を含む": {
+			"/opt/../hooks/cleanup.sh", statOf(0o755, nil), "", valid.ErrHasDotDot,
+		},
+		"存在しない": {
+			"/opt/hooks/cleanup.sh", statOf(0, missing), "", config.ErrHookNotFound,
+		},
+		"ディレクトリ": {
+			"/opt/hooks", statOf(fs.ModeDir|0o755, nil), "", config.ErrHookNotFound,
+		},
+		"実行権が無い": {
+			"/opt/hooks/cleanup.sh", statOf(0o644, nil), "", config.ErrHookNotExecutable,
+		},
+		"stat なしは形だけ": {
+			"/opt/hooks/cleanup.sh", nil, "/opt/hooks/cleanup.sh", nil,
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := config.ValidateHookPath(tt.path, tt.stat)
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("ValidateHookPath(%q) のエラー = %v, want %v", tt.path, err, tt.wantErr)
+			}
+			if got != tt.want {
+				t.Errorf("ValidateHookPath(%q) = %q, want %q", tt.path, got, tt.want)
+			}
+		})
+	}
+}
+
+// 既定の HookStat が実在するファイルのモードを返すこと。
+func TestStatHook(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "hook.sh")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("スクリプトの作成に失敗: %v", err)
+	}
+
+	got, err := config.ValidateHookPath(path, config.StatHook)
+	if err != nil || got != path {
+		t.Fatalf("ValidateHookPath() = %q, %v, want %q, nil", got, err, path)
+	}
+
+	if _, err := config.ValidateHookPath(filepath.Join(t.TempDir(), "none.sh"), config.StatHook); !errors.Is(err, config.ErrHookNotFound) {
+		t.Errorf("存在しない場合のエラー = %v, want ErrHookNotFound", err)
 	}
 }

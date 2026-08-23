@@ -150,8 +150,8 @@ func (m *Model) commitSelf() tea.Cmd {
 
 // renderConfig は差分に出す設定の表現を返す。
 //
-// YAML そのものではなくキーと値の並びにするのは、利用者が編集した 4 項目だけを
-// 差分に出すためである。書き出す内容そのものは appconfig.Save が組み立てる。
+// YAML そのものではなくキーと値の並びにするのは、編集した項目だけを差分に
+// 出すためである。書き出す内容そのものは appconfig.Save が組み立てる。
 func renderConfig(c appconfig.Config) string {
 	lines := []string{
 		"scan_roots: " + strings.Join(c.ScanRoots, ","),
@@ -199,8 +199,7 @@ func validateRefresh(s string) error {
 	return appconfig.ValidateRefresh("refresh_interval", n)
 }
 
-// validatePercent は 1〜100 の整数かを見る。範囲の詳細は appconfig が
-// 起動時に検証するので、ここでは数として読めることと大枠だけを見る。
+// validatePercent は 1〜100 の整数かを見る。範囲の詳細は appconfig が起動時に検証する。
 func validatePercent(s string) error {
 	n, err := strconv.Atoi(strings.TrimSpace(s))
 	if err != nil {
@@ -214,8 +213,7 @@ func validatePercent(s string) error {
 
 // validateAbs は絶対パスかを見る。
 func validateAbs(s string) error {
-	if _, err := config.ValidateWorkDir(strings.TrimSpace(s), 0, nil); err != nil {
-		return err
-	}
-	return nil
+	_, err := config.ValidateWorkDir(strings.TrimSpace(s), 0, nil)
+
+	return err
 }

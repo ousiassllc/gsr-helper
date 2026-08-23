@@ -93,7 +93,12 @@ func (v *values) fields() []huh.Field {
 func (v *values) envFields() []huh.Field {
 	out := make([]huh.Field, 0, len(edit.EnvKeys))
 	for i, k := range edit.EnvKeys {
-		in := huh.NewInput().Title(k.Title).Value(&v.env[i]).Validate(validateLine)
+		check := validateLine
+		if k.Hook {
+			check = validateHook
+		}
+
+		in := huh.NewInput().Title(k.Title).Value(&v.env[i]).Validate(check)
 		if k.Desc != "" {
 			in = in.Description(k.Desc)
 		}
@@ -177,6 +182,20 @@ var (
 	// errPercentRange は割合が 1〜100 の外にある場合のエラー。
 	errPercentRange = errors.New("1〜100 の範囲で入力してください")
 )
+
+// validateHook は job hooks のスクリプトパスを検証する。
+//
+// 他のキーより強く見るのは、この値が runner にジョブごとシェルで実行される
+// ためである（docs/architecture/security.md）。
+func validateHook(s string) error {
+	if err := validateLine(s); err != nil {
+		return err
+	}
+
+	_, err := config.ValidateHookPath(s, config.StatHook)
+
+	return err
+}
 
 // validateLabels はラベルの入力を検証する（FR-36）。
 func validateLabels(s string) error {

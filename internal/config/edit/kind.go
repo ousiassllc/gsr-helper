@@ -43,6 +43,11 @@ type EnvSpec struct {
 	Title string
 	// Desc はフォームに出す補足。空なら出さない。
 	Desc string
+	// Hook はこのキーが job hooks かどうか。
+	//
+	// 値が runner にシェルで実行されるため、他のキーより強い検証を掛ける
+	// （docs/architecture/security.md「入力を検証してから渡す」）。
+	Hook bool
 }
 
 // EnvKeys はフォームに項目を出す .env のキー。
@@ -52,18 +57,45 @@ type EnvSpec struct {
 // フォームに列挙しきれず、列挙していないキーは EnvFile が行ごと保持したまま
 // 素通しする（変更しない行は 1 バイトも変わらない）。
 var EnvKeys = []EnvSpec{
-	{Key: "PATH", Title: "PATH", Desc: "ジョブに渡す PATH"},
-	{Key: "LANG", Title: "LANG", Desc: "例: ja_JP.UTF-8"},
-	{Key: "ImageOS", Title: "ImageOS", Desc: "ランナーイメージの識別子"},
-	{Key: "https_proxy", Title: "https_proxy", Desc: ""},
-	{Key: "http_proxy", Title: "http_proxy", Desc: ""},
-	{Key: "no_proxy", Title: "no_proxy", Desc: "カンマ区切り"},
+	{Key: "PATH", Title: "PATH", Desc: "ジョブに渡す PATH", Hook: false},
+	{Key: "LANG", Title: "LANG", Desc: "例: ja_JP.UTF-8", Hook: false},
+	{Key: "ImageOS", Title: "ImageOS", Desc: "ランナーイメージの識別子", Hook: false},
+	{Key: "https_proxy", Title: "https_proxy", Desc: "", Hook: false},
+	{Key: "http_proxy", Title: "http_proxy", Desc: "", Hook: false},
+	{Key: "no_proxy", Title: "no_proxy", Desc: "カンマ区切り", Hook: false},
 	{
 		Key: "ACTIONS_RUNNER_HOOK_JOB_STARTED", Title: "job hook（開始時）",
-		Desc: "ジョブ開始時に実行するスクリプトのパス",
+		Desc: "⚠ ジョブ開始のたびに runner がシェルで実行します。絶対パスを指定してください",
+		Hook: true,
 	},
 	{
 		Key: "ACTIONS_RUNNER_HOOK_JOB_COMPLETED", Title: "job hook（完了時）",
-		Desc: "ジョブ完了時に実行するスクリプトのパス",
+		Desc: "⚠ ジョブ完了のたびに runner がシェルで実行します。絶対パスを指定してください",
+		Hook: true,
 	},
+}
+
+// FormTitle はその項目を編集するフォームの見出しを返す。
+//
+// 画面（page/config）ではなくここに置くのは、項目の定義と見出しが 1 対 1 で
+// 対応し、項目を足す Issue が 2 か所を揃え続ける必要を作らないためである。
+func (k Kind) FormTitle() string {
+	switch k {
+	case KindEnv:
+		return ".env の編集"
+	case KindPath:
+		return ".path の編集"
+	case KindDropIn:
+		return "systemd drop-in の編集"
+	case KindLabels:
+		return "ラベルの編集"
+	case KindGroup:
+		return "runner group の変更"
+	case KindCopy:
+		return ".env を他の runner へ複製"
+	case KindReregister, KindSelf:
+		return ""
+	default:
+		return ""
+	}
 }

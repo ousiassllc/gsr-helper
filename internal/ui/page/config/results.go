@@ -36,7 +36,7 @@ func (m *Model) openSelected() tea.Cmd {
 // fetchFor は GitHub 側の現在値を取ってからフォームを開く。
 //
 // 一覧の組み立てでは API を呼ばず、項目を選んだこの時点で呼ぶ
-// （3 秒ポーリングで API を呼ばない方針。docs/api/external-interfaces.md）。
+// （3 秒ポーリングで API を呼ばない方針）。
 func (m *Model) fetchFor(k edit.Kind) tea.Cmd {
 	m.busy = true
 	in := m.commitInputOf(edit.Change{})
@@ -85,7 +85,7 @@ func (m *Model) openForm(k edit.Kind) tea.Cmd {
 
 	m.formShown = true
 
-	return m.overlay.Open(formKind, formOpenMsg{title: formTitleOf(k), values: m.vals, st: m.st})
+	return m.overlay.Open(formKind, formOpenMsg{title: k.FormTitle(), values: m.vals, st: m.st})
 }
 
 // fillForm はフォームの初期値を現在の設定から入れる。
@@ -234,8 +234,8 @@ func (m *Model) onApproved(msg tea.Msg) tea.Cmd {
 
 // onDone は書き込みと反映の結果を処理する。
 //
-// ファイルを書き換えた場合だけ反映方法の選択へ進む（FR-39）。ラベルと
-// runner group は GitHub 側で即時に反映され、再起動が要らない。
+// ファイルを書き換えた場合だけ反映方法の選択へ進む（FR-39）。ラベルと runner
+// group は GitHub 側で即時に反映され、再起動が要らない。
 func (m *Model) onDone(msg doneMsg) tea.Cmd {
 	m.busy = false
 	if msg.err != nil {

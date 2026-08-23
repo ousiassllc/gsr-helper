@@ -178,8 +178,8 @@ type applyOpenMsg struct {
 
 // applyModal は反映方法の選択（FR-39）。
 //
-// 選択肢を並べる UI は organism.ChoiceList に統一されているため、ここは
-// それを包むだけで並び順も既定も持たない（既定は呼び出し側が先頭に置く）。
+// 選択肢を並べる UI は organism.ChoiceList に統一されているため、包むだけで
+// 並び順も既定も持たない（既定は呼び出し側が先頭に置く）。
 type applyModal struct {
 	tab  int
 	list organism.ChoiceList
@@ -235,8 +235,7 @@ func (m applyModal) View() tea.View { return tea.NewView(m.list.View()) }
 
 // applyHints は反映方法の選択のフッタを返す。
 //
-// 既定（ドレイン再起動）に合わせるだけなら enter でよく、esc は選ばずに閉じる。
-// 閉じた場合は書き込み済みの設定が次回起動時に効く（「反映しない」と同じ）。
+// esc で閉じた場合は書き込み済みの設定が次回起動時に効く（「反映しない」と同じ）。
 func applyHints(model tea.Model) []atom.Hint {
 	m, ok := model.(applyModal)
 	if !ok {

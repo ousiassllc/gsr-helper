@@ -6,7 +6,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/ousiassllc/gsr-helper/internal/config"
-	"github.com/ousiassllc/gsr-helper/internal/config/edit"
 	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/ui/atom"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
@@ -24,7 +23,7 @@ func (m Model) chrome() tea.Cmd {
 	return func() tea.Msg { return c }
 }
 
-// input は入力中の表示を返す。フォームの入力中はグローバルキーが効かない。
+// input は入力中の表示を返す。入力中はグローバルキーが効かない。
 func (m Model) input() string {
 	if m.formShown {
 		return "フォーム"
@@ -32,8 +31,7 @@ func (m Model) input() string {
 	return ""
 }
 
-// status は状態行の本文を返す。
-// 優先順は 案内 > 実行中 > 直近の結果（page/setup と同じ考え方）。
+// status は状態行の本文を返す。優先順は 案内 > 実行中 > 直近の結果。
 func (m Model) status() string {
 	switch {
 	case m.notice != "":
@@ -62,28 +60,6 @@ func (m Model) footer() []atom.Hint {
 	}
 }
 
-// formTitleOf はフォームの見出しを返す。
-func formTitleOf(k edit.Kind) string {
-	switch k {
-	case edit.KindEnv:
-		return ".env の編集"
-	case edit.KindPath:
-		return ".path の編集"
-	case edit.KindDropIn:
-		return "systemd drop-in の編集"
-	case edit.KindLabels:
-		return "ラベルの編集"
-	case edit.KindGroup:
-		return "runner group の変更"
-	case edit.KindCopy:
-		return ".env を他の runner へ複製"
-	case edit.KindReregister:
-		return ""
-	default:
-		return ""
-	}
-}
-
 // names は runner の名前を並べて返す。
 func names(rs []runner.Runner) []string {
 	out := make([]string, 0, len(rs))
@@ -96,7 +72,5 @@ func names(rs []runner.Runner) []string {
 // joinLabels はラベルの並びをフォームの 1 行にする。
 func joinLabels(labels []string) string { return strings.Join(labels, ",") }
 
-// validateLabelList はフォームの入力を検証して整えたラベルを返す（FR-36）。
-func validateLabelList(s string) ([]string, error) {
-	return config.ValidateLabels(splitLabels(s))
-}
+// validateLabelList は入力を検証して整えたラベルを返す（FR-36）。
+func validateLabelList(s string) ([]string, error) { return config.ValidateLabels(splitLabels(s)) }

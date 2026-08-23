@@ -3,6 +3,9 @@ package config
 import (
 	"errors"
 	"fmt"
+	"io/fs"
+	"os"
+	"strings"
 
 	"github.com/ousiassllc/gsr-helper/internal/setup/valid"
 )
@@ -98,4 +101,62 @@ func ValidateWorkDir(path string, minFree int64, probe WorkDirProbe) (string, er
 		)
 	}
 	return clean, nil
+}
+
+// ErrHookNotFound は job hook のスクリプトが見つからない場合のエラー。
+var ErrHookNotFound = errors.New("job hook のスクリプトが見つかりません")
+
+// ErrHookNotExecutable は job hook のスクリプトに実行権が無い場合のエラー。
+var ErrHookNotExecutable = errors.New("job hook のスクリプトに実行権がありません")
+
+// HookStat は job hook のスクリプトの状態を調べる関数。
+//
+// 関数で受け取るのは ValidateHookPath を純粋関数に保つためである
+// （Validate* は純粋関数、という components/overview.md の約束）。
+// 本番の呼び出し側は StatHook を渡す。
+type HookStat func(path string) (fs.FileMode, error)
+
+// ValidateHookPath は job hooks のスクリプトパスを検証する。
+//
+// **このパスは runner がジョブごとにシェルで実行する**
+// （docs/architecture/security.md「入力を検証してから渡す」）。書き換えられる
+// 値がそのまま実行に繋がるため、絶対パスであること・存在すること・実行できる
+// ことを書き込む前に確かめる。
+//
+// 空文字は「設定しない」を表すので通す。stat が nil なら存在と実行権を見ない
+// （入力中の逐次検証で打鍵のたびに stat を呼ばないため）。
+func ValidateHookPath(path string, stat HookStat) (string, error) {
+	if strings.TrimSpace(path) == "" {
+		return "", nil
+	}
+
+	clean, err := valid.Dir("job hook", path)
+	if err != nil {
+		return "", fmt.Errorf("job hook: %w", err)
+	}
+	if stat == nil {
+		return clean, nil
+	}
+
+	mode, err := stat(clean)
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", clean, ErrHookNotFound)
+	}
+	if !mode.IsRegular() {
+		return "", fmt.Errorf("%s: %w", clean, ErrHookNotFound)
+	}
+	if mode.Perm()&0o111 == 0 {
+		return "", fmt.Errorf("%s: %w", clean, ErrHookNotExecutable)
+	}
+	return clean, nil
+}
+
+// StatHook は job hook のスクリプトの状態を実際に調べる。ValidateHookPath へ渡す
+// 既定の HookStat である。
+func StatHook(path string) (fs.FileMode, error) {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return 0, fmt.Errorf("%s の状態の取得に失敗しました: %w", path, err)
+	}
+	return fi.Mode(), nil
 }
