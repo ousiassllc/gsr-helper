@@ -20,10 +20,13 @@ const (
 	// 追従は止めなければ際限なく行が届く。画面に出せるのは高々数十行で、
 	// 遡れる量として数千行あれば足りる。
 	maxLines = 5000
-	// lineBuffer は購読のチャネルの容量。
+	// lineBuffer は購読のチャネルの容量であり、1 回の取り込みで受け取る行数の上限でもある。
 	//
-	// 1 行ごとに Cmd を 1 本回す形なので、取り込みは描画の周期に律速される。
-	// 追記が一気に来たときに送出側（ドメイン層）を待たせないための余裕である。
+	// 追記が一気に来たときに送出側（ドメイン層）を待たせないための余裕であると同時に、
+	// **1 回の取り込みでこのチャネルを空にできる**という意味を持たせてある。取り込みは
+	// 描画の周期に律速され、1 周につき本文の差し替え（O(maxLines)）が 1 回走るので、
+	// 1 周で 1 行しか進めないと追記の多いログでチャネルが埋まる（content.go の doc）。
+	// 容量と上限を別の値にしても得られるものが無いため、同じ定数で表している。
 	lineBuffer = 256
 )
 
@@ -58,11 +61,15 @@ type stream struct {
 	err    <-chan error
 }
 
-// lineMsg は購読から届いた 1 行。ok が偽なら購読の終わり。
+// lineMsg は購読から届いた行の束。ok が偽なら購読の終わり。
+//
+// **1 行ではなく束で運ぶ。** 1 行につき Msg を 1 つ回すと、bubbletea の 1 周につき 1 行しか
+// 取り込めず、その 1 周ごとに本文の差し替えが走る（wait と content.go の doc）。
+// ok が偽でも lines は空とは限らない。閉じる直前に届いていた行はここに載る。
 type lineMsg struct {
-	gen  int
-	line dlogs.Line
-	ok   bool
+	gen   int
+	lines []dlogs.Line
+	ok    bool
 }
 
 // endMsg は購読が終わった理由。err が nil なら正常な終了（畳んだ・ファイルの終わり）。
@@ -137,18 +144,43 @@ func (m *Model) subscribe() tea.Cmd {
 	return m.wait()
 }
 
-// wait は購読から次の 1 行を待つ Cmd を返す。
+// wait は購読に届いている行をまとめて受け取る Cmd を返す。
 //
 // 受信を Cmd の中で行うのは bubbletea の作法である。goroutine から直に Msg を送る
 // 経路（tea.Program.Send）は page が Program を持たない設計と噛み合わない。
+//
+// **最初の 1 行は待ち、そのあとは既に届いている分だけを取る。** 取り込みの費用は行数では
+// なく Msg の数で決まる（1 つにつき本文の差し替えが 1 回。content.go の doc）ので、束に
+// すれば追記が集中したときほど 1 行あたりが安くなる。2 行目以降を待たないのは、待つと
+// 追記が疎なログで表示が束の分だけ遅れるためである。行が 1 本も無ければ従来どおり待つ
+// だけであり、空振りの Msg で Update を回すことはない。
+//
+// **途中でチャネルが閉じたら、そこまでの行を載せたうえで ok を偽にする。** 束ごと捨てると
+// 購読の最後の数行が画面に出ない。
 func (m Model) wait() tea.Cmd {
 	gen, ch := m.stream.gen, m.stream.lines
 	if ch == nil {
 		return nil
 	}
 	return page.Do(m.tab, func() tea.Msg {
-		l, ok := <-ch
-		return lineMsg{gen: gen, line: l, ok: ok}
+		first, ok := <-ch
+		if !ok {
+			return lineMsg{gen: gen, lines: nil, ok: false}
+		}
+		batch := make([]dlogs.Line, 1, lineBuffer)
+		batch[0] = first
+		for len(batch) < lineBuffer {
+			select {
+			case l, more := <-ch:
+				if !more {
+					return lineMsg{gen: gen, lines: batch, ok: false}
+				}
+				batch = append(batch, l)
+			default:
+				return lineMsg{gen: gen, lines: batch, ok: true}
+			}
+		}
+		return lineMsg{gen: gen, lines: batch, ok: true}
 	})
 }
 
@@ -177,19 +209,22 @@ func (m *Model) stop() {
 	m.stream = stream{gen: m.stream.gen, cancel: nil, lines: nil, err: nil}
 }
 
-// addLine は届いた行を取り込む。
+// addLine は届いた行の束を取り込む。
+//
+// 終わりの合図（ok が偽）でも先に取り込むのは、閉じる直前に届いていた行が束に載って
+// いるためである（lineMsg の doc）。
 func (m Model) addLine(msg lineMsg) (tea.Model, tea.Cmd) {
 	if msg.gen != m.stream.gen {
 		// 畳んだ購読の行。取り込むと別のログの行が混ざる。
 		return m, nil
 	}
-	if !msg.ok {
-		return m, m.waitEnd()
-	}
 
-	// 増分の入口を通す（保持中の行へ足すのも pushLine の中で行う）。1 行のために全行を
-	// 組み直さないためである（content.go の doc）。
-	m.pushLine(msg.line)
+	// 増分の入口を通す（保持中の行へ足すのも pushLines の中で行う）。届いた行のために
+	// 全行を組み直さないためである（content.go の doc）。
+	m.pushLines(msg.lines)
+	if !msg.ok {
+		return m, tea.Batch(m.chrome(), m.waitEnd())
+	}
 	return m, tea.Batch(m.chrome(), m.wait())
 }
 

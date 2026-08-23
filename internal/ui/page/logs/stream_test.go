@@ -2,10 +2,10 @@ package logs
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/ousiassllc/gsr-helper/internal/exec"
 	dlogs "github.com/ousiassllc/gsr-helper/internal/logs"
@@ -14,21 +14,6 @@ import (
 )
 
 // 購読の開始・切り替え・停止と、`journalctl` の呼び出しを検証する。
-
-// closed はチャネルが制限時間内に閉じたかを返す。
-func closed(ch <-chan dlogs.Line) bool {
-	deadline := time.After(cmdTimeout)
-	for {
-		select {
-		case _, ok := <-ch:
-			if !ok {
-				return true
-			}
-		case <-deadline:
-			return false
-		}
-	}
-}
 
 // ログへの追記が本文に現れる（FR-24 のライブテール）。
 func TestTailPicksUpAppendedLines(t *testing.T) {
@@ -63,7 +48,7 @@ func TestJournalUsesExecutor(t *testing.T) {
 
 	m := activated(t, st, 3)
 
-	next, cmd := step(t, m, press("J"))
+	next, cmd := step(t, m, pagetest.Press("J"))
 	if !next.target.journal {
 		t.Fatal("journalctl へ切り替わっていない")
 	}
@@ -85,7 +70,7 @@ func TestJournalUsesExecutor(t *testing.T) {
 	}
 
 	// もう一度押すとログファイルへ戻る。
-	back, _ := step(t, next, press("J"))
+	back, _ := step(t, next, pagetest.Press("J"))
 	if back.target.journal {
 		t.Error("2 度目の J でログファイルへ戻っていない")
 	}
@@ -103,11 +88,11 @@ func TestSwitchingTargetDropsStaleLines(t *testing.T) {
 	}
 
 	cmd := m.open(target{runner: rows[1].runner, file: rows[1].file, journal: false})
-	if !closed(old.lines) {
+	if !pagetest.Drained(old.lines, cmdTimeout) {
 		t.Error("前の購読が畳まれていない")
 	}
 
-	stale := lineMsg{gen: old.gen, line: dlogs.NewLine("stale"), ok: true}
+	stale := lineMsg{gen: old.gen, lines: []dlogs.Line{dlogs.NewLine("stale")}, ok: true}
 	next, _ := step(t, m, stale)
 	if len(next.lines) != 0 {
 		t.Errorf("畳んだ購読の行を取り込んでいる: %v", next.lines)
@@ -128,7 +113,7 @@ func TestDeactivateStopsStreamKeepingState(t *testing.T) {
 	name := m.target.file.Path
 	next, _ := step(t, m, page.DeactivateMsg{})
 
-	if !closed(lines) {
+	if !pagetest.Drained(lines, cmdTimeout) {
 		t.Error("裏へ回っても購読が畳まれていない")
 	}
 	if next.active {
@@ -174,7 +159,7 @@ func TestShutdownStopsStream(t *testing.T) {
 	if _, cmd := step(t, m, page.ShutdownMsg{}); cmd != nil {
 		t.Error("後始末の Cmd を返している（畳みは Update の中で済ませる）")
 	}
-	if !closed(lines) {
+	if !pagetest.Drained(lines, cmdTimeout) {
 		t.Error("終了しても購読が畳まれていない")
 	}
 }
@@ -196,7 +181,7 @@ func TestShowLogMsgOpensLatestWorker(t *testing.T) {
 
 // Worker ログが無い runner では対象を変えず、理由を状態行に出す。
 func TestShowLogMsgWithoutWorkerLog(t *testing.T) {
-	empty := testRunner("build02-1", t.TempDir())
+	empty := pagetest.DiagRunner("build02-1", t.TempDir())
 	st := pagetest.State(80, 20, empty)
 	m := newTab(t, st)
 
@@ -242,7 +227,7 @@ func TestStreamEndErrorReachesStatus(t *testing.T) {
 	errc <- want
 	m.stream = stream{gen: m.stream.gen, cancel: nil, lines: lines, err: errc}
 
-	next, cmd := step(t, m, lineMsg{gen: m.stream.gen, line: dlogs.Line{}, ok: false})
+	next, cmd := step(t, m, lineMsg{gen: m.stream.gen, lines: nil, ok: false})
 	if cmd == nil {
 		t.Fatal("行のチャネルが閉じても終わった理由を待ちに行っていない")
 	}
@@ -253,5 +238,36 @@ func TestStreamEndErrorReachesStatus(t *testing.T) {
 	}
 	if got := chromeOf(t, next.chrome()).Status; !strings.Contains(got, want.Error()) {
 		t.Errorf("状態行 = %q, want 追従が失敗した理由を含む", got)
+	}
+}
+
+// 取り込みは届いている行をまとめて 1 つの Msg で受け取る（content.go の費用の doc）。
+//
+// **束になっていること自体を縛る。** 1 行につき Msg を 1 つ返す形へ戻すと、bubbletea の
+// 1 周につき 1 行しか取り込めず、1 行ごとに本文の差し替え（保持行数に比例）が走る。
+// 結果は同じなので、束を数えないと性能の修正が黙って外れる。
+func TestWaitBatchesPendingLines(t *testing.T) {
+	const n = 8
+
+	ch := make(chan dlogs.Line, lineBuffer)
+	for i := range n {
+		ch <- dlogs.NewLine(fmt.Sprintf("line %d", i))
+	}
+	m := Model{tab: testTab, stream: stream{gen: 1, lines: ch}}
+
+	msg, ok := pagetest.RunCmd(m.wait(), cmdTimeout)
+	if !ok {
+		t.Fatal("待ち受けの Cmd が戻らない")
+	}
+	tm, isTab := msg.(page.TabMsg)
+	if !isTab {
+		t.Fatalf("Msg = %T, want page.TabMsg", msg)
+	}
+	lm, isLine := tm.Msg.(lineMsg)
+	if !isLine {
+		t.Fatalf("中身 = %T, want lineMsg", tm.Msg)
+	}
+	if len(lm.lines) != n || !lm.ok {
+		t.Errorf("1 回で受け取った行数 = %d（ok=%v）, want %d 行を 1 つの Msg で", len(lm.lines), lm.ok, n)
 	}
 }

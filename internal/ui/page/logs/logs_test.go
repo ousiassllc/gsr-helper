@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
+
 	dlogs "github.com/ousiassllc/gsr-helper/internal/logs"
 	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/ui/atom"
@@ -22,7 +24,7 @@ import (
 func withLogs(t *testing.T) (page.StateMsg, runner.Runner) {
 	t.Helper()
 
-	r := testRunner("build01-1", t.TempDir())
+	r := pagetest.DiagRunner("build01-1", t.TempDir())
 	base := time.Date(2026, 8, 21, 12, 0, 0, 0, time.UTC)
 	writeLog(t, r, "Runner_20260821-120000-utc.log", "runner log\n", base)
 	writeLog(t, r, "Worker_20260821-120433-utc.log",
@@ -135,7 +137,7 @@ func TestHighlightsErrorAndWarn(t *testing.T) {
 
 // ログが 1 つも無いときは、その旨と開き方を出す（空画面にしない）。
 func TestEmptyStateMessages(t *testing.T) {
-	r := testRunner("build01-1", t.TempDir())
+	r := pagetest.DiagRunner("build01-1", t.TempDir())
 	st := pagetest.State(80, 20, r)
 
 	m := newTab(t, st)
@@ -151,42 +153,38 @@ func TestEmptyStateMessages(t *testing.T) {
 	}
 }
 
-// 裏に居る間は `_diag` を列挙し直さない（見ていない一覧のために readdir を出さない）。
-func TestDoesNotListWhileInactive(t *testing.T) {
-	st, _ := withLogs(t)
-	m := newTab(t, st)
-
-	_, cmd := step(t, m, st)
+// listsDiag は Cmd の束に `_diag` の列挙が含まれるかを返す。
+func listsDiag(cmd tea.Cmd) bool {
 	for _, c := range pagetest.Expand(cmd) {
 		if c == nil {
 			continue
 		}
-		if tm, ok := c().(page.TabMsg); ok {
-			if _, isFiles := tm.Msg.(filesMsg); isFiles {
-				t.Error("裏に居るのに `_diag` を列挙している")
-			}
+		tm, isTab := c().(page.TabMsg)
+		if !isTab {
+			continue
+		}
+		if _, isFiles := tm.Msg.(filesMsg); isFiles {
+			return true
 		}
 	}
+	return false
 }
 
-// 前面に居る間は共有状態が届くたびに `_diag` を取り直す（FR-24 のファイル追加の検知）。
-func TestRelistsWhileActive(t *testing.T) {
+// `_diag` を取り直すのは前面に居る間だけである（FR-24 のファイル追加の検知）。
+//
+// **両方の向きを 1 つのテストで見る。** 「取り直す」だけを見ると常に列挙する実装が、
+// 「裏では列挙しない」だけを見ると一切列挙しない実装が、それぞれ緑のまま通る。
+// 裏でも列挙すると、見ていない一覧のために 3 秒ごとに runner 台数ぶんの readdir を出す。
+func TestRelistsOnlyWhileActive(t *testing.T) {
 	st, _ := withLogs(t)
-	m := activated(t, st, 3)
 
-	_, cmd := step(t, m, st)
-	found := false
-	for _, c := range pagetest.Expand(cmd) {
-		if c == nil {
-			continue
-		}
-		if tm, ok := c().(page.TabMsg); ok {
-			if _, isFiles := tm.Msg.(filesMsg); isFiles {
-				found = true
-			}
-		}
+	back := newTab(t, st)
+	if _, cmd := step(t, back, st); listsDiag(cmd) {
+		t.Error("裏に居るのに `_diag` を列挙している")
 	}
-	if !found {
+
+	front := activated(t, st, 3)
+	if _, cmd := step(t, front, st); !listsDiag(cmd) {
 		t.Error("前面に居るのに `_diag` を取り直していない")
 	}
 }

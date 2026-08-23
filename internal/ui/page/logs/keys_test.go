@@ -63,7 +63,7 @@ func TestTabSwitchesPaneWithoutBubbling(t *testing.T) {
 		t.Fatalf("初期のペイン = %v, want 一覧", m.focus)
 	}
 
-	next, cmd := step(t, m, press("tab"))
+	next, cmd := step(t, m, pagetest.Press("tab"))
 	if next.focus != focusBody {
 		t.Errorf("tab の後のペイン = %v, want 本文", next.focus)
 	}
@@ -74,7 +74,7 @@ func TestTabSwitchesPaneWithoutBubbling(t *testing.T) {
 		t.Errorf("状態行 = %q, want 操作中のペインを含む", got)
 	}
 
-	next, _ = step(t, next, press("tab"))
+	next, _ = step(t, next, pagetest.Press("tab"))
 	if next.focus != focusList {
 		t.Errorf("2 度目の tab の後のペイン = %v, want 一覧", next.focus)
 	}
@@ -83,9 +83,9 @@ func TestTabSwitchesPaneWithoutBubbling(t *testing.T) {
 // f は追従を切り替え、G は末尾へ戻して追従を再開する（screens.md の Logs タブ）。
 func TestFollowToggleAndResume(t *testing.T) {
 	m := sample(t, "a", "b", "c")
-	m, _ = step(t, m, press("tab")) // 本文のペインへ
+	m, _ = step(t, m, pagetest.Press("tab")) // 本文のペインへ
 
-	m, _ = step(t, m, press("f"))
+	m, _ = step(t, m, pagetest.Press("f"))
 	if m.body.Following() {
 		t.Fatal("f を押しても追従が続いている")
 	}
@@ -93,7 +93,7 @@ func TestFollowToggleAndResume(t *testing.T) {
 		t.Errorf("見出し = %q, want %q を含む", got, followOff)
 	}
 
-	m, _ = step(t, m, press("G"))
+	m, _ = step(t, m, pagetest.Press("G"))
 	if !m.body.Following() {
 		t.Error("G で追従を再開できていない")
 	}
@@ -106,9 +106,9 @@ func TestManualScrollStopsFollowing(t *testing.T) {
 		lines = append(lines, "line")
 	}
 	m := sample(t, lines...)
-	m, _ = step(t, m, press("tab"))
+	m, _ = step(t, m, pagetest.Press("tab"))
 
-	m, _ = step(t, m, press("k"))
+	m, _ = step(t, m, pagetest.Press("k"))
 	if m.body.Following() {
 		t.Error("上へスクロールしても追従が続いている")
 	}
@@ -118,7 +118,7 @@ func TestManualScrollStopsFollowing(t *testing.T) {
 func TestFilterKeepsMatchingLinesOnly(t *testing.T) {
 	m := sample(t, "info line", "[ERROR] boom", "warn line")
 
-	m, cmd := step(t, m, press("/"))
+	m, cmd := step(t, m, pagetest.Press("/"))
 	if !m.body.Filtering() {
 		t.Fatal("フィルタの入力モードに入っていない")
 	}
@@ -127,9 +127,9 @@ func TestFilterKeepsMatchingLinesOnly(t *testing.T) {
 	}
 
 	for _, k := range strings.Split("ERROR", "") {
-		m, _ = step(t, m, press(k))
+		m, _ = step(t, m, pagetest.Press(k))
 	}
-	m, _ = step(t, m, press("enter"))
+	m, _ = step(t, m, pagetest.Press("enter"))
 
 	got := m.body.View()
 	if !strings.Contains(got, "boom") {
@@ -143,13 +143,13 @@ func TestFilterKeepsMatchingLinesOnly(t *testing.T) {
 // esc は確定済みのフィルタを解除する（絞り込みの前の状態へ戻る）。
 func TestEscClearsFilter(t *testing.T) {
 	m := sample(t, "info line", "[ERROR] boom")
-	m, _ = step(t, m, press("/"))
+	m, _ = step(t, m, pagetest.Press("/"))
 	for _, k := range strings.Split("ERROR", "") {
-		m, _ = step(t, m, press(k))
+		m, _ = step(t, m, pagetest.Press(k))
 	}
-	m, _ = step(t, m, press("enter"))
+	m, _ = step(t, m, pagetest.Press("enter"))
 
-	m, _ = step(t, m, press("esc"))
+	m, _ = step(t, m, pagetest.Press("esc"))
 	if got := m.body.Filter(); got != "" {
 		t.Fatalf("esc の後のフィルタ = %q, want 空", got)
 	}
@@ -161,9 +161,9 @@ func TestEscClearsFilter(t *testing.T) {
 // 正規表現として解けないフィルタは理由を状態行に出す（黙って全行を消さない）。
 func TestInvalidFilterReportsReason(t *testing.T) {
 	m := sample(t, "info line")
-	m, _ = step(t, m, press("/"))
-	m, _ = step(t, m, press("["))
-	m, cmd := step(t, m, press("enter"))
+	m, _ = step(t, m, pagetest.Press("/"))
+	m, _ = step(t, m, pagetest.Press("["))
+	m, cmd := step(t, m, pagetest.Press("enter"))
 
 	if m.filterErr == nil {
 		t.Fatal("不正な正規表現が理由として残っていない")
@@ -179,13 +179,13 @@ func TestInvalidFilterReportsReason(t *testing.T) {
 // 入力中のグローバルキーは入力欄へ入り、親へ差し戻さない（screens.md の入力中）。
 func TestFilterSwallowsGlobalKeys(t *testing.T) {
 	m := sample(t, "a")
-	m, _ = step(t, m, press("/"))
+	m, _ = step(t, m, pagetest.Press("/"))
 
-	m, cmd := step(t, m, press("q"))
+	m, cmd := step(t, m, pagetest.Press("q"))
 	if bubbled(cmd) {
 		t.Error("入力中のキーを親へ差し戻している（q で終了してしまう）")
 	}
-	m, _ = step(t, m, press("enter"))
+	m, _ = step(t, m, pagetest.Press("enter"))
 	if got := m.body.Filter(); got != "q" {
 		t.Errorf("確定したフィルタ = %q, want q", got)
 	}
@@ -199,7 +199,7 @@ func TestJournalDegradesWithoutCapability(t *testing.T) {
 	m := newTab(t, st)
 	m.target = target{runner: r, file: dlogs.File{Name: "Worker_1.log"}, journal: false}
 
-	next, cmd := step(t, m, press("J"))
+	next, cmd := step(t, m, pagetest.Press("J"))
 	if next.target.journal {
 		t.Error("journalctl が無いのに切り替わった")
 	}
@@ -220,7 +220,7 @@ func TestJournalDegradesWithoutUnit(t *testing.T) {
 	m := newTab(t, st)
 	m.target = target{runner: r, file: dlogs.File{Name: "Worker_1.log"}, journal: false}
 
-	next, cmd := step(t, m, press("J"))
+	next, cmd := step(t, m, pagetest.Press("J"))
 	if next.target.journal {
 		t.Error("ユニットが無いのに切り替わった")
 	}
@@ -239,13 +239,13 @@ func TestEnterOpensSelectedLog(t *testing.T) {
 	st, _ := withLogs(t)
 	m := activated(t, st, 3)
 
-	m, _ = step(t, m, press("j"))
+	m, _ = step(t, m, pagetest.Press("j"))
 	rows := m.tbl.Shown(sectionLogs)
 	if len(rows) != 2 || m.target.file.Name == rows[1].file.Name {
 		t.Fatalf("前提が崩れている（行数 %d / 対象 %q）", len(rows), m.target.file.Name)
 	}
 
-	next, cmd := step(t, m, press("enter"))
+	next, cmd := step(t, m, pagetest.Press("enter"))
 	if next.target.file.Name != rows[1].file.Name {
 		t.Fatalf("enter の後の対象 = %q, want %q", next.target.file.Name, rows[1].file.Name)
 	}
