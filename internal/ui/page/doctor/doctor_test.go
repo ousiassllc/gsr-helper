@@ -9,11 +9,19 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
 )
 
-// 最初の共有状態で診断が始まる（FR-32）。タブを開いた時点で結果が要るためである。
-func TestFirstStateStartsDiagnostics(t *testing.T) {
+// 診断はタブが前面に出たときに始まる（FR-32）。
+//
+// **共有状態が届いただけでは始めない。** 起動直後から裏のタブにも配られるので、
+// そこで始めると Doctor タブを一度も開かない利用者のホストでも到達性の確認と
+// journalctl が走る。
+func TestActivateStartsDiagnostics(t *testing.T) {
 	t.Parallel()
 
-	m, cmd := newPage(t)
+	if m := newPage(t); m.running {
+		t.Error("共有状態を配っただけで診断が始まった")
+	}
+
+	m, cmd := activated(t)
 	if !m.running {
 		t.Error("running = false, want true（最初の共有状態で診断が始まらない）")
 	}
@@ -27,7 +35,7 @@ func TestFirstStateStartsDiagnostics(t *testing.T) {
 func TestSubsequentStateDoesNotRestartDiagnostics(t *testing.T) {
 	t.Parallel()
 
-	m, _ := newPage(t)
+	m, _ := activated(t)
 	m, _ = deliver(t, m, sample())
 	if m.running {
 		t.Fatal("診断が終わっていない")
@@ -37,13 +45,23 @@ func TestSubsequentStateDoesNotRestartDiagnostics(t *testing.T) {
 	if m.running {
 		t.Error("2 回目の共有状態で診断が再開した（3 秒ごとに走り続ける）")
 	}
+
+	// タブを行き来しても走らせ直さない。前回の結果はそのまま出る。
+	m, _ = send(t, m, page.DeactivateMsg{})
+	m, _ = send(t, m, page.ActivateMsg{})
+	if m.running {
+		t.Error("タブへ戻るたびに診断が走り直している")
+	}
+	if len(m.results) != len(sample()) {
+		t.Errorf("結果の件数 = %d, want %d（裏に回ったときに捨てている）", len(m.results), len(sample()))
+	}
 }
 
 // 結果が届いたら一覧と件数の見出しが更新される。
 func TestDoneUpdatesRowsAndSummary(t *testing.T) {
 	t.Parallel()
 
-	m, _ := newPage(t)
+	m, _ := activated(t)
 	m, _ = deliver(t, m, sample())
 
 	if got := m.summary; got.OK != 1 || got.Warn != 1 || got.Fail != 1 || got.Skip != 1 {
@@ -66,7 +84,7 @@ func TestDoneUpdatesRowsAndSummary(t *testing.T) {
 func TestRefreshRerunsAndBubbles(t *testing.T) {
 	t.Parallel()
 
-	m, _ := newPage(t)
+	m, _ := activated(t)
 	m, _ = deliver(t, m, sample())
 
 	next, cmd := press(t, m, "r")
@@ -82,7 +100,7 @@ func TestRefreshRerunsAndBubbles(t *testing.T) {
 func TestRefreshWhileRunningIsIgnored(t *testing.T) {
 	t.Parallel()
 
-	m, _ := newPage(t) // 最初の診断が走ったまま
+	m, _ := activated(t) // 最初の診断が走ったまま
 	if !m.running {
 		t.Fatal("診断が始まっていない")
 	}
@@ -99,7 +117,7 @@ func TestRefreshWhileRunningIsIgnored(t *testing.T) {
 func TestEnterOpensDetail(t *testing.T) {
 	t.Parallel()
 
-	m, _ := newPage(t)
+	m, _ := activated(t)
 	m, _ = deliver(t, m, sample())
 
 	next, cmd := press(t, m, "enter")
@@ -116,7 +134,7 @@ func TestEnterOpensDetail(t *testing.T) {
 func TestKeysDoNotLeakWhileModalIsOpen(t *testing.T) {
 	t.Parallel()
 
-	m, _ := newPage(t)
+	m, _ := activated(t)
 	m, _ = deliver(t, m, sample())
 	m, _ = press(t, m, "enter")
 	if !m.overlay.Active() {
@@ -137,7 +155,7 @@ func TestKeysDoNotLeakWhileModalIsOpen(t *testing.T) {
 func TestDetailRecheckRunsSingleCheck(t *testing.T) {
 	t.Parallel()
 
-	m, _ := newPage(t)
+	m, _ := activated(t)
 	m, _ = deliver(t, m, []dom.CheckResult{
 		result("job.dockergroup", "ジョブ実行の前提", "build01", dom.Fail),
 	})
@@ -155,7 +173,7 @@ func TestDetailRecheckRunsSingleCheck(t *testing.T) {
 func TestDetailRecheckWithUnknownIDDoesNothing(t *testing.T) {
 	t.Parallel()
 
-	m, _ := newPage(t)
+	m, _ := activated(t)
 	m, _ = deliver(t, m, sample())
 
 	next, _ := send(t, m, page.ResultMsg{Kind: Kind, Msg: RecheckMsg{ID: "存在しない項目"}})
@@ -170,7 +188,7 @@ func TestDetailRecheckWithUnknownIDDoesNothing(t *testing.T) {
 func TestPartialResultReplacesOnlyThatCheck(t *testing.T) {
 	t.Parallel()
 
-	m, _ := newPage(t)
+	m, _ := activated(t)
 	m, _ = deliver(t, m, sample())
 
 	fixed := result("job.dockergroup", "ジョブ実行の前提", "build01", dom.OK)
@@ -198,7 +216,7 @@ func TestPartialResultReplacesOnlyThatCheck(t *testing.T) {
 func TestFooter(t *testing.T) {
 	t.Parallel()
 
-	m, _ := newPage(t)
+	m, _ := activated(t)
 	m, cmd := deliver(t, m, sample())
 
 	c := chromeOf(t, cmd)
@@ -240,7 +258,7 @@ func TestFilterMatchesCategorySummaryAndTarget(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			m, _ := newPage(t)
+			m, _ := activated(t)
 			m, _ = deliver(t, m, rs)
 			m, _ = press(t, m, "/")
 			for _, r := range tt.query {
@@ -259,7 +277,7 @@ func TestFilterMatchesCategorySummaryAndTarget(t *testing.T) {
 func TestStatusShowsFilteringFirst(t *testing.T) {
 	t.Parallel()
 
-	m, _ := newPage(t)
+	m, _ := activated(t)
 	m, _ = deliver(t, m, sample())
 	_, cmd := press(t, m, "/")
 

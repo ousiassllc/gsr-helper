@@ -99,7 +99,16 @@ func (a *App) applyDiscovered(msg discoveredMsg) tea.Cmd {
 	if msg.err == nil {
 		a.result = msg.result
 	}
-	return a.distribute()
+	cmd := a.distribute()
+	// 最初に runner 一覧が揃った時点で起動時の前提チェックを 1 度だけ始める
+	// （FR-44）。判定は非同期なので、確定した時点でヘッダと状態行に現れる。
+	//
+	// 発行しないときは束ねない。**共有状態の配布だけの Cmd の形を変えない**ため
+	// である（親の検証は 1 段展開で ChromeMsg を拾う）。
+	if hr := a.startHostReq(); hr != nil {
+		return tea.Batch(cmd, hr)
+	}
+	return cmd
 }
 
 // discover は runner を検出する Cmd を返す。

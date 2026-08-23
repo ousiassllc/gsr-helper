@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
 	"strconv"
 	"strings"
 	"testing"
@@ -10,7 +11,6 @@ import (
 
 	"github.com/ousiassllc/gsr-helper/internal/exec"
 	"github.com/ousiassllc/gsr-helper/internal/runner"
-	"github.com/ousiassllc/gsr-helper/internal/runner/scope"
 	"github.com/ousiassllc/gsr-helper/internal/ui/chrome"
 )
 
@@ -69,26 +69,11 @@ func TestFooterShowsEverySpecKeyAtWidth80(t *testing.T) {
 }
 
 // sampleRunner は systemd 管理で稼働中の runner を返す。
-func sampleRunner() runner.Runner {
-	dir := "/opt/runners/build01-1"
-	unit := "actions.runner.foo.build01-1.service"
-	return runner.Runner{
-		Dir:       dir,
-		Config:    runner.Config{AgentName: "build01-1", WorkFolder: "_work"},
-		Scope:     scope.Scope{Kind: scope.Org, Owner: "foo"},
-		Version:   "2.311.0",
-		WorkDir:   dir + "/_work",
-		UnitName:  unit,
-		RunAsUser: "runner",
-		Managed:   runner.ManagedSystemd,
-		Svc: &runner.SvcState{
-			Unit: unit, Load: "loaded", Active: "active", Sub: "running",
-			FileState: "enabled", WorkingDir: dir, User: "runner", MainPID: 100,
-		},
-		Listener: &runner.Process{PID: 100, Kind: runner.ProcListener, Dir: dir, UID: 1000},
-		Workers:  nil,
-	}
-}
+//
+// フィクスチャは page/pagetest から取る。親と page で検証の前提が食い違わない
+// ようにするためであり、ui 直下の行数（1 ディレクトリ 2000 行）を道具立てで
+// 押し上げないためでもある（helper_test.go 冒頭の方針）。
+func sampleRunner() runner.Runner { return pagetest.SampleRunner() }
 
 // chromeWith はタブ番号とモーダル・入力の状態を持つ ChromeMsg を返す。
 func chromeWith(tab int, modal bool, input string) tea.Msg {

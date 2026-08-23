@@ -22,13 +22,20 @@ import (
 // tabIndex は検証で使うタブ番号。ChromeMsg と page.Do の突き合わせに使う。
 const tabIndex = 4
 
-// newPage は最初の共有状態まで配ったタブと、そのとき返った Cmd を返す。
-func newPage(t *testing.T) (Model, tea.Cmd) {
+// newPage は共有状態を配っただけのタブを返す。**診断はまだ始まっていない。**
+func newPage(t *testing.T) Model {
 	t.Helper()
 
 	m := New(tabIndex, pagetest.State(80, 20))
-	next, cmd := m.Update(pagetest.State(80, 20))
-	return asModel(t, next), cmd
+	next, _ := m.Update(pagetest.State(80, 20))
+	return asModel(t, next)
+}
+
+// activated は共有状態を配ったうえでタブを前面に出したタブと、そのとき返った
+// Cmd を返す。診断はこの時点で始まる。
+func activated(t *testing.T) (Model, tea.Cmd) {
+	t.Helper()
+	return send(t, newPage(t), page.ActivateMsg{})
 }
 
 // asModel は tea.Model を具体型へ戻す。

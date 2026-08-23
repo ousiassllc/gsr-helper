@@ -6,9 +6,9 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/ousiassllc/gsr-helper/internal/appconfig"
+	"github.com/ousiassllc/gsr-helper/internal/doctor"
 	"github.com/ousiassllc/gsr-helper/internal/exec"
 	"github.com/ousiassllc/gsr-helper/internal/ui/chrome"
-	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
 	"github.com/ousiassllc/gsr-helper/internal/ui/tabset"
 )
@@ -29,12 +29,23 @@ func testCaps() appconfig.Caps { return pagetest.Caps() }
 
 // newApp は親 Model を組み立てる。走査ルートを空にして検出の入力を最小にする。
 func newApp(ex exec.Executor) App {
-	return New(appconfig.Default(), testCaps(), ex, Options{
+	a := New(appconfig.Default(), testCaps(), ex, Options{
 		Color:   false,
 		Refresh: 2 * time.Second,
 		Roots:   nil,
 		Host:    "build01",
 	})
+	// **起動時の前提チェック（FR-44）は既定で走らせない。** 本物の項目は実ホストの
+	// sudo / docker / /etc/group を読むため、親 Model の検証が実行環境の構成で
+	// 揺れる。FR-44 そのものを見るテストは withHostChecks で差し替える。
+	a.hostChecks = nil
+	return a
+}
+
+// withHostChecks は起動時の前提チェックを差し替えた App を返す。
+func withHostChecks(a App, checks ...doctor.Check) App {
+	a.hostChecks = checks
+	return a
 }
 
 // withSpies は有効なタブを pagetest.Spy に差し替える。
@@ -72,30 +83,16 @@ func lastEnabledTab(tabs []tabset.Tab) int {
 	return last
 }
 
-// chromeOf は Cmd に含まれる ChromeMsg を親へ渡し、フッタを反映した App を返す。
+// applyChrome は Cmd に含まれる ChromeMsg を親へ渡し、フッタを反映した App を返す。
 //
 // フッタは page が ChromeMsg で報告したものを親が描くため、フッタの表示を検証するには
-// page → 親の 1 往復が必要である。
+// page → 親の 1 往復が必要である。取り出しは pagetest.ChromeMsgs が持つ。
 func applyChrome(a App, cmd tea.Cmd) App {
-	for _, c := range cmdList(cmd) {
-		if c == nil {
-			continue
-		}
-		if msg, ok := c().(page.ChromeMsg); ok {
-			a, _ = update(a, msg)
-		}
+	for _, msg := range pagetest.ChromeMsgs(cmd) {
+		a, _ = update(a, msg)
 	}
 	return a
 }
-
-// cmdList は Batch / Sequence の Cmd を展開して返す。中の Cmd は実行しない。
-func cmdList(cmd tea.Cmd) []tea.Cmd { return pagetest.Expand(cmd) }
-
-// asCmds は Msg が Cmd の並び（Batch / Sequence）ならその中身を返す。
-//
-// **Batch と Sequence は区別できない**（pagetest.Cmds の doc）。順序そのものを
-// 検証する側は Msg の型で判別すること（lifecycle_test.go の終了の検証）。
-func asCmds(msg tea.Msg) ([]tea.Cmd, bool) { return pagetest.Cmds(msg) }
 
 // update は Msg を 1 つ渡し、App と Cmd を返す。
 func update(a App, msg tea.Msg) (App, tea.Cmd) {

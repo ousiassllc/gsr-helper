@@ -235,3 +235,23 @@ func TestOpenTabTitlesMatchTabs(t *testing.T) {
 		}
 	}
 }
+
+// KeyOf は有効なタブの番号キーを名前で引く。
+//
+// 起動時の前提チェック（FR-44）が状態行に出す誘導が、タブの並びを変えても
+// 正しい番号を指し続けることをここで固定する。
+func TestKeyOf(t *testing.T) {
+	t.Parallel()
+
+	tabs := New(appconfig.Caps{}, exec.NewFake(), keymap.New(), token.NewStyles(true, false), true)
+
+	if got := KeyOf(tabs, page.TabDoctor); got != "5" {
+		t.Errorf("KeyOf(Doctor) = %q, want %q", got, "5")
+	}
+	if got := KeyOf(tabs, "Config"); got != "" {
+		t.Errorf("KeyOf(Config) = %q, want 空（無効なタブへは誘導しない）", got)
+	}
+	if got := KeyOf(tabs, "存在しない"); got != "" {
+		t.Errorf("KeyOf(存在しない) = %q, want 空", got)
+	}
+}

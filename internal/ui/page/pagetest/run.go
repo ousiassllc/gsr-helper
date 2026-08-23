@@ -128,3 +128,26 @@ func Drained[T any](ch <-chan T, timeout time.Duration) bool {
 		}
 	}
 }
+
+// ChromeMsgs は Cmd の束に含まれる ChromeMsg をすべて返す。
+//
+// 束を 1 段だけ展開して探す（ChromeOf と同じ理由。ChromeMsg は page が自分で
+// 組んで返すもので、入れ子の Cmd の奥から出てくることが無い）。**中の Cmd を
+// 実行してよいのは、この段に並ぶのが ChromeMsg のような即座に返る Cmd に限られる
+// ことが前提である。** 長寿命の購読や外部コマンドを起こす Cmd が同じ段に並ぶ場合は
+// この道具を通さないこと。
+//
+// 親 Model の検証（フッタの表示は page → 親の 1 往復が要る）と page の検証の
+// どちらからも使うため、ui 直下ではなくここに置く。
+func ChromeMsgs(cmd tea.Cmd) []page.ChromeMsg {
+	var out []page.ChromeMsg
+	for _, c := range Expand(cmd) {
+		if c == nil {
+			continue
+		}
+		if msg, ok := c().(page.ChromeMsg); ok {
+			out = append(out, msg)
+		}
+	}
+	return out
+}

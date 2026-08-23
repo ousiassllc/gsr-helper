@@ -59,8 +59,7 @@ type Model struct {
 	running bool
 	// initCmd はモーダルを登録したときに返った Cmd。最初の共有状態で流し、nil に落とす。
 	initCmd tea.Cmd
-	// started は最初の診断を発行したか。共有状態は 3 秒ごとに配られるので、
-	// これが無いと周期ごとに診断が走り続ける。
+	// started は最初の診断を発行したか。タブを行き来するたびに走らせないために持つ。
 	started bool
 }
 
@@ -99,6 +98,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.setState(msg)
 	case tea.KeyPressMsg:
 		return m.handleKey(msg)
+	case page.ActivateMsg:
+		// **診断を始めるのはタブが前面に出たときである。** 共有状態は起動直後から
+		// 裏のタブにも配られるので、最初の StateMsg で始めると、Doctor タブを一度も
+		// 開かない利用者のホストでも起動のたびに到達性の確認と journalctl が走る。
+		// 起動時に要る前提チェック（FR-43 の 4 点）は親が別に走らせる（FR-44）。
+		return m.activate()
 	case doneMsg:
 		m.applyDone(msg)
 		return m, m.chrome()
@@ -143,11 +148,10 @@ func (m Model) body() string {
 	return m.st.Styles.Muted.Render(noResultMessage)
 }
 
-// setState は共有状態のスナップショットを反映する。
+// setState は共有状態のスナップショットを反映する。ドメイン層は呼ばない。
 //
-// 最初の 1 回だけ診断を始める。**共有状態は 3 秒ごとに全タブへ配られる**ので、
-// ここで毎回始めると診断が絶え間なく走り、`sudo -l -U` と `journalctl -k` が
-// 3 秒ごとに監査ログへ積み上がる。
+// **ここで診断を始めない。** 共有状態は 3 秒ごとに全タブへ配られるので、
+// 始めると診断が絶え間なく走る。開始の契機は page.ActivateMsg である（activate）。
 func (m Model) setState(st page.StateMsg) (tea.Model, tea.Cmd) {
 	m.st = st
 	m.tbl.Restyle(st.Keys.List, st.Styles)
@@ -155,14 +159,22 @@ func (m Model) setState(st page.StateMsg) (tea.Model, tea.Cmd) {
 	m.tbl.SetSize(st.BodyW, st.BodyH-headingLines)
 	init := m.flushInit()
 	cmd := m.overlay.SetState(st)
+	return m, tea.Batch(m.chrome(), init, cmd)
+}
 
-	var run tea.Cmd
-	if !m.started {
-		m.started = true
-		m.running = true
-		run = m.startAll()
+// activate はタブが前面に出たときの処理を返す。
+//
+// 初回だけ診断を始める。2 回目以降も走らせると、タブを行き来するたびに
+// `sudo -l -U` と `journalctl -k` が監査ログへ積み上がる。**結果は裏に回っても
+// 捨てない**ので、戻ったときに前回の結果がそのまま出る（page.DeactivateMsg の
+// 「状態そのものは捨てない」）。
+func (m Model) activate() (tea.Model, tea.Cmd) {
+	if m.started {
+		return m, m.chrome()
 	}
-	return m, tea.Batch(m.chrome(), init, cmd, run)
+	m.started = true
+	m.running = true
+	return m, tea.Batch(m.chrome(), m.startAll())
 }
 
 // headingLines は見出しが使う行数（件数の行 + 空行）。

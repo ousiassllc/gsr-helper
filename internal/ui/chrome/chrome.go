@@ -37,6 +37,13 @@ type View struct {
 	// OrphanUnits と Warnings は状態行の左側に出す件数。
 	OrphanUnits int
 	Warnings    int
+	// HostReq は起動時のジョブ実行の前提チェック（FR-44）で見つかった不備の件数。
+	// DoctorKey は誘導先の Doctor タブの番号キー。空なら誘導を添えない。
+	//
+	// 番号を文字列で受け取るのは、chrome がタブの並びを知らないためである
+	// （知ると、タブを 1 枚足すたびにここも直すことになる）。
+	HostReq   int
+	DoctorKey string
 	// Err は状態行の左側に出す直近のエラー。error は標準ライブラリの型であり
 	// ドメインの型ではないので、文言を組み立て直さずそのまま受け取る。
 	Err error
@@ -63,6 +70,7 @@ func Header(v View) string {
 		Systemd:    v.Systemd,
 		GitHubUser: "",
 		HasToken:   v.HasToken,
+		HostReq:    v.HostReq,
 	}, v.Width, v.Styles)
 }
 
@@ -101,12 +109,27 @@ func counts(v View) string {
 	if v.Warnings > 0 {
 		parts = append(parts, v.Styles.Warn.Render("警告 "+strconv.Itoa(v.Warnings)+" 件"))
 	}
+	if v.HostReq > 0 {
+		parts = append(parts, v.Styles.Warn.Render(
+			token.IconWarn+" ホスト前提 "+strconv.Itoa(v.HostReq)+" 件"+doctorHint(v.DoctorKey)))
+	}
 	if v.Err != nil {
 		// エラーで画面遷移を巻き戻さず、状態行に出すだけにする
 		// （architecture/overview.md のエラーハンドリング）。
 		parts = append(parts, v.Styles.Fail.Render(token.IconFailed+" "+v.Err.Error()))
 	}
 	return strings.Join(parts, " / ")
+}
+
+// doctorHint は Doctor タブへの誘導を返す。番号が無ければ何も添えない。
+//
+// 誘導を添えるのは、不備の内訳と対処を出せるのが Doctor タブだけだからである。
+// 件数だけを見せて行き先を示さないと、利用者は 7 枚のタブを順に開くことになる。
+func doctorHint(key string) string {
+	if key == "" {
+		return ""
+	}
+	return "（" + key + " で詳細）"
 }
 
 // Footer はフッタ 2 行を返す。

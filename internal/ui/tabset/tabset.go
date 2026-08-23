@@ -138,3 +138,21 @@ func New(caps appconfig.Caps, ex exec.Executor, keys keymap.Set, s token.Styles,
 	}
 	return tabs
 }
+
+// KeyOf は名前の一致する有効なタブの番号キーを返す。無ければ空文字。
+//
+// 番号は並び順から決まる（New）ので、親 Model が「Doctor タブは 5」と書き写すと
+// 並びを変えたときに案内だけが別のタブを指す。**タブの番号を知っているのは
+// このパッケージだけ**という分担をここで保つ。
+//
+// 用途は起動時の前提チェック（FR-44）が状態行に出す誘導
+// （`⚠ ホスト前提 2 件（5 で詳細）`）である。無効なタブには誘導しない
+// （押しても開けないタブを案内することになる）。
+func KeyOf(tabs []Tab, title string) string {
+	for _, t := range tabs {
+		if t.Title == title && t.Enabled {
+			return t.Key
+		}
+	}
+	return ""
+}
