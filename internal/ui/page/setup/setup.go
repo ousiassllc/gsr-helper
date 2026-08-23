@@ -37,7 +37,14 @@ type runState struct {
 	rows   []molecule.ProgressView
 	done   int
 	total  int
-	title  string
+	// title は状態行に出す件数つきの見出し（「追加中… 2/3」）。
+	title string
+	// bare は進捗表示へ渡す件数抜きの見出し（「追加中…」）。
+	//
+	// pane.ProgressList が Done/Total を自分で添えるため、件数つきを渡すと
+	// 二重に出る（chrome.go の bareTitle）。title から削り直すのではなく
+	// 最初から 2 つ持つ。書式を変えたときに削る側が置いていかれない。
+	bare string
 	// kind は進捗の見出しに出す操作名（「追加」「削除」「バージョン更新」）。
 	kind string
 }

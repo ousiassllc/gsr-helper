@@ -22,10 +22,11 @@ type progressSetMsg struct{ input pane.ProgressInput }
 // progressStopMsg はスピナを止める指示。
 type progressStopMsg struct{}
 
-// openProgress は進捗表示を開く。
+// openProgress は進捗表示を開く。見出しに件数を含めないのは、pane.ProgressList
+// が Done/Total から自分で添えるためである（chrome.go の bareTitle）。
 func (m Model) openProgress(plan setup.Plan) tea.Cmd {
 	return m.overlay.Open(progressKind, progressOpenMsg{input: pane.ProgressInput{
-		Title:  runTitle(plan.Kind.String(), 0, len(plan.Units)),
+		Title:  bareTitle(plan.Kind.String()),
 		Rows:   waitingRows(plan),
 		Done:   0,
 		Total:  len(plan.Units),
@@ -44,7 +45,7 @@ func (m Model) updateProgress() tea.Cmd {
 	}
 
 	in := pane.ProgressInput{
-		Title:  m.run.title,
+		Title:  m.run.bare,
 		Rows:   m.run.rows,
 		Done:   m.run.done,
 		Total:  m.run.total,

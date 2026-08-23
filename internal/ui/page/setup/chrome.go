@@ -78,9 +78,17 @@ func (m Model) footer() []atom.Hint {
 	}
 }
 
-// runTitle は進捗の見出しを組み立てる（screens.md の `追加中… 2/3`）。
+// bareTitle は件数を含まない進捗の見出しを返す（「追加中…」）。
+//
+// 進捗表示（pane.ProgressList）へ渡すのはこちらである。件数は header が
+// Done/Total から添えるので、件数つきを渡すと `追加中… 2/3 2/3` になる。
+func bareTitle(kind string) string { return kind + "中…" }
+
+// runTitle は状態行に出す見出しを組み立てる（screens.md の `追加中… 2/3`）。
+//
+// 状態行は 1 行しかなく分母を添える相手がいないので、こちらは件数まで含める。
 func runTitle(kind string, done, total int) string {
-	return kind + "中… " + strconv.Itoa(done) + "/" + strconv.Itoa(total)
+	return bareTitle(kind) + " " + strconv.Itoa(done) + "/" + strconv.Itoa(total)
 }
 
 // reportView は結果報告を本文の下に描く。

@@ -204,7 +204,8 @@ func (m *Model) onProgress(msg progressMsg) tea.Cmd {
 // apply は進捗 1 件を行の状態へ反映する。
 func (r *runState) apply(p setup.Progress) {
 	if p.Index == job.PrepIndex {
-		r.title = p.Phase + "中…"
+		// 準備段階は台に紐付かないので件数を添えない（1/3 の数え方が無い）。
+		r.title, r.bare = p.Phase+"中…", p.Phase+"中…"
 		return
 	}
 	if p.Index < 0 || p.Index >= len(r.rows) {
@@ -223,7 +224,7 @@ func (r *runState) apply(p setup.Progress) {
 		r.rows[p.Index].State = molecule.ProgressRunning
 		r.rows[p.Index].Detail = p.Phase + "…"
 	}
-	r.title = runTitle(r.kind, r.done, r.total)
+	r.title, r.bare = runTitle(r.kind, r.done, r.total), bareTitle(r.kind)
 }
 
 // waitingRows は計画から「待機」状態の行を作る。
