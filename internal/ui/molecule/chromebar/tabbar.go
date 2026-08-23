@@ -1,4 +1,4 @@
-package molecule
+package chromebar
 
 import (
 	"github.com/ousiassllc/gsr-helper/internal/ui/atom"

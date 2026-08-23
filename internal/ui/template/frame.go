@@ -19,11 +19,11 @@ import (
 //
 // どの領域も描画済みの文字列を受け取る。Frame は中身を解釈せず、行数だけを揃える。
 type FrameInput struct {
-	Header string // molecule.CapsBar の結果
-	Tabs   string // molecule.TabBar の結果
+	Header string // chromebar.CapsBar の結果
+	Tabs   string // chromebar.TabBar の結果
 	Body   string // page の描画結果
 	Status string // 孤児ユニット件数 / 警告件数 / 選択件数 / 入力中
-	Footer string // molecule.KeyBar の結果（2 行）
+	Footer string // chromebar.KeyBar の結果（2 行）
 	Width  int
 	Height int
 }
@@ -34,7 +34,7 @@ type FrameInput struct {
 //
 // 固定値にするのは、フッタが 1 行のときと 2 行のときで本体の高さが動くと
 // bubbles/table の行数がフレームごとに変わり、表示が上下に跳ねるためである。
-// molecule.KeyBar は理由が無いときも空行を返して常に 2 行になる。
+// chromebar.KeyBar は理由が無いときも空行を返して常に 2 行になる。
 const ChromeHeight = 7
 
 // footerHeight は ChromeHeight のうちフッタが占める行数。

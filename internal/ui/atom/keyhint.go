@@ -14,7 +14,7 @@ type Hint struct {
 	Key     string // 押すキー（"x" / "ctrl+f" など）
 	Desc    string // 動作の説明（日本語）
 	Enabled bool   // 押せるか
-	Reason  string // 押せない理由。まとめて 1 行に出すのは molecule.KeyBar の役割
+	Reason  string // 押せない理由。まとめて 1 行に出すのは chromebar.KeyBar の役割
 }
 
 // KeyHint は 1 つのキーヒントを返す。
@@ -26,7 +26,7 @@ type Hint struct {
 // ?:ヘルプ で 75 セルを使う。丸括弧で囲むと 1 つあたり 2 セル増えて 95 セルになり、
 // 幅 80 に収まらなくなる。
 // 「色に依存しない」（screens.md の設計原則 4）は別の手がかりで満たす。フッタでは
-// 2 行目が無効なキーを "(s)(x)(X): 理由" と丸括弧付きで並べ（molecule.KeyBar）、
+// 2 行目が無効なキーを "(s)(x)(X): 理由" と丸括弧付きで並べ（chromebar.KeyBar）、
 // 詳細画面の操作リストでは同じ行の右端に理由が出る（molecule.ActionRow）。
 func KeyHint(h Hint, s token.Styles) string {
 	sep := ":"

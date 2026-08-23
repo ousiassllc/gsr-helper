@@ -20,7 +20,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/exec"
 	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/ui/keymap"
-	"github.com/ousiassllc/gsr-helper/internal/ui/molecule"
+	"github.com/ousiassllc/gsr-helper/internal/ui/molecule/chromebar"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/config"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/disk"
@@ -278,10 +278,10 @@ func Broadcast(tabs []Tab, msg tea.Msg) tea.Cmd {
 //
 // 選択中かどうかは添字と active の比較でここで解決し、chrome へは真偽値だけを
 // 渡す（chrome が tabset を import しないための境界）。
-func Views(tabs []Tab, active int) []molecule.TabView {
-	views := make([]molecule.TabView, 0, len(tabs))
+func Views(tabs []Tab, active int) []chromebar.TabView {
+	views := make([]chromebar.TabView, 0, len(tabs))
 	for i := range tabs {
-		views = append(views, molecule.TabView{
+		views = append(views, chromebar.TabView{
 			Key:     tabs[i].Key,
 			Title:   tabs[i].Title,
 			Active:  i == active,

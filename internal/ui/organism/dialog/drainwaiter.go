@@ -184,7 +184,7 @@ func (d DrainWaiter) Update(msg tea.Msg) (DrainWaiter, tea.Cmd) {
 // View は待機の中身を返す。制約の注記は必ず含まれる。
 //
 // 「esc: 待機をキャンセル」の行はここに置かない。キーヒントはフッタ
-// （molecule.KeyBar）が一手に描く決まりであり、画面ごとに本文へも書くと
+// （chromebar.KeyBar）が一手に描く決まりであり、画面ごとに本文へも書くと
 // 有効なキーの表示が 2 箇所に分かれる（Hints が返す）。
 func (d DrainWaiter) View() string {
 	body := make([]string, 0, len(d.in.Jobs)+2)
