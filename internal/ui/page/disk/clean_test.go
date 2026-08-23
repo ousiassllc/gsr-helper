@@ -1,10 +1,13 @@
 package disk
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/ousiassllc/gsr-helper/internal/exec"
+	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/ui/atom"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
@@ -204,5 +207,50 @@ func TestCleanTargetsCarriesProtectedReason(t *testing.T) {
 	u.Removable, u.Reason = false, busyReasonPrefix
 	if got := cleanTargets([]row{{usage: u}})[0].Protected; got != busyReasonPrefix {
 		t.Errorf("Protected = %q, want %q", got, busyReasonPrefix)
+	}
+}
+
+// 承認を待つ間にジョブが始まった runner の _work は削除しない（FR-31）。
+//
+// Target.Protected は disk.Scan がジョブの有無を見た「その時点」の値なので、確認
+// ダイアログを開いている間にジョブが始まると、保護されていない計画のまま y に到達する。
+// 確認ダイアログに時間制限は無いため窓は任意に広がる。**この経路が塞がっていないと、
+// 実行中ジョブの _work が root 権限で消える。**
+func TestJobStartedWhileConfirmingAbortsCleanup(t *testing.T) {
+	busy := busyRunner(t)
+	idle := busy
+	idle.Workers = nil
+
+	st, fake := baseState()
+	st.Result.Runners = []runner.Runner{idle}
+	m := activate(t, newModel(t, st))
+
+	// カーソルを _work の行（docker の SKIP 行の次）へ移してから選ぶ。
+	m, _ = send(t, m, press("j"))
+	m, _ = send(t, m, press("space"))
+	if len(m.tbl.Checked()) == 0 {
+		t.Fatal("集計した _work を選択できていない（前提が崩れている）")
+	}
+	m, _ = send(t, m, press("c"))
+	if !m.overlay.Active() {
+		t.Fatal("確認ダイアログが開いていない（前提が崩れている）")
+	}
+
+	// 承認を待つ間にジョブが始まる。共有状態は 3 秒ごとに配られる。
+	busyState := st
+	busyState.Result.Runners = []runner.Runner{busy}
+	m, _ = send(t, m, busyState)
+
+	m, _ = send(t, m, press("y"))
+
+	kept := filepath.Join(busy.Dir, "_work", "bar", "a.txt")
+	if _, err := os.Stat(kept); err != nil {
+		t.Errorf("ジョブ実行中になった _work が削除された（%s: %v）", kept, err)
+	}
+	if len(fake.Calls()) != 0 {
+		t.Errorf("中止したのに外部コマンドが発行された（%v）", fake.Calls())
+	}
+	if !strings.Contains(m.status(), "ジョブが開始したため中止") {
+		t.Errorf("中止の理由が報告されていない（status = %q）", m.status())
 	}
 }

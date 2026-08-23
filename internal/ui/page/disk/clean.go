@@ -33,6 +33,13 @@ const (
 	noticeNoTarget = "対象が選択されていません"
 	// noticeRunning はクリーンアップ中に c を押したときの案内。
 	noticeRunning = "クリーンアップを実行中です"
+	// noticeBecameBusy は承認を待つ間にジョブが始まったため中止したときの案内。
+	noticeBecameBusy = "ジョブが開始したため中止しました: "
+	// workDirName は削除の可否がジョブの有無で変わるサブツリー。
+	//
+	// internal/disk と同じ名前を持つのは、保護の判定をどちらの層でも同じ
+	// サブツリーに対して行うためである。
+	workDirName = "_work"
 )
 
 // cleanState は実行中のクリーンアップ。nil なら実行していない。
@@ -112,6 +119,11 @@ func (m *Model) onResult(msg page.ResultMsg) tea.Cmd {
 	plan := m.plan
 	m.plan = emptyPlan()
 	if !decided.Confirmed {
+		return nil
+	}
+	// 承認を待つ間にジョブが始まっていないかを見直す（reprotected の doc）。
+	if label := reprotected(plan, m.st.Result.Runners); label != "" {
+		m.notice = noticeBecameBusy + label
 		return nil
 	}
 	return m.startClean(plan)
@@ -247,32 +259,4 @@ func firstLine(s string) string {
 		return head + " …"
 	}
 	return head
-}
-
-// cleanTargets は選択された行を削除計画の入力に変換する。
-//
-// disk.Usage をそのまま渡さず disk.Target に落とすのは、「集計しただけの行」が
-// 削除計画に紛れ込まないようにするためである（disk.Target の doc）。
-func cleanTargets(rows []row) []disk.Target {
-	out := make([]disk.Target, 0, len(rows))
-	for _, r := range rows {
-		u := r.usage
-		// 選べない理由はドメインまで運ぶ。表（organism/table）が選択を阻むだけに
-		// すると、ジョブ実行中の保護（FR-31）が表示層だけの約束になる
-		// （disk.Target.Protected の doc）。
-		protected := u.Reason
-		if u.Removable {
-			protected = ""
-		}
-		out = append(out, disk.Target{
-			Label:     u.Label,
-			Base:      u.Base,
-			Path:      u.Path,
-			Bytes:     u.Bytes,
-			Files:     u.Files,
-			Docker:    u.Kind == disk.KindDocker,
-			Protected: protected,
-		})
-	}
-	return out
 }

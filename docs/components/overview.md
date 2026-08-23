@@ -197,7 +197,7 @@ runner の検出とモデル定義。**最下層**であり、他のドメイン
 
 `internal/runner` の下位に置くのは 2 つの理由による。`Scope` は GitHub API のパス生成にも使うため（[データモデル](../architecture/data-model.md#scope)）、`internal/gh` が `internal/runner` 全体を import せずにスコープだけを参照できる。また `internal/runner` の行数上限（1 ディレクトリ 2000 行）に対する余裕を確保する。
 
-行数チェック（`linterly`）の集計は直下のファイルのみを対象とする。現在の使用量は `internal/runner` 1558 / `runner/systemd` 544 / `runner/procs` 317 / `runner/scope` 165 行である。**`internal/runner` は残り 400 行強しか無い。** サービス制御や追加・削除の Issue が `runner` へ機能を足す場合は、先に切り出し先を決めること。
+行数チェック（`linterly`）の集計は直下のファイルのみを対象とする。現在の使用量は `internal/runner` 1656 / `runner/systemd` 552 / `runner/procs` 426 / `runner/scope` 165 行である。**`internal/runner` は残り 344 行しか無い。** サービス制御や追加・削除の Issue が `runner` へ機能を足す場合は、先に切り出し先を決めること。
 
 `Parse` は判定できない入力を必ず error にする。**Unknown を error 無しで返すことはない**（[データモデル](../architecture/data-model.md#scope)）。
 
@@ -552,3 +552,4 @@ interface はこの 3 つに留める。ドメインごとの interface は、�
 | 1.16 | 2026-08-23 | `internal/ui` のサブパッケージ表に `ui/page/runnerdetail`（Runners / Jobs が共用する詳細モーダル）と `ui/page/pagetest`（テスト専用のフィクスチャ）の行を追加。「タブ間で共有する状態は親のみが持つ」の箇条書きに、それを守らせている検査（`TestOnlyTabsetImportsTabs`）を明記 | 表が `ui/page` → `ui/page/action` → `ui/page/<tab>` の 3 行だけで、`page/` 階層が「page + 共通部品 + タブ 1 枚ずつ」だと読めた。[TUI コンポーネント設計](../ui/atomic-design.md)（1.20）が明記した「`page/` は 1 ディレクトリ 1 タブではない」と食い違い、実在する 2 パッケージが本書からは辿れなかった。共有状態の規則も規約としてしか書かれておらず、それを機械的に守らせている検査が本書からは読み取れなかった（PR #67 のレビュー指摘） |
 | 1.17 | 2026-08-23 | `ui/page/pagetest` の行を「`page/<tab>` と親 Model が共用するテスト用の道具」に改め、`Msgs` / `ScanKey` / `StreamPage` を挙げた | 表は同パッケージを `page/<tab>` 用のフィクスチャに限定して書いていたが、親 Model 専用の道具（寿命テストの `StreamPage`、Issue #31 で移した打鍵の走査 `ScanKey`）も置かれており、[TUI コンポーネント設計](../ui/atomic-design.md) 側は「タブと親で共用する検証の道具の置き場」と記して親側からの利用を推奨している。2 文書が同じパッケージの守備範囲について別のことを述べていた（Issue #31 の最終ゲート指摘） |
 | 1.18 | 2026-08-23 | `internal/disk` の節から「この版で監査ログに残るのは `docker system prune -f` だけである」を削除し、`docker system df`（`disk.df`）も記録されること・記録対象外は再検出の `list-units` / `show` だけであることに訂正。`PruneReclaimable` を関数表に追加し、`prune -f` の解放見込みが内訳の合計ではない理由を追記。`PlanClean` の行と本文に、ジョブ実行中の保護を `Target.Protected` で運び `PlanClean` と `Apply` の両方で弾く構造を追記 | 監査ログの記述が誤っており、[外部インターフェース](../api/external-interfaces.md)の「例外は再検出の `list-units` / `show` のみ」とも正面から矛盾していた。実装は `DockerUsage` が `exec.Options{Action: "disk.df", SkipAudit: false}` で発行しており、`disk.df` も全件記録される。解放見込みは `docker system df` の `Reclaimable` をそのまま使っており、`prune -f` では 1 バイトも消えないボリュームを含んでいた。ジョブ実行中の保護は `Usage` の段階にしか無く、境界の型に可否が無かった |
+| 1.19 | 2026-08-23 | `internal/runner` 系の行数を実測へ更新した（1656 / 552 / 426 / 165、残り 344） | 記載値（1558 / 544 / 317、残り 400 行強）は測り直す前のもので、`runner/procs` が 109 行、残余が約 60 行ぶん**多く（危険側に甘く）**表示されていた。この段落は読者に「先に切り出し先を決める」判断を求める箇所であり、余裕の過大表示は分割の判断を誤らせる |
