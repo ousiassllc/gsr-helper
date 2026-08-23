@@ -43,6 +43,8 @@ var shared = map[string]bool{
 	// progressmodal は Setup / Disk が共用する進捗表示のモーダルであり、タブではない
 	// （Issue #75）。
 	"progressmodal": true,
+	// diskclean は Disk タブのクリーンアップ実行部であり、タブではない（Issue #102）。
+	"diskclean": true,
 }
 
 // テスト用の道具は本番の経路から import されない。

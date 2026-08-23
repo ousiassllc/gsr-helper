@@ -2,7 +2,8 @@
 //
 // runner のディスク使用量を内訳ごとに一覧し、選んだ対象をクリーンアップする
 // （FR-27〜FR-31）。**このタブだけが破壊的操作を持つ**ため、削除に至る道は
-// 「選択 → ドライラン → 確認 → 実行」の 1 本に絞ってある（clean.go）。
+// 「選択 → ドライラン → 確認 → 実行」の 1 本に絞ってある（clean.go）。実行そのものは
+// page/diskclean が持つ（Issue #102）。
 //
 // 検出結果（runner の一覧）は自分で取らず、親 Model から page.StateMsg で受け取った
 // スナップショットを使う（atomic-design.md の page の責務）。一方で**使用量の集計は
@@ -25,6 +26,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/ui/organism/table"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/disk/confirmmodal"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/diskclean"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/progressmodal"
 )
 
@@ -51,8 +53,8 @@ type Model struct {
 
 	// scan は実行中の集計。nil なら集計していない。
 	scan *scanState
-	// clean は実行中のクリーンアップ。nil なら実行していない。
-	clean *cleanState
+	// clean は実行中のクリーンアップ。nil なら実行していない（page/diskclean）。
+	clean *diskclean.Job
 	// plan は確認中のドライラン結果。確認を閉じた時点で捨てる。
 	plan disk.CleanPlan
 	// notice は結果報告と操作できない理由。次の打鍵で消す。
@@ -132,10 +134,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case fsStatsMsg:
 		m.onFSStats(msg)
 		return m, m.chrome()
-	case progressMsg:
+	case diskclean.ProgressMsg:
 		cmd := m.onProgress(msg)
 		return m, tea.Batch(m.chrome(), cmd)
-	case applyDoneMsg:
+	case diskclean.DoneMsg:
 		cmd := m.onApplyDone(msg)
 		return m, tea.Batch(m.chrome(), cmd)
 	default:
