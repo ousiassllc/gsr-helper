@@ -114,9 +114,14 @@ func TestManualScrollStopsFollowing(t *testing.T) {
 	}
 }
 
-// / でフィルタを入力し、enter で確定すると一致する行だけが残る（FR-25）。
+// / でフィルタを入力し、enter で確定すると正規表現に一致する行だけが残る（FR-25）。
+//
+// **パターンにメタ文字を入れるのが要点である。** リテラルだけで組むと filterRegexp の
+// regexp.Compile を strings.Contains 相当へ置き換えても全件緑のままで、受け入れ条件の
+// 「**正規表現による**フィルタ」を何も縛らない。`^\[.*(ERROR|WARN)` は先頭一致・任意長・
+// 選択の 3 つを同時に使うので、素朴な部分一致ではどの行も残らずに落ちる。
 func TestFilterKeepsMatchingLinesOnly(t *testing.T) {
-	m := sample(t, "info line", "[ERROR] boom", "warn line")
+	m := sample(t, "info line", "[ERROR] boom", "[WARN] late", "WARN unbracketed")
 
 	m, cmd := step(t, m, pagetest.Press("/"))
 	if !m.body.Filtering() {
@@ -126,17 +131,22 @@ func TestFilterKeepsMatchingLinesOnly(t *testing.T) {
 		t.Errorf("入力中の名称 = %q, want %q", got, inputFilter)
 	}
 
-	for _, k := range strings.Split("ERROR", "") {
+	for _, k := range strings.Split(`^\[.*(ERROR|WARN)`, "") {
 		m, _ = step(t, m, pagetest.Press(k))
 	}
 	m, _ = step(t, m, pagetest.Press("enter"))
 
 	got := m.body.View()
-	if !strings.Contains(got, "boom") {
-		t.Errorf("一致する行が消えている:\n%s", got)
+	// 残るのは選択のどちらの枝で一致した行も。落ちるのは非一致と、先頭一致（^\[）で外れる行。
+	for _, want := range []string{"boom", "late"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("一致する行 %q が消えている:\n%s", want, got)
+		}
 	}
-	if strings.Contains(got, "info line") {
-		t.Errorf("一致しない行が残っている:\n%s", got)
+	for _, ng := range []string{"info line", "unbracketed"} {
+		if strings.Contains(got, ng) {
+			t.Errorf("一致しない行 %q が残っている:\n%s", ng, got)
+		}
 	}
 }
 
