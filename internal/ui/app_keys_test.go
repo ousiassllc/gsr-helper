@@ -8,6 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/ousiassllc/gsr-helper/internal/exec"
+	"github.com/ousiassllc/gsr-helper/internal/ui/discovery"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
 )
@@ -189,8 +190,8 @@ func TestRefreshKeyEmitsDiscover(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("r で Cmd が発行されない")
 	}
-	if _, ok := cmd().(discoveredMsg); !ok {
-		t.Errorf("r の Msg = %T, want discoveredMsg", cmd())
+	if _, ok := cmd().(discovery.Msg); !ok {
+		t.Errorf("r の Msg = %T, want discovery.Msg", cmd())
 	}
 	if len(spies[0].Keys()) != 1 {
 		t.Errorf("r が page へ渡っていない（%d 件）", len(spies[0].Keys()))

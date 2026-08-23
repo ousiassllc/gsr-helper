@@ -19,6 +19,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/gh"
 	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/ui/chrome"
+	"github.com/ousiassllc/gsr-helper/internal/ui/discovery"
 	"github.com/ousiassllc/gsr-helper/internal/ui/hostreq"
 	"github.com/ousiassllc/gsr-helper/internal/ui/keymap"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
@@ -75,7 +76,7 @@ type App struct {
 	// inflight は実行中の検出の本数。0 でない間は新しい検出を始めない（onTick）。
 	inflight int
 	// seq は発行した検出の通し番号、applied は取り込んだ結果の番号。
-	// 古い周期の結果で新しい一覧を上書きしないために持つ（discoveredMsg.seq）。
+	// 古い周期の結果で新しい一覧を上書きしないために持つ（discovery.Msg.Seq）。
 	seq     int
 	applied int
 
@@ -102,28 +103,17 @@ func New(cfg appconfig.Config, caps appconfig.Caps, ex exec.Executor, o Options)
 	keys := keymap.New()
 	styles := token.NewStyles(dark, o.Color)
 	return App{
-		cfg:      cfg,
-		caps:     caps,
-		ex:       ex,
-		opts:     o,
-		keys:     keys,
-		styles:   styles,
-		dark:     dark,
-		width:    0,
-		height:   0,
-		tabs:     tabset.New(caps, ex, keys, styles, dark),
-		active:   0,
-		chrome:   page.ChromeMsg{Tab: 0, Modal: false, Input: "", Status: "", Footer: nil},
-		notice:   "",
-		result:   runner.Result{},
-		err:      nil,
-		inflight: 0,
-		seq:      0,
-		applied:  0,
-
-		hostReq:     0,
-		hostReqDone: false,
-		hostChecks:  doctor.Startup(doctor.Default()),
+		cfg:    cfg,
+		caps:   caps,
+		ex:     ex,
+		opts:   o,
+		keys:   keys,
+		styles: styles,
+		dark:   dark,
+		tabs:   tabset.New(caps, ex, keys, styles, dark),
+		chrome: pageChrome(0),
+		// inflight/seq/applied/hostReq/hostReqDone はゼロ値のままでよい（起動直後）。
+		hostChecks: doctor.Startup(doctor.Default()),
 	}
 }
 
@@ -164,7 +154,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tickMsg:
 		cmd := a.onTick()
 		return a, cmd
-	case discoveredMsg:
+	case discovery.Msg:
 		cmd := a.applyDiscovered(msg)
 		return a, cmd
 	case hostreq.Msg:
@@ -184,7 +174,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a.openTab(msg)
 	case page.TabMsg:
 		// ドメイン層の呼び出し結果は発行元のタブへ戻す（page.TabMsg の doc）。
-		return a.forwardTo(msg.Tab, msg.Msg)
+		return a, tabset.Deliver(a.tabs, msg.Tab, msg.Msg)
 	default:
 		a, cmd := a.forward(msg)
 		return a, cmd
@@ -251,54 +241,20 @@ func (a App) state() page.StateMsg {
 	}
 }
 
-// distribute は共有状態を有効な page へ配る。
-//
-// 選択中のタブだけでなく有効な全タブへ配るのは、タブを切り替えた瞬間に古いサイズや
-// 古い検出結果で描かれることを防ぐためである。各 page は ChromeMsg を返すが、
-// 採用するのは選択中のタブのものだけ（Update の page.ChromeMsg の分岐）。
-//
-// 無効なタブ（この版で未実装のタブ）には配らない。Model を持たないので配る先が無く、
-// 後続 Issue が tabs.go の 1 行を差し替えれば自動的に配られるようになる。
+// distribute は共有状態を有効な page へ配る。各 page は ChromeMsg を返すが、採用
+// するのは選択中のタブのものだけ（Update の page.ChromeMsg の分岐）。配り方そのもの
+// （無効なタブを飛ばす・全有効タブへ配る理由）は tabset.Distribute の doc を参照。
 func (a *App) distribute() tea.Cmd {
-	st := a.state()
-	cmds := make([]tea.Cmd, 0, len(a.tabs))
-	for i := range a.tabs {
-		if !a.live(i) {
-			continue
-		}
-		var cmd tea.Cmd
-		a.tabs[i].Model, cmd = a.tabs[i].Model.Update(st)
-		cmds = append(cmds, cmd)
-	}
-	return tea.Batch(cmds...)
+	return tabset.Distribute(a.tabs, a.state())
 }
 
-// live はタブが Msg を受け取れるか（有効で Model を持つか）を返す。
-func (a App) live(i int) bool {
-	return i >= 0 && i < len(a.tabs) && a.tabs[i].Enabled && a.tabs[i].Model != nil
-}
-
-// forward は Msg を有効タブへ転送する。
+// forward は Msg を選択中のタブへ転送する。
 //
 // 戻りを tea.Model ではなく App にするのは、親 Model が値として流れる形を崩さない
-// ためである（一部の経路だけがポインタを返すと、どちらが最新の状態か追えなくなる）。
+// ためである（一部の経路だけがポインタを返すと、どちらが最新の状態か追えなくなる）。転送
+// そのもの（無効なタブへは配らない）は tabset.Deliver の doc を参照。
 func (a App) forward(msg tea.Msg) (App, tea.Cmd) {
-	return a.forwardTo(a.active, msg)
-}
-
-// forwardTo は Msg を指定したタブへ転送する。
-//
-// 選択中でないタブへも配るのは、page が発行した Cmd の結果を発行元へ戻すためである
-// （page.TabMsg の doc）。無効になったタブ宛の結果は捨てる。配る先の Model が無く、
-// 捨てても失われるのは自分で始めた処理の結果だけである。
-func (a App) forwardTo(i int, msg tea.Msg) (App, tea.Cmd) {
-	if !a.live(i) {
-		return a, nil
-	}
-
-	var cmd tea.Cmd
-	a.tabs[i].Model, cmd = a.tabs[i].Model.Update(msg)
-	return a, cmd
+	return a, tabset.Deliver(a.tabs, a.active, msg)
 }
 
 // current は有効タブを返す。

@@ -8,6 +8,7 @@ import (
 
 	"github.com/ousiassllc/gsr-helper/internal/exec"
 	"github.com/ousiassllc/gsr-helper/internal/runner"
+	"github.com/ousiassllc/gsr-helper/internal/ui/discovery"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
 )
@@ -45,10 +46,10 @@ func press1(a App, k string) (App, page.ChromeMsg, tea.Cmd) {
 func TestPress1DeliversBubbledKeyWhenNotConfined(t *testing.T) {
 	a := newApp(exec.NewFake())
 	a, _ = update(a, tea.WindowSizeMsg{Width: 100, Height: 30})
-	a, _ = update(a, discoveredMsg{
-		seq:    1,
-		result: runner.Result{Runners: []runner.Runner{pagetest.SampleRunner()}},
-		err:    nil,
+	a, _ = update(a, discovery.Msg{
+		Seq:    1,
+		Result: runner.Result{Runners: []runner.Runner{pagetest.SampleRunner()}},
+		Err:    nil,
 	})
 
 	if _, _, cmd := press1(a, "q"); !isQuit(cmd) {
@@ -68,10 +69,10 @@ func TestPress1DeliversBubbledKeyWhenNotConfined(t *testing.T) {
 func TestModalConfinesGlobalKeysBeforeChromeArrives(t *testing.T) {
 	a := newApp(exec.NewFake())
 	a, _ = update(a, tea.WindowSizeMsg{Width: 100, Height: 30})
-	a, _ = update(a, discoveredMsg{
-		seq:    1,
-		result: runner.Result{Runners: []runner.Runner{pagetest.SampleRunner()}},
-		err:    nil,
+	a, _ = update(a, discovery.Msg{
+		Seq:    1,
+		Result: runner.Result{Runners: []runner.Runner{pagetest.SampleRunner()}},
+		Err:    nil,
 	})
 
 	// enter で詳細のモーダルが開く。親へ ChromeMsg は渡さない（1 打鍵ぶん古い状態）。
@@ -106,10 +107,10 @@ func TestModalConfinesGlobalKeysBeforeChromeArrives(t *testing.T) {
 func TestFilterInputConfinesGlobalKeysBeforeChromeArrives(t *testing.T) {
 	a := newApp(exec.NewFake())
 	a, _ = update(a, tea.WindowSizeMsg{Width: 100, Height: 30})
-	a, _ = update(a, discoveredMsg{
-		seq:    1,
-		result: runner.Result{Runners: []runner.Runner{pagetest.SampleRunner()}},
-		err:    nil,
+	a, _ = update(a, discovery.Msg{
+		Seq:    1,
+		Result: runner.Result{Runners: []runner.Runner{pagetest.SampleRunner()}},
+		Err:    nil,
 	})
 
 	a, c, _ := press1(a, "/")
@@ -137,7 +138,7 @@ func TestFilterInputConfinesGlobalKeysBeforeChromeArrives(t *testing.T) {
 
 // 検出中の再読み込みは、黙って何もせず理由を状態行に出す（Issue #49）。
 //
-// 待たされる時間は最大 discoverBudget（15 秒）あり、無反応だと「効かないキー」に
+// 待たされる時間は最大 discovery.Budget（15 秒）あり、無反応だと「効かないキー」に
 // 見える（screens.md の設計原則 2）。無効なタブの番号キーは既に理由を出している。
 func TestRefreshDuringDiscoveryShowsNotice(t *testing.T) {
 	a := newApp(exec.NewFake())

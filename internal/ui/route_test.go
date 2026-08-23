@@ -7,6 +7,7 @@ import (
 
 	"github.com/ousiassllc/gsr-helper/internal/exec"
 	"github.com/ousiassllc/gsr-helper/internal/runner"
+	"github.com/ousiassllc/gsr-helper/internal/ui/discovery"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
 )
@@ -66,7 +67,7 @@ func TestTabMsgForDeadTabIsDropped(t *testing.T) {
 // 後続 Issue ごとに StateMsg と親 Model の両方を直すことになる。
 //
 // **systemctl が無い環境でも nil にしない。** 検出だけが nil にして systemd の参照を
-// 落とす縮退を持つ（discover.go の discoverExec）が、それは runner.Discover の契約で
+// 落とす縮退を持つ（discovery.Exec）が、それは runner.Discover の契約で
 // あって page の約束ではない。
 func TestStateCarriesExecutorToEveryTab(t *testing.T) {
 	fake := exec.NewFake()
@@ -155,10 +156,10 @@ func TestRunnerKeysOpenSetupTab(t *testing.T) {
 			f := exec.NewFake()
 			a := newApp(f)
 			a, _ = update(a, tea.WindowSizeMsg{Width: 100, Height: 30})
-			a, _ = update(a, discoveredMsg{
-				seq:    1,
-				result: runner.Result{Runners: []runner.Runner{pagetest.SampleRunner()}},
-				err:    nil,
+			a, _ = update(a, discovery.Msg{
+				Seq:    1,
+				Result: runner.Result{Runners: []runner.Runner{pagetest.SampleRunner()}},
+				Err:    nil,
 			})
 
 			a, cmd := update(a, press(k))

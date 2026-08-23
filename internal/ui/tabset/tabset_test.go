@@ -236,6 +236,26 @@ func TestOpenTabTitlesMatchTabs(t *testing.T) {
 	}
 }
 
+// Views は選択中かどうかを添字と active の比較で解決し、タブのメタ情報を
+// 表示用の値へ落とす。
+func TestViews(t *testing.T) {
+	tabs := newTestTabs(pagetest.Caps())
+	const active = 2
+
+	views := Views(tabs, active)
+	if len(views) != len(tabs) {
+		t.Fatalf("Views の枚数 = %d, want %d", len(views), len(tabs))
+	}
+	for i, v := range views {
+		if v.Key != tabs[i].Key || v.Title != tabs[i].Title || v.Enabled != tabs[i].Enabled {
+			t.Errorf("%d 番目の TabView = %+v, want Tab のメタ情報と一致", i, v)
+		}
+		if want := i == active; v.Active != want {
+			t.Errorf("%d 番目の TabView.Active = %v, want %v", i, v.Active, want)
+		}
+	}
+}
+
 // KeyOf は有効なタブの番号キーを名前で引く。
 //
 // 起動時の前提チェック（FR-44）が状態行に出す誘導が、タブの並びを変えても

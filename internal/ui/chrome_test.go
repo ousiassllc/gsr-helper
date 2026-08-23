@@ -12,6 +12,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/exec"
 	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/ui/chrome"
+	"github.com/ousiassllc/gsr-helper/internal/ui/discovery"
 )
 
 // 本体以外の領域（タブ行・状態行・フッタ）の表示を検証する。
@@ -41,9 +42,9 @@ func TestViewShowsEverySpecTab(t *testing.T) {
 // 短い表記（keymap.RunnerKeys.Footer）が効いていることをここで固定する。
 func TestFooterShowsEverySpecKeyAtWidth80(t *testing.T) {
 	a, _ := update(newApp(exec.NewFake()), tea.WindowSizeMsg{Width: 80, Height: 24})
-	a, cmd := update(a, discoveredMsg{
-		result: runner.Result{Runners: []runner.Runner{sampleRunner()}},
-		err:    nil,
+	a, cmd := update(a, discovery.Msg{
+		Result: runner.Result{Runners: []runner.Runner{sampleRunner()}},
+		Err:    nil,
 	})
 	a = applyChrome(a, cmd)
 
@@ -69,9 +70,9 @@ func TestFooterShowsEverySpecKeyAtWidth80(t *testing.T) {
 // 無効なキーはフッタ 2 行目に丸括弧付きで並べ、理由を添える（設計原則 4）。
 func TestFooterShowsReasonForDisabledKey(t *testing.T) {
 	a, _ := update(newApp(exec.NewFake()), tea.WindowSizeMsg{Width: 80, Height: 24})
-	a, cmd := update(a, discoveredMsg{
-		result: runner.Result{Runners: []runner.Runner{pagetest.BusyRunner()}},
-		err:    nil,
+	a, cmd := update(a, discovery.Msg{
+		Result: runner.Result{Runners: []runner.Runner{pagetest.BusyRunner()}},
+		Err:    nil,
 	})
 
 	lines := strings.Split(chrome.Footer(applyChrome(a, cmd).chromeView()), "\n")

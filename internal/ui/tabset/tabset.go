@@ -20,6 +20,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/exec"
 	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/ui/keymap"
+	"github.com/ousiassllc/gsr-helper/internal/ui/molecule"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/config"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/disk"
@@ -157,4 +158,114 @@ func KeyOf(tabs []Tab, title string) string {
 		}
 	}
 	return ""
+}
+
+// IndexOfKey は番号キーに一致するタブの添字を返す。無ければ ok は偽。
+//
+// 番号キーと []Tab の添字の対応を知っているのはこのパッケージだけという分担を
+// KeyOf と同じ理由で保つ（親 Model に添字の算出を書き写させない）。
+func IndexOfKey(tabs []Tab, key string) (int, bool) {
+	for i := range tabs {
+		if tabs[i].Key == key {
+			return i, true
+		}
+	}
+	return 0, false
+}
+
+// IndexOfTitle は名前に一致するタブの添字を返す。無ければ ok は偽。
+//
+// タブをまたぐ移動（page.OpenTabMsg）が名前で行き先を指すため、名前から添字を
+// 引く場所をここへ 1 箇所に集める。
+func IndexOfTitle(tabs []Tab, title string) (int, bool) {
+	for i := range tabs {
+		if tabs[i].Title == title {
+			return i, true
+		}
+	}
+	return 0, false
+}
+
+// Next は step の向きへ次に有効なタブの添字を返す。無効なタブは飛ばし、端では
+// 折り返す。有効なタブが 1 枚も無ければ ok は偽。
+func Next(tabs []Tab, active, step int) (int, bool) {
+	n := len(tabs)
+	if n == 0 {
+		return 0, false
+	}
+	for i := 1; i <= n; i++ {
+		target := ((active+step*i)%n + n) % n
+		if tabs[target].Enabled {
+			return target, true
+		}
+	}
+	return 0, false
+}
+
+// Live はタブが Msg を受け取れるか（有効で Model を持つか）を返す。
+func Live(tabs []Tab, i int) bool {
+	return i >= 0 && i < len(tabs) && tabs[i].Enabled && tabs[i].Model != nil
+}
+
+// Deliver は Msg を指定したタブへ配る。無効なタブや Model を持たないタブへは
+// 配らない（Live）。配る先の Model が無く、捨てても失われるのは自分で始めた
+// 処理の結果だけである。
+//
+// **tabs のスライスは実体を共有する前提で書き換える。** 呼び出し側の親 Model
+// （ui.App）の複製がタブのスライスの実体を共有するのと同じ理由で、ここで
+// tabs[i].Model を書き換えれば呼び出し側にもそのまま反映される
+// （ui.App の doc「コピーはタブのスライスの実体を共有する」）。
+func Deliver(tabs []Tab, i int, msg tea.Msg) tea.Cmd {
+	if !Live(tabs, i) {
+		return nil
+	}
+	var cmd tea.Cmd
+	tabs[i].Model, cmd = tabs[i].Model.Update(msg)
+	return cmd
+}
+
+// Distribute は共有状態を有効な全タブへ配る。
+//
+// 選択中のタブだけでなく有効な全タブへ配るのは、タブを切り替えた瞬間に古いサイズや
+// 古い検出結果で描かれることを防ぐためである。
+func Distribute(tabs []Tab, st page.StateMsg) tea.Cmd {
+	cmds := make([]tea.Cmd, 0, len(tabs))
+	for i := range tabs {
+		if !Live(tabs, i) {
+			continue
+		}
+		cmds = append(cmds, Deliver(tabs, i, st))
+	}
+	return tea.Batch(cmds...)
+}
+
+// Broadcast は有効な全タブへ Msg を配り、返った Cmd をまとめる。
+//
+// 選択中のタブだけに配らないのは、裏のタブも自分で始めた処理を持つためである
+// （裏に回ったときに畳み損ねた処理をここで確実に閉じられる）。
+func Broadcast(tabs []Tab, msg tea.Msg) tea.Cmd {
+	cmds := make([]tea.Cmd, 0, len(tabs))
+	for i := range tabs {
+		if cmd := Deliver(tabs, i, msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	}
+	return tea.Batch(cmds...)
+}
+
+// Views はタブのメタ情報を表示用の値へ落とす。
+//
+// 選択中かどうかは添字と active の比較でここで解決し、chrome へは真偽値だけを
+// 渡す（chrome が tabset を import しないための境界）。
+func Views(tabs []Tab, active int) []molecule.TabView {
+	views := make([]molecule.TabView, 0, len(tabs))
+	for i := range tabs {
+		views = append(views, molecule.TabView{
+			Key:     tabs[i].Key,
+			Title:   tabs[i].Title,
+			Active:  i == active,
+			Enabled: tabs[i].Enabled,
+		})
+	}
+	return views
 }

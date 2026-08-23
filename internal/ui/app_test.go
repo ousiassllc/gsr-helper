@@ -12,6 +12,7 @@ import (
 
 	"github.com/ousiassllc/gsr-helper/internal/exec"
 	"github.com/ousiassllc/gsr-helper/internal/runner"
+	"github.com/ousiassllc/gsr-helper/internal/ui/discovery"
 	"github.com/ousiassllc/gsr-helper/internal/ui/template"
 )
 
@@ -49,8 +50,8 @@ func TestFirstTickRunsDiscover(t *testing.T) {
 	if len(cmds) != 2 {
 		t.Fatalf("tickMsg が発行した Cmd の本数 = %d, want 2（検出 + 次の Tick）", len(cmds))
 	}
-	if _, ok := cmds[0]().(discoveredMsg); !ok {
-		t.Errorf("1 本目の Msg = %T, want discoveredMsg", cmds[0]())
+	if _, ok := cmds[0]().(discovery.Msg); !ok {
+		t.Errorf("1 本目の Msg = %T, want discovery.Msg", cmds[0]())
 	}
 	if len(fake.Calls()) == 0 {
 		t.Error("検出が Executor を使っていない")
@@ -73,21 +74,22 @@ func TestTickEmitsDiscoverAndNextTick(t *testing.T) {
 }
 
 // systemctl が無い環境では Executor を渡さず、systemd を参照しない。
+//
+// nil を返す判定そのものは discovery.Exec が持つ（discovery/discovery_test.go の
+// TestExecReturnsNilWithoutSystemd）。ここでは a.discover() がその判定を実際に
+// 使っていることだけを見る。
 func TestDiscoverWithoutSystemd(t *testing.T) {
 	fake := exec.NewFake()
 	a := newApp(fake)
 	a.caps.Systemd = false
 
-	if got := a.discoverExec(); got != nil {
-		t.Errorf("Executor = %v, want nil（systemd 不在の縮退）", got)
-	}
 	a.discover()()
 	if n := len(fake.Calls()); n != 0 {
 		t.Errorf("systemd が無いのにコマンドを %d 件発行している", n)
 	}
 }
 
-// discoveredMsg は有効な全タブへ配られる。
+// discovery.Msg は有効な全タブへ配られる。
 func TestDiscoveredDistributesToAllTabs(t *testing.T) {
 	a, spies := withSpies(newApp(exec.NewFake()))
 	res := runner.Result{
@@ -96,7 +98,7 @@ func TestDiscoveredDistributesToAllTabs(t *testing.T) {
 		Warnings:    nil,
 	}
 
-	a, _ = update(a, discoveredMsg{result: res, err: nil})
+	a, _ = update(a, discovery.Msg{Result: res, Err: nil})
 	for i, s := range spies {
 		if len(s.States()) != 1 {
 			t.Fatalf("タブ %d が受け取った StateMsg = %d 件, want 1", i, len(s.States()))
@@ -114,9 +116,9 @@ func TestDiscoveredDistributesToAllTabs(t *testing.T) {
 
 // 検出のエラーは状態行に出し、画面遷移は巻き戻さない。
 func TestDiscoverErrorGoesToStatus(t *testing.T) {
-	a, _ := update(newApp(exec.NewFake()), discoveredMsg{
-		result: runner.Result{},
-		err:    errTest,
+	a, _ := update(newApp(exec.NewFake()), discovery.Msg{
+		Result: runner.Result{},
+		Err:    errTest,
 	})
 	if got := statusLine(a); !strings.Contains(got, errTest.Error()) {
 		t.Errorf("状態行 = %q, エラーが無い", got)
@@ -142,10 +144,10 @@ func TestDiscoverErrorKeepsLastResult(t *testing.T) {
 	}
 
 	a, spies := withSpies(newApp(exec.NewFake()))
-	a, _ = update(a, discoveredMsg{result: success, err: nil})
+	a, _ = update(a, discovery.Msg{Result: success, Err: nil})
 
 	// 期限切れの周期。取れた分だけの部分結果（runner 0 台・孤児 0 件）が届く。
-	a, _ = update(a, discoveredMsg{result: runner.Result{}, err: errTest})
+	a, _ = update(a, discovery.Msg{Result: runner.Result{}, Err: errTest})
 
 	if got := len(a.result.Runners); got != 1 {
 		t.Errorf("一覧の runner = %d 台, want 1（部分結果で上書きしている）", got)
@@ -167,20 +169,22 @@ func TestDiscoverErrorKeepsLastResult(t *testing.T) {
 	}
 
 	// 成功した周期では置き換える。
-	a, _ = update(a, discoveredMsg{result: runner.Result{}, err: nil})
+	a, _ = update(a, discovery.Msg{Result: runner.Result{}, Err: nil})
 	if len(a.result.Runners) != 0 || a.err != nil {
 		t.Errorf("成功した周期で結果が更新されていない: %+v / %v", a.result, a.err)
 	}
 }
 
-// 検出の deadline は自動更新間隔から切り離す。
-//
-// 間隔と同値だと --refresh 1 でほぼ毎周期が期限切れになり、部分結果しか得られない。
-func TestDiscoverBudgetIsDecoupledFromRefresh(t *testing.T) {
+// 検出の deadline を自動更新間隔から切り離す判定そのものは discovery.Interval /
+// discovery.Budget の責務になった（discovery/interval_test.go の
+// TestBudgetIsDecoupledFromInterval を参照）。ここでは a.refresh() が discovery.Interval
+// への薄い委譲のままであることだけを確かめる。
+func TestRefreshDelegatesToDiscoveryInterval(t *testing.T) {
 	a := newApp(exec.NewFake())
-	a.opts.Refresh = minRefresh
-	if got := a.refresh(); discoverBudget <= got {
-		t.Errorf("検出の予算 = %v, want 更新間隔（%v）より長い", discoverBudget, got)
+	a.opts.Refresh = discovery.MinRefresh
+	want := discovery.Interval(a.opts.Refresh, a.cfg.RefreshDuration())
+	if got := a.refresh(); got != want {
+		t.Errorf("a.refresh() = %v, want discovery.Interval と同じ %v", got, want)
 	}
 }
 
