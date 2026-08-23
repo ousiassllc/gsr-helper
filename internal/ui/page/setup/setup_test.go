@@ -287,3 +287,25 @@ func TestLifecycleMsgsAreNotEatenByModal(t *testing.T) {
 		t.Error("後始末の後に描画が空になっている")
 	}
 }
+
+// Setup タブの esc は Runners へ戻る（screens.md の画面遷移）。
+//
+// 親は esc をタブの移動に使わないので、戻り先が一意に決まるこのタブが自分で
+// 移動を要求する。
+func TestEscapeReturnsToRunners(t *testing.T) {
+	t.Parallel()
+
+	m := newModel(t, state(t, pagetest.SampleRunner()))
+
+	_, cmd := m.Update(pagetest.Press("esc"))
+
+	found := false
+	for _, msg := range pagetest.Msgs(cmd) {
+		if open, ok := msg.(page.OpenTabMsg); ok && open.Title == page.TabRunners {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("esc で Runners タブへ戻る要求が出ていない")
+	}
+}

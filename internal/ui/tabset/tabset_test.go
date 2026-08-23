@@ -219,7 +219,7 @@ func TestTabIndexMatchesPageTabNumber(t *testing.T) {
 // ならないので、ここで機械的に突き合わせる。
 func TestOpenTabTitlesMatchTabs(t *testing.T) {
 	tabs := newTestTabs(pagetest.Caps())
-	for _, title := range []string{page.TabLogs, page.TabSetup} {
+	for _, title := range []string{page.TabLogs, page.TabSetup, page.TabRunners} {
 		found := false
 		for _, tb := range tabs {
 			if tb.Title != title {

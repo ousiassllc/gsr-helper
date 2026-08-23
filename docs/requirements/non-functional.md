@@ -64,16 +64,16 @@
 | ライブラリ | 用途 | 選定理由 | 状況 |
 |-----------|------|---------|------|
 | `charm.land/bubbletea/v2` | TUI フレームワーク | Go の TUI で最も広く使われ、非同期処理を `Cmd` / `Msg` で扱うモデルが本ツールの要件（重い処理を UI から分離）に合う | 導入済み |
-| `charm.land/bubbles/v2` | `table` / `viewport` / `textinput` / `key` / `help` / `spinner` / `progress` / `stopwatch` | 一覧・ログ表示・キー定義・進捗・計時を自前実装せずに済む。使う部品と担当する organism の対応は [TUI コンポーネント設計](../ui/atomic-design.md#organism-一覧) に定める | 導入済み（現時点で使うのは `table` / `viewport` / `textinput` / `key` / `help`） |
+| `charm.land/bubbles/v2` | `table` / `viewport` / `textinput` / `key` / `help` / `spinner` / `progress` / `stopwatch` | 一覧・ログ表示・キー定義・進捗・計時を自前実装せずに済む。使う部品と担当する organism の対応は [TUI コンポーネント設計](../ui/atomic-design.md#organism-一覧) に定める | 導入済み（列挙した 8 部品すべてを使用。`progress` は Setup タブの一括処理の進捗バー、`spinner` / `stopwatch` はドレイン待機と進捗表示） |
 | `charm.land/lipgloss/v2` | スタイリングと表示幅の計算 | 端末のカラープロファイル判定を任せられる。全角を含む文字列の幅計算も `lipgloss.Width` に寄せる | 導入済み |
-| `huh`（Charm。v2 系） | 対話フォーム | 入力検証・条件分岐・確認ステップを備え、`tea.Model` として既存画面に組み込める。フォームを自前実装する理由がない | **未導入。** Config / Setup タブのフォーム（`organism/dialog.Form` と `huh.Theme`）を持ち込む Issue が、モジュールパスを他の 3 つと同じ体系に揃えて追加する |
-| `google/go-github` | GitHub API クライアント | トークン取得・ラベル操作・runner 情報取得。API のバージョン差分をライブラリに任せる | 未導入（GitHub API を使う機能の Issue が追加する） |
+| `huh`（Charm。v2 系） | 対話フォーム | 入力検証・条件分岐・確認ステップを備え、`tea.Model` として既存画面に組み込める。フォームを自前実装する理由がない | 導入済み（`charm.land/huh/v2`）。使うのは `internal/ui/token` の `HuhTheme`（テーマの組み立て）・`organism/dialog.Form`（ラッパー）・`ui/page/setup` の追加フォームの 3 箇所 |
+| `google/go-github` | GitHub API クライアント | トークン取得・ラベル操作・runner 情報取得。API のバージョン差分をライブラリに任せる | 導入済み（`github.com/google/go-github/v83`）。**import してよいのは `internal/gh` だけ**で、go-github の型は同パッケージの外へ出さない。ラベル操作は FR-35（設定編集）のものなので未使用 |
 | `fsnotify/fsnotify` | ファイル監視 | ログのライブテールでポーリングを避ける。`inotify` を直に扱わずに済み、Linux 以外でも同じコードが動く | 導入済み（`internal/logs` の `Tail`）。**追加ではなく直接依存への昇格である**——`golangci-lint` の推移依存として `go.mod` に既に載っていた |
 | `gopkg.in/yaml.v3` | 設定ファイルの読み書き | 自前設定を人が手編集できる形式（コメント可）にするため。監査ログは JSON Lines なので標準ライブラリで扱う | 導入済み |
 
 **Charm の 4 つ（bubbletea / bubbles / lipgloss / huh）は v2 系で揃える。** bubbletea v1 と v2 ではキー入力の `Msg` の型が異なり、周辺ライブラリの版を混ぜると `tea.Model` の実装が噛み合わない。版を上げる場合は 4 つ同時に上げる。
 
-**v2 系のモジュールパスは `charm.land/<name>/v2` である**（`github.com/charmbracelet/<name>` ではない）。`huh` を追加するときも同じ体系のパスと版に揃えること。`github.com/charmbracelet/*` が間接依存として `go.mod` に現れるのは v2 系が内部で使っているためであり、直接 import してはならない（幅計算とカラープロファイルの判定が二重になる）。
+**v2 系のモジュールパスは `charm.land/<name>/v2` である**（`github.com/charmbracelet/<name>` ではない）。`huh` も同じ体系（`charm.land/huh/v2`）で追加してある。`github.com/charmbracelet/*` が間接依存として `go.mod` に現れるのは v2 系が内部で使っているためであり、直接 import してはならない（幅計算とカラープロファイルの判定が二重になる）。`bubbles/progress` を使い始めたことで増えた `github.com/charmbracelet/harmonica`（バーのばね補間）もこれに当たる。
 
 この禁止は `golangci-lint` の `depguard` で機械的に強制している（[環境構築 / golangci-lint](../environment/setup.md#golangci-lint)）。`github.com/charmbracelet` 以下を直接 import すると `make lint` が失敗する。
 
@@ -161,3 +161,4 @@ GitHub Actions の self-hosted runner（`runs-on: [self-hosted, linux, x64]`）�
 | 1.10 | 2026-08-22 | 自動更新間隔の記述に上限を追記し「有効範囲 1〜3600 秒」に統一 | 下限しか書いておらず、`--refresh 86400` が通ると読めた。実際は `appconfig.ValidateRefresh` が上限 3600 秒で拒否する |
 | 1.11 | 2026-08-22 | CI で実行する内容を実際のワークフローに合わせ、`linterly` / `lefthook validate` / ビルド検証を追加し、テストを競合検出付き（`go test -race ./...`）に修正 | `make test` が `-race` 付きになり CI のステップも増えたため、箇条書きが実態より少なく、競合検出の有無も食い違っていた |
 | 1.12 | 2026-08-23 | `fsnotify/fsnotify` を導入済みへ更新。監査ログの例外を 1 種から 2 種に改め、ログ追従（`internal/logs` の `Journal`）が発行する `journalctl -u <unit> -n <N>` を追加 | ログ閲覧を実装した（Issue #9）。追従中は 2 秒ごとに同じ読み取りが発行され、記録すると破壊的操作のレコードを押し流す（[セキュリティ設計](../architecture/security.md#記録対象外とする読み取りコマンド)） |
+| 1.13 | 2026-08-23 | 依存ライブラリの表で `huh`（`charm.land/huh/v2`）と `google/go-github`（`v83`）を導入済みへ更新し、それぞれの使用箇所と、go-github を `internal/gh` の外で import しない規則を明記。`bubbles` の状況を「列挙した 8 部品すべてを使用」に改め、間接依存に `harmonica` が加わる理由を注記 | runner の追加・削除・バージョン更新（Issue #8）で `internal/gh` と Setup タブのフォームを実装したため。表が未導入のままだと、フォームや GitHub API を扱う後続 Issue が「まず依存を追加する」ところから設計をやり直す。`bubbles` の「現時点で使うのは 5 部品」も、進捗バー（`progress`）と計時（`stopwatch`）を使い始めた実装と食い違っていた |

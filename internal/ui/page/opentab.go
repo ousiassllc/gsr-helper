@@ -45,6 +45,15 @@ type ShowLogMsg struct {
 	Runner runner.Runner
 }
 
+// TabRunners は Runners タブの名前。OpenTabMsg.Title に渡す。
+//
+// Setup タブの esc（前の画面へ戻る）が使う。**親は esc をタブの移動に使わない**
+// （keys.go の handleGlobalKey）。Logs タブの esc は絞り込みの解除であり、
+// 移動に使うと絞り込みを解くつもりの打鍵で画面ごと切り替わってしまうためである
+// （screens.md「Logs タブから esc では戻らない」）。戻り先が一意に決まるタブだけが
+// 自分で移動を要求する形にしてある。
+const TabRunners = "Runners"
+
 // TabSetup は Setup タブの名前。OpenTabMsg.Title に渡す。
 //
 // TabLogs と同じく、対応するタブが実在することを tabset のテストが検査する。

@@ -176,6 +176,10 @@ func (m Model) handleKey(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		cmd = m.startUpdate(m.allRunners())
 	case key.Matches(press, m.st.Keys.Runner.Delete):
 		m.notice = noticeDeleteFromList
+	case key.Matches(press, m.st.Keys.Global.Back):
+		// 戻り先が一意に決まるので esc で Runners へ戻る（screens.md の画面遷移）。
+		m.report = nil
+		cmd = page.OpenTab(page.TabRunners, nil)
 	default:
 		next, c := m.forwardTo(press)
 		return next, tea.Batch(c, page.BubbleKey(press))
