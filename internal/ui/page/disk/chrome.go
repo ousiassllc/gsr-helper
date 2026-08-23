@@ -112,15 +112,16 @@ func (m Model) input() string {
 
 // status は状態行に出す page 側の文を返す。
 //
-// 優先順は「入力中 > クリーンアップ中 > 結果報告 > 選択件数」である。進行中の破壊的
-// 操作を選択件数で隠さないことと、その報告を次の打鍵まで読めることを優先する。
+// 優先順は「入力中 > 結果報告 > 選択件数」である。報告を選択件数で隠さず、
+// 次の打鍵まで読めることを優先する。
+//
+// **実行中の件数はここに出さない。** 逐次表示と分母は進捗表示
+// （organism/pane.ProgressList。Issue #75）が持つ。同じ進捗を 2 か所に出すと、
+// 片方だけが古い値になったときにどちらが正しいのか読み手に判断できない。
 func (m Model) status() string {
 	switch {
 	case m.input() != "":
 		return "入力中: " + m.input()
-	case m.clean != nil:
-		return "クリーンアップ中 (" + strconv.Itoa(m.clean.done) + "/" +
-			strconv.Itoa(m.clean.total) + ")"
 	case m.notice != "":
 		return m.notice
 	}

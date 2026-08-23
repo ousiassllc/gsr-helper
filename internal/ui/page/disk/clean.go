@@ -3,15 +3,17 @@ package disk
 import (
 	"context"
 	"strconv"
-	"strings"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/ousiassllc/gsr-helper/internal/disk"
 	"github.com/ousiassllc/gsr-helper/internal/ui/atom"
+	"github.com/ousiassllc/gsr-helper/internal/ui/molecule"
 	"github.com/ousiassllc/gsr-helper/internal/ui/organism/dialog"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/disk/cleanview"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/disk/confirmmodal"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/progressmodal"
 )
 
 // クリーンアップ（FR-30）の一本道を実装する。
@@ -37,11 +39,6 @@ const (
 	noticeRunning = "クリーンアップを実行中です"
 	// noticeBecameBusy は承認を待つ間にジョブが始まったため中止したときの案内。
 	noticeBecameBusy = "ジョブが開始したため中止しました: "
-	// workDirName は削除の可否がジョブの有無で変わるサブツリー。
-	//
-	// internal/disk と同じ名前を持つのは、保護の判定をどちらの層でも同じ
-	// サブツリーに対して行うためである。
-	workDirName = "_work"
 )
 
 // cleanState は実行中のクリーンアップ。nil なら実行していない。
@@ -54,11 +51,15 @@ type cleanState struct {
 	cancel context.CancelFunc
 	// ch は進捗が流れてくる channel。
 	ch <-chan disk.Progress
-	// done / total は状態行に出す進捗（"クリーンアップ中 (2/5)"）。
+	// done / total は進捗表示の分母と分子（pane.ProgressInput）。
 	done  int
 	total int
 	// bytes は解放見込み。結果報告に使う。
 	bytes int64
+	// rows は対象ごとの進み具合。ProgressList へそのまま渡す。
+	rows []molecule.ProgressView
+	// report は完了後の結果報告。実行中は空。
+	report []string
 }
 
 // progressMsg は進捗 1 件の到着。ok が偽なら channel が閉じたことを表す。
@@ -96,14 +97,14 @@ func (m *Model) requestClean() tea.Cmd {
 		return nil
 	}
 
-	plan, err := disk.PlanClean(cleanTargets(checked))
+	plan, err := disk.PlanClean(cleanview.Targets(checkedUsage(checked)))
 	if err != nil {
 		m.notice = err.Error()
 		return nil
 	}
 
 	m.plan = plan
-	return confirmmodal.Open(&m.overlay, confirmInput(plan))
+	return confirmmodal.Open(&m.overlay, cleanview.ConfirmInput(plan))
 }
 
 // onResult は確認ダイアログの決定を処理する。
@@ -123,8 +124,8 @@ func (m *Model) onResult(msg page.ResultMsg) tea.Cmd {
 	if !decided.Confirmed {
 		return nil
 	}
-	// 承認を待つ間にジョブが始まっていないかを見直す（reprotected の doc）。
-	if label := reprotected(plan, m.st.Result.Runners); label != "" {
+	// 承認を待つ間にジョブが始まっていないかを見直す（cleanview.Reprotected の doc）。
+	if label := cleanview.Reprotected(plan, m.st.Result.Runners); label != "" {
 		m.notice = noticeBecameBusy + label
 		return nil
 	}
@@ -164,9 +165,12 @@ func (m *Model) startClean(plan disk.CleanPlan) tea.Cmd {
 		doneCh <- applyDoneMsg{err: err, failed: failed}
 	}()
 
-	m.clean = &cleanState{cancel: cancel, ch: ch, done: 0, total: total, bytes: plan.Bytes}
+	m.clean = &cleanState{
+		cancel: cancel, ch: ch, done: 0, total: total, bytes: plan.Bytes,
+		rows: cleanview.Rows(plan), report: nil,
+	}
 	m.notice = ""
-	return tea.Batch(m.waitProgress(ch), m.waitApply(doneCh))
+	return tea.Batch(m.waitProgress(ch), m.waitApply(doneCh), m.openProgress())
 }
 
 // emptyPlan は「確認中の計画は無い」を表すゼロ値を返す。
@@ -200,17 +204,17 @@ func (m Model) waitApply(ch <-chan applyDoneMsg) tea.Cmd {
 	return page.Do(m.tab, func() tea.Msg { return <-ch })
 }
 
-// onProgress は進捗を状態行へ反映し、次の 1 件を待つ Cmd を返す。
+// onProgress は進捗を ProgressList へ反映し、次の 1 件を待つ Cmd を返す。
 //
-// 進捗バーは出さない。全体件数は確定しているので出せる形ではあるが（screens.md の
-// 「全体件数が確定している処理では進捗バーを併記する」）、バーを描く部品
-// （ProgressList）がまだ無い。件数だけを出しておき、部品ができた時点で差し替える。
+// 全体件数は確認を通した計画の時点で確定しているため、進捗バーが出る
+// （atomic-design.md の「bubbles/progress を使う範囲」）。
 func (m *Model) onProgress(msg progressMsg) tea.Cmd {
 	if m.clean == nil || !msg.ok {
 		return nil
 	}
 	m.clean.done = msg.progress.Done
-	return m.waitProgress(m.clean.ch)
+	cleanview.Mark(m.clean.rows, msg.progress)
+	return tea.Batch(m.waitProgress(m.clean.ch), m.updateProgress())
 }
 
 // onApplyDone は結果を報告し、選択を解いて再集計する。
@@ -229,11 +233,17 @@ func (m *Model) onApplyDone(msg applyDoneMsg) tea.Cmd {
 		return nil
 	}
 
+	// 報告は ProgressList の結果報告欄に出す。状態行にも 1 行残すのは、進捗表示を
+	// 閉じたあとでも結果が読めるようにするためである（次の打鍵で消える）。
+	m.clean.report = cleanview.Report(m.clean.rows, m.clean.bytes, msg.err)
 	m.notice = cleanNotice(m.clean.total, m.clean.bytes, msg)
+	report := m.updateProgress()
+	stop := progressmodal.Stop(&m.overlay)
+
 	m.clean.cancel()
 	m.clean = nil
 	m.tbl.ClearSelection()
-	return m.startScan()
+	return tea.Batch(report, stop, m.startScan())
 }
 
 // cleanNotice は結果報告の 1 行を返す。
@@ -247,19 +257,7 @@ func cleanNotice(total int, bytes int64, msg applyDoneMsg) string {
 			strconv.Itoa(msg.failed) + " 件失敗"
 	}
 	if msg.err != nil {
-		return "クリーンアップに失敗しました: " + firstLine(msg.err.Error())
+		return "クリーンアップに失敗しました: " + cleanview.FirstLine(msg.err.Error())
 	}
 	return "クリーンアップ完了: " + strconv.Itoa(total) + " 件 / " + atom.Bytes(bytes) + " を解放しました"
-}
-
-// firstLine は 1 行目だけを返す。続きがあることは中略記号で示す。
-//
-// disk.Apply は errors.Join で失敗を束ねる（改行区切り）ため、そのまま状態行へ流すと
-// 1 行の領域に複数行が入って枠が崩れる。
-func firstLine(s string) string {
-	head, rest, found := strings.Cut(s, "\n")
-	if found && rest != "" {
-		return head + " …"
-	}
-	return head
 }

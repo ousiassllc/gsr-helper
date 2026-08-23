@@ -1,4 +1,17 @@
-package disk
+// Package cleanview は Disk タブのクリーンアップで、ドメインの値（disk.CleanPlan /
+// disk.Usage / disk.Progress）を確認ダイアログと進捗表示の入力へ落とす。
+//
+// page/disk 本体から分けているのは 2 つの理由による。
+//   - ここにあるのはすべて**純粋関数**であり、tea.Model を組み立てずに検証できる。
+//     Model の中に置くと、文面や進捗の突き合わせを確かめるのにキー入力の再現が要る。
+//   - 1 ディレクトリ 2000 行の上限に対して page/disk に余裕が無い。進捗表示を
+//     ProgressList へ差し替える（Issue #75）と上限を超えるため、上限値を緩めるのでは
+//     なく分けた。
+//
+// **削除の可否の判定もここに置く**（Targets / Reprotected）。表示への写しと同じ
+// 場所に置くのは、保護された対象を「選べない行」として描くのと「計画に載せない」のが
+// 同じ 1 つの事実であり、2 か所に分けると片方だけが古くなるためである。
+package cleanview
 
 import (
 	"strings"
@@ -9,11 +22,6 @@ import (
 )
 
 // 確認ダイアログに出す文面（screens.md の Disk タブのドライラン画面）。
-//
-// モーダルとしての組み立て（page.Modal への配線）は
-// internal/ui/page/disk/confirmmodal が持つ。ここに残るのは disk.CleanPlan を
-// 文面へ落とす confirmInput だけである。ドメイン（disk パッケージ）を知る必要が
-// あるため、ドメインを知らない汎用の包みとは分けてある。
 const (
 	// confirmHeading は確認ダイアログの見出し（screens.md の Disk タブ）。
 	confirmHeading = "クリーンアップの確認"
@@ -37,12 +45,12 @@ const (
 	dockerTargetLabel = "docker 未使用リソース"
 )
 
-// confirmInput は削除計画を確認ダイアログの文面に落とす。
+// ConfirmInput は削除計画を確認ダイアログの文面に落とす。
 //
 // **文面の出どころは計画だけである。** 画面の選択状態から組み直すと、検証を通った
 // 計画と利用者が見る文面が食い違いうる（PlanClean は docker の対象が複数選ばれても
 // コマンドを 1 本にまとめる）。
-func confirmInput(plan disk.CleanPlan) dialog.ConfirmInput {
+func ConfirmInput(plan disk.CleanPlan) dialog.ConfirmInput {
 	targets := make([]string, 0, len(plan.Paths)+1)
 	for _, t := range plan.Paths {
 		targets = append(targets, t.Path+"  "+atom.Bytes(t.Bytes)+"  "+atom.Files(t.Files)+" ファイル")
