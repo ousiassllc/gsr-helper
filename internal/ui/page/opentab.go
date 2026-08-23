@@ -54,6 +54,16 @@ type ShowLogMsg struct {
 // 自分で移動を要求する形にしてある。
 const TabRunners = "Runners"
 
+// TabDoctor は Doctor タブの名前。
+//
+// 移動の要求（OpenTabMsg）には使わない。起動時の前提チェック（FR-44）で不備が
+// 見つかったとき、状態行に出す誘導（`⚠ ホスト前提 2 件（5 で詳細）`）の番号を
+// 親が引くために使う（screens.md の共通レイアウト）。番号を chrome へ直に書くと、
+// タブの並びを変えたときに案内だけが別のタブを指す。
+//
+// TabLogs と同じく、対応するタブが実在することを tabset のテストが検査する。
+const TabDoctor = "Doctor"
+
 // TabSetup は Setup タブの名前。OpenTabMsg.Title に渡す。
 //
 // TabLogs と同じく、対応するタブが実在することを tabset のテストが検査する。

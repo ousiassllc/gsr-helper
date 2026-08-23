@@ -126,3 +126,18 @@ func Delivered[T tea.Msg](s *Spy) int {
 	}
 	return n
 }
+
+// MsgsOf は spy が受け取った Msg のうち T のものだけを順に返す。
+//
+// Delivered が件数だけを返すのに対し、値そのものを見たい検証で使う（親 Model が
+// どのタブへ何を配ったかを突き合わせる用途）。同じ絞り込みを検証側に書き写すと、
+// タブと親で「何を受け取ったか」の数え方が分かれる。
+func MsgsOf[T tea.Msg](s *Spy) []T {
+	out := make([]T, 0, len(s.Msgs()))
+	for _, m := range s.Msgs() {
+		if v, ok := m.(T); ok {
+			out = append(out, v)
+		}
+	}
+	return out
+}

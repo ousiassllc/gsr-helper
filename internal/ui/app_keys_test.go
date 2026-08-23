@@ -152,7 +152,11 @@ func TestDisabledTabNumberShowsReason(t *testing.T) {
 		}
 	}
 	if target < 0 {
-		t.Fatal("無効なタブが 1 枚も無いため検証できない")
+		// 7 枚すべて実装済みなので、能力で無効にする枠のために 1 枚を無効にする。
+		target = len(a.tabs) - 1
+		a.tabs[target].Enabled = false
+		a.tabs[target].Model = nil
+		a.tabs[target].Reason = page.ReasonUnsupported
 	}
 
 	next, _ := sendKey(a, a.tabs[target].Key)
@@ -232,7 +236,7 @@ func TestSwitchTabRefreshesChrome(t *testing.T) {
 	}
 	// 切り替えは離脱・活性化・共有状態の 3 本を束ねて返すため、束の中から探す。
 	found := false
-	for _, c := range cmdList(cmd) {
+	for _, c := range pagetest.Expand(cmd) {
 		if got, ok := c().(page.ChromeMsg); ok && got.Tab == 1 {
 			found = true
 		}
@@ -254,7 +258,7 @@ func isQuit(cmd tea.Cmd) bool {
 	if _, ok := msg.(tea.QuitMsg); ok {
 		return true
 	}
-	seq, ok := asCmds(msg)
+	seq, ok := pagetest.Cmds(msg)
 	if !ok {
 		return false
 	}

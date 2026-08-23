@@ -35,7 +35,7 @@ sequenceDiagram
 
 ### 必要なトークンスコープ
 
-**runner の管理にはスコープごとに異なる権限が必要**であり、不足していると 403 になる。起動時と doctor で保有スコープを確認する。**ただし保有スコープの確認は未実装である**——起動時の能力判定（`gh.HasToken`）が見るのはトークンを取得できるかどうかだけで、スコープを引く `gh.TokenScopes` は doctor を持ち込む Issue が足す。それまで権限不足は API を呼んだ時点の 403 として現れる（下記「レート制限とエラー」）。
+**runner の管理にはスコープごとに異なる権限が必要**であり、不足していると 403 になる。保有スコープの確認は `gh.TokenScopes` が行い、**doctor の「認証・権限」の項目が不足を警告する**（[FR-32](../requirements/functional.md)）。起動時の能力判定（`gh.HasToken`）が見るのはトークンを取得できるかどうかだけで、スコープは見ない——確認は API への往復を要し、起動を待たせるためである。したがって操作の可否（[画面仕様の「無効な操作の表示」](../ui/screens.md#無効な操作の表示)）は認証の有無までで判定し、権限不足は API を呼んだ時点の 403 として現れる（下記「レート制限とエラー」）。
 
 | 対象 | 必要なスコープ（classic PAT / OAuth） | Fine-grained PAT での権限 |
 |------|--------------------------------|------------------------|
@@ -50,6 +50,10 @@ gh auth refresh -h github.com -s admin:org
 ```
 
 保有スコープは API レスポンスの `X-OAuth-Scopes` ヘッダから確認できる。doctor では「操作したいスコープに対して権限が足りているか」を判定して提示する。
+
+確認に叩くのは `GET /rate_limit` である。**レート制限を消費しない唯一の endpoint** であり、診断は繰り返し実行されるものなので、確認そのものが制限を削る形にはしない。応答ヘッダは他の endpoint と同じものが載る。
+
+**`X-OAuth-Scopes` を返さないトークンがある。** fine-grained PAT と GitHub App のトークンはスコープという形の権限を持たない。これを「スコープを 0 個持っている」と扱うと、権限の足りている fine-grained PAT に対して `admin:org` がないと誤って警告する。`gh.Scopes.Classic` がヘッダの有無を保持し、doctor は判定不能（SKIP）として区別する。
 
 ### 使用するエンドポイント
 
@@ -75,10 +79,11 @@ gh auth refresh -h github.com -s admin:org
 | runner group の一覧 | `GET /orgs/{org}/actions/runner-groups`（enterprise は `GET /enterprises/{enterprise}/actions/runner-groups`） | FR-12、FR-35（org / enterprise のみ。repo スコープには無い） |
 | runner group の付け替え | `PUT {org|enterprise}/actions/runner-groups/{runner_group_id}/runners/{runner_id}` | FR-35（org / enterprise のみ） |
 | runner 本体の最新版 | `GET /repos/actions/runner/releases/latest` | FR-20（更新の必要性判定） |
+| 保有スコープの確認 | `GET /rate_limit` | doctor。応答の `X-OAuth-Scopes` ヘッダから保有スコープを読む。**レート制限を消費しない唯一の endpoint**であるため確認先に選んでいる（前述） |
 
 **tarball の SHA-256 は `downloads` エンドポイントが返す値を使う。** 自前でハッシュ一覧を持たず、取得したチェックサムと展開前のファイルを照合する。
 
-**上表のうち実際に呼んでいるのは 8 つである**（登録トークン / 登録解除トークン / tarball の取得情報 / runner 本体の最新版 / runner 一覧 / ラベルの取得・置換 / runner group の一覧・付け替え）。
+**上表のうち実際に呼んでいるのは 9 つである**（登録トークン / 登録解除トークン / tarball の取得情報 / runner 本体の最新版 / 保有スコープの確認 / runner 一覧 / ラベルの取得・置換 / runner group の一覧・付け替え）。
 
 **runner の削除は `internal/gh` に実装済みだが、本番の呼び出し元がまだ無い**（`DeleteRunner` を呼ぶのはテストだけである）。runner 一覧は Config タブが GitHub 側の runner ID を名前から引き当てるのに使う（ラベルの API が ID を要求するため）。一覧の照合と孤児検出は、3 秒ポーリングで API を呼ばない方針（後述）に沿ってホスト内の情報だけで構成しており、API 側の一覧と突き合わせる画面がまだ無い。削除は `svc.sh stop` → `svc.sh uninstall` → `config.sh remove --token` の 3 本で完結しており（`internal/setup/remove.go`）、**`config.sh remove` が使えない場合に DELETE へ切り替える経路は実装していない**。runner ディレクトリを失ったなどで `config.sh` を起動できない台の後始末は、この DELETE を使う将来の機能に委ねる。
 
@@ -110,11 +115,13 @@ gh auth refresh -h github.com -s admin:org
 | `systemctl show <unit> --no-pager -p Id -p LoadState -p ActiveState -p SubState -p UnitFileState -p WorkingDirectory -p MainPID -p User` | ユニット状態の取得。`User` は runner 実行ユーザーの特定に使う（FR-43） | FR-01、FR-03、FR-43 |
 | `systemctl start` / `stop` / `restart` / `enable` / `disable` `<unit>` | サービス制御 | FR-06 |
 | `systemctl daemon-reload` | drop-in 変更の反映 | FR-35 |
+| `systemctl show <unit> --no-pager -p Restart -p WorkingDirectory -p Environment` | doctor の systemd ユニット設定の整合確認。上の `show` とは別物で、再検出が引かない項目（`Restart` / `Environment`）を診断のためだけに引く | doctor |
 | `journalctl -u <unit> -n <N> --no-pager` | ユニットログの参照・追従。追従は 2 秒ごとの再発行と差分の送出で行う（`-f` は使わない。理由は [コンポーネント設計](../components/overview.md#journalctl--f-を使わない理由)） | FR-26 |
-| `journalctl -k --since <時刻>` | OOM Killer の履歴確認 | doctor |
-| `timedatectl show` | NTP 同期状態と時刻ずれの確認 | doctor |
+| `journalctl -k --since <時刻> --no-pager` | OOM Killer の履歴確認 | doctor |
+| `timedatectl show -p NTPSynchronized -p NTP -p TimeUSec` | NTP 同期状態の判定 | doctor |
+| `timedatectl timesync-status --no-pager` | システム時計のオフセット（ずれ）の取得。**systemd-timesyncd が算出済みの値を読むだけで、NTP サーバへは問い合わせない**（診断が外向きの通信を増やさない）。機械可読な `timedatectl show-timesync` にオフセットのプロパティは無く、算出済みの値を出すのはこのサブコマンドだけである。timesyncd を使わないホスト（chronyd 運用など）では失敗するが、その場合はずれを出さずに同期状態だけを報告し、SKIP には倒さない | doctor |
 
-**上表の `list-units` / `show` は、再検出（`internal/runner/systemd` の `Scan`）が発行する分に限り監査ログに記録しない**（成功・失敗とも。詳細は [セキュリティ設計](../architecture/security.md#記録対象外とする読み取りコマンド)）。3 秒ごとの自動更新か利用者のキー操作（`r`）による手動再読み込みかは問わない。**`journalctl -u <unit> -n <N> --no-pager` も、ログ追従（`internal/logs` の `Journal`）が発行する分に限り記録しない。** 同じ `journalctl` でも doctor の `-k --since` は診断 1 回につき 1 本なので記録する。判定するのは発行契機でもコマンド名でもなく発行元である。表の他のコマンドは全件記録する。
+**上表の `list-units` / `show` は、再検出（`internal/runner/systemd` の `Scan`）が発行する分に限り監査ログに記録しない**（成功・失敗とも。詳細は [セキュリティ設計](../architecture/security.md#記録対象外とする読み取りコマンド)）。3 秒ごとの自動更新か利用者のキー操作（`r`）による手動再読み込みかは問わない。**同じ `systemctl show` でも doctor の `-p Restart -p WorkingDirectory -p Environment` は記録する**——診断 1 回につき runner 1 台あたり 1 本で、繰り返し発行されないためである。**`journalctl -u <unit> -n <N> --no-pager` も、ログ追従（`internal/logs` の `Journal`）が発行する分に限り記録しない。** 同じ `journalctl` でも doctor の `-k --since` は診断 1 回につき 1 本なので記録する。判定するのは発行契機でもコマンド名でもなく発行元である。表の他のコマンドは全件記録する。
 
 **強制停止に `systemctl kill` は使わない。** 対象を main プロセス以外へ広げるフラグの綴りが systemd のバージョンで変わり（`--kill-who` / `--kill-whom`）、既定のままでは main プロセスしか落とせずに `Runner.Worker` が生き残るためである。代わりに検出済みの PID へ直接 `kill -KILL` を送り（上表の「その他のシステムコマンド」）、そのうえで `systemctl stop <unit>` を発行する。シグナルだけでは systemd 側が「停止した」と記録せず、`Restart=` 付きのユニットが戻ってくる。
 
@@ -156,7 +163,8 @@ gh auth refresh -h github.com -s admin:org
 | コマンド | 用途 |
 |---------|------|
 | `gh auth token` / `sudo -u $SUDO_USER gh auth token` | トークンの取得 |
-| `gh auth status` | 認証状態とアカウント名の確認（doctor での表示用） |
+
+**本ツールが発行する `gh` は `gh auth token` だけである。** doctor の認証・権限の判定も `gh auth status` は使わず、取得したトークンで `gh.Client` を作り `GET /rate_limit` の応答ヘッダを読む経路を通る（`internal/doctor/authz`）。認証ユーザー名は画面に出さない方針なので（[画面仕様](../ui/screens.md#共通レイアウト)）、名前を引くためのコマンドも要らない。`gh auth status` は「レート制限とエラー」の表の 401 で**利用者に案内する**コマンドとして出てくるが、案内するだけでツールが実行するわけではない。
 
 ### その他のシステムコマンド
 
@@ -201,3 +209,5 @@ TCP 接続の成否とレイテンシを確認する。到達先は runner が�
 | 1.7 | 2026-08-23 | `journalctl` の行を実装に合わせ、追従を `-f` ではなく `-n <N> --no-pager` の再発行と差分の送出で行うことに変更。ログ追従が発行する `journalctl` を監査ログの記録対象外に追加し、doctor の `-k --since` は記録することを明記 | ログ閲覧を実装した（Issue #9）。`Executor` は 1 回の実行の出力をまとめて返す契約であり `-f` はタイムアウトまで 1 行も届かない（理由は [コンポーネント設計](../components/overview.md#journalctl--f-を使わない理由)）。追従中は同じ読み取りが繰り返し発行され、記録すると破壊的操作のレコードを押し流す |
 | 1.8 | 2026-08-23 | 強制停止が発行する `kill -KILL <pid>...` を「その他のシステムコマンド」に追加し、`systemctl kill` を使わない理由と停止まで打つ理由を注記 | サービス制御（Issue #5）で強制停止を実装したため。本節はツールが起動する外部コマンドを網羅する表であり、`kill` だけが載っていない状態になっていた |
 | 1.9 | 2026-08-23 | GitHub REST API のエンドポイントが `internal/gh` から実際に呼ばれるようになったことを反映し、4 つ（登録トークン / 登録解除トークン / tarball の取得情報 / 最新版）が使用中、runner 一覧の取得と runner の削除は `internal/gh` に実装済みだが呼び出し元がテストしか無いこと、ラベルの 4 つと runner group の一覧は実装自体が無いことを表と表の直後に明記。DELETE の行が謳っていた「`config.sh remove` が使えない場合の代替」経路は `internal/setup/remove.go` に存在しないため取り消し。保有スコープの確認（`X-OAuth-Scopes`）が未実装で、権限不足は 403 として現れることを「必要なトークンスコープ」に追記。「レート制限とエラー」の表が `gh.APIError` の実装であることと、API を呼ぶ契機（計画を組むときに 1 回、短命トークンは承認のあと）を追記。`config.sh` の `--labels` / `--runnergroup` が値のあるときだけ付くことと予約ラベルを渡さないこと、`svc.sh uninstall` をサービス化されていない runner には発行しないことを注記 | runner の追加・削除・バージョン更新（Issue #8）を実装したため。本節は「外部との接点の全量」を定める文書なので、**どのエンドポイントが実際に呼ばれているのかが読めないと、レート制限やスコープの議論の対象範囲が決まらない**。「起動時と doctor で保有スコープを確認する」は実装が無いまま残っており、[画面仕様](../ui/screens.md#無効な操作の表示)が「スコープ不足の判定は未実装」と書いているのと正面から食い違っていた。`config.sh` の行は空の値でも常にオプションを付ける形に読め、そのとおりに実装すると runner group を指定しない追加が失敗する |
+| 1.10 | 2026-08-23 | 保有スコープの確認を「未実装」から実装済み（`gh.TokenScopes`）へ改め、doctor の「認証・権限」が不足を警告することを明記。確認に `GET /rate_limit` を使う理由（レート制限を消費しない唯一の endpoint）と、`X-OAuth-Scopes` を返さないトークン（fine-grained PAT / GitHub App）を「スコープ 0 個」と区別する理由を追記。操作の可否は認証の有無までで判定し続けることと、その理由（確認が API への往復を要する）を明記 | doctor（Issue #11）が `gh.TokenScopes` を実装したため。「未実装」のままだと、実装したコードがどこから呼ばれているのかを本書から辿れない。とくに fine-grained PAT の扱いは、書かれていないと「スコープが空＝権限不足」と実装され、権限の足りているトークンに対して警告が出続ける |
+| 1.11 | 2026-08-23 | エンドポイント表に `GET /rate_limit`（保有スコープの確認）を追加し、実際に呼んでいるのは 4 つではなく 5 つであると訂正。systemd の表に doctor の `systemctl show <unit> --no-pager -p Restart -p WorkingDirectory -p Environment` を追加し、`journalctl -k --since` に `--no-pager` を補い、`timedatectl show` の 1 行を `show -p NTPSynchronized -p NTP -p TimeUSec` と `timesync-status --no-pager` の 2 行へ分割。表の直後の注記に、doctor の `systemctl show` は記録対象であることを `journalctl` と同じ形で明記。gh CLI の表から `gh auth status` の行を削除し、本ツールが発行する `gh` は `gh auth token` だけであることと、401 の案内に出る `gh auth status` は利用者が打つコマンドであることを注記 | doctor（Issue #11）の実装と表が食い違っていた。**本節は「外部との接点の全量」を定める表なので、載っていないコマンドは無いものとして扱われる**——`/rate_limit` が抜けたまま「呼んでいるのは 4 つ」と断言しており、doctor の `systemctl show` が抜けたまま「`show` は記録しない」と読める注記が残っていた。`gh auth status` は実装が無いうえ、[画面仕様](../ui/screens.md#共通レイアウト)の「`gh` の認証ユーザー名は出さない」とも用途の記述が矛盾していた。`timedatectl` を 2 行に分けたのは、機械可読な `show-timesync` にオフセットのプロパティが無く（`busctl introspect org.freedesktop.timesync1` で確認）、算出済みのずれを出すのは `timesync-status` だけであるため、どちらを発行するかが仕様から一意に決まる必要があるからである |

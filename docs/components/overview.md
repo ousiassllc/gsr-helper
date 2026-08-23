@@ -344,19 +344,41 @@ runner の追加・削除・バージョン更新。最も破壊的な操作を�
 環境診断。チェックを追加しやすい構造にする。
 
 ```go
-// Check は 1 つの診断項目。
+// Check は 1 つの診断項目。型は internal/doctor/check にある。
 type Check interface {
     ID() string
     Category() string
     Startup() bool // 起動時の自動実行（FR-44）の対象か
-    Run(ctx context.Context, in Input) CheckResult
+    Run(ctx context.Context, in Input) []Result
 }
 ```
 
-- 各チェックを独立した `Check` の実装とし、レジストリに登録する。項目の追加が既存コードに影響しない。
-- `Run(ctx, in)` は並列に実行される。`Input` に runner 一覧と `Caps` を渡す。
-- 能力不足で実行できないチェックは `SKIP` を返し、失敗と区別する。
-- `Startup()` が真のチェックは起動時にも実行する（[FR-44](../requirements/functional.md)）。判定はレジストリの絞り込みだけで済み、doctor タブと起動時で実装が分かれない。対象はホスト内の読み取りと軽量なコマンドで完結するものに限る。
+- 各チェックを独立した `Check` の実装とし、レジストリ（`doctor.Default()`）に並べる。項目の追加が既存コードに影響しない。
+- `Run(ctx, in)` は並列に実行される。`Input` に runner 一覧・`Caps`・`Executor` と、テストのための差し替え口（`Now` / `Dial` / `Getenv` / `LookPath` / `FSRoot` / `NewClient`）を渡す。差し替え口はゼロ値のままなら実環境を見る既定へ落ちるので、本番の組み立て側はドメインの値だけを詰めればよい。
+- 能力不足で実行できないチェックは `SKIP` を返し、失敗と区別する。`SKIP` は影響も対処も持たない（対処すべき不備が見つかっていない）。
+- `Startup()` が真のチェックは起動時にも実行する（[FR-44](../requirements/functional.md)）。判定はレジストリの絞り込み（`doctor.Startup`）だけで済み、doctor タブと起動時で実装が分かれない。対象はホスト内の読み取りと軽量なコマンドで完結するものに限る。
+
+**`Run` の戻りは複数である。** パーミッションや docker グループ所属のように runner ごとに判定する項目は runner の数だけ行が並ぶ（[画面仕様](../ui/screens.md#doctor-タブ)の TARGET 列）。単数に固定すると、レジストリが runner 一覧を知る前に項目を組み立てられないか、複数 runner の結果を 1 行へ畳んで TARGET 列を捨てるかの二択になる。前者はレジストリを検出結果に依存させ、後者は画面仕様を満たせない。
+
+#### パッケージの分割
+
+1 ディレクトリ 2000 行（テストを含む）の上限に対し、10 分類ぶんの項目とその検査を 1 つのディレクトリへ置くと収まらない。分類ごとに下位パッケージへ分ける。
+
+| パッケージ | 持つもの |
+|-----------|---------|
+| `doctor/check` | `Check` / `Input` / `Result` / `Status` と、`Input` の補助（`Probe` / `ReadFile` / `DialAddr` / `Client`）。**葉のパッケージ**であり、項目もレジストリも import しない |
+| `doctor` | `check` の型の別名、レジストリ（`Default`）、並列実行と整列（`Run` / `Sort` / `Replace`）、件数の集計（`Count`） |
+| `doctor/authz` | 認証・権限（パーミッション・`hidepid`・トークンスコープ） |
+| `doctor/netcheck` | ネットワーク（到達性・プロキシ設定の整合） |
+| `doctor/hostres` | 時刻・リソース・障害履歴（NTP・ディスク / inode・メモリ / swap・OOM 履歴） |
+| `doctor/jobreq` | docker daemon とジョブ実行の前提（[FR-43](../requirements/functional.md) の 4 点） |
+| `doctor/hostcfg` | 依存コマンド・systemd の整合・構成整合（孤児ユニット・ユニット名の不一致・重複ユニット） |
+
+**型を葉に置くのは import の循環を避けるためである。** レジストリは項目を import し、項目は型を import する。型をレジストリと同じパッケージに置くと、この 2 本が逆向きに交わる。呼び出し側（UI）が名指しするのは `doctor` の別名（`doctor.Check` / `doctor.CheckResult`）であり、`doctor/check` を直に import するのは項目の実装だけである。
+
+**項目の型はどのパッケージでも公開しない。** 入口は分類ごとの `Checks() []check.Check` 1 つに絞る。顔ぶれと並びの判断を分類の中だけで完結させるためであり、レジストリ側で個々の型を名指しできる形にすると、並びの規定が 2 箇所に散る。
+
+**`internal/runner` は変更しない。** `systemd.State` は `Restart` も `Environment` も持たないが、それを足すのは runner の検出（3 経路の突き合わせ）の責務であって診断の都合ではない。検出は 3 秒ごとに全 runner ぶん走るので、診断のためだけに `systemctl show` の項目を増やすとポーリングが重くなる。要る値は `doctor/hostcfg` から自分で `systemctl show` を発行して読む。
 
 ### `internal/config`
 
@@ -403,7 +425,7 @@ GitHub API とトークンの取得。**GitHub と通信するのはこのパッ
 | `Secrets` | マスク対象の秘密文字列をメモリ上だけで保持する。`command.New` の秘密情報の提供元として渡す（下記） | 実装済み |
 | `Labels` 系 | ラベルの取得・置換 | 実装済み（`RunnerLabels` / `ReplaceRunnerLabels`。FR-35 の設定編集で使う）。**追加（POST）と個別削除（DELETE）は未実装**——全量の置き換えで足り、呼び出し元の無い公開 API は置かないため |
 | `RunnerGroups` 系 | runner group の一覧と付け替え | 実装済み（`ListRunnerGroups` / `AddRunnerToGroup`。**org / enterprise のみ**で、repo スコープは `ErrNoRunnerGroups`） |
-| `TokenScopes(ctx)` | 保有スコープの取得 | **未実装**（doctor の Issue が足す。[画面仕様の「無効な操作の表示」](../ui/screens.md#無効な操作の表示) 6 段目「スコープ不足」が判定未実装なのはこのため） |
+| `TokenScopes` / `Scopes` / `RequiredScope` | 保有スコープの取得と、必要なスコープを満たすかの判定。`X-OAuth-Scopes` を返さないトークン（fine-grained PAT / GitHub App）を「スコープを持たない」と区別する（`Scopes.Classic`）。判定は `admin:x ⊃ write:x ⊃ read:x` の包含を辿る | 実装済み（doctor の「認証・権限」が使う） |
 
 **`Secrets` は `command.New` の契約を満たすために、保持済みの値を複製して返すだけの実装にしてある。** 提供元は `Run` のたびに呼ばれるので並行安全であることと、**外部コマンドを起動しないこと**が要る（起動すると `gh auth token` が無限に再帰する）。`cmd/gsr-helper` が 1 つ作って `command.New` と UI（`page.StateMsg.Setup.Secrets`）の両方へ渡し、`setup/job` が取得した短命トークンをここへ預ける。
 
@@ -667,3 +689,4 @@ interface はこの 3 つに留める。ドメインごとの interface は、�
 | 1.27 | 2026-08-23 | runner の追加・削除・バージョン更新（Issue #8）の実装を反映。`internal/setup` の責務表を実際の API（`Plan` / `Unit` / `Step` / `Apply` / `Progress` / `Result`）へ書き直し、短命トークンを計画に載せない構造と `Token` / `TokenFor` の 2 系統を明記。`setup/valid` / `setup/tarball` / `setup/job` を「分割したパッケージ」として追加し、依存グラフの `Setup --> GH` を `SetupJob --> Setup` / `SetupJob --> GH` に訂正、`GH --> Appconf` を追加。UI 層が値の型として `setup.Plan` と `gh.Secrets` を参照するため `UIApp --> Setup` を残し、`Main --> GH` / `UIApp --> GH` を追加。`setup/job` が `setup/tarball` を直に import することを「分割したパッケージ」の依存の向きに追記。`internal/gh` の責務表に状況の列を足し、`Labels` 系と `TokenScopes` が未実装であることと `HasToken` / `APIError` / `Secrets` / `PickDownload` を追記。`hostcaps` の `HasToken` を新しい署名（1 コマンドあたりの上限を取る）と「nil はトークン無し」の規則へ更新。`cmd/gsr-helper` に `gh.Secrets` / `gh.HasToken` の配線を追記。`internal/ui` の表に `ProgressList` / `Form` / `WrapModal` / `TabSetup` / `SetupRequestMsg` を追加。テストの配置に `setup/valid` / `setup/tarball` / `setup` の行を追加 | `internal/setup` の表は `FetchTarball` のように実在しない API を挙げ、`internal/gh` は実装済みと未実装が混在したまま全件が「有る」ように読めた。**依存グラフの `Setup --> GH` は実装と逆で**、`internal/setup` は `gh` を import しない（外部資源を揃えるのは `setup/job` である）。`hostcaps.Options.HasToken` は既定の実装が消えて必須になっており、nil で渡す呼び出しが「既定の判定に落ちる」と読める記述のままだと、認証済みでも追加・削除がグレーアウトする起動を書いてしまう |
 | 1.28 | 2026-08-23 | `setup/tarball` の段落に、拒否対象として**保持対象へリンクで潜り込むエントリ**（`ErrPreservedLink`、`keeplink.go`）と、一時ディレクトリ（`.gsr-stage-<乱数>`）へ展開してから `rename` で移す段（`stage.go`）を追記。テストの観点表の「tarball の検証と展開」に、リンクを 1 段辿る tar と**鎖状に重ねた tar** の両方・一時ディレクトリが残らないことを追加し、「入力検証」の行に**認証情報つき URL は解析できるものと解析に失敗するものの両方**を含めることを追加 | [セキュリティ設計](../architecture/security.md) 1.11 と同じ穴が本書にもあった。本書の観点表は各パッケージの**テストが何を必ず含むか**の一次情報であり、`ErrPreservedLink` の検査を挙げないまま「1 段辿る tar」だけを求めると、`resolve()` の要素ごとの走査（鎖状のリンクを潰す部分）を単段の参照へ退化させても検証が緑のままになる。実際そのミューテーションはこの周まで検知されていなかった。同様に URL の行も、解析に失敗する経路だけが入力を echo する形の欠陥を捕まえられなかった（PR #78 の 2 周目レビュー指摘 B2 / C2） |
 | 1.29 | 2026-08-23 | 依存グラフに実装にあって描かれていなかった 5 本（`SetupJob --> Exec` / `SetupJob --> Runner` / `SetupJob --> RScope` / `Setup --> RScope` / `GH --> RScope`）を追加した | 1.27 で「依存グラフを実際の import と照合した」と記しながら、`setup/job` が `internal/exec` / `internal/runner` / `internal/runner/scope` を、`internal/setup` と `internal/gh` が `internal/runner/scope` を直に import している事実が落ちていた。**このグラフは §依存の規則 を突き合わせる先の一次情報である**ため、辺の欠落は「その依存は存在しない」と読まれる。とくに `setup/job → exec` は、外部コマンドを `exec` 経由に限定するという規則に**従った**正しい import であるにもかかわらず、グラフに無いことを根拠に規則違反（あるいは循環依存の持ち込み）と判定され、差し戻される側に倒れる。`GH --> RScope` も、`internal/gh` が `internal/runner` 全体ではなくスコープだけを参照するという [`internal/runner/scope`](#internalrunnerscope) の分離理由そのものが、グラフからは裏取りできない状態だった（PR #78 の 3 周目レビュー指摘） |
+| 1.30 | 2026-08-23 | doctor（Issue #11）の実装を反映。`Check` の `Run` の戻りを `[]Result` に改め、runner ごとに判定する項目が行を分ける必要があることを理由として明記。`Input` の差し替え口（`Now` / `Dial` / `Getenv` / `LookPath` / `FSRoot` / `NewClient`）を追記。分類ごとの下位パッケージへの分割（`doctor/check` を葉に置く理由・入口を `Checks()` に絞る理由・`internal/runner` を変更せず `systemctl show` を自前で発行する理由）を「パッケージの分割」として新設。`internal/gh` の `TokenScopes` を実装済みへ改め、`Scopes.Classic` による fine-grained PAT の区別と包含関係の判定を追記 | 草案の `Run(ctx, in) CheckResult`（単数）は、runner ごとに 1 行を並べる[画面仕様](../ui/screens.md#doctor-タブ)の TARGET 列と両立しない。単数のまま実装すると、レジストリが検出結果に依存するか TARGET 列を捨てるかのどちらかになる。分割の記述が無いと、次に項目を足す Issue が 1 ディレクトリ 2000 行の上限に当たってから置き場所を考えることになる |

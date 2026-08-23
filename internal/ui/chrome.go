@@ -30,6 +30,8 @@ func (a App) chromeView() chrome.View {
 		Tabs:        a.tabViews(),
 		OrphanUnits: len(a.result.OrphanUnits),
 		Warnings:    len(a.result.Warnings),
+		HostReq:     a.hostReq,
+		DoctorKey:   a.doctorKey(),
 		Err:         a.err,
 		Notice:      a.notice,
 		Status:      a.chrome.Status,

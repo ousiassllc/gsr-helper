@@ -12,18 +12,16 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
 )
 
-// press1 は打鍵を 1 つ送り、page が返した ChromeMsg と、差し戻しを親が解釈した結果の
-// Cmd を返す。**閉じ込められたときの Cmd は nil である**（page 自身の Cmd は返さない。
-// 絞り込み中はそこに点滅の Cmd が混じり、isQuit で実行すると待たされる）。
+// press1 は打鍵を 1 つ送り、page が返した ChromeMsg と、差し戻しを親が解釈した
+// 結果の Cmd を返す。**閉じ込められたときの Cmd は nil である**（page 自身の Cmd は
+// 返さない。絞り込み中は点滅の Cmd が混じり、isQuit で実行すると待たされる）。
 //
 // **打鍵は page → 親の往復を経る**（helper_test の sendKey と同じ）。App.Update を
-// 1 回呼ぶだけの update では page.GlobalKeyMsg が親へ戻らず、閉じ込めを判定する経路が
-// 走らない。update で書いていた頃は runners.handleKey の閉じ込めを消してもこのファイル
-// の press1 を使う 2 つのテストが緑のままだった（Issue #31）。
-//
-// ChromeMsg は取り出すだけで**親へは渡さない**（前提は「親の状態は 1 打鍵ぶん古い」で
-// あり、渡すと検証したい経路が消える）。なお「親が page より先にキーを解釈してしまう」
-// 退行はここでは nil と区別できないので、app_keys_test の spy 経由の検証が受け持つ。
+// 1 回呼ぶだけの update では page.GlobalKeyMsg が親へ戻らず、閉じ込めの判定が走らない。
+// update で書いていた頃は runners.handleKey の閉じ込めを消しても緑のままだった
+// （Issue #31）。ChromeMsg は取り出すだけで**親へは渡さない**（前提は「親の状態は
+// 1 打鍵ぶん古い」であり、渡すと検証したい経路が消える）。「親が page より先に
+// キーを解釈する」退行は app_keys_test の spy 経由の検証が受け持つ。
 func press1(a App, k string) (App, page.ChromeMsg, tea.Cmd) {
 	next, cmd := update(a, press(k))
 

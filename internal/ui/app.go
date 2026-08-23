@@ -14,10 +14,12 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/ousiassllc/gsr-helper/internal/appconfig"
+	"github.com/ousiassllc/gsr-helper/internal/doctor"
 	"github.com/ousiassllc/gsr-helper/internal/exec"
 	"github.com/ousiassllc/gsr-helper/internal/gh"
 	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/ui/chrome"
+	"github.com/ousiassllc/gsr-helper/internal/ui/hostreq"
 	"github.com/ousiassllc/gsr-helper/internal/ui/keymap"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 	"github.com/ousiassllc/gsr-helper/internal/ui/tabset"
@@ -38,15 +40,10 @@ type Options struct {
 	Host string
 	// Secrets は短命トークンの預け先。Setup タブが取得したトークンを載せる。
 	Secrets *gh.Secrets
-	// ConfigPath は設定ファイルの配置先。Config タブの書き込み先になる。
-	//
-	// UI 側で決め直さないのは、配置先の決定（SUDO_USER の扱いを含む）が
-	// appconfig/confpath の責務だからである。
+	// ConfigPath は設定ファイルの配置先（決定は appconfig/confpath の責務）。
 	ConfigPath string
-	// FirstRun は設定ファイルが無い状態で起動したか（FR-41）。
-	//
-	// appconfig.Load はファイルが無くても既定値を返すため、cfg からは初回起動を
-	// 判別できない。判定は cmd が appconfig.Exists で行う。
+	// FirstRun は設定ファイルが無い状態で起動したか（FR-41）。判定は cmd が
+	// appconfig.Exists で行う（Load はファイルが無くても既定値を返すため）。
 	FirstRun bool
 }
 
@@ -81,6 +78,14 @@ type App struct {
 	// 古い周期の結果で新しい一覧を上書きしないために持つ（discoveredMsg.seq）。
 	seq     int
 	applied int
+
+	// hostReq は起動時のジョブ実行の前提チェック（FR-44）で見つかった不備の件数。
+	// hostReqDone は 1 度発行したか（hostreq.go）。
+	hostReq     int
+	hostReqDone bool
+	// hostChecks は起動時に走らせる診断項目。空なら走らせない。**テストの
+	// 差し替え口でもある**（本物は実ホストの sudo / docker / /etc/group を読む）。
+	hostChecks []doctor.Check
 }
 
 // tea.Model を実装していることをコンパイル時に確かめる。
@@ -115,6 +120,10 @@ func New(cfg appconfig.Config, caps appconfig.Caps, ex exec.Executor, o Options)
 		inflight: 0,
 		seq:      0,
 		applied:  0,
+
+		hostReq:     0,
+		hostReqDone: false,
+		hostChecks:  doctor.Startup(doctor.Default()),
 	}
 }
 
@@ -158,6 +167,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case discoveredMsg:
 		cmd := a.applyDiscovered(msg)
 		return a, cmd
+	case hostreq.Msg:
+		a.hostReq = msg.Bad
+		return a, nil
 	case page.ChromeMsg:
 		if msg.Tab == a.active {
 			a.chrome = msg
