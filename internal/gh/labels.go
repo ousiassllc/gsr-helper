@@ -3,21 +3,20 @@ package gh
 import (
 	"context"
 	"net/http"
-	"net/url"
 	"strconv"
 
 	"github.com/ousiassllc/gsr-helper/internal/runner/scope"
 )
 
-// labelsResponse はラベル系 4 エンドポイントに共通のレスポンス。
-// 4 つとも「操作後のラベル全量」を同じ形で返すため型は 1 つで足りる。
+// labelsResponse はラベル系エンドポイントに共通のレスポンス。
+// いずれも「操作後のラベル全量」を同じ形で返すため型は 1 つで足りる。
 type labelsResponse struct {
 	Labels []struct {
 		Name string `json:"name"`
 	} `json:"labels"`
 }
 
-// labelsRequest は置換・追加のリクエスト本文。
+// labelsRequest は置換のリクエスト本文。
 type labelsRequest struct {
 	Labels []string `json:"labels"`
 }
@@ -40,30 +39,15 @@ func (c *Client) ReplaceRunnerLabels(
 	return c.labelCall(ctx, sc, "replace_runner_labels", http.MethodPut, runnerID, "", labelsBody(labels))
 }
 
-// AddRunnerLabels は runner に labels を追加する。既存のラベルは残る。
+// labelCall はラベル系エンドポイントの共通処理。
 //
-// POST {scope}/actions/runners/{runner_id}/labels（FR-35）。戻り値は追加後の全量。
-func (c *Client) AddRunnerLabels(
-	ctx context.Context, sc scope.Scope, runnerID int64, labels []string,
-) ([]string, error) {
-	return c.labelCall(ctx, sc, "add_runner_labels", http.MethodPost, runnerID, "", labelsBody(labels))
-}
-
-// RemoveRunnerLabel は runner からラベルを 1 つ外す。
+// メソッド・パス末尾・本文の有無しか違わない。パスの組み立てと wrap を 1 箇所に
+// 閉じ、スコープごとの分岐やエラーの整形が散らばるのを防ぐ。
 //
-// DELETE {scope}/actions/runners/{runner_id}/labels/{name}（FR-35）。name は
-// パス要素になるためエスケープする。戻り値は削除後のラベル全量。
-func (c *Client) RemoveRunnerLabel(
-	ctx context.Context, sc scope.Scope, runnerID int64, name string,
-) ([]string, error) {
-	suffix := "/" + url.PathEscape(name)
-	return c.labelCall(ctx, sc, "remove_runner_label", http.MethodDelete, runnerID, suffix, nil)
-}
-
-// labelCall はラベル系 4 エンドポイントの共通処理。
-//
-// 4 つはメソッド・パス末尾・本文の有無しか違わない。パスの組み立てと wrap を
-// 1 箇所に閉じ、スコープごとの分岐やエラーの整形が散らばるのを防ぐ。
+// **追加（POST）と個別削除（DELETE）は実装していない。** 設定編集は現在値を
+// 取って全量を置き換える形（GET → PUT）で足りており、呼び出し元の無い公開 API は
+// 置かないためである（コンポーネント設計）。必要になった Issue が suffix と
+// メソッドを変えて足せる形にしてある。
 func (c *Client) labelCall(
 	ctx context.Context, sc scope.Scope, op, method string, runnerID int64, suffix string, body any,
 ) ([]string, error) {
@@ -87,7 +71,7 @@ func (c *Client) labelCall(
 	return out, nil
 }
 
-// labelsBody は置換・追加の本文を組み立てる。
+// labelsBody は置換の本文を組み立てる。
 //
 // nil をそのまま JSON にすると "labels":null になり GitHub が 422 を返すため
 // 必ず配列にする。空配列（全部外す）は正当な指定なので通す。

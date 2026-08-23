@@ -46,6 +46,15 @@ func TestRunnerLabelEndpoints(t *testing.T) {
 			path:   "/orgs/foo/actions/runners/7/labels",
 			body:   `{"labels":["gpu","cuda"]}`,
 		},
+		"取得は enterprise スコープのパスへ GET": {
+			sc: entScope(),
+			call: func(c *gh.Client, ctx context.Context, sc scope.Scope) ([]string, error) {
+				return c.RunnerLabels(ctx, sc, 7)
+			},
+			method: http.MethodGet,
+			path:   "/enterprises/acme/actions/runners/7/labels",
+			body:   "",
+		},
 		"置換で nil を渡しても null は送らない": {
 			sc: orgScope(),
 			call: func(c *gh.Client, ctx context.Context, sc scope.Scope) ([]string, error) {
@@ -54,24 +63,6 @@ func TestRunnerLabelEndpoints(t *testing.T) {
 			method: http.MethodPut,
 			path:   "/orgs/foo/actions/runners/7/labels",
 			body:   `{"labels":[]}`,
-		},
-		"追加は enterprise スコープのパスへ POST": {
-			sc: entScope(),
-			call: func(c *gh.Client, ctx context.Context, sc scope.Scope) ([]string, error) {
-				return c.AddRunnerLabels(ctx, sc, 7, []string{"gpu"})
-			},
-			method: http.MethodPost,
-			path:   "/enterprises/acme/actions/runners/7/labels",
-			body:   `{"labels":["gpu"]}`,
-		},
-		"個別削除はラベル名をパスに付けて DELETE": {
-			sc: repoScope(),
-			call: func(c *gh.Client, ctx context.Context, sc scope.Scope) ([]string, error) {
-				return c.RemoveRunnerLabel(ctx, sc, 42, "gpu run")
-			},
-			method: http.MethodDelete,
-			path:   "/repos/foo/bar/actions/runners/42/labels/gpu run",
-			body:   "",
 		},
 	}
 

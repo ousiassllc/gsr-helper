@@ -401,7 +401,7 @@ GitHub API とトークンの取得。**GitHub と通信するのはこのパッ
 | `LatestRunnerVersion` | runner 本体の最新版。タグの先頭の `v` を落として `bin/runnerversion` と同じ表記に揃える | 実装済み |
 | `APIError` | 失敗を「次に何をすればよいか」まで含めて表す（不足スコープ・待機時間・確認コマンドを `Hint` に載せる）。**自動リトライはしない**（レート制限を再消費しないため） | 実装済み |
 | `Secrets` | マスク対象の秘密文字列をメモリ上だけで保持する。`command.New` の秘密情報の提供元として渡す（下記） | 実装済み |
-| `Labels` 系 | ラベルの取得・置換・追加・削除 | 実装済み（`RunnerLabels` / `ReplaceRunnerLabels` / `AddRunnerLabels` / `RemoveRunnerLabel`。FR-35 の設定編集で使う） |
+| `Labels` 系 | ラベルの取得・置換 | 実装済み（`RunnerLabels` / `ReplaceRunnerLabels`。FR-35 の設定編集で使う）。**追加（POST）と個別削除（DELETE）は未実装**——全量の置き換えで足り、呼び出し元の無い公開 API は置かないため |
 | `RunnerGroups` 系 | runner group の一覧と付け替え | 実装済み（`ListRunnerGroups` / `AddRunnerToGroup`。**org / enterprise のみ**で、repo スコープは `ErrNoRunnerGroups`） |
 | `TokenScopes(ctx)` | 保有スコープの取得 | **未実装**（doctor の Issue が足す。[画面仕様の「無効な操作の表示」](../ui/screens.md#無効な操作の表示) 6 段目「スコープ不足」が判定未実装なのはこのため） |
 
