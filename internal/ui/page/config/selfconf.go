@@ -41,6 +41,14 @@ func (m Model) selfConf() appconfig.Config {
 	return m.st.Config.Conf
 }
 
+// firstRunUnsaved は設定ファイルがまだ無い状態か（初回起動で未保存）を返す。
+//
+// FirstRun は起動時の判定なので、このセッションで一度書き込んだ後（confSet）は
+// もうファイルがある。差分の基準をどこに置くかは saveSelf が使う。
+func (m Model) firstRunUnsaved() bool {
+	return m.st.Config.FirstRun && !m.confSet
+}
+
 // openSelfForm は自身の設定のフォームを開く（FR-41 / FR-42）。
 func (m *Model) openSelfForm() tea.Cmd {
 	m.self = true
@@ -95,7 +103,16 @@ func (m *Model) saveSelf() tea.Cmd {
 		return nil
 	}
 
+	// **初回起動では差分の基準を「ファイルが無い」に置く。** ウィザードの初期値は
+	// 既定値そのものなので、base と比べると値を触らない確定が常に
+	// 「変更はありません」になり、設定ファイルが作られない。ファイルが無ければ
+	// 次回起動も FirstRun のままで、ウィザードが毎回出続ける（FR-41 が求める
+	// 「初回だけ」が成立しない）。空を基準にすれば差分は全行追加になり、
+	// 承認の画面もファイルの新規作成として正しく読める。
 	before, after := edit.RenderConfig(base), edit.RenderConfig(next)
+	if m.firstRunUnsaved() {
+		before = ""
+	}
 	if before == after {
 		m.notice = "変更はありません"
 		m.overlay.Close()
