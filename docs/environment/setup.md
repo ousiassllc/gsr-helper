@@ -98,6 +98,7 @@ lint / test / build のコマンド列を Makefile に集約し、**CI と手元
 | `make linterly` | 行数チェック |
 | `make test` | `go test -race ./...`（競合検出あり） |
 | `make build` | `go build ./...` で全パッケージのコンパイルを検証し、`cmd/gsr-helper` が存在する場合はさらに単一バイナリ `gsr-helper` を生成する |
+| `make run` | `build` を実行してから生成したバイナリを起動する。引数は `ARGS` で渡す（`make run ARGS="--root /path/to/actions-runner"`） |
 | `make hooks` | Lefthook を Git Hooks に登録 |
 | `make check` | `fmt-check` → `vet` → `lint` → `linterly` → `test` を順に実行 |
 
@@ -108,6 +109,9 @@ GO   ?= go
 BIN  := gsr-helper
 CMD  := ./cmd/gsr-helper
 
+# run に渡す引数。make run ARGS="--root /path/to/actions-runner" のように使う。
+ARGS ?=
+
 # go fmt が内部で使う gofmt（GOROOT/bin/gofmt）を fmt-check でも使い、整形と検査で
 # ツールチェーンがずれないようにする。
 GOFMT ?= $(shell $(GO) env GOROOT)/bin/gofmt
@@ -117,7 +121,7 @@ GOFMT ?= $(shell $(GO) env GOROOT)/bin/gofmt
 # ファイルを含み、testdata/ と入れ子 worktree は含まない）になる。
 GOFILES_TMPL := {{range .GoFiles}}{{printf "%s/%s\n" $$.Dir .}}{{end}}{{range .CgoFiles}}{{printf "%s/%s\n" $$.Dir .}}{{end}}{{range .TestGoFiles}}{{printf "%s/%s\n" $$.Dir .}}{{end}}{{range .XTestGoFiles}}{{printf "%s/%s\n" $$.Dir .}}{{end}}{{range .IgnoredGoFiles}}{{printf "%s/%s\n" $$.Dir .}}{{end}}
 
-.PHONY: help tools fmt fmt-check vet lint linterly test build hooks check
+.PHONY: help tools fmt fmt-check vet lint linterly test build run hooks check
 
 help: ## ターゲット一覧を表示する
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -157,6 +161,9 @@ build: ## 全パッケージをコンパイル検証し、エントリポイン�
 		echo "$(GO) build -o $(BIN) $(CMD)"; \
 		$(GO) build -o $(BIN) $(CMD); \
 	fi
+
+run: build ## TUI を起動する（make run ARGS="--root /path/to/actions-runner"）
+	./$(BIN) $(ARGS)
 
 hooks: ## Git Hooks を登録する
 	$(GO) tool lefthook install
@@ -711,3 +718,4 @@ pre-push:
 | 1.18 | 2026-08-22 | 「抑制の方針」の棚卸しを現在のツリーに合わせて全面的に更新。除去済みの `internal/runner/systemd.go` の G204 暫定抑制への言及を「方針は満たされている（抑制は `internal/exec/command/command.go` の 1 箇所）」に置き換え、G304 4 件の記述を現存する 9 件すべての表に差し替えた（`internal/runner/procs.go` → `internal/runner/procs/procs.go` の移動、`internal/appconfig` / `internal/audit` の抑制の追加を反映）。G コード別の件数を出力から機械的に検算できない理由と、`_test.go` に実際の抑制指示が無いこと（`internal/buildconfig` に現れる `//nolint` はフィクスチャ文字列とガードテスト自身のコメント・正規表現・メッセージであり、`countNolintInTree` が `_test.go` を除くため棚卸しに影響しない）を明記し、棚卸しが Issue #44 の範囲だとする但し書きを削除 | 記述が PR #25 の移動・分割に追随しておらず、存在しないファイル（`internal/runner/systemd.go` / `internal/runner/procs.go`）と存在しない抑制を指していた。`nolintlint` の `require-specific` はリンター名しか要求しないためツリー内の抑制はすべて裸の `//nolint:gosec` であり、「4 件」という G コード別の数え方は出力から検算できない（Issue #44） |
 | 1.19 | 2026-08-22 | 「抑制の方針」の棚卸しの表で `internal/ui/page/actions.go` を `internal/ui/page/action/allow.go` に訂正 | 可否の判定を `ui/page/action` へ分離した際にファイルが移動しており（[TUI コンポーネント設計](../ui/atomic-design.md) 1.12）、棚卸しが存在しないファイルを挙げたままになっていた。`TestSetupDocNolintInventoryMatchesTree` がこのずれを検出した |
 | 1.20 | 2026-08-23 | 「抑制の方針」の棚卸しを Logs タブ（Issue #9）の実装後のツリーに合わせた。総数を 10 件から **11 件**（うち G304 が 9 件）に改め、`internal/logs/tail.go` の行を 1 件から 2 件へ更新（`Tail` の最初の `os.Open` と、同名で作り直されたログを開き直す `reopen` の `os.Open`）。「G304 の抑制の安全性の根拠」の 4 分類に件数（5 / 1 / 1 / 2）を書き添え、`internal/logs/tail.go` の 2 件を「事前条件に依拠する根拠」に分類したうえで、`internal/runner/config.go` との違い（パスを組み立てるか丸ごと受け取るか）と `reopen` で追加の根拠が要らない理由（開き直してもパスは変わらない）を明記 | Logs タブの実装で `internal/logs/tail.go` に G304 の抑制が入り、さらにログの入れ替え（inode 変更）への追従で `reopen` の 1 件が加わって計 2 件になった。表の行は追加されていたが件数は 1 のままで、`TestSetupDocNolintInventoryMatchesTree` が落ちる状態だった。**より問題なのは分類の側で**、4 分類の説明は合計 7 件しか扱っておらず、`internal/logs/tail.go` の抑制はどの分類にも属さないまま表にだけ載っていた。この節は「なぜこの抑制が安全か」を後から検算するための唯一の場所であり、分類に載らない抑制は**理由コメントを読む以外に安全性を確かめる手段が無い**。件数を各分類に書き添えたのは、表の合計と分類の合計が一致することを目視で突き合わせられるようにするためで、次に抑制が増えたときの取りこぼしを同じ形で防ぐ |
+| 1.21 | 2026-08-23 | 「タスクランナー」節のターゲット一覧表と Makefile のコードブロックに `make run`（`build` 後に生成したバイナリを `ARGS` 付きで起動する）を反映 | Makefile に `run` ターゲットと `ARGS` 変数が追加されたのに仕様書へ反映されておらず、`internal/buildconfig` の同期テスト（`TestSetupDocEmbedsConfigFilesVerbatim`）が失敗したまま既定ブランチに入っていた |
