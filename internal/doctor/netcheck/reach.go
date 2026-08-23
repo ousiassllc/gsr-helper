@@ -76,12 +76,12 @@ var reachEndpoints = []endpoint{
 // （security.md）。
 const reachRemedy = "ファイアウォールとプロキシの設定を確認する（この画面は表示するだけで設定は変更しない）"
 
-// proxyBypassNote はプロキシ配下のときに各行へ添える断り書き。
+// proxyDirectNote はプロキシ配下のときに各行へ添える断り書き。
 //
 // ここでの確認は in.DialAddr による素の TCP 接続で、プロキシを経由しない。
 // 正しくプロキシを設定したホストでは直接の外向き通信が塞がれているのが普通
 // なので、断りなしに並べると設定が正しいことの証跡が不備に見える。
-const proxyBypassNote = "この確認はプロキシを経由せず TCP で直接つないでいる。プロキシ経由の環境では直接の到達が塞がれているのが正常なこともある。"
+const proxyDirectNote = "この確認はプロキシを経由せず TCP で直接つないでいる。プロキシ経由の環境では直接の到達が塞がれているのが正常なこともある。"
 
 // reachCheck は GitHub 側の各エンドポイントへ TCP で到達できるかを確かめる。
 type reachCheck struct{}
@@ -171,5 +171,5 @@ func detailWithNote(body string, proxied bool) string {
 	if !proxied {
 		return body
 	}
-	return strings.Join([]string{body, proxyBypassNote}, "\n")
+	return strings.Join([]string{body, proxyDirectNote}, "\n")
 }
