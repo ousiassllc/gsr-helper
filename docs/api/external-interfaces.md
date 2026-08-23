@@ -72,7 +72,7 @@ gh auth refresh -h github.com -s admin:org
 | ラベルの置換 | `PUT {scope}/actions/runners/{runner_id}/labels` | FR-35 |
 | ラベルの追加 | `POST {scope}/actions/runners/{runner_id}/labels` | FR-35 |
 | ラベルの個別削除 | `DELETE {scope}/actions/runners/{runner_id}/labels/{name}` | FR-35 |
-| runner group の一覧 | `GET /orgs/{org}/actions/runner-groups` | FR-12、FR-35（org / enterprise のみ） |
+| runner group の一覧 | `GET /orgs/{org}/actions/runner-groups`（enterprise は `GET /enterprises/{enterprise}/actions/runner-groups`） | FR-12、FR-35（org / enterprise のみ。repo スコープには無い） |
 | runner 本体の最新版 | `GET /repos/actions/runner/releases/latest` | FR-20（更新の必要性判定） |
 
 **tarball の SHA-256 は `downloads` エンドポイントが返す値を使う。** 自前でハッシュ一覧を持たず、取得したチェックサムと展開前のファイルを照合する。
@@ -81,7 +81,7 @@ gh auth refresh -h github.com -s admin:org
 
 **runner 一覧の取得と runner の削除は `internal/gh` に実装済みだが、本番の呼び出し元がまだ無い**（`ListRunners` / `DeleteRunner` を呼ぶのはテストだけである）。一覧の照合と孤児検出は、3 秒ポーリングで API を呼ばない方針（後述）に沿ってホスト内の情報だけで構成しており、API 側の一覧と突き合わせる画面がまだ無い。削除は `svc.sh stop` → `svc.sh uninstall` → `config.sh remove --token` の 3 本で完結しており（`internal/setup/remove.go`）、**`config.sh remove` が使えない場合に DELETE へ切り替える経路は実装していない**。runner ディレクトリを失ったなどで `config.sh` を起動できない台の後始末は、この DELETE を使う将来の機能に委ねる。
 
-**ラベルの 4 つと runner group の一覧は実装自体がまだ無い**——どちらも FR-35（設定編集）と FR-12 の runner group 指定に付随するもので、Config タブが未実装だからである。runner group は追加のフォームで名前を入力する形にしてあり（`config.sh --runnergroup`）、一覧から選ばせる段階でこのエンドポイントが要る。呼び出しはすべて `internal/gh` の `Client` を通り、**GitHub と通信するパッケージはここ 1 つだけである**（[コンポーネント設計](../components/overview.md#internalgh)）。
+**ラベルの 4 つと runner group の一覧は Config タブ（FR-35）が実装した**（`internal/gh` の `RunnerLabels` / `ReplaceRunnerLabels` / `AddRunnerLabels` / `RemoveRunnerLabel` / `ListRunnerGroups`）。ラベルと runner group は GitHub 側の値なので、変更は再起動を伴わず即時に反映される。runner group は追加のフォームでは名前を入力する形のままで（`config.sh --runnergroup`）、一覧から選ばせるのは Config タブである。**runner group は org / enterprise にしか無く、repo スコープでは `ErrNoRunnerGroups` を返して要求を送らない。** 呼び出しはすべて `internal/gh` の `Client` を通り、**GitHub と通信するパッケージはここ 1 つだけである**（[コンポーネント設計](../components/overview.md#internalgh)）。
 
 ### レート制限とエラー
 

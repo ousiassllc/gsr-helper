@@ -23,6 +23,9 @@ var ErrNoDownload = errors.New("この OS / アーキテクチャ向けの runne
 // ErrNoVersion は最新バージョンのタグが空だった場合のエラー。
 var ErrNoVersion = errors.New("runner の最新バージョンを判定できません")
 
+// ErrNoRunnerGroups は repo スコープの runner に runner group を問い合わせた場合のエラー。
+var ErrNoRunnerGroups = errors.New("runner group は org / enterprise スコープでのみ使えます")
+
 // APIError は GitHub API の失敗を、利用者が次に何をすればよいかまで含めて表す。
 //
 // docs/api/external-interfaces.md の「レート制限とエラー」の表に対応する。
