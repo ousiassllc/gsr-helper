@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/ousiassllc/gsr-helper/internal/buildconfig/buildconfigtest"
 )
 
 type lefthookCommand struct {
@@ -31,7 +33,7 @@ type lefthookConfig struct {
 func loadLefthookConfig(t *testing.T) lefthookConfig {
 	t.Helper()
 
-	raw, err := os.ReadFile(filepath.Join(repoRoot(t), "lefthook.yml"))
+	raw, err := os.ReadFile(filepath.Join(buildconfigtest.RepoRoot(t), "lefthook.yml"))
 	if err != nil {
 		t.Fatalf("lefthook.yml を読めない: %v", err)
 	}
@@ -125,7 +127,7 @@ func TestLefthookPreCommitOrderIsPinnedByPriority(t *testing.T) {
 // lefthook.yml は go.mod でピン留めしたバージョンの lefthook が受け付ける形でなければならない。
 func TestLefthookConfigIsValid(t *testing.T) {
 	cmd := exec.Command("go", "tool", "lefthook", "validate")
-	cmd.Dir = repoRoot(t)
+	cmd.Dir = buildconfigtest.RepoRoot(t)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("lefthook validate が失敗した: %v\n出力:\n%s", err, out)
 	}

@@ -27,6 +27,9 @@ var fixtures = map[string]bool{
 	selfPath + "/cmdtest": true,
 	modulePath + "/internal/ui/organism/table/tabletest": true,
 	modulePath + "/internal/setup/setuptest":             true,
+	// buildconfigtest は buildconfig とその docscheck が共有するリポジトリルートの
+	// 解決を持つ（1 ディレクトリの行数上限で 2 つに分けた結果。Issue #161）。
+	modulePath + "/internal/buildconfig/buildconfigtest": true,
 }
 
 // shared は page/ 直下にあってタブではないパッケージ。

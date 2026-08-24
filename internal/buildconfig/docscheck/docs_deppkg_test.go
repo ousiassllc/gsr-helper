@@ -1,4 +1,4 @@
-package buildconfig
+package docscheck
 
 // 依存グラフの検査のうち、**実装の側**を読む道具を置く。go list でモジュールの
 // パッケージを列挙し、ノード対応表で mermaid のノードへ畳み、層をまたぐ辺を作る
@@ -14,6 +14,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/ousiassllc/gsr-helper/internal/buildconfig/buildconfigtest"
 )
 
 // modulePath は go list が返す import パスの接頭辞。
@@ -134,7 +136,7 @@ func modulePackages(t *testing.T) []goListPackage {
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "go", "list", "-json", "./...")
-	cmd.Dir = repoRoot(t)
+	cmd.Dir = buildconfigtest.RepoRoot(t)
 	var out, stderr bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &stderr

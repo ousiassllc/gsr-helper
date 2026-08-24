@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/ousiassllc/gsr-helper/internal/buildconfig/buildconfigtest"
 )
 
 // commitSHA はアクションの参照がフルコミット SHA であることの判定に使う。
@@ -89,7 +91,7 @@ func TestCILintJobValidatesLefthookConfig(t *testing.T) {
 
 // SHA ピン留めした版へ追従するため、Dependabot の github-actions を有効にする。
 func TestDependabotWatchesGitHubActions(t *testing.T) {
-	raw, err := os.ReadFile(filepath.Join(repoRoot(t), ".github", "dependabot.yml"))
+	raw, err := os.ReadFile(filepath.Join(buildconfigtest.RepoRoot(t), ".github", "dependabot.yml"))
 	if err != nil {
 		t.Fatalf("dependabot.yml を読めない: %v", err)
 	}

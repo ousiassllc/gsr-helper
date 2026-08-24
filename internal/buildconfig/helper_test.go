@@ -9,31 +9,13 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/ousiassllc/gsr-helper/internal/buildconfig/buildconfigtest"
 )
 
 // makeTimeout は make の実行を打ち切るまでの時間。対象 0 件で gofmt が標準入力を
 // 読み始めた場合（ハング）をテストとして検知するために使う。
 const makeTimeout = 60 * time.Second
-
-// repoRoot はテスト実行ディレクトリから遡り、go.mod を持つリポジトリルートを返す。
-func repoRoot(t *testing.T) string {
-	t.Helper()
-
-	dir, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("カレントディレクトリを取得できない: %v", err)
-	}
-	for {
-		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-			return dir
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			t.Fatal("go.mod を持つリポジトリルートが見つからない")
-		}
-		dir = parent
-	}
-}
 
 // writeFiles は dir 配下に、相対パスをキーとするファイルを書き出す。
 func writeFiles(t *testing.T, dir string, files map[string]string) {
@@ -73,7 +55,7 @@ func runMake(t *testing.T, dir string, extraEnv []string, args ...string) (strin
 	ctx, cancel := context.WithTimeout(context.Background(), makeTimeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "make", append([]string{"-f", filepath.Join(repoRoot(t), "Makefile")}, args...)...)
+	cmd := exec.CommandContext(ctx, "make", append([]string{"-f", filepath.Join(buildconfigtest.RepoRoot(t), "Makefile")}, args...)...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), extraEnv...)
 	cmd.WaitDelay = time.Second

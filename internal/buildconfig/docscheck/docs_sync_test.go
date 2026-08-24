@@ -1,10 +1,12 @@
-package buildconfig
+package docscheck
 
 import (
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ousiassllc/gsr-helper/internal/buildconfig/buildconfigtest"
 )
 
 // embeddedConfigFiles は docs/environment/setup.md がコードブロックとして
@@ -22,7 +24,7 @@ var embeddedConfigFiles = []string{
 // 仕様書のコードブロックと設定ファイルの実体は一致していなければならない。
 // 片方だけを直すと、仕様書を読んで再現した環境が実体と食い違う。
 func TestSetupDocEmbedsConfigFilesVerbatim(t *testing.T) {
-	root := repoRoot(t)
+	root := buildconfigtest.RepoRoot(t)
 
 	doc, err := os.ReadFile(filepath.Join(root, "docs", "environment", "setup.md"))
 	if err != nil {

@@ -1,4 +1,4 @@
-package buildconfig
+package docscheck
 
 import (
 	"regexp"

@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/ousiassllc/gsr-helper/internal/buildconfig/buildconfigtest"
 )
 
 // nolintDocRow は docs/environment/setup.md の「抑制の方針」が載せている棚卸しの表の行。
@@ -27,7 +29,7 @@ var nolintDirective = regexp.MustCompile(`//nolint\b`)
 // 仕様書は存在しないファイルの存在しない抑制を挙げたままだった（Issue #44）。
 // コンパイルエラーにも通常のテストにもならないため、ここで機械的に突き合わせる。
 func TestSetupDocNolintInventoryMatchesTree(t *testing.T) {
-	root := repoRoot(t)
+	root := buildconfigtest.RepoRoot(t)
 
 	tree := countNolintInTree(t, root)
 	doc := parseNolintInventory(t, root)

@@ -1,4 +1,4 @@
-package buildconfig
+package docscheck
 
 import (
 	"fmt"
@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/ousiassllc/gsr-helper/internal/buildconfig/buildconfigtest"
 )
 
 // componentOverviewPath は依存グラフと「畳んだノード」の散文の在処。
@@ -91,7 +93,7 @@ type depGraph struct {
 func readComponentOverview(t *testing.T) string {
 	t.Helper()
 
-	body, err := os.ReadFile(filepath.Join(repoRoot(t), filepath.FromSlash(componentOverviewPath)))
+	body, err := os.ReadFile(filepath.Join(buildconfigtest.RepoRoot(t), filepath.FromSlash(componentOverviewPath)))
 	if err != nil {
 		t.Fatalf("%s を読めない: %v", componentOverviewPath, err)
 	}

@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/ousiassllc/gsr-helper/internal/buildconfig/buildconfigtest"
 )
 
 // guardJobName は self-hosted runner を使うジョブの前段に置くゲートジョブ名。
@@ -60,7 +62,7 @@ type ciWorkflow struct {
 
 func workflowsDir(t *testing.T) string {
 	t.Helper()
-	return filepath.Join(repoRoot(t), ".github", "workflows")
+	return filepath.Join(buildconfigtest.RepoRoot(t), ".github", "workflows")
 }
 
 func loadCIWorkflow(t *testing.T) ciWorkflow {
