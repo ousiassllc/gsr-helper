@@ -35,7 +35,7 @@ func startedWaiter(t *testing.T, in dialog.DrainInput) (dialog.DrainWaiter, int)
 // startWaiter は Start が返す Cmd を配り直し、計時の ID を返す。
 //
 // **計時の Tick だけは配らない。** 何秒経ったことにするかはテストが tickWaiter で
-// 決める（pagetest.Pump が Tick を配らないのと同じ理由）。stopwatch は自分の Tick を
+// 決める（cmdtest.Pump が Tick を配らないのと同じ理由）。stopwatch は自分の Tick を
 // Update で繋いで回るため、配ると刻みが二重になって数え方が読めなくなる。
 func startWaiter(t *testing.T, d *dialog.DrainWaiter) int {
 	t.Helper()

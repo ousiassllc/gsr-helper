@@ -14,6 +14,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/jobs"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest/cmdtest"
 )
 
 // REPOSITORY / `_work` 列を Worker ログの解析で埋める（Issue #68）。
@@ -65,7 +66,7 @@ func settle(t *testing.T, st page.StateMsg) tea.Model {
 	t.Helper()
 
 	m, cmd := jobs.New(1, st).Update(st)
-	for _, msg := range pagetest.Msgs(cmd) {
+	for _, msg := range cmdtest.Msgs(cmd) {
 		if tab, ok := msg.(page.TabMsg); ok {
 			msg = tab.Msg
 		}
@@ -181,7 +182,7 @@ func TestJobInfoIsRetriedUntilTheLogAppears(t *testing.T) {
 	// 2 周目: ログが現れたら引き直して埋まる。
 	workerLog(t, dir, trackingLine(r.WorkDir))
 	m, cmd := m.Update(st)
-	for _, msg := range pagetest.Msgs(cmd) {
+	for _, msg := range cmdtest.Msgs(cmd) {
 		if tab, ok := msg.(page.TabMsg); ok {
 			msg = tab.Msg
 		}

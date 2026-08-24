@@ -1,4 +1,4 @@
-package pagetest
+package cmdtest
 
 import (
 	"errors"
@@ -144,6 +144,56 @@ func HostReqOf(cmd tea.Cmd) (hostreq.Msg, error) {
 	return hostreq.Msg{}, ErrNotFound
 }
 
+// bundle は束を幅優先で辿るキュー。Pump と FindMsg が共有する。
+//
+// **辿り方だけを共有する。** 1 本ずつ締め切り付きで走らせ、束（tea.Batch /
+// tea.Sequence）なら中身をキューへ積み直し、そうでなければ Msg を 1 つ返す——ここまでが
+// 2 つで同じ形であり、その先（Model を進めるか、述語で照合するか）は違う。**先まで
+// 畳み込むと、進め方・条件・打ち切りを引数で渡し分けることになり、2 つの素朴なループ
+// より読みにくくなる**ので寄せていない（Issue #147）。
+type bundle struct {
+	queue   []tea.Cmd
+	timeout time.Duration
+	// gaveUp は待ち時間内に戻らず諦めた本数。
+	gaveUp int
+}
+
+// newBundle は cmd 1 本から辿り始めるキューを返す。
+func newBundle(cmd tea.Cmd, timeout time.Duration) *bundle {
+	return &bundle{queue: []tea.Cmd{cmd}, timeout: timeout, gaveUp: 0}
+}
+
+// push は辿る Cmd を末尾へ足す。
+func (b *bundle) push(cmds ...tea.Cmd) { b.queue = append(b.queue, cmds...) }
+
+// next は次の Msg を 1 つ返す。辿る Cmd が尽きたら ok が偽。
+//
+// **待ち時間切れで打ち切らない。** 束には戻らない Cmd が混じりうるので、1 本諦めても
+// 残りを辿る（諦めた本数は gaveUp が数える）。
+func (b *bundle) next() (tea.Msg, bool) {
+	for len(b.queue) > 0 {
+		c := b.queue[0]
+		b.queue = b.queue[1:]
+
+		msg, err := RunCmd(c, b.timeout)
+		if errors.Is(err, ErrCmdTimeout) {
+			b.gaveUp++
+
+			continue
+		}
+		if err != nil {
+			continue
+		}
+		if inner, isBundle := Cmds(msg); isBundle {
+			b.push(inner...)
+
+			continue
+		}
+		return msg, true
+	}
+	return nil, false
+}
+
 // Pump は Cmd を辿って Model を進め、cond が満たされた時点で止める。
 //
 // **bubbletea のランタイムの代わりである。** タブの検証は「発行した Cmd が次に何を運んで
@@ -156,31 +206,23 @@ func HostReqOf(cmd tea.Cmd) (hostreq.Msg, error) {
 // 固有だからで、ここに畳み込むと共有できる部分が無くなる。
 //
 // maxSteps で打ち切るのは、条件を満たさない Cmd の連鎖（購読の待ち受けが際限なく続く）で
-// テストを止めないためである。
+// テストを止めないためである。**同じガードを FindMsg に付けていないのは、あちらの
+// キューが増えないからである**——束の展開は有限で、Model を進めない FindMsg には
+// 新しい Cmd を積む経路が無い。増えるのは step が Cmd を返すこちらだけである。
 func Pump[M any](
 	m M, tab int, cmd tea.Cmd, timeout time.Duration,
 	step func(M, tea.Msg) (M, tea.Cmd), cond func(M) bool,
 ) (M, error) {
 	const maxSteps = 200
 
-	queue := []tea.Cmd{cmd}
+	b := newBundle(cmd, timeout)
 	for range maxSteps {
 		if cond(m) {
 			return m, nil
 		}
-		if len(queue) == 0 {
+		msg, ok := b.next()
+		if !ok {
 			return m, errors.New("辿れる Cmd が尽きたが条件を満たさなかった")
-		}
-		next := queue[0]
-		queue = queue[1:]
-
-		msg, err := RunCmd(next, timeout)
-		if err != nil {
-			continue
-		}
-		if inner, isBatch := Cmds(msg); isBatch {
-			queue = append(queue, inner...)
-			continue
 		}
 		if tm, isTab := msg.(page.TabMsg); isTab {
 			if tm.Tab != tab {
@@ -193,7 +235,7 @@ func Pump[M any](
 		}
 		var c tea.Cmd
 		m, c = step(m, msg)
-		queue = append(queue, c)
+		b.push(c)
 	}
 	return m, fmt.Errorf("%d 手進めても条件を満たさなかった", maxSteps)
 }
@@ -233,32 +275,18 @@ var ErrNotFound = errors.New("目当ての Msg が束に無い")
 // **戻らない Cmd を含む束には向かない。** 目当てが無いときは束を実行しきるので、
 // 購読を持つタブでは諦めるだけで timeout ぶん掛かる。そちらは Pump を使うこと。
 func FindMsg(cmd tea.Cmd, timeout time.Duration, want func(tea.Msg) bool) (tea.Msg, error) {
-	gaveUp := 0
-	queue := []tea.Cmd{cmd}
-	for len(queue) > 0 {
-		c := queue[0]
-		queue = queue[1:]
-
-		msg, err := RunCmd(c, timeout)
-		if errors.Is(err, ErrCmdTimeout) {
-			gaveUp++
-
-			continue
-		}
-		if err != nil {
-			continue
-		}
-		if inner, isBundle := Cmds(msg); isBundle {
-			queue = append(queue, inner...)
-
-			continue
+	b := newBundle(cmd, timeout)
+	for {
+		msg, ok := b.next()
+		if !ok {
+			break
 		}
 		if want(msg) {
 			return msg, nil
 		}
 	}
-	if gaveUp > 0 {
-		return nil, fmt.Errorf("%w（%d 本が %s 以内に戻らなかった）", ErrCmdTimeout, gaveUp, timeout)
+	if b.gaveUp > 0 {
+		return nil, fmt.Errorf("%w（%d 本が %s 以内に戻らなかった）", ErrCmdTimeout, b.gaveUp, timeout)
 	}
 	return nil, ErrNotFound
 }

@@ -10,6 +10,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest/cmdtest"
 )
 
 // テストの道具を集める。共有状態の組み立ては pagetest から取り、ここでは Logs タブに
@@ -26,14 +27,14 @@ const testTab = 3
 // **必ず戻るはずの Cmd をこれで待たないこと。** 諦めるまでの時間がそのまま
 // テストの所要時間になるので短くしてあり、`make check`（-race で全パッケージを
 // 同時に実行）の負荷が掛かると、正しく戻る Cmd でも間に合わずに落ちうる。
-// そちらは pagetest.CmdTimeout（30 秒。速く戻る Cmd の速さには効かない）を使う
+// そちらは cmdtest.CmdTimeout（30 秒。速く戻る Cmd の速さには効かない）を使う
 // ——1 つの定数を両方に使っていたころ、config 側で同じ形の散発的な失敗が出た
 // （Issue #140 / #145）。
 const waitTimeout = 2 * time.Second
 
 // drainTimeout は畳んだ購読のチャネルが閉じるのを待つ上限。
 //
-// **これも「必ず終わるはずの待ち」だが、pagetest.CmdTimeout（30 秒）ほど倒さない。**
+// **これも「必ず終わるはずの待ち」だが、cmdtest.CmdTimeout（30 秒）ほど倒さない。**
 // 畳み漏れの退行が入ると track の後始末はほぼ全テストに掛かるため、諦めるまでの時間が
 // そのままパッケージの所要時間になる。負荷に耐えるだけの余裕（2 秒の 2.5 倍）を持たせ、
 // 失敗したときの待ち時間は分単位にしない、という間を取った値である。
@@ -101,18 +102,18 @@ func track(t *testing.T, m Model) {
 		tracked.Delete(t)
 		lines := last.stream.lines
 		last.stop()
-		if lines != nil && !pagetest.Drained(lines, drainTimeout) {
+		if lines != nil && !cmdtest.Drained(lines, drainTimeout) {
 			t.Error("テストの終わりに購読が畳まれていない")
 		}
 	})
 }
 
 // pumpUntil は Cmd を辿って Model を進め、cond が満たされた時点で止める
-// （辿り方は pagetest.Pump に任せ、ここは Model の進め方と合否の判定だけを渡す）。
+// （辿り方は cmdtest.Pump に任せ、ここは Model の進め方と合否の判定だけを渡す）。
 func pumpUntil(t *testing.T, m Model, cmd tea.Cmd, cond func(Model) bool) Model {
 	t.Helper()
 
-	got, err := pagetest.Pump(m, testTab, cmd, waitTimeout,
+	got, err := cmdtest.Pump(m, testTab, cmd, waitTimeout,
 		func(m Model, msg tea.Msg) (Model, tea.Cmd) { return step(t, m, msg) }, cond)
 	if err != nil {
 		t.Fatal(err)
@@ -124,7 +125,7 @@ func pumpUntil(t *testing.T, m Model, cmd tea.Cmd, cond func(Model) bool) Model 
 func chromeOf(t *testing.T, cmd tea.Cmd) page.ChromeMsg {
 	t.Helper()
 
-	msg, ok := pagetest.ChromeOf(cmd)
+	msg, ok := cmdtest.ChromeOf(cmd)
 	if !ok {
 		t.Fatal("ChromeMsg が返っていない")
 	}

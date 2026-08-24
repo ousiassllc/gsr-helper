@@ -10,6 +10,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/runner/scope"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest/cmdtest"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/runners"
 )
 
@@ -105,7 +106,7 @@ func send(t *testing.T, m tea.Model, keys ...string) (tea.Model, page.ChromeMsg)
 //
 // **走査は page/pagetest に任せる。** 以前はこのファイルが同じ再帰
 // （`findChrome`）と Msg の平坦化（`collect`）を持っていたが、どちらも
-// `pagetest.ChromeOf` / `pagetest.Msgs` の写しであり、道具はタブごとに写さず
+// `cmdtest.ChromeOf` / `cmdtest.Msgs` の写しであり、道具はタブごとに写さず
 // 共有の置き場から取るのが本書の方針である（helper_test.go 冒頭の方針。Issue #107）。
 //
 // `ChromeOf` が最初の 1 件で打ち切るので、絞り込みのカーソル点滅の Cmd（1 秒待つ）は
@@ -113,7 +114,7 @@ func send(t *testing.T, m tea.Model, keys ...string) (tea.Model, page.ChromeMsg)
 func chrome(t *testing.T, cmd tea.Cmd) page.ChromeMsg {
 	t.Helper()
 
-	c, ok := pagetest.ChromeOf(cmd)
+	c, ok := cmdtest.ChromeOf(cmd)
 	if !ok {
 		t.Fatal("ChromeMsg が発行されていない")
 	}

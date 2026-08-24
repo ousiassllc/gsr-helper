@@ -1,4 +1,4 @@
-package pagetest_test
+package cmdtest_test
 
 import (
 	"errors"
@@ -7,7 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest/cmdtest"
 )
 
 // 待ち時間切れと「Cmd が無い」を区別して返すこと（Issue #140）。
@@ -25,14 +25,14 @@ func TestRunCmdTellsTimeoutApartFromMissingCmd(t *testing.T) {
 		cmd  tea.Cmd
 		want error
 	}{
-		{name: "Cmd が無い", cmd: nil, want: pagetest.ErrNoCmd},
-		{name: "戻らない Cmd は待ち時間切れ", cmd: func() tea.Msg { select {} }, want: pagetest.ErrCmdTimeout},
+		{name: "Cmd が無い", cmd: nil, want: cmdtest.ErrNoCmd},
+		{name: "戻らない Cmd は待ち時間切れ", cmd: func() tea.Msg { select {} }, want: cmdtest.ErrCmdTimeout},
 		{name: "戻る Cmd は Msg を返す", cmd: func() tea.Msg { return marker{} }, want: nil},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			msg, err := pagetest.RunCmd(tt.cmd, 10*time.Millisecond)
+			msg, err := cmdtest.RunCmd(tt.cmd, 10*time.Millisecond)
 			if !errors.Is(err, tt.want) {
 				t.Fatalf("err = %v, want %v", err, tt.want)
 			}
@@ -67,14 +67,14 @@ func TestFindMsgTellsTimeoutApartFromMissingMsg(t *testing.T) {
 		{
 			name: "Msg が本当に無ければ見つからない",
 			cmd:  func() tea.Msg { return struct{}{} },
-			want: pagetest.ErrNotFound,
+			want: cmdtest.ErrNotFound,
 		},
-		{name: "戻らない Cmd だけなら待ち時間切れ", cmd: blocked(), want: pagetest.ErrCmdTimeout},
+		{name: "戻らない Cmd だけなら待ち時間切れ", cmd: blocked(), want: cmdtest.ErrCmdTimeout},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if _, err := pagetest.FindMsg(tt.cmd, 10*time.Millisecond, isMarker); !errors.Is(err, tt.want) {
+			if _, err := cmdtest.FindMsg(tt.cmd, 10*time.Millisecond, isMarker); !errors.Is(err, tt.want) {
 				t.Fatalf("err = %v, want %v", err, tt.want)
 			}
 		})
@@ -90,7 +90,7 @@ func TestFindMsgKeepsScanningAfterATimeout(t *testing.T) {
 
 	found := func() tea.Msg { return marker{n: 7} }
 
-	got, err := pagetest.FindMsg(tea.Batch(blocked(), found), 10*time.Millisecond, isMarker)
+	got, err := cmdtest.FindMsg(tea.Batch(blocked(), found), 10*time.Millisecond, isMarker)
 	if err != nil {
 		t.Fatalf("戻らない Cmd の後ろにある Msg を取れない: %v", err)
 	}
@@ -108,9 +108,9 @@ func TestFindMsgKeepsScanningAfterATimeout(t *testing.T) {
 func TestExpandGivesUpOnCmdThatNeverReturns(t *testing.T) {
 	t.Parallel()
 
-	cmds, err := pagetest.Expand(blocked(), 10*time.Millisecond)
-	if !errors.Is(err, pagetest.ErrCmdTimeout) {
-		t.Fatalf("err = %v, want %v", err, pagetest.ErrCmdTimeout)
+	cmds, err := cmdtest.Expand(blocked(), 10*time.Millisecond)
+	if !errors.Is(err, cmdtest.ErrCmdTimeout) {
+		t.Fatalf("err = %v, want %v", err, cmdtest.ErrCmdTimeout)
 	}
 	if cmds != nil {
 		t.Errorf("待ち時間切れで Cmd を %d 本返している, want 0", len(cmds))
@@ -137,7 +137,7 @@ func TestExpandUnwrapsBundles(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			cmds, err := pagetest.Expand(tt.cmd, pagetest.CmdTimeout)
+			cmds, err := cmdtest.Expand(tt.cmd, cmdtest.CmdTimeout)
 			if err != nil {
 				t.Fatalf("束を展開できない: %v", err)
 			}

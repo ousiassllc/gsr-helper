@@ -6,6 +6,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/appconfig"
 	dom "github.com/ousiassllc/gsr-helper/internal/doctor"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest/cmdtest"
 )
 
 // 診断の完了を取り込んだあと、起動時の前提チェック（FR-44）の件数を親へ届ける
@@ -74,7 +75,7 @@ func TestRerunReportsStartupCountToParent(t *testing.T) {
 			m, _ := activated(t)
 			_, cmd := deliver(t, m, tt.results)
 
-			got, err := pagetest.HostReqOf(cmd)
+			got, err := cmdtest.HostReqOf(cmd)
 			if err != nil {
 				t.Fatalf("件数が親へ届いていない（ヘッダと状態行が古いまま残る）: %v", err)
 			}
@@ -96,7 +97,7 @@ func TestSingleRecheckRecountsStartup(t *testing.T) {
 	m, cmd := deliver(t, m, []dom.CheckResult{
 		result(id, "ジョブ実行の前提", "build01", dom.Fail),
 	})
-	got, err := pagetest.HostReqOf(cmd)
+	got, err := cmdtest.HostReqOf(cmd)
 	if err != nil {
 		t.Fatalf("全体再実行で件数が親へ届いていない: %v", err)
 	}
@@ -110,7 +111,7 @@ func TestSingleRecheckRecountsStartup(t *testing.T) {
 		at:      finishedAt,
 	})
 
-	got, err = pagetest.HostReqOf(cmd)
+	got, err = cmdtest.HostReqOf(cmd)
 	if err != nil {
 		t.Fatalf("個別再実行のあとに件数が届いていない: %v", err)
 	}

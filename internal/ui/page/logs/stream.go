@@ -3,13 +3,13 @@ package logs
 import (
 	"context"
 	"slices"
-	"strings"
 
 	tea "charm.land/bubbletea/v2"
 
 	dlogs "github.com/ousiassllc/gsr-helper/internal/logs"
 	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/logs/filerow"
 )
 
 // 購読（ログの追従）の開始・停止と、届いた行の取り込みを集める。
@@ -79,7 +79,7 @@ type endMsg struct {
 }
 
 // filesMsg は `_diag` の列挙結果。
-type filesMsg struct{ rows []row }
+type filesMsg struct{ rows []filerow.Row }
 
 // listFiles は全 runner の `_diag` を列挙する Cmd を返す。
 //
@@ -87,7 +87,7 @@ type filesMsg struct{ rows []row }
 // 戻す）。Update の中で読まないのは、UI をブロックしないためである。
 func (m Model) listFiles() tea.Cmd {
 	runners := slices.Clone(m.st.Result.Runners)
-	return page.Do(m.tab, func() tea.Msg { return filesMsg{rows: logRows(runners)} })
+	return page.Do(m.tab, func() tea.Msg { return filesMsg{rows: filerow.Rows(runners)} })
 }
 
 // setFiles は列挙結果を一覧へ反映する。
@@ -95,11 +95,11 @@ func (m Model) listFiles() tea.Cmd {
 // 対象がまだ決まっていなければ先頭（最も新しいログ）を開く。前面に出た直後に
 // 空の本文だけが出ると、何をすれば読めるのかが画面から分からない。
 func (m Model) setFiles(msg filesMsg) (tea.Model, tea.Cmd) {
-	m.tbl.SetItems(sectionLogs, msg.rows)
+	m.tbl.SetItems(filerow.Section, msg.rows)
 	if !m.target.empty() || len(msg.rows) == 0 {
 		return m, m.chrome()
 	}
-	cmd := m.open(target{runner: msg.rows[0].runner, file: msg.rows[0].file, journal: false})
+	cmd := m.open(target{runner: msg.rows[0].Runner, file: msg.rows[0].File, journal: false})
 	return m, tea.Batch(m.chrome(), cmd)
 }
 
@@ -252,17 +252,4 @@ func appendLine(lines []dlogs.Line, l dlogs.Line) []dlogs.Line {
 		lines = slices.Clone(lines[len(lines)-maxLines:])
 	}
 	return lines
-}
-
-// sortByNewest は行を更新時刻の降順（同時刻はファイル名の降順）に並べる。
-func sortByNewest(rows []row) {
-	slices.SortStableFunc(rows, func(a, b row) int {
-		if !a.file.ModTime.Equal(b.file.ModTime) {
-			if a.file.ModTime.After(b.file.ModTime) {
-				return -1
-			}
-			return 1
-		}
-		return strings.Compare(b.file.Name, a.file.Name)
-	})
 }

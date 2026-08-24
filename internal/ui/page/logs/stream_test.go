@@ -10,7 +10,9 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/exec"
 	dlogs "github.com/ousiassllc/gsr-helper/internal/logs"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/logs/filerow"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest/cmdtest"
 )
 
 // 購読の開始・切り替え・停止と、`journalctl` の呼び出しを検証する。
@@ -82,13 +84,13 @@ func TestSwitchingTargetDropsStaleLines(t *testing.T) {
 	m := activated(t, st, 3)
 
 	old := m.stream
-	rows := m.tbl.Shown(sectionLogs)
+	rows := m.tbl.Shown(filerow.Section)
 	if len(rows) < 2 {
 		t.Fatalf("一覧の行数 = %d, want 2 以上（前提が崩れている）", len(rows))
 	}
 
-	cmd := m.open(target{runner: rows[1].runner, file: rows[1].file, journal: false})
-	if !pagetest.Drained(old.lines, drainTimeout) {
+	cmd := m.open(target{runner: rows[1].Runner, file: rows[1].File, journal: false})
+	if !cmdtest.Drained(old.lines, drainTimeout) {
 		t.Error("前の購読が畳まれていない")
 	}
 
@@ -113,7 +115,7 @@ func TestDeactivateStopsStreamKeepingState(t *testing.T) {
 	name := m.target.file.Path
 	next, _ := step(t, m, page.DeactivateMsg{})
 
-	if !pagetest.Drained(lines, drainTimeout) {
+	if !cmdtest.Drained(lines, drainTimeout) {
 		t.Error("裏へ回っても購読が畳まれていない")
 	}
 	if next.active {
@@ -159,7 +161,7 @@ func TestShutdownStopsStream(t *testing.T) {
 	if _, cmd := step(t, m, page.ShutdownMsg{}); cmd != nil {
 		t.Error("後始末の Cmd を返している（畳みは Update の中で済ませる）")
 	}
-	if !pagetest.Drained(lines, drainTimeout) {
+	if !cmdtest.Drained(lines, drainTimeout) {
 		t.Error("終了しても購読が畳まれていない")
 	}
 }
@@ -255,7 +257,7 @@ func TestWaitBatchesPendingLines(t *testing.T) {
 	}
 	m := Model{tab: testTab, stream: stream{gen: 1, lines: ch}}
 
-	msg, err := pagetest.RunCmd(m.wait(), pagetest.CmdTimeout)
+	msg, err := cmdtest.RunCmd(m.wait(), cmdtest.CmdTimeout)
 	if err != nil {
 		t.Fatalf("待ち受けの Cmd から Msg を取れない: %v", err)
 	}

@@ -9,7 +9,9 @@ import (
 	dlogs "github.com/ousiassllc/gsr-helper/internal/logs"
 	"github.com/ousiassllc/gsr-helper/internal/ui/atom"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/logs/filerow"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest/cmdtest"
 )
 
 // キーの解釈（ペイン切替・追従・フィルタ・journalctl）を検証する。
@@ -35,7 +37,7 @@ func sample(t *testing.T, lines ...string) Model {
 func bubbled(t *testing.T, cmd tea.Cmd) bool {
 	t.Helper()
 
-	cmds, err := pagetest.Expand(cmd, pagetest.CmdTimeout)
+	cmds, err := cmdtest.Expand(cmd, cmdtest.CmdTimeout)
 	if err != nil {
 		t.Fatalf("Cmd の束を展開できない: %v", err)
 	}
@@ -256,14 +258,14 @@ func TestEnterOpensSelectedLog(t *testing.T) {
 	m := activated(t, st, 3)
 
 	m, _ = step(t, m, pagetest.Press("j"))
-	rows := m.tbl.Shown(sectionLogs)
-	if len(rows) != 2 || m.target.file.Name == rows[1].file.Name {
+	rows := m.tbl.Shown(filerow.Section)
+	if len(rows) != 2 || m.target.file.Name == rows[1].File.Name {
 		t.Fatalf("前提が崩れている（行数 %d / 対象 %q）", len(rows), m.target.file.Name)
 	}
 
 	next, cmd := step(t, m, pagetest.Press("enter"))
-	if next.target.file.Name != rows[1].file.Name {
-		t.Fatalf("enter の後の対象 = %q, want %q", next.target.file.Name, rows[1].file.Name)
+	if next.target.file.Name != rows[1].File.Name {
+		t.Fatalf("enter の後の対象 = %q, want %q", next.target.file.Name, rows[1].File.Name)
 	}
 	next = pumpUntil(t, next, cmd, func(m Model) bool { return len(m.lines) >= 1 })
 	if got := next.body.View(); !strings.Contains(got, "runner log") {

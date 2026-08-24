@@ -12,6 +12,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/jobs"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest/cmdtest"
 )
 
 // Jobs タブからのサービス制御（FR-47）の検証を集める。
@@ -41,7 +42,7 @@ func opsSend(t *testing.T, m tea.Model, keys ...string) tea.Model {
 
 	for _, k := range keys {
 		next, cmd := m.Update(press(k))
-		m = pagetest.Advance(next, cmd, pagetest.AdvanceRounds)
+		m = cmdtest.Advance(next, cmd, cmdtest.AdvanceRounds)
 	}
 	return m
 }

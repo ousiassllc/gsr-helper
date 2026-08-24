@@ -23,7 +23,8 @@ const (
 // なっており、その代償として本番からも import できてしまう。**足すときはここへ
 // 登録すること**（登録しないと検査の網から外れる）。
 var fixtures = map[string]bool{
-	selfPath: true,
+	selfPath:              true,
+	selfPath + "/cmdtest": true,
 	modulePath + "/internal/ui/organism/table/tabletest": true,
 	modulePath + "/internal/setup/setuptest":             true,
 }
@@ -64,6 +65,12 @@ var shared = map[string]bool{
 // を表せず、置いてあるだけの規約は次にタブを足す Issue で破られる（Issue #45）。
 func TestNoProductionCodeImportsTestFixtures(t *testing.T) {
 	for pkg, imports := range productionImports(t) {
+		// **フィクスチャ同士の import は対象外である。** 1 ディレクトリの行数上限で
+		// フィクスチャを分けた結果であり（pagetest → pagetest/cmdtest。Issue #147）、
+		// 本番へ混入する経路ではない。ここで弾くと、分けた側が使えなくなる。
+		if fixtures[pkg] {
+			continue
+		}
 		for _, imp := range imports {
 			if fixtures[imp] {
 				t.Errorf("本番コード %s が %s を import している（テスト用の道具は _test.go からのみ使うこと）", pkg, imp)

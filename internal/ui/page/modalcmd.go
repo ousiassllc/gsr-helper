@@ -75,7 +75,7 @@ func wrapAll(tab int, kind ModalKind, cmds []tea.Cmd) []tea.Cmd {
 // tea.BatchMsg は公開型なので型アサーションで捕まえられるが、順次実行の束には
 // 名指しできる型が無く、`msg.(tea.SequenceMsg)` に相当する書き方が存在しない。
 // 束はどちらも []tea.Cmd を素の型に持つので、要素型で判別する
-// （テスト側の pagetest.Cmds も同じ手を使っている）。
+// （テスト側の cmdtest.Cmds も同じ手を使っている）。
 func cmdSlice(msg tea.Msg) ([]tea.Cmd, bool) {
 	v := reflect.ValueOf(msg)
 	if v.Kind() != reflect.Slice || v.Type().Elem() != reflect.TypeFor[tea.Cmd]() {

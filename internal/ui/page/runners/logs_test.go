@@ -9,6 +9,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/action"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest/cmdtest"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/runnerdetail"
 )
 
@@ -19,7 +20,7 @@ import (
 func openTabMsg(t *testing.T, cmd tea.Cmd) (page.OpenTabMsg, bool) {
 	t.Helper()
 
-	for _, msg := range pagetest.Msgs(cmd) {
+	for _, msg := range cmdtest.Msgs(cmd) {
 		if got, ok := msg.(page.OpenTabMsg); ok {
 			return got, true
 		}

@@ -13,7 +13,9 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/ui/atom"
 	"github.com/ousiassllc/gsr-helper/internal/ui/molecule"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/logs/filerow"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest/cmdtest"
 	"github.com/ousiassllc/gsr-helper/internal/ui/token"
 )
 
@@ -51,19 +53,19 @@ func TestListsLogsNewestFirstWithSize(t *testing.T) {
 	st, _ := withLogs(t)
 	m := activated(t, st, 3)
 
-	rows := m.tbl.Shown(sectionLogs)
+	rows := m.tbl.Shown(filerow.Section)
 	if len(rows) != 2 {
 		t.Fatalf("一覧の行数 = %d, want 2", len(rows))
 	}
-	if rows[0].file.Kind != dlogs.KindWorker {
-		t.Errorf("先頭 = %q, want 更新時刻が新しい Worker ログ", rows[0].file.Name)
+	if rows[0].File.Kind != dlogs.KindWorker {
+		t.Errorf("先頭 = %q, want 更新時刻が新しい Worker ログ", rows[0].File.Name)
 	}
 
 	// 列見出しの "SIZE" は列が出ていることしか示さず、**セルが空でも通る**。実ファイルを
 	// stat して、そのバイト表記（一覧が使う atom.Bytes）まで画面に出ていることを見る。
 	// 期待値をハードコードせず stat から組み立てるのは、フィクスチャの本文を書き換えても
 	// 検証が壊れないようにするためである。
-	fi, err := os.Stat(rows[0].file.Path)
+	fi, err := os.Stat(rows[0].File.Path)
 	if err != nil {
 		t.Fatalf("ログを stat できない: %v", err)
 	}
@@ -142,7 +144,7 @@ func TestEmptyStateMessages(t *testing.T) {
 
 	m := newTab(t, st)
 	next, cmd := step(t, m, page.ActivateMsg{})
-	m = pumpUntil(t, next, cmd, func(m Model) bool { return len(m.tbl.Shown(sectionLogs)) == 0 })
+	m = pumpUntil(t, next, cmd, func(m Model) bool { return len(m.tbl.Shown(filerow.Section)) == 0 })
 
 	got := m.View().Content
 	if !strings.Contains(got, emptyMessage) {
@@ -157,7 +159,7 @@ func TestEmptyStateMessages(t *testing.T) {
 func listsDiag(t *testing.T, cmd tea.Cmd) bool {
 	t.Helper()
 
-	cmds, err := pagetest.Expand(cmd, pagetest.CmdTimeout)
+	cmds, err := cmdtest.Expand(cmd, cmdtest.CmdTimeout)
 	if err != nil {
 		t.Fatalf("Cmd の束を展開できない: %v", err)
 	}

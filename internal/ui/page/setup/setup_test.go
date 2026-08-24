@@ -10,6 +10,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest/cmdtest"
 )
 
 // 削除は承認の前に必ず確認を挟み、そこで実行するコマンド全文を出す（FR-16）。
@@ -139,7 +140,7 @@ func TestEscapeReturnsToRunners(t *testing.T) {
 
 	_, cmd := m.Update(pagetest.Press("esc"))
 
-	if !slices.ContainsFunc(pagetest.Msgs(cmd), func(msg tea.Msg) bool {
+	if !slices.ContainsFunc(cmdtest.Msgs(cmd), func(msg tea.Msg) bool {
 		open, ok := msg.(page.OpenTabMsg)
 		return ok && open.Title == page.TabRunners
 	}) {

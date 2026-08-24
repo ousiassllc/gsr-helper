@@ -11,6 +11,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/configmodal"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest/cmdtest"
 )
 
 // 対象を決めるまでは runner の一覧を出し、自身の設定も選べること（FR-41〜FR-42）。
@@ -90,7 +91,7 @@ func TestBackReturnsToPickerThenRunners(t *testing.T) {
 
 	_, cmd := send(t, m, pagetest.Press("esc"))
 	var opened bool
-	for _, msg := range pagetest.Msgs(cmd) {
+	for _, msg := range cmdtest.Msgs(cmd) {
 		if open, ok := msg.(page.OpenTabMsg); ok && open.Title == page.TabRunners {
 			opened = true
 		}
@@ -109,7 +110,7 @@ func TestEnterOpensForm(t *testing.T) {
 	m, _ = send(t, m, page.EditConfigMsg{Runner: r})
 
 	m, cmd := send(t, m, pagetest.Press("enter"))
-	m = pagetest.Advance(m, cmd, 4).(Model)
+	m = cmdtest.Advance(m, cmd, 4).(Model)
 
 	if !m.formShown {
 		t.Fatal("フォームが開いていない")
@@ -175,7 +176,7 @@ func TestApprovedWriteBacksUpAndAsksApplyMethod(t *testing.T) {
 
 	// 反映方法の選択が開き、既定がドレイン再起動である（FR-39）。
 	m, cmd = send(t, m, done)
-	m = pagetest.Advance(m, cmd, 4).(Model)
+	m = cmdtest.Advance(m, cmd, 4).(Model)
 	if !m.overlay.Active() {
 		t.Fatal("反映方法の選択が開いていない")
 	}
@@ -197,7 +198,7 @@ func TestLabelChangeSkipsApplyMethod(t *testing.T) {
 
 	m.pending = edit.BuildLabels(r.Name(), []string{"old"}, []string{"gpu"})
 	m, cmd := send(t, m, doneMsg{text: "書き込みました", err: nil})
-	m = pagetest.Advance(m, cmd, 3).(Model)
+	m = cmdtest.Advance(m, cmd, 3).(Model)
 
 	if m.overlay.Active() {
 		t.Errorf("再起動が要らないのに反映方法を尋ねている:\n%s", view(m))
@@ -213,7 +214,7 @@ func TestFirstRunOpensWizard(t *testing.T) {
 
 	st.Config = page.ConfigDeps{Conf: st.Config.Conf, Path: "/tmp/config.yaml", FirstRun: true}
 	next, cmd := m.Update(st)
-	m = pagetest.Advance(next, cmd, 5).(Model)
+	m = cmdtest.Advance(next, cmd, 5).(Model)
 
 	if !m.self {
 		t.Fatal("初回設定ウィザードが開いていない")
@@ -232,7 +233,7 @@ func TestExistingConfigDoesNotOpenWizard(t *testing.T) {
 
 	st.Config = page.ConfigDeps{Conf: st.Config.Conf, Path: "/tmp/config.yaml", FirstRun: false}
 	next, cmd := m.Update(st)
-	m = pagetest.Advance(next, cmd, 5).(Model)
+	m = cmdtest.Advance(next, cmd, 5).(Model)
 
 	if m.self {
 		t.Error("設定ファイルがあるのにウィザードが開いた")

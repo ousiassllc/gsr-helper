@@ -1,4 +1,4 @@
-package pagetest
+package cmdtest
 
 import (
 	"reflect"

@@ -12,6 +12,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/ui/keymap"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest/cmdtest"
 	"github.com/ousiassllc/gsr-helper/internal/ui/token"
 )
 
@@ -65,7 +66,7 @@ func testState() page.StateMsg {
 func chromeTab(t *testing.T, cmd tea.Cmd) (int, bool) {
 	t.Helper()
 
-	cmds, err := pagetest.Expand(cmd, pagetest.CmdTimeout)
+	cmds, err := cmdtest.Expand(cmd, cmdtest.CmdTimeout)
 	if err != nil {
 		t.Fatalf("Cmd の束を展開できない: %v", err)
 	}

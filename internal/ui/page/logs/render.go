@@ -12,6 +12,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/ui/keymap"
 	"github.com/ousiassllc/gsr-helper/internal/ui/molecule"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/logs/filerow"
 	"github.com/ousiassllc/gsr-helper/internal/ui/token"
 )
 
@@ -64,7 +65,7 @@ func logsHelp(s keymap.Set) [][]key.Binding { return s.LogsHelp() }
 // ためである。上限と下限で挟むのは maxListHeight の doc を参照。
 func (m *Model) resize() {
 	w, h := m.st.BodyW, m.st.BodyH
-	list := min(max(len(m.tbl.Shown(sectionLogs))+1, minListHeight), maxListHeight)
+	list := min(max(len(m.tbl.Shown(filerow.Section))+1, minListHeight), maxListHeight)
 	if body := h - list - headerHeight; body < minListHeight {
 		// 本文に配れる高さが尽きるときは一覧を削る。本文が Logs タブの主役である。
 		list = max(h-headerHeight-minListHeight, 0)

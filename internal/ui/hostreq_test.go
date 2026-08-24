@@ -11,6 +11,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/exec"
 	"github.com/ousiassllc/gsr-helper/internal/ui/hostreq"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest/cmdtest"
 )
 
 // 件数の数え方は internal/ui/hostreq が、ヘッダと状態行の描き方は internal/ui/chrome が
@@ -50,7 +51,7 @@ func TestStartupHostRequirementRunsOnceAfterFirstSuccess(t *testing.T) {
 	a := withHostChecks(newApp(exec.NewFake()), pagetest.StubCheck{Status: check.Fail})
 
 	a, cmd := discovered(a, errTest)
-	if _, err := takeHostReq(a, cmd); !errors.Is(err, pagetest.ErrNotFound) {
+	if _, err := takeHostReq(a, cmd); !errors.Is(err, cmdtest.ErrNotFound) {
 		t.Fatalf("検出に失敗した周期で前提チェックが発行された（空の runner 一覧で使い切る）: err = %v", err)
 	}
 
@@ -66,7 +67,7 @@ func TestStartupHostRequirementRunsOnceAfterFirstSuccess(t *testing.T) {
 	for range 3 {
 		var next tea.Cmd
 		a, next = discovered(a, nil)
-		if _, err := takeHostReq(a, next); !errors.Is(err, pagetest.ErrNotFound) {
+		if _, err := takeHostReq(a, next); !errors.Is(err, cmdtest.ErrNotFound) {
 			t.Fatalf("再検出のたびに前提チェックが走っている: err = %v", err)
 		}
 	}

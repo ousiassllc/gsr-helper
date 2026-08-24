@@ -13,6 +13,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/configmodal"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest/cmdtest"
 )
 
 // 自身の設定（FR-41 / FR-42）の回帰テスト。
@@ -96,8 +97,8 @@ func TestSelfConfigSaveReturnsNewConfigToParent(t *testing.T) {
 			saved, err := savedOf(cmd)
 			if !tt.want {
 				// 返らないことを見る筋なので、待ち時間切れでは代用できない（Issue #140）。
-				if !errors.Is(err, pagetest.ErrNotFound) {
-					t.Fatalf("親へ返さない筋の結果 = %v, want %v", err, pagetest.ErrNotFound)
+				if !errors.Is(err, cmdtest.ErrNotFound) {
+					t.Fatalf("親へ返さない筋の結果 = %v, want %v", err, cmdtest.ErrNotFound)
 				}
 
 				return
@@ -129,7 +130,7 @@ func TestFirstRunWizardWritesWithoutEdits(t *testing.T) {
 	// 確定は往復して同じ値になる（pagetest の Conf はゼロ値で往復しない）。
 	st.Config = page.ConfigDeps{Conf: appconfig.Default(), Path: path, FirstRun: true}
 	next, cmd := m.Update(st)
-	m = pagetest.Advance(next, cmd, 5).(Model)
+	m = cmdtest.Advance(next, cmd, 5).(Model)
 	if !m.self {
 		t.Fatal("初回設定ウィザードが開いていない")
 	}
@@ -254,7 +255,7 @@ func saveSelf(t *testing.T, m Model, refresh, audit string) (Model, string) {
 
 	m, cmd := send(t, m, page.ResultMsg{Kind: configmodal.DiffKind, Msg: dialog.DecidedMsg{Confirmed: true}})
 	done, err := doneOf(cmd)
-	if errors.Is(err, pagetest.ErrNotFound) {
+	if errors.Is(err, cmdtest.ErrNotFound) {
 		t.Fatal("書き込みの Cmd が出ていない（差分なしで飛ばされた）")
 	}
 	if err != nil {

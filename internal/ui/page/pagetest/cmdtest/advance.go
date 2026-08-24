@@ -1,4 +1,18 @@
-package pagetest
+// Package cmdtest は tea.Cmd を走らせ、束（tea.Batch / tea.Sequence）を辿るための
+// 道具を集める。
+//
+// **page/pagetest から分けてある。** 分けた直接の理由は 1 ディレクトリ 2000 行の上限で
+// （pagetest が Issue #140 で警告帯に入った）、境界はこの責務の違いに沿わせた
+// ——pagetest 本体が持つのは「タブと親 Model を組み立てて動かす」道具（共有状態・
+// フィクスチャ・Spy）であり、こちらは「発行された Cmd をどう走らせ、どう辿るか」
+// だけを持つ（Issue #147）。依存は cmdtest → page の一方向で、pagetest 側からは
+// import するが逆は無い。
+//
+// **`testing` を import しない。** pagetest と同じく通常のパッケージなので、import すると
+// テスト用のフラグが本番のバイナリ側の依存に現れる。合否の判定は呼び出し側の _test.go に
+// 残し、ここは結果と成否だけを返す。**足したら pagetest/import_test.go の fixtures へ
+// 登録すること**（登録しないと本番混入の検査の網から外れる）。
+package cmdtest
 
 import (
 	"time"

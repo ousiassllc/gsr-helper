@@ -9,6 +9,7 @@ import (
 	dom "github.com/ousiassllc/gsr-helper/internal/doctor"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest/cmdtest"
 )
 
 // 内部テスト（package doctor）にしてあるのは、診断の完了を表す doneMsg を
@@ -85,7 +86,7 @@ func deliver(t *testing.T, m Model, rs []dom.CheckResult) (Model, tea.Cmd) {
 func chromeOf(t *testing.T, cmd tea.Cmd) page.ChromeMsg {
 	t.Helper()
 
-	got, ok := pagetest.ChromeOf(cmd)
+	got, ok := cmdtest.ChromeOf(cmd)
 	if !ok {
 		t.Fatal("ChromeMsg が発行されていない（親が状態行とフッタを更新できない）")
 	}

@@ -11,6 +11,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest/cmdtest"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/runners"
 )
 
@@ -51,7 +52,7 @@ func opsSend(t *testing.T, m tea.Model, keys ...string) tea.Model {
 
 	for _, k := range keys {
 		next, cmd := m.Update(press(k))
-		m = pagetest.Advance(next, cmd, pagetest.AdvanceRounds)
+		m = cmdtest.Advance(next, cmd, cmdtest.AdvanceRounds)
 	}
 	return m
 }

@@ -16,6 +16,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/ui/chrome"
 	"github.com/ousiassllc/gsr-helper/internal/ui/discovery"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest/cmdtest"
 )
 
 // 内部テスト（package ui）にしてある。タブのメタ情報・検出の状態・chrome が非公開で、
@@ -47,7 +48,7 @@ var (
 func expand(t *testing.T, cmd tea.Cmd) []tea.Cmd {
 	t.Helper()
 
-	cmds, err := pagetest.Expand(cmd, pagetest.CmdTimeout)
+	cmds, err := cmdtest.Expand(cmd, cmdtest.CmdTimeout)
 	if err != nil {
 		t.Fatalf("Cmd の束を展開できない: %v", err)
 	}

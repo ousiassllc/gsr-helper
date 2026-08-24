@@ -14,6 +14,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/setup/valid"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest/cmdtest"
 )
 
 // testState は既定だけを載せた共有状態を返す。外部資源は差し替え済み
@@ -173,13 +174,13 @@ func TestRegisterCmdReachesParentOnlyOnce(t *testing.T) {
 	m.initCmd = func() tea.Msg { flowed++; return nil }
 
 	next, first := m.Update(st)
-	pagetest.RunAll(first)
+	cmdtest.RunAll(first)
 	if flowed != 1 {
 		t.Fatalf("最初の共有状態で登録の Cmd が流れた回数 = %d, want 1", flowed)
 	}
 
 	_, second := next.Update(st)
-	pagetest.RunAll(second)
+	cmdtest.RunAll(second)
 	if flowed != 1 {
 		t.Errorf("登録の Cmd が流れた累計 = %d, want 1（2 度目にも流れている）", flowed)
 	}
