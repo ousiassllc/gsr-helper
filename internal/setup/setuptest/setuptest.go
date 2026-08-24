@@ -7,6 +7,14 @@
 //
 // 代償として本番からも import できてしまうので、`page/pagetest/import_test.go` の
 // `fixtures` へ登録してある（`TestNoProductionCodeImportsTestFixtures` が検査する）。
+//
+// **`testing` を import する点だけは page/pagetest の規則の例外である。**
+// あちらは「テスト用のフラグが本番のバイナリ側の依存に現れる」ことを避けて
+// `testing` を持たず、合否の判定を呼び出し側の _test.go に残している（pagetest/run.go）。
+// ここは `t.Helper()` と `t.Fatalf` で準備の失敗をその場で止める形を採った——
+// フィクスチャの準備（tar.gz の作成・PlanAdd の成功）が失敗した場合に呼び出し側へ
+// error を返しても、全呼び出し元が同じ 3 行を書くだけになるためである。
+// 本番から import されないことは上記の検査が担保する。
 package setuptest
 
 import (

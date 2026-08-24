@@ -100,7 +100,7 @@ internal/ui/
 **タブ 1 枚のための切り出し先は `page/<tab>/` の下を既定とする。** 分かれ目は**利用者が何タブか**という、実装を見れば一意に決まる条件である。
 
 - **`page/<tab>/<名前>`（ネスト）** — **利用者が 1 タブに閉じるものはこちら。** `page/disk/cleanview`（文面と判定の純粋関数）・`page/disk/confirmmodal`（確認ダイアログの包み）・`page/runners/rowview`（行の組み立て）が該当する。`import_test.go` の `tabName` はスラッシュを含むパスをタブとみなさないので、`shared` への追記は要らない。行数の面でも同じ効果がある——`linterly` のディレクトリ集計は直下のファイルだけを数えるため、ネストしても親ディレクトリからは外れる。
-- **`page/<名前>`（直下）** — **利用者が 2 タブ以上のもの、または 2 タブ以上になることが決まっているものだけ**をここへ置く。`page/action`（Runners / Jobs / 詳細画面 / Setup）・`page/runnerdetail`（Runners / Jobs）・`page/runnerop`（Runners / Jobs / 詳細画面）・`page/progressmodal`（Setup / Disk）が該当する。直下に置くと `TestOnlyTabsetImportsTabs` が既定でタブとして扱うため、`shared` への登録が「これはタブではない」という判断を明示的に残す役割を持つ。
+- **`page/<名前>`（直下）** — **利用者が 2 タブ以上のもの、または 2 タブ以上になることが決まっているものだけ**をここへ置く。`page/action`（Runners / Jobs / 詳細画面 / Setup）・`page/runnerdetail`（Runners / Jobs）・`page/runnerop`（Runners / Jobs）・`page/progressmodal`（Setup / Disk）が該当する。直下に置くと `TestOnlyTabsetImportsTabs` が既定でタブとして扱うため、`shared` への登録が「これはタブではない」という判断を明示的に残す役割を持つ。
 
 **`page/diskclean` / `page/configmodal` / `page/setupmodal` の 3 つはこの基準の例外である。** どれも利用者は 1 タブ（順に Disk / Config / Setup）なので、上の既定に従えばネストすべきものだった。直下にあるのは、切り出しを指示した Issue #102 / #104 / #105 が**`shared` への登録そのものを受け入れ条件に含めていた**ためである（行数上限を空けるのが目的で、「タブではない」判断を検査に残す形を明示的に選んだ）。**次にタブ 1 枚ぶんを切り出す Issue は、この 3 つではなくネスト側の先例に倣うこと。**
 
@@ -201,7 +201,7 @@ graph TD
 
 | 規則 | 理由 |
 |------|------|
-| `token` は `lipgloss` のみ import する | 最下層。色の定義を token の外に作らない。`huh.Theme` の組み立ても token 内に置く（後述の「`Form` と huh」。実装は `token/huhtheme.go` の 1 ファイルに閉じる） |
+| `token` は `lipgloss` と `huh` のみ import する | 最下層。色の定義を token の外に作らない。`huh.Theme` の組み立ても token 内に置く（後述の「`Form` と huh」。実装は `token/huhtheme.go` の 1 ファイルに閉じる） |
 | `keymap` は `bubbles/key` のみ import する | token と並ぶ最下層。キー定義が他の階層に依存すると参照方向が壊れる |
 | `atom` は `token` と `lipgloss` のみに依存する | 表示単位を単体でテストできる状態に保つ。`lipgloss` を許すのは表示幅の計算（`lipgloss.Width`）と ANSI 安全な切り詰めのためで、**幅を数える実装をここ 1 箇所に閉じる**という規則の裏返しである |
 | `molecule` は `atom` / `token` と `lipgloss` のみ。**molecule 同士は参照しない**（唯一の例外は `molecule/listrow` → `molecule` の一方向。逆は作らない。`molecule/chromebar` はどちらの向きにも参照しない） | 同階層参照を双方向に許すと階層が意味を失う。共通化したい場合は atom に降ろすか organism に上げる。`listrow` を分けたのは増え方の違い（タブ数に比例する行ビルダ）であって別階層にしたわけではないので、列の選択だけは `molecule` を向いてよい。`chromebar` も増え方の違いで分けたが、こちらは列の選択を使わないので例外を増やさずに済んでいる |
@@ -1077,7 +1077,7 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 
 **2000 行は警告の始まりであって失敗の境界ではない。** `.linterly.yml` の `warning_threshold: 10` により、2000 行を超えると **WARN**、上限の 110% にあたる **2200 行**を超えて初めて **ERROR**（`make check` が落ちる）になる。つまり 2000〜2200 行は「超過しているが CI は通る」警告帯である。**警告帯に入ったディレクトリへ部品を足すときは、先に分割の是非を検討し、判断と理由をこの節に残すこと。**
 
-**空け方の手は 3 つある。** (1) 本番の一部をパッケージ境界で切り出す——**依存の向きを強制できる、あるいは増え方が違うまとまりがあるときだけ**である（`tabset` / `chrome` / `molecule/listrow` / `molecule/chromebar` / `page/runners/rowview`）。(2) テストの重複を削る。(3) テスト用の道具・フィクスチャを別ディレクトリの通常パッケージへ出す（`page/pagetest` / `organism/table/tabletest`）。**(3) は本番の構造を 1 つも変えずに済む**のが利点で、本番の分割が「内部を export することになる」ため採れない場合（`ui/organism/table`）の唯一の手でもある。代償として本番からも import できてしまうので、足したら `page/pagetest/import_test.go` の `fixtures` へ登録すること（`TestNoProductionCodeImportsTestFixtures` が検査する）。
+**空け方の手は 3 つある。** (1) 本番の一部をパッケージ境界で切り出す——**依存の向きを強制できる、あるいは増え方が違うまとまりがあるときだけ**である（`tabset` / `chrome` / `molecule/listrow` / `molecule/chromebar` / `page/runners/rowview`）。(2) テストの重複を削る。(3) テスト用の道具・フィクスチャを別ディレクトリの通常パッケージへ出す（`page/pagetest` / `organism/table/tabletest` / `internal/setup/setuptest`）。**(3) は本番の構造を 1 つも変えずに済む**のが利点で、本番の分割が「内部を export することになる」ため採れない場合（`ui/organism/table`）の唯一の手でもある。代償として本番からも import できてしまうので、足したら `page/pagetest/import_test.go` の `fixtures` へ登録すること（`TestNoProductionCodeImportsTestFixtures` が検査する）。
 
 現在の使用量は次のとおりである（`go tool linterly check` の実測値。**行数の多い順に並べる**）。
 
@@ -1110,7 +1110,7 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 | `ui/organism` | 521 | 1479 | pass |
 | `ui/page/disk/cleanview` | 491 | 1509 | pass |
 | `ui/page/configmodal` | 453 | 1547 | pass |
-| `ui/page/diskclean` | 359 | 1641 | pass |
+| `ui/page/diskclean` | 363 | 1637 | pass |
 | `ui/chrome` | 347 | 1653 | pass |
 | `ui/workscan` | 337 | 1663 | pass |
 | `ui/discovery` | 290 | 1710 | pass |
@@ -1131,7 +1131,7 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 | `internal/setup` | 1970 | 30 | pass |
 | `internal/disk` | 1927 | 73 | pass |
 | `internal/disk/pathguard` | 288 | 1712 | pass |
-| `internal/setup/setuptest` | 170 | 1830 | pass |
+| `internal/setup/setuptest` | 178 | 1822 | pass |
 
 ##### `internal/disk` から `pathguard` を切り出した判断（Issue #101）
 
@@ -1207,7 +1207,7 @@ Setup タブは追加・削除・バージョン更新の 3 操作と、フォ�
 
 **3 周目の時点で上の 2 つの手はもう使い切っていた。** 残る道具は `newModel` だけで、それは上記の理由で出せない。テストの重複も 3 周目で畳んである。そこで本節は「次に取れるのは本文（`flow.go` / `form.go` / `setup.go`）ではなく**モーダルを `page/setupmodal` として切り出すこと**」と書き残した。ファイルを分けるだけでは 1 ディレクトリの合計は 1 行も減らない（`ui/organism/table` の本体を分割しない判断と同じ理由）ので、別ディレクトリへ出すこと自体が要件である。
 
-**4 周目（Issue #105）がその切り出しを実施し、2081 行から 1883 行（残り 117 行）へ戻した。** 出したのは 2 種類である——追加フォーム（`formmodal.go`）と確認ダイアログ（`confirm.go` の `confirmModal`。実行前プレビューと入力の破棄の 2 つの種類で使い回す 1 つのモーダル）。本節が挙げていた「モーダル 4 種」のうち進捗は既に `page/progressmodal` として出ており、そこには手を入れていない。`page/pagetest/import_test.go` の `shared` マップに `"setupmodal"` を登録してある（足さないとタブとして扱われ `TestOnlyTabsetImportsTabs` が落ちる）。
+**4 周目（Issue #105）がその切り出しを実施し、2081 行から 1883 行（残り 117 行）へ戻した。** 出したのは 2 種類である——追加フォーム（`formmodal.go` → `setupmodal/form.go`）と確認ダイアログ（`confirm.go` の `confirmModal`。実行前プレビューと入力の破棄の 2 つの種類で使い回す 1 つのモーダル）。本節が挙げていた「モーダル 4 種」のうち進捗は既に `page/progressmodal` として出ており、そこには手を入れていない。`page/pagetest/import_test.go` の `shared` マップに `"setupmodal"` を登録してある（足さないとタブとして扱われ `TestOnlyTabsetImportsTabs` が落ちる）。
 
 **タブに残したものが境界を語っている。** モーダルは `organism/dialog` を包んで決定を `page.ResultMsg` で差し戻すだけで、**中身を組み立てない。** 計画から確認ダイアログの中身を作る `confirmInput` / `targetLines` / `commandLines` はタブ側（`confirm.go`、50 行）に残した——「追加はディレクトリを、削除・更新は runner 名とスコープを対象として出す」という判断は Setup タブ固有だからである（`page/progressmodal` が「見出しの文言・行の内容は呼び出し側が持つ」としているのと同じ分担）。フォームも同様で、`setupmodal.OpenForm` は組み立て済みの `huh.Form` ではなく**組み立てる関数**（`formValues.build`）を受け取る。何を入力させるかはタブが決め、配色（`token.HuhTheme`）の適用だけがモーダル側に残る。
 
@@ -1275,7 +1275,7 @@ Runners タブと Jobs タブは、同じサービス制御（確認 → 実行 
 - **`ui/tabset`（切り出し当時 344 行。現在 625 行）** — タブのメタ情報と並び、およびそのテスト。タブを足す Issue が触るのはここであって親 Model ではない
 - **`ui/chrome`（切り出し当時 283 行。現在 347 行）** — ヘッダ・タブ行・状態行・フッタの組み立て。親 Model の型も bubbletea もドメインの型も知らない純粋関数にしたので、`App` も `page` も組み立てずに表示用の値だけで検証できる。`ui` 側に残るのは `App` の値を `chrome.View` へ写す `chromeView` の 1 メソッドだけである
 
-**検証の道具を `page/pagetest` へ寄せる**方針は引き続き有効である。親の検証はタブを差し替えて行うため道具立てが page 側と同じであり（キー入力の組み立て・能力・`Cmd` の展開・長寿命の処理を持つ page）、`ui` 直下に置くと道具の重複で行数だけが増える。前の版が「次に `ui` 直下へ足すときはまずこれを寄せること」と書いていた `ui` 直下の `spy` は、**寄せ終わっている**（Issue #45）。キーの差し戻しは `pagetest.Spy.Bubble` という任意の振る舞いにしたので、差し戻しの要る親の検証と、記録だけを見るタブ側の検証が同じ型を使う。`Spy` の記録は mutex で守り、読み出し（`States` / `Keys` / `Msgs`）は複製を返す。`Cmd` を別 goroutine で回すテストが `-race` で落ちないようにするためである。うにするためである。
+**検証の道具を `page/pagetest` へ寄せる**方針は引き続き有効である。親の検証はタブを差し替えて行うため道具立てが page 側と同じであり（キー入力の組み立て・能力・`Cmd` の展開・長寿命の処理を持つ page）、`ui` 直下に置くと道具の重複で行数だけが増える。前の版が「次に `ui` 直下へ足すときはまずこれを寄せること」と書いていた `ui` 直下の `spy` は、**寄せ終わっている**（Issue #45）。キーの差し戻しは `pagetest.Spy.Bubble` という任意の振る舞いにしたので、差し戻しの要る親の検証と、記録だけを見るタブ側の検証が同じ型を使う。`Spy` の記録は mutex で守り、読み出し（`States` / `Keys` / `Msgs`）は複製を返す。`Cmd` を別 goroutine で回すテストが `-race` で落ちないようにするためである。
 
 #### `ui/molecule` を分割した判断（1 周目 1764 → 1197 行 / 2 周目 2034 → 1513 行）
 
@@ -1384,4 +1384,5 @@ Issue #31 で `table_test.go` の空振りしていたテスト（`View() != ""`
 | 1.56 | 2026-08-24 | 1 ファイル 300 行を超えていた 7 ファイルを責務の境界で分けた（Issue #108〜#114。`page/config` の回帰テストを自身の設定と runner 設定へ、`runner/discover.go` の紐付けを `attach.go` へ、`appconfig` の書き込みを `save.go` / `save_test.go` へ、`exec/command` の秘匿値検証を `auditsecret_test.go` へ、`keymap` のヘルプ組み立てを `help.go` へ、`hostcaps` の時間の検証を `timeout_test.go` へ）。「ディレクトリの行数」の 2 つの表を実測へ更新し、崩れていた降順の並びを直した（`ui/page/runners` / `ui/keymap` / `ui/molecule` / `ui/page/disk/cleanview` / `ui/molecule/chromebar` / `ui/page/setupmodal` などの位置）。`ui/page/config` と `ui/page/pagetest` の散文の数値も実測へそろえた | 表には「実測値」と明記してあり、**この節が次の Issue の読む行数予算の規範である**。並びが崩れると、どこが逼迫しているかを表から読み取れない。1 ファイルの分割はディレクトリの合計をわずかに増やすため、分割のたびに表がずれる |
 | 1.57 | 2026-08-24 | PR #124 のレビュー指摘を反映。(1) 依存グラフの `App --> Mol` を削除（`chromebar` 切り出しで親 Model は `molecule` を一切 import しなくなった）。(2)「`ui/chrome` が import するのは `molecule`」の段落を実態（`molecule/chromebar` / `chromebar.TabView` / 写し替えは `tabset.Views`）へ書き換え、実在しない `tabViews` の記述を 2 箇所とも削除。(3) ディレクトリ構成のツリーと実装状況に `page/diskclean` / `page/configmodal` / `page/setupmodal`（および漏れていた `page/setup`）を追加。(4) **タブ 1 枚のための切り出し先を `page/<tab>/` 配下と `page/` 直下のどちらに置くかの基準**を新設し、直下へ置いたものが `page/<tab>/` 配下を import してよい向きも明記。二重になっていた「`page/` は 1 ディレクトリ 1 タブではない」の段落を 1 つに畳んだ。(5) 散文の実測値を表にそろえた（`ui/page/runners` 2018 → 1983、`ui/page/setup` の「2190 行・残り 10 行」を当時の値と明示して現在値を併記、`molecule/listrow` の残り 817 → 477、`ui/page` 直下の残り 392 → 30）。(6) `molecule.CapsBar` / `TabBar` / `KeyBar` の参照をすべて `chromebar.*` へ改め、molecule 一覧と画面対応表にも置き場所を明記 | レビューで、行数表は正しいのに**同じ文書の散文が別の値を主張している**箇所が 4 件見つかった（1.21 / 1.40 が是正した「1 つの節が 2 つの値を主張する」欠陥の再発）。依存グラフの辺と `tabViews` は実装に存在しないものを指しており、1.18 / 1.19 が「辺を実装の import と突き合わせる」と宣言した以上、残すと文書の主張自体が偽になる。切り出し先の置き場所は、本 PR が 3 つ足したのに基準がどこにも無く、既存の先例（`page/disk/cleanview` はネスト）と食い違って見えていた |
 | 1.58 | 2026-08-24 | `page/diskclean.Job.Settle` が確定できない状態の呼び出しを自分で弾くようにし（第 3 戻り値）、回帰テスト `TestSettleRefusesUnsettledJob` を追加 | 切り出す前は「進捗の出し切りと終了通知の両方がそろうまで確定しない」ガードが確定処理と同じ関数（`page/disk` の `finish`）の中にあり、不変条件は構造で守られていた。切り出し後は `Settle` が `result == nil` でも報告を組んで `cancel` まで実行し、呼び出し側が `Settled()` を見る作法だけが支えになっていた。**構造による保証から規約による保証への後退**であり、呼び出し側の if を 1 つ消すだけで「最後の対象が未着手のまま未実行 1 件として数えられる」形に戻る |
-| 1.59 | 2026-08-24 | PR #124 の 2 周目レビューを反映。(1) 行数表と散文を再実測へ（`ui/page/disk` 1940 → 1943、`ui/page/diskclean` 312 → 359 とその降順位置の是正。あわせて本改訂自身が触った `page/configmodal` 453 / `page/setupmodal` 253 / `molecule/chromebar` 543 も再実測）——**1.57 の修正コミット自身がコードを触って作った乖離である**。(2) 依存グラフに実在するのに描かれていなかった 3 辺（`CBar --> Atom` / `CBar --> Tok` / `OrgP --> Row`）を追加。(3) 1.57 が新設した「`page/<tab>/` 配下 vs `page/` 直下」の基準が既存の先例（`page/disk/confirmmodal`）を分けられなかったため、**利用者が 1 タブか 2 タブ以上か**という実装から一意に決まる条件へ書き換え、`page/diskclean` / `page/configmodal` / `page/setupmodal` が基準の例外であること（Issue が `shared` 登録を受け入れ条件にしたため）と、次はネスト側に倣うことを明記。(4) `chrome.View` の状態行の件数を 2 つ → 3 つ（`HostReq` を追加）、実装状況に `page/action` を追加、`CapsBar` / `TabBar` / `KeyBar` を「`molecule` 直下に残し」と書いた 1 文に現在の配置を注記、`ui/tabset` / `ui/chrome` の括弧内の行数に時点を明示、語中で切れていた `Spy` の 1 文を補完 | (1) は 1.21 / 1.40 が是正した「1 つの文書が 2 つの値を主張する」欠陥の再発で、**乖離を直すコミットが新しい乖離を作った**形だった。(2) は 1.18 / 1.19 / 1.29 が「辺を実装の import と突き合わせる」と宣言している以上、欠落は文書の主張自体を偽にする。(3) は基準がどちらにも倒れるため、次に切り出す Issue が置き場所を決められない |
+| 1.59 | 2026-08-24 | PR #124 の 2 周目レビューを反映。(1) 行数表と散文を再実測へ（`ui/page/disk` 1940 → 1943、`ui/page/diskclean` の値と降順位置の是正を含む。**値は表を正とし、改訂履歴には固定値を書かない**——本改訂自身がコードに触れて再び動かしたため）——**1.57 の修正コミット自身がコードを触って作った乖離である**。(2) 依存グラフに実在するのに描かれていなかった 3 辺（`CBar --> Atom` / `CBar --> Tok` / `OrgP --> Row`）を追加。(3) 1.57 が新設した「`page/<tab>/` 配下 vs `page/` 直下」の基準が既存の先例（`page/disk/confirmmodal`）を分けられなかったため、**利用者が 1 タブか 2 タブ以上か**という実装から一意に決まる条件へ書き換え、`page/diskclean` / `page/configmodal` / `page/setupmodal` が基準の例外であること（Issue が `shared` 登録を受け入れ条件にしたため）と、次はネスト側に倣うことを明記。(4) `chrome.View` の状態行の件数を 2 つ → 3 つ（`HostReq` を追加）、実装状況に `page/action` を追加、`CapsBar` / `TabBar` / `KeyBar` を「`molecule` 直下に残し」と書いた 1 文に現在の配置を注記、`ui/tabset` / `ui/chrome` の括弧内の行数に時点を明示、語中で切れていた `Spy` の 1 文を補完 | (1) は 1.21 / 1.40 が是正した「1 つの文書が 2 つの値を主張する」欠陥の再発で、**乖離を直すコミットが新しい乖離を作った**形だった。(2) は 1.18 / 1.19 / 1.29 が「辺を実装の import と突き合わせる」と宣言している以上、欠落は文書の主張自体を偽にする。(3) は基準がどちらにも倒れるため、次に切り出す Issue が置き場所を決められない |
+| 1.60 | 2026-08-24 | 2 周目レビューの残りを反映。存在しないファイルを指していた `formmodal.go` を `formmodal.go` → `setupmodal/form.go` へ、`page/runnerop` の利用者を実測（Runners / Jobs。`runnerdetail` は import していない——向きは `runnerop` → `runnerdetail` である）へ、空け方の手 (3) の例に `internal/setup/setuptest` を追加。依存の規則の「`token` は `lipgloss` のみ」を、同じ行の理由列（`huh.Theme` を token 内で組む）と整合する「`lipgloss` と `huh` のみ」へ訂正。1.59 が補おうとして二重になっていた `Spy` の 1 文を直した | 1.59 は「語中で切れた文を補完」と記録しながら断片を継ぎ足して別の壊し方をしており、`formmodal.go` は `docs/components/overview.md` の `ValidatePath` と同じ「移動・改名で存在しなくなった識別子を指す」乖離が 1 文だけ取り残されていた。`page/runnerop` の括弧は本改訂 (1.57) が新設した配置基準の根拠そのもので、誤ると基準の読み方を誤らせる |

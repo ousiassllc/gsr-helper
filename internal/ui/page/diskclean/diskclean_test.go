@@ -84,7 +84,7 @@ func TestJobDoesNotSettleWithoutDone(t *testing.T) {
 // **呼び出し側の作法ではなく Job 自身が弾くことを見る。** 判定を呼び出し側に委ねると、
 // 終了通知だけが届いた時点で報告を組める形が残り、最後の対象が未着手のまま
 // 「未実行 1 件」として数えられる（切り出す前は同じガードが確定処理と同じ関数の中に
-// あった）。ここが緑である限り、呼び出し側の if を消しても不変条件は壊れない。
+// あった）。ここが緑である限り、呼び出し側の if を消しても**件数の**不変条件は壊れない（進捗表示・状態行・context の解放には呼び出し側の `!ok` が要る）。
 func TestSettleRefusesUnsettledJob(t *testing.T) {
 	t.Run("終了通知だけ", func(t *testing.T) {
 		job, _ := diskclean.Start(0, exec.NewFake(), nil, dockerPlan())

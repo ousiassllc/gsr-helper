@@ -21,11 +21,11 @@ const (
 	DiscardKind page.ModalKind = "setupdiscard"
 )
 
-// DiscardInput は入力の破棄を問う確認の中身を返す。
+// discardInput は入力の破棄を問う確認の中身を返す。
 //
 // 実行前プレビューの中身（何を作るか・何を実行するか）と違って**計画に依らない**
-// ので、ここに置く。呼び出し側が毎回同じ定型文を組み立てずに済む。
-func DiscardInput() dialog.ConfirmInput {
+// ので、OpenDiscard がここで組む。呼び出し側は毎回同じ定型文を持たずに済む。
+func discardInput() dialog.ConfirmInput {
 	return dialog.ConfirmInput{
 		Title:   "入力の破棄",
 		Targets: nil,
@@ -45,7 +45,7 @@ func OpenConfirm(o *page.Overlay, in dialog.ConfirmInput) tea.Cmd {
 
 // OpenDiscard は入力の破棄の確認を開く。
 func OpenDiscard(o *page.Overlay) tea.Cmd {
-	return o.Open(DiscardKind, confirmOpenMsg{input: DiscardInput()})
+	return o.Open(DiscardKind, confirmOpenMsg{input: discardInput()})
 }
 
 // confirmModal は確認ダイアログ。dialog.Confirm を包むだけで判断は持たない。
