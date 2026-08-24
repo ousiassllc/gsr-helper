@@ -129,6 +129,11 @@ func CleanScanRoot(field, path string) (string, error) {
 // ここだけにあり、設定ファイル内の重複も入口をまたいだ重複も同じ実装で落ちる。
 // 双方の要素が CleanScanRoot を通った値であることを前提とする（同じルートが違う
 // 表記のまま残ると重複と判定できない）。
+//
+// **返り値は常に新しいスライス（または nil）であり、引数の配列とは共有しない。**
+// 走査ルートは 3 秒ごとの検出で別 goroutine へ渡るため、呼び出し側はこの戻り値を
+// そのまま渡してよい（internal/ui の App.scanRoots）。引数をそのまま返す最適化を
+// 入れると、親 Model が持つスライスの実体が走行中の走査と共有される。
 func MergeScanRoots(cfg, extra []string) []string {
 	out := make([]string, 0, len(cfg)+len(extra))
 	for _, r := range slices.Concat(cfg, extra) {

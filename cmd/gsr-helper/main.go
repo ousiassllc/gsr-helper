@@ -99,18 +99,46 @@ func run(args []string, stdout, stderr io.Writer) int {
 		appconfig.Options{HasToken: gh.HasToken, Timeout: 0},
 	)
 
-	app := ui.New(cfg, caps, ex, ui.Options{
-		Color:      colorEnabled(o.noColor, os.Getenv, isTerminal(os.Stdout)),
-		Refresh:    o.refresh,
-		Roots:      appconfig.MergeScanRoots(cfg.ScanRoots, o.roots),
-		Host:       hostname(),
+	app := ui.New(cfg, caps, ex, uiOptions(
+		cfg, o,
+		colorEnabled(o.noColor, os.Getenv, isTerminal(os.Stdout)),
+		hostname(), confPath, !exists, secrets, lg,
+	))
+	return runProgram(app, stderr)
+}
+
+// uiOptions は起動時に決まった値を ui.Options へ並べる。
+//
+// run から切り出してあるのは、組み立てた値をテストから直に表明できるようにする
+// ためである。OS を触る判定（colorEnabled / hostname / appconfig.Exists）は呼び出し側で
+// 済ませ、ここは受け取った値を並べるだけに保つ。
+//
+// **cfg は受け取るが 1 つも使わない。** とくに Roots へ cfg.ScanRoots を混ぜては
+// ならない——合成を起動時に畳むと Config タブで保存しても再起動まで効かず（Issue
+// #132）、合成は走査のたびに App.scanRoots がやり直す（internal/ui/discover.go）。
+// 使わない cfg を引数に残しているのは、混ぜていないことを cfg.ScanRoots を埋めた
+// テストで表明できるようにするためで、使わないので名前は _ にしてある。
+func uiOptions(
+	_ appconfig.Config,
+	o opts,
+	color bool,
+	host, confPath string,
+	firstRun bool,
+	secrets *gh.Secrets,
+	lg *audit.Logger,
+) ui.Options {
+	return ui.Options{
+		Color:   color,
+		Refresh: o.refresh,
+		// 設定ファイルの scan_roots とはここで合わせない（上の doc コメント。Issue #132）。
+		Roots:      o.roots,
+		Host:       host,
 		Secrets:    secrets,
 		ConfigPath: confPath,
-		FirstRun:   !exists,
+		FirstRun:   firstRun,
 		// 開けなかった場合も Discard が返るので nil にはならない（openAudit）。
 		Audit: lg,
-	})
-	return runProgram(app, stderr)
+	}
 }
 
 // runProgram は TUI を実行し、終了コードを返す。

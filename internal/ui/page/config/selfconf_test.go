@@ -2,6 +2,8 @@ package config
 
 import (
 	"os"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/ousiassllc/gsr-helper/internal/appconfig"
@@ -138,4 +140,115 @@ func TestFirstRunWizardWritesWithoutEdits(t *testing.T) {
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("設定ファイルが作られていない: %v", err)
 	}
+}
+
+// 再起動が要ることを画面で伝えるのは、走っているログの出力先とずれたときだけ（Issue #132）。
+//
+// 監査ログの出力先は起動時に開いたファイルハンドル（ui.Options.Audit）として
+// 配られており、走行中に開き直すと差し替えの最中に走っている書き込みを取りこぼす。
+// 反映しないと決めた以上、黙って効かないままにはしない——利用者から見れば
+// 「設定に書いたパスが効かない」という Issue #128 と同じ体験になる。
+//
+// **比べる相手は起動時の値である。** 前回の保存値と比べると、一度変えてから元へ
+// 戻した保存で「再起動後に切り替わります」と出る——再起動しても何も変わらないのに
+// 再起動を促す、事実として誤った案内になる。
+func TestSelfConfigTellsRestartOnlyWhenAuditLogDiffersFromStartup(t *testing.T) {
+	t.Parallel()
+
+	const startup = "/var/log/gsr-helper/audit.jsonl"
+	const moved = "/tmp/gsr-helper-audit.jsonl"
+
+	for _, tt := range []struct {
+		name string
+		// audits は保存を繰り返す順に並べた audit_log の値（空なら触らない）。
+		audits []string
+		want   bool
+	}{
+		{name: "出力先を変えたら伝える", audits: []string{moved}, want: true},
+		{name: "変えていなければ伝えない", audits: []string{""}, want: false},
+		{name: "起動時の値へ戻したら伝えない", audits: []string{moved, startup}, want: false},
+		{name: "変えた後で別の項目だけ保存しても伝える", audits: []string{moved, ""}, want: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			m := newSelfConfigTab(t, startup)
+			status := ""
+			for i, audit := range tt.audits {
+				// 監査ログ以外にも必ず差分を作る。差分が無いと書き込み自体が飛ぶ。
+				m, status = saveSelf(t, m, strconv.Itoa(40+i), audit)
+			}
+
+			if got := strings.Contains(status, auditRestartNote); got != tt.want {
+				t.Errorf("状態行 = %q, 再起動の案内を含むか = %v, want %v", status, got, tt.want)
+			}
+			if !tt.want && status != "設定を書き込みました" {
+				t.Errorf("状態行 = %q, want %q（書き込みの報告まで消えている）", status, "設定を書き込みました")
+			}
+		})
+	}
+}
+
+// 書き込みに失敗したときは再起動の案内を出さないこと（Issue #132）。
+//
+// 出力先が切り替わるのは設定ファイルに書けた場合だけである。書けていないのに
+// 「再起動後に切り替わります」と出すと、再起動して元のままなのを見た利用者が
+// 二度目の失敗まで原因に気付けない。
+func TestSelfConfigDoesNotTellRestartWhenSaveFailed(t *testing.T) {
+	t.Parallel()
+
+	m := newSelfConfigTab(t, "/var/log/gsr-helper/audit.jsonl")
+	m.st.Config.Path = fileAsDir(t) + "/config.yaml"
+
+	m, status := saveSelf(t, m, "42", "/tmp/gsr-helper-audit.jsonl")
+	if strings.Contains(status, auditRestartNote) {
+		t.Errorf("書き込みに失敗したのに再起動の案内が出ている: %q", status)
+	}
+	if !strings.HasPrefix(status, "失敗: ") {
+		t.Errorf("状態行 = %q, want 失敗の報告", status)
+	}
+	_ = m
+}
+
+// newSelfConfigTab は起動時の audit_log を控えた Config タブを返す。
+//
+// **New に Config 入りの StateMsg を渡さない。** 本番でタブを組み立てる
+// tabset.New が渡す StateMsg は Config を持たず、設定は最初の共有状態で届く。
+// 同じ順序を踏まないと setState の「最初の StateMsg」の判定が働かない。
+func newSelfConfigTab(t *testing.T, audit string) Model {
+	t.Helper()
+
+	conf := appconfig.Default()
+	conf.AuditLog = audit
+
+	st := pagetest.State(80, 24)
+	m := New(tabIndex, st)
+	st.Config = page.ConfigDeps{Conf: conf, Path: t.TempDir() + "/config.yaml", FirstRun: false}
+	next, _ := m.Update(st)
+
+	return next.(Model)
+}
+
+// saveSelf は自身の設定を 1 度保存し、保存後の状態行を返す。
+//
+// refresh は必ず変える（差分が無いと書き込み自体が飛ぶ）。audit が空なら
+// 監査ログの欄は触らない。
+func saveSelf(t *testing.T, m Model, refresh, audit string) (Model, string) {
+	t.Helper()
+
+	m, _ = send(t, m, organism.ChosenMsg{ID: selfID, Key: ""})
+	m.vals.Self.Refresh = refresh
+	if audit != "" {
+		m.vals.Self.AuditLog = audit
+	}
+	m, _ = send(t, m, page.ResultMsg{Kind: configmodal.FormKind, Msg: dialog.FormDoneMsg{Form: nil}})
+
+	m, cmd := send(t, m, page.ResultMsg{Kind: configmodal.DiffKind, Msg: dialog.DecidedMsg{Confirmed: true}})
+	done, ok := doneOf(cmd)
+	if !ok {
+		t.Fatal("書き込みの Cmd が出ていない（差分なしで飛ばされた）")
+	}
+	m, _ = send(t, m, done)
+
+	return m, m.status()
 }
