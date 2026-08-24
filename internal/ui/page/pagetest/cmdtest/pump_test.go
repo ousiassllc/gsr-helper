@@ -74,6 +74,38 @@ func TestPumpRejectsMsgForAnotherTab(t *testing.T) {
 	}
 }
 
+// 宛先の合う page.TabMsg は包みを解いて中身を配る。
+//
+// **上の宛先違いの検査と対になる。** 落とす腕だけを見ていると、包みをそのまま
+// step へ渡す実装でも緑のままになる。タブ側は page.TabMsg という型を知らずに中身の
+// 型で分岐するので、解かずに配れば型スイッチが素通りして「何も起きない」が正常に
+// 見える（Issue #157）。
+func TestPumpUnwrapsMsgForOwnTab(t *testing.T) {
+	t.Parallel()
+
+	var seen []tea.Msg
+	step := func(n int, msg tea.Msg) (int, tea.Cmd) {
+		seen = append(seen, msg)
+
+		return n + 1, nil
+	}
+
+	cmd := page.Do(0, func() tea.Msg { return marker{} })
+	got, err := cmdtest.Pump(0, 0, cmd, pumpTimeout, step, func(n int) bool { return n == 1 })
+	if err != nil {
+		t.Fatalf("宛先の合う page.TabMsg で止まった: %v", err)
+	}
+	if got != 1 {
+		t.Errorf("進めた手数 = %d, want 1", got)
+	}
+	if len(seen) != 1 {
+		t.Fatalf("step が受けた Msg = %d 件, want 1 件", len(seen))
+	}
+	if _, ok := seen[0].(marker); !ok {
+		t.Errorf("step が受けたのは %#v, want marker（包みが解かれていない）", seen[0])
+	}
+}
+
 // nil の Msg は読み飛ばし、後続の Msg で進む。
 //
 // tea.Cmd は nil を返しうる（何も起きなかったことを表す）。これを step へ渡すと

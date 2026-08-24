@@ -52,9 +52,12 @@ const AdvanceRounds = 8
 // あって、この道具が受け止めてよい状態ではない。黙って諦めると、辿れなかった Msg を
 // 呼び出し側が「Msg が発行されていない」と読む assertion がすべて満たされて静かに
 // 緑になる（Issue #150）。素で走らせていたころは止まりもせず、壊れ方がハングだった。
-// **例外は無い。** ドレイン停止の待機だけはホストのプロセス表を見ていて例外だったが、
-// 走査が page.StateMsg.ScanProcs で差し替えられるようになり、呼び出し側が停止条件を
-// 決められるようになった（Issue #155）。
+// **例外が無いのは pagetest.State を通した共有状態に限る。** ドレイン停止の待機だけは
+// ホストのプロセス表を見ていて例外だったが、走査が page.StateMsg.ScanProcs で差し替え
+// られるようになり、pagetest.State はそこを必ず埋めるので停止条件を呼び出し側が決め
+// られる（Issue #155）。逆に **page.StateMsg を手で組むと ScanProcs は nil のままで、
+// svc は procs.Scan に落ちる**——停止条件が実ホストの /proc に戻り、この前提は破れる。
+// tabset_test.go の私物の testState を pagetest.State 経由へ寄せたのはこのためである。
 // pagetest の ScanKey / ApplyChrome / WorkScanStarts も同じ前提を同じ形（MustMsgs）で
 // 守っている。戻らない Cmd を含む往復は AdvanceQuick を使うこと。
 func Advance(m tea.Model, cmd tea.Cmd, rounds int) tea.Model {

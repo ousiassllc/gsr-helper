@@ -1118,7 +1118,7 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 | `ui/organism/table` | 1969 | 31 | pass |
 | `ui` | 1944 | 56 | pass |
 | `ui/page/logs` | 1927 | 73 | pass |
-| `ui/page/pagetest` | 1900 | 100 | pass |
+| `ui/page/pagetest` | 1932 | 68 | pass |
 | `ui/page/setup` | 1890 | 110 | pass |
 | `ui/page/jobs` | 1688 | 312 | pass |
 | `ui/keymap` | 1681 | 319 | pass |
@@ -1127,7 +1127,7 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 | `ui/molecule/listrow` | 1523 | 477 | pass |
 | `ui/molecule` | 1515 | 485 | pass |
 | `ui/page/runnerop` | 1404 | 596 | pass |
-| `ui/page/pagetest/cmdtest` | 1306 | 694 | pass |
+| `ui/page/pagetest/cmdtest` | 1341 | 659 | pass |
 | `ui/atom` | 1264 | 736 | pass |
 | `ui/page/runnerdetail` | 1224 | 776 | pass |
 | `ui/token` | 1217 | 783 | pass |
@@ -1230,7 +1230,7 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 
 #### ファイルの行数
 
-**同じチェックが 1 ファイル 300 行にも掛かる。** ディレクトリと同じく `warning_threshold: 10` が効くので、301〜330 行が **WARN**、331 行以上が **ERROR** である（設定の詳細は[環境構築](../environment/setup.md#linterly)）。現在 WARN 以上のファイルは無く、最大は `internal/ui/page/runners/runners_test.go` の **298 行（残り 2）**である。次点は 296 行が 2 つあり（`internal/ui/page/runners/runners.go` / `internal/ui/page/overlay_test.go`。**`internal/buildconfig/docs_depgraph_test.go` もかつてここに並んでいたが、改訂 1.91 が責務の境界で 2 つに分けて 136 行になり、この一覧から外れた**）、`internal/setup/tarball/fetch_test.go` が 293 行、`internal/ui/tabset/tabset.go` が 292 行、`internal/ui/organism/choicelist_test.go` が 291 行と続く。**`cmdtest/run.go` はこの一覧から外れた**——Issue #150 で 292 行から `find.go` を切り出し、現在は `run.go` 193 行 / `find.go` 163 行である（同じ Issue でテストも `run_test.go` / `cmd_test.go` / `find_test.go` の 3 つに分かれ、Issue #157 が `pump_test.go` を足して**現在は 4 つ**である。実測は `run_test.go` 182 行 / `pump_test.go` 172 行 / `cmd_test.go` 151 行 / `find_test.go` 149 行。`find_test.go` は `find.go` の検証を集めた新規ファイルで、PR #154 のレビュー指摘で `ChromeOf` / `HostReqOf` の未検証の腕を足した際に `run_test.go` から分けた。`pump_test.go` は `run.go` の `Pump` / `Drained` の未検証の分岐を集めた新規ファイルで、`run_test.go` を 300 行へ近づけないために分けた）。**`internal/ui` 直下は最大でも `app.go` の 284 行である**（6 周目の 300 行張り付きは `app_test.go` で、Issue #139 が周期の状態を `discovery.State` へ移したことで 274 行になった。下記「9 周目の空け方」）。
+**同じチェックが 1 ファイル 300 行にも掛かる。** ディレクトリと同じく `warning_threshold: 10` が効くので、301〜330 行が **WARN**、331 行以上が **ERROR** である（設定の詳細は[環境構築](../environment/setup.md#linterly)）。現在 WARN 以上のファイルは無く、最大は `internal/ui/page/runners/runners_test.go` の **298 行（残り 2）**である。次点は 296 行が 2 つあり（`internal/ui/page/runners/runners.go` / `internal/ui/page/overlay_test.go`。**`internal/buildconfig/docs_depgraph_test.go` もかつてここに並んでいたが、改訂 1.91 が責務の境界で 2 つに分けて 136 行になり、この一覧から外れた**）、`internal/setup/tarball/fetch_test.go` が 293 行、`internal/ui/tabset/tabset.go` が 292 行、`internal/ui/organism/choicelist_test.go` が 291 行と続く。**`cmdtest/run.go` はこの一覧から外れた**——Issue #150 で 292 行から `find.go` を切り出し、現在は `run.go` 193 行 / `find.go` 163 行である（同じ Issue でテストも `run_test.go` / `cmd_test.go` / `find_test.go` の 3 つに分かれ、Issue #157 が `pump_test.go` を足して**現在は 4 つ**である。実測は `pump_test.go` 204 行 / `run_test.go` 182 行 / `cmd_test.go` 151 行 / `find_test.go` 149 行。`find_test.go` は `find.go` の検証を集めた新規ファイルで、PR #154 のレビュー指摘で `ChromeOf` / `HostReqOf` の未検証の腕を足した際に `run_test.go` から分けた。`pump_test.go` は `run.go` の `Pump` / `Drained` の未検証の分岐を集めた新規ファイルで、`run_test.go` を 300 行へ近づけないために分けた）。**`internal/ui` 直下は最大でも `app.go` の 284 行である**（6 周目の 300 行張り付きは `app_test.go` で、Issue #139 が周期の状態を `discovery.State` へ移したことで 274 行になった。下記「9 周目の空け方」）。
 
 **採る手は 1 つだけである——同じディレクトリの中で責務の境界に沿ってファイルを分ける。** ディレクトリの 3 つの手（本節冒頭）と違い、ファイルの超過はパッケージ境界の問題ではないので、切り出し先を別ディレクトリにする理由が無い。上限値を緩めるのも、行を詰めて 300 行に収めるのも採らない——**前者は次の Issue が読む予算を壊し、後者は 1 行あたりの情報量を増やして読みにくくするだけで、責務は 1 つも減らない。**
 
@@ -1265,7 +1265,7 @@ Config タブは項目の一覧・フォーム 6 種・差分の承認・反映�
 
 1. **3 つの手のうち (1) は本 Issue の丈に合わない。** `ui/page` に残っているのは `StateMsg` と `Overlay` のようにタブ全体が参照する土台だけである。**`StateMsg` は循環しない**——`StateMsg` とそれが持つ型（`DiskState` / `WorkUsage` / `ScopeState` / `SetupDeps` / `ConfigDeps`）が参照するのは `appconfig` / `audit` / `exec` / `gh` / `runner` / `keymap` / `token` / `atom` / `setup/job` / `setup/tarball` だけで、`page` 自身の識別子は 1 つも要らない。切り出せない理由は**波及の広さ**である——`page.StateMsg` は全タブ・`tabset`・`pagetest` から数十箇所で名指しされており、`state.Msg` への改名はリポジトリの端まで届く。バグ 1 件の修正に混ぜる変更ではない。**`Overlay` の側は循環しうる**——`overlay.go` / `overlaystate.go` と `modal.go` の `handlesBack` に跨がり、`Do` / `TabMsg` / `StateMsg` を使うため、`page` に `Overlay` の利用者を残したまま出すと戻りの辺が生じる（`helpmodal.go` を道連れにすれば避けられる）。
 2. **(2) テストの重複削減は本 Issue の範囲外である。** `ui/page` 直下のテストは 6 ファイル 824 行で、削るなら `overlay_test.go`（296 行）の重なりの検証であり、**本 Issue が触れていない部分を触ることになる**。
-3. **足す側は削った。** doc は当初 13 行だったものを 4 行に詰め、詳しい理由は、まだ余裕のある `pagetest.ScanOf`（`ui/page/pagetest`・1900 行・残り 100 行。本節の UI の表と同じ実測値）側へ置いた。**同じ Issue で `ui/page/runners` は 2000 行（残り 0 行・pass）に収めてある**——回帰の検証は既存の `TestDrainStopsAfterWaiting` に足し、走査の既定は `pagetest.State` へ寄せた。
+3. **足す側は削った。** doc は当初 13 行だったものを 4 行に詰め、詳しい理由は、まだ余裕のある `pagetest.ScanOf`（`ui/page/pagetest`・1932 行・残り 68 行。本節の UI の表と同じ実測値）側へ置いた。**同じ Issue で `ui/page/runners` は 2000 行（残り 0 行・pass）に収めてある**——回帰の検証は既存の `TestDrainStopsAfterWaiting` に足し、走査の既定は `pagetest.State` へ寄せた。
 4. **ERROR 境界（2200 行）まで 197 行ある。** `make check` は通る。
 5. **1 ファイル 300 行も守っている**（`page.go` は 284 行・残り 16 行で、警告帯 301〜330 行の外）。
 

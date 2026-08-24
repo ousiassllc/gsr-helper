@@ -38,3 +38,35 @@ func TestStateAlwaysCarriesProcScan(t *testing.T) {
 		t.Error("runner を渡した共有状態のフィクスチャがプロセス走査を持たない")
 	}
 }
+
+// プロセス走査は渡した runner の Workers をそのまま返す。
+//
+// **上の nil 検査だけでは足りない。** 走査を
+// `func() ([]runner.Process, error) { return nil, nil }` に潰しても nil 検査は緑の
+// ままで、そのとき ScanOf の doc が約束する「一覧が busy と出している runner は走査
+// でも busy」が黙って失われる。busy な対象のドレイン停止を辿るテストは以後、待機
+// せずに即座に停止条件を満たして**空虚に緑**になり、Issue #155 が消したはずの欠陥が
+// そのまま戻る。閉包を実際に呼ぶこの 1 件がその潰しを落とす。
+func TestStateProcScanReportsRunnerWorkers(t *testing.T) {
+	got, err := pagetest.State(80, 16, pagetest.BusyRunner()).ScanProcs()
+	if err != nil {
+		t.Fatalf("busy な runner の走査が失敗した: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("走査が返したプロセス = %d 件, want 1 件（BusyRunner の Workers）", len(got))
+	}
+	want := pagetest.BusyRunner().Workers[0]
+	if got[0].PID != want.PID || got[0].Kind != want.Kind || got[0].Dir != want.Dir {
+		t.Errorf("走査が返したプロセス = PID %d/%v/%s, want PID %d/%v/%s",
+			got[0].PID, got[0].Kind, got[0].Dir, want.PID, want.Kind, want.Dir)
+	}
+
+	// Workers を持たない runner では空になる（走査がホストの /proc を見ていない）。
+	idle, err := pagetest.State(80, 16, pagetest.SampleRunner()).ScanProcs()
+	if err != nil {
+		t.Fatalf("稼働中の runner の走査が失敗した: %v", err)
+	}
+	if len(idle) != 0 {
+		t.Errorf("走査が返したプロセス = %d 件, want 0 件（SampleRunner は Workers を持たない）", len(idle))
+	}
+}
