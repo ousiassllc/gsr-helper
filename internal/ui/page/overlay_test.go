@@ -84,6 +84,13 @@ func TestOverlayCloseOneByOne(t *testing.T) {
 	o.Open(kindFirst, nil)
 	o.Open(kindSecond, nil)
 
+	// 2 枚重ねた状態で描かれるのは最上位である（削除した
+	// TestOverlayRegisteredModalFollowsStackRules から引き継いだ検査。1 枚閉じた
+	// 後だけを見ると最上位と背後が同じ 1 枚になり、この規則を見落とす）。
+	if !strings.Contains(o.View(), "2 枚目") {
+		t.Error("2 枚重ねた状態で最上位が描かれていない")
+	}
+
 	o, _ = sendOverlay(o, "esc")
 	if !o.Active() {
 		t.Fatal("esc で 2 枚とも閉じている")
@@ -184,9 +191,8 @@ func TestOverlaySetStateReachesOpenModalsOnly(t *testing.T) {
 
 // 起動後に遅延登録したモーダルは、登録した時点で最新の共有状態と領域を受け取る。
 //
-// **中身まで見る。** 件数だけを数えると、配るのが StateMsg{Keys, Styles} だけに
-// 退行しても検証が通り、遅延登録したモーダルが Result / Caps / Exec を持てない
-// という Issue #32 の症状を見逃す。
+// 配られた中身は wantFullState が見る（件数だけを数えると Issue #32 の症状を
+// 見逃す理由も、そこに書いてある）。
 func TestOverlayReplaysStateOnRegister(t *testing.T) {
 	const kindLate ModalKind = "late"
 
@@ -198,25 +204,7 @@ func TestOverlayReplaysStateOnRegister(t *testing.T) {
 	if late.states == 0 {
 		t.Fatal("遅延登録したモーダルへ共有状態が配られていない")
 	}
-	got := late.state
-	if n := len(got.Result.Runners); n != 1 || got.Result.Runners[0].Dir != testRunnerDir {
-		t.Errorf("配られた検出結果 = %+v, want %q 1 台", got.Result, testRunnerDir)
-	}
-	if !got.Caps.Systemd || got.Caps.SudoUser == "" {
-		t.Errorf("配られた能力 = %+v, want 直前の SetState と同じ値", got.Caps)
-	}
-	if got.Exec == nil {
-		t.Error("配られた共有状態に Executor が無い（ドメイン層を呼ぶ道が渡っていない）")
-	}
-	if got.BodyW != 120 || got.BodyH != 40 {
-		t.Errorf("配られた本体領域 = %dx%d, want 120x40", got.BodyW, got.BodyH)
-	}
-	if late.size.W == 0 || late.size.H == 0 {
-		t.Errorf("遅延登録したモーダルの領域 = %+v, want 枠の分を引いた値", late.size)
-	}
-	if late.tab != testTab {
-		t.Errorf("遅延登録したモーダルのタブ番号 = %d, want %d", late.tab, testTab)
-	}
+	wantFullState(t, late, 120, 40)
 }
 
 // 寿命の通知は page 本体のものであり、モーダルが開いていても Overlay へ渡さない。

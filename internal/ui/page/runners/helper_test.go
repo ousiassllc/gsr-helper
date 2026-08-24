@@ -81,11 +81,16 @@ func testState(w, h int) page.StateMsg {
 	return st
 }
 
-// newModel は共有状態を配った状態の Runners タブを返す。
-func newModel(t *testing.T, w, h int) (tea.Model, page.ChromeMsg) {
+// newModel は共有状態を配った状態の Runners タブと、そのとき返った ChromeMsg を返す。
+//
+// **スナップショットは受け取った 1 つを使い回す。** New と Update へ別々に組んだ
+// testState を渡していたころは、内容が同じでも中身の別な共有状態（Executor も
+// プロセス走査も別のインスタンス）を 2 つ配っていた。親が 1 周期に配る StateMsg は
+// 1 つである。
+func newModel(t *testing.T, st page.StateMsg) (tea.Model, page.ChromeMsg) {
 	t.Helper()
 
-	m, cmd := runners.New(0, testState(w, h)).Update(testState(w, h))
+	m, cmd := runners.New(0, st).Update(st)
 	return m, chrome(t, cmd)
 }
 

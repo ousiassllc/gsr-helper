@@ -28,7 +28,7 @@ import (
 // 空白になる（一括停止の成否を読む手がかりが 3 秒間どこにも無い）。
 func TestDoneMsgChromeCarriesResultImmediately(t *testing.T) {
 	st, _ := opsState()
-	m := newOpsModel(t, st)
+	m, _ := newModel(t, st)
 
 	done := runnerop.Msg{Payload: runnerop.DoneMsg{
 		Op:      action.Stop,
@@ -52,7 +52,7 @@ func TestDoneMsgChromeCarriesResultImmediately(t *testing.T) {
 // 残ったままになる。
 func TestConfirmCancelChromeClosesModalImmediately(t *testing.T) {
 	st, _ := opsState()
-	m := newOpsModel(t, st)
+	m, _ := newModel(t, st)
 
 	m = opsSend(t, m, "x")
 	if !opsChrome(t, m).Modal {

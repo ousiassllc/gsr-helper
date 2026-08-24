@@ -12,7 +12,6 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest/cmdtest"
-	"github.com/ousiassllc/gsr-helper/internal/ui/page/runners"
 )
 
 // サービス制御（Issue #5）の検証を集める。**発行された systemctl のコマンド列**を
@@ -36,14 +35,6 @@ func opsState(rs ...runner.Runner) (page.StateMsg, *exec.Fake) {
 	f := exec.NewFake()
 	st.Exec = f
 	return st, f
-}
-
-// newOpsModel は共有状態を配った Runners タブを返す。
-func newOpsModel(t *testing.T, st page.StateMsg) tea.Model {
-	t.Helper()
-
-	m, _ := runners.New(0, st).Update(st)
-	return m
 }
 
 // opsSend はキーを順に送り、そのつど非同期の往復（確認 → 実行 → 結果）を回す。
@@ -96,7 +87,7 @@ func TestRunnerKeysIssueExpectedCommands(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			st, f := opsState()
-			m := newOpsModel(t, st)
+			m, _ := newModel(t, st)
 
 			m = opsSend(t, m, tt.keys[0])
 			if got := opsChrome(t, m).Modal; got != tt.modal {
@@ -127,7 +118,7 @@ func TestRunnerKeysIssueExpectedCommands(t *testing.T) {
 // 「実行できる対象がありません」と伝える。
 func TestKillWithoutAnyTargetSkipsConfirm(t *testing.T) {
 	st, f := opsState(unmanagedRunner("build01-1"))
-	m := newOpsModel(t, st)
+	m, _ := newModel(t, st)
 
 	m = opsSend(t, m, "X")
 
@@ -152,7 +143,7 @@ func TestConfirmCancelIssuesNothing(t *testing.T) {
 	for _, k := range []string{"n", "esc", "enter"} {
 		t.Run(k, func(t *testing.T) {
 			st, f := opsState()
-			m := newOpsModel(t, st)
+			m, _ := newModel(t, st)
 
 			m = opsSend(t, m, "x", k)
 			if got := issued(f); len(got) != 0 {
@@ -172,7 +163,7 @@ func TestConfirmCancelIssuesNothing(t *testing.T) {
 // （functional.md の確認フロー図の「ジョブ実行中? → 警告・ドレインを促す」）。
 func TestConfirmDialogShowsTargetsAndCommand(t *testing.T) {
 	st, _ := opsState(sampleRunner("build01-1", true))
-	m := newOpsModel(t, st)
+	m, _ := newModel(t, st)
 
 	m = opsSend(t, m, "X")
 	body := m.View().Content
@@ -197,7 +188,7 @@ func TestConfirmDialogShowsTargetsAndCommand(t *testing.T) {
 // **破壊的操作の直前**に開くモーダルなので、ここで閉じ込めが破れると影響が最も大きい。
 func TestConfirmModalSwallowsGlobalKeys(t *testing.T) {
 	st, _ := opsState()
-	m := newOpsModel(t, st)
+	m, _ := newModel(t, st)
 	m = opsSend(t, m, "x")
 
 	for _, k := range []string{"q", "1", "r", "?"} {

@@ -10,18 +10,10 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/svc"
 	"github.com/ousiassllc/gsr-helper/internal/ui/atom"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
 )
 
 // 一括操作（FR-08）・可否の再判定（FR-09）・詳細画面からの起動（FR-46）の検証を集める。
-
-// standaloneRunner は run.sh を直起動している runner を返す。
-func standaloneRunner(name string) runner.Runner {
-	r := sampleRunner(name, false)
-	r.UnitName = ""
-	r.Svc = nil
-	r.Managed = runner.ManagedStandalone
-	return r
-}
 
 // hintFor はフッタから 1 つのキーヒントを取り出す。
 func hintFor(t *testing.T, c page.ChromeMsg, k string) atom.Hint {
@@ -49,7 +41,7 @@ func TestBulkOperationAppliesToEverySelectedRunner(t *testing.T) {
 		}
 		return exec.Result{Stdout: nil, Stderr: nil, ExitCode: 0}, nil
 	})
-	m := newOpsModel(t, st)
+	m, _ := newModel(t, st)
 
 	// space で 1 台目、j + space で 2 台目を選ぶ。
 	m = opsSend(t, m, "space", "j", "space")
@@ -82,7 +74,7 @@ func TestBulkOperationAppliesToEverySelectedRunner(t *testing.T) {
 // （screens.md の確認フローが求めるのは対象と実行コマンド**全文**である）。
 func TestBulkConfirmListsEveryTargetAndCommand(t *testing.T) {
 	st, _ := opsState()
-	m := newOpsModel(t, st)
+	m, _ := newModel(t, st)
 
 	m = opsSend(t, m, "space", "j", "space", "x")
 	body := m.View().Content
@@ -93,61 +85,60 @@ func TestBulkConfirmListsEveryTargetAndCommand(t *testing.T) {
 	}
 }
 
-// run.sh 直起動の runner では s / x / R が塞がれ、打っても何も起きない（FR-09）。
+// 塞がれた操作はフッタに理由を出し、キーを打っても何も起こさない（FR-09、
+// screens.md の無効な操作の表示）。
 //
-// フッタの理由と実行経路の両方を見る。理由だけを見ると「グレーアウトしているのに
-// 打てば動く」退行を、コマンドだけを見ると「動かないが理由も出ない」退行を見逃す。
-func TestStandaloneRunnerBlocksSystemdOperations(t *testing.T) {
-	st, f := opsState(standaloneRunner("build01-1"))
-	m := newOpsModel(t, st)
+// **理由と実行経路の両方を見る。** 理由だけを見ると「グレーアウトしているのに打てば
+// 動く」退行を、コマンドだけを見ると「動かないが理由も出ない」退行を見逃す。
+//
+// 塞ぐ理由（直起動・非 root）が変わっても**固定する内容は同じ**なので表でまとめる。
+func TestBlockedOperationsAreHintedAndIssueNothing(t *testing.T) {
+	// hinted はフッタで理由を確かめるキー、keys は実際に打つキー。R はフッタに
+	// 載らない（幅の都合。keymap.RunnerKeys.Footer）が、キーとしては効く。
+	tests := map[string]struct {
+		runners []runner.Runner
+		root    bool
+		hinted  []string
+		keys    []string
+		reason  string
+	}{
+		"run.sh 直起動では s / x / R が塞がれる": {
+			[]runner.Runner{pagetest.StandaloneRunner()}, true,
+			[]string{"s", "x"}, []string{"s", "x", "R"}, svc.ReasonStandalone,
+		},
+		"非 root では s / x / X / R が塞がれる": {
+			nil, false,
+			[]string{"s", "x", "X"}, []string{"s", "x", "X", "R"}, svc.ReasonRoot,
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			st, f := opsState(tt.runners...)
+			st.Caps.Root = tt.root
+			m, _ := newModel(t, st)
 
-	c := opsChrome(t, m)
-	for _, k := range []string{"s", "x"} {
-		h := hintFor(t, c, k)
-		if h.Enabled {
-			t.Errorf("%q が有効になっている（run.sh 直起動）", k)
-		}
-		if h.Reason != svc.ReasonStandalone {
-			t.Errorf("%q の理由 = %q, want %q", k, h.Reason, svc.ReasonStandalone)
-		}
-	}
+			c := opsChrome(t, m)
+			for _, k := range tt.hinted {
+				h := hintFor(t, c, k)
+				if h.Enabled {
+					t.Errorf("%q が有効になっている", k)
+				}
+				if h.Reason != tt.reason {
+					t.Errorf("%q の理由 = %q, want %q", k, h.Reason, tt.reason)
+				}
+			}
 
-	// R はフッタに載らない（幅の都合。keymap.RunnerKeys.Footer）が、キーは効く。
-	m = opsSend(t, m, "s", "x", "R")
-	if got := issued(f); len(got) != 0 {
-		t.Errorf("塞がれているのにコマンドが発行された: %v", got)
-	}
-	if got := opsChrome(t, m); got.Modal {
-		t.Error("塞がれているのに確認ダイアログが開いた")
-	}
-	if got := opsChrome(t, m).Status; !strings.Contains(got, svc.ReasonStandalone) {
-		t.Errorf("状態行 = %q, 理由 %q を出していない", got, svc.ReasonStandalone)
-	}
-}
-
-// 非 root では s / x / X / R が塞がれ、理由が出る（screens.md の無効な操作の表示）。
-func TestNonRootBlocksServiceControl(t *testing.T) {
-	st, f := opsState()
-	st.Caps.Root = false
-	m := newOpsModel(t, st)
-
-	c := opsChrome(t, m)
-	for _, k := range []string{"s", "x", "X"} {
-		h := hintFor(t, c, k)
-		if h.Enabled {
-			t.Errorf("%q が有効になっている（非 root）", k)
-		}
-		if h.Reason != svc.ReasonRoot {
-			t.Errorf("%q の理由 = %q, want %q", k, h.Reason, svc.ReasonRoot)
-		}
-	}
-
-	m = opsSend(t, m, "s", "x", "X", "R")
-	if got := issued(f); len(got) != 0 {
-		t.Errorf("非 root なのにコマンドが発行された: %v", got)
-	}
-	if got := opsChrome(t, m).Status; !strings.Contains(got, svc.ReasonRoot) {
-		t.Errorf("状態行 = %q, 理由 %q を出していない", got, svc.ReasonRoot)
+			m = opsSend(t, m, tt.keys...)
+			if got := issued(f); len(got) != 0 {
+				t.Errorf("塞がれているのにコマンドが発行された: %v", got)
+			}
+			if got := opsChrome(t, m); got.Modal {
+				t.Error("塞がれているのに確認ダイアログが開いた")
+			}
+			if got := opsChrome(t, m).Status; !strings.Contains(got, tt.reason) {
+				t.Errorf("状態行 = %q, 理由 %q を出していない", got, tt.reason)
+			}
+		})
 	}
 }
 
@@ -161,7 +152,7 @@ func TestNonRootBlocksServiceControl(t *testing.T) {
 // 起動しても同じ確認ダイアログを経る。
 func TestDetailOperationTargetsOnlyItsRunner(t *testing.T) {
 	st, f := opsState()
-	m := newOpsModel(t, st)
+	m, _ := newModel(t, st)
 
 	// 1 台目と 2 台目を選択したうえで、2 台目の詳細を開く。
 	m = opsSend(t, m, "space", "j", "space", "enter")
