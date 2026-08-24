@@ -43,9 +43,10 @@ func tableHeight(bodyH int) int {
 // 使用率が「0%」として描かれ、枯渇しているのに潤沢に見える（FSSummaryView の doc）。
 // パスと容量の併記はゼロ値のまま molecule 側が「値なし」「空」に落とす。
 //
-// Warn は設定の警告閾値（disk_thresholds.warn）と実測の使用率から決める
-// （FR-29 / Issue #72）。判定をここで行うのは、設定と実測の両方を持つのが page
-// だからである（molecule は真偽値を受け取って描くだけ。molecule.FSSummaryLine の doc）。
+// Warn は設定の警告閾値（disk_thresholds.warn）と実測の使用率・inode 使用率から
+// 決める（FR-29 / Issue #72 / Issue #127）。判定をここで行うのは、設定と実測の
+// 両方を持つのが page だからである（molecule は真偽値を受け取って描くだけ。
+// molecule.FSSummaryLine の doc）。
 func (m Model) summaryView() molecule.FSSummaryView {
 	s := m.stats
 	failed := m.statsErr != nil
@@ -59,11 +60,21 @@ func (m Model) summaryView() molecule.FSSummaryView {
 		TotalBytes:   s.TotalBytes,
 		InodePercent: s.InodePercent(),
 		Unavailable:  failed,
-		Warn:         warnExceeded(failed, s.UsedPercent(), m.st.Disk.Thresholds.Warn),
+		Warn:         warnExceeded(failed, s.UsedPercent(), s.InodePercent(), m.st.Disk.Thresholds.Warn),
 	}
 }
 
-// warnExceeded は使用率が警告閾値に達したかを返す。
+// warnExceeded はディスク使用率と inode 使用率の**重い方**が警告閾値に達したかを返す。
+//
+// **inode も見る（Issue #127）。** inode の枯渇は容量に余裕があっても起きる
+// （internal/doctor/hostres の impactFS）。要約行は同じ行に inode 使用率を印字して
+// いるので、そこに 85% と出ているのに印が付かないと、この行が何を見て黙っているのか
+// を読み手が判断できない。
+//
+// **重い方を採るのは doctor のリソース診断に揃えるためである。** hostres の judge は
+// worse(band(used, th), band(inodes, th)) で判定する。入力が揃っていないと、ディスク
+// 10% / inode 85% のファイルシステムに対して doctor が WARN を出す一方でこの行が
+// 無印になり、同じホストの同じ数字に対して 2 つの画面が違うことを言う。
 //
 // **取得に失敗した行では必ず偽を返す。** 失敗時の使用率は 0 として描かれる
 // （FSSummaryView.Unavailable）ので、そこへ警告を添えると「使用 - なのに閾値超過」
@@ -75,11 +86,11 @@ func (m Model) summaryView() molecule.FSSummaryView {
 // 比較を >= にしているのは doctor のリソース診断（internal/doctor/hostres の band）
 // に合わせるためである。同じ 80% を一方が警告し他方がしないと、同じホストの
 // 同じ数字に対して 2 つの画面が違うことを言う。
-func warnExceeded(failed bool, used, warn int) bool {
+func warnExceeded(failed bool, used, inodes, warn int) bool {
 	if failed || warn <= 0 {
 		return false
 	}
-	return used >= warn
+	return max(used, inodes) >= warn
 }
 
 // emptyMessage は行が 1 件も無いときの文言を返す。
