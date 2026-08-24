@@ -23,3 +23,18 @@ func TestStateAlwaysCarriesExecutor(t *testing.T) {
 		t.Error("runner を渡した共有状態のフィクスチャが Exec を持たない")
 	}
 }
+
+// 共有状態のフィクスチャはプロセス走査を必ず持つ。
+//
+// Exec と同じ理由でここに置く。nil のまま配ると svc 側は procs.Scan に落ち
+// （page.StateMsg.ScanProcs の doc）、ドレイン停止（FR-07）の停止条件が**テストを
+// 走らせるホストの /proc** で決まる。落としても現状のテストは緑のままなので、
+// 外れたことに気付けるのはこの 1 件だけである（Issue #155）。
+func TestStateAlwaysCarriesProcScan(t *testing.T) {
+	if got := pagetest.State(80, 16); got.ScanProcs == nil {
+		t.Error("共有状態のフィクスチャがプロセス走査を持たない")
+	}
+	if got := pagetest.State(80, 16, pagetest.SampleRunner()); got.ScanProcs == nil {
+		t.Error("runner を渡した共有状態のフィクスチャがプロセス走査を持たない")
+	}
+}

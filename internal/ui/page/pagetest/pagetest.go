@@ -101,6 +101,15 @@ func State(w, h int, runners ...runner.Runner) page.StateMsg {
 // 表を runner の Workers から組むので、「一覧が busy と出している runner は走査でも
 // busy」という一貫した世界になる。Executor を exec.Fake に固定しているのと同じ趣旨で、
 // **State を使うテストは既定でホストに依らない**。
+//
+// **返す表は固定である。** ジョブを実行中の runner はいつまでも busy のままなので、
+// その対象のドレイン停止を cmdtest.Advance で辿ると待機は終わらず、CmdTimeout を
+// 使い切って MustMsgs が panic する。これは正しい挙動である——**待ち時間は無制限**
+// （FR-07）であり、待機が終わる筋書きを組まずに辿った呼び出し側の誤りだからである。
+// 以前はホストに worker が居ないという偶然で終わっていた（Issue #155）。
+// 「worker が消えたら停止する」の遷移そのものは svc.Drainer.Interval を刻める
+// internal/svc/drain_test.go が持つ（こちらの継ぎ目は Scan だけで、待機が終わるかは
+// 決められても終わる時刻は決められない）。
 func ScanOf(runners ...runner.Runner) func() ([]runner.Process, error) {
 	out := make([]runner.Process, 0, len(runners))
 	for _, r := range runners {

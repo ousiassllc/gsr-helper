@@ -83,7 +83,7 @@ func TestDrainCancelIssuesNoStop(t *testing.T) {
 // （svc.Drainer.Drain）。**走査は共有状態から来る**のでホストに依らない（pagetest.ScanOf）。
 // 既定値固定の svc.Drain を呼んでいたころは停止条件が実ホストの /proc で決まり、worker が
 // 居るホストでは待ち時間が無制限（FR-07）である以上待機が終わらなかった（Issue #155）。
-// **走査が 1 度も呼ばれていなければ落とす**のはそのためである。
+// **走査の回数が 1 でなければ落とす**のはそのためである（busy でない対象は 1 回で終わる）。
 func TestDrainStopsAfterWaiting(t *testing.T) {
 	st, f := opsState(sampleRunner("build01-1", false))
 	scans := 0
@@ -93,8 +93,8 @@ func TestDrainStopsAfterWaiting(t *testing.T) {
 
 	m = opsSend(t, m, "d")
 
-	if scans == 0 {
-		t.Error("走査が 1 度も呼ばれていない: 停止条件がホストのプロセス表に依存している")
+	if scans != 1 {
+		t.Errorf("走査の回数 = %d, want 1（0 なら停止条件がホストのプロセス表に依存している）", scans)
 	}
 	want := []string{"systemctl stop " + unit1}
 	if got := issued(f); !reflect.DeepEqual(got, want) {
