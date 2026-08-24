@@ -2,7 +2,6 @@ package config
 
 import (
 	"context"
-	"strings"
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
@@ -162,11 +161,6 @@ func (m *Model) setTarget(r runner.Runner) {
 // others は複製先の候補（対象以外の runner）を返す。
 func (m Model) others() []runner.Runner {
 	return edit.OtherRunners(m.st.Result.Runners, m.target.Dir)
-}
-
-// containsFold は大文字小文字を無視して含むかを返す。
-func containsFold(s, q string) bool {
-	return strings.Contains(strings.ToLower(s), strings.ToLower(q))
 }
 
 // commitInputOf は書き込みに渡す値を組み立てる。
