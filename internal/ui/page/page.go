@@ -9,10 +9,11 @@
 // page/pagetest/import_test.go の TestOnlyTabsetImportsTabs で、タブを import して
 // よいのは ui/tabset だけであることを本番ファイルの import から検査する。
 //
-// このパッケージが持つのは次の 3 つである。
-//   - 親 Model と page の間でやり取りする Msg（StateMsg / ChromeMsg）
-//   - 操作の可否と理由の判定（actions.go）
-//   - Runners タブと Jobs タブが共用する詳細画面とモーダルの重なり（detail.go / overlay.go）
+// このパッケージが持つのは次の 4 つである。
+//   - 親 Model と page の間でやり取りする Msg（StateMsg / ChromeMsg と lifecycle.go）
+//   - タブをまたぐ移動（opentab.go）と、親が配る設定の差し戻し（cfgsaved.go）
+//   - モーダルの重なりと開閉（modal.go / modalcmd.go / overlay.go / overlaystate.go）
+//   - タブ共通のキー束とヘルプ（binding.go / helpmodal.go）
 //
 // ドメイン層を tea.Cmd で呼ぶのは page 階層のみである（atomic-design.md の依存の規則）。
 package page
