@@ -141,7 +141,7 @@ func update(t *testing.T, m Model, msg tea.Msg) Model {
 func pump(t *testing.T, m Model, cmd tea.Cmd) Model {
 	t.Helper()
 
-	for _, msg := range cmdtest.Msgs(cmd) {
+	for _, msg := range cmdtest.MustMsgs(cmd, cmdtest.CmdTimeout) {
 		tm, ok := msg.(page.TabMsg)
 		if !ok {
 			continue

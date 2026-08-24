@@ -27,8 +27,8 @@ func TestInterruptQuitsInEveryState(t *testing.T) {
 			}
 			// 終了は後始末を流し切ってから行うため tea.Sequence に包まれる
 			// （page.ShutdownMsg の doc）。
-			if !isQuit(cmd) {
-				t.Errorf("ctrl+c の Msg = %T, want 終了を含む Cmd", cmd())
+			if !isQuit(t, cmd) {
+				t.Error("ctrl+c の Cmd が終了を含まない（pagetest.IsQuit）")
 			}
 			if len(spies[0].Keys()) != 0 {
 				t.Error("ctrl+c を page へ渡している")
@@ -48,7 +48,7 @@ func TestGlobalKeysAreNotInterpretedWhenBlocked(t *testing.T) {
 				setup(spies[0])
 
 				next, cmd := sendKey(a, k)
-				if isQuit(cmd) {
+				if isQuit(t, cmd) {
 					t.Errorf("キー %q で終了している", k)
 				}
 				if next.active != 0 {
@@ -92,7 +92,7 @@ func TestGlobalKeys(t *testing.T) {
 			if a.active != tt.wantActive {
 				t.Errorf("有効タブ = %d, want %d", a.active, tt.wantActive)
 			}
-			if got := isQuit(cmd); got != tt.wantQuit {
+			if got := isQuit(t, cmd); got != tt.wantQuit {
 				t.Errorf("終了したか = %v, want %v", got, tt.wantQuit)
 			}
 			// どのキーもまず page へ渡る（親が先に解釈しない。keys.go の handleKey）。

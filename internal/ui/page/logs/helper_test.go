@@ -125,9 +125,9 @@ func pumpUntil(t *testing.T, m Model, cmd tea.Cmd, cond func(Model) bool) Model 
 func chromeOf(t *testing.T, cmd tea.Cmd) page.ChromeMsg {
 	t.Helper()
 
-	msg, ok := cmdtest.ChromeOf(cmd)
-	if !ok {
-		t.Fatal("ChromeMsg が返っていない")
+	msg, err := cmdtest.ChromeOf(cmd, cmdtest.CmdTimeout)
+	if err != nil {
+		t.Fatalf("ChromeMsg を取り出せない: %v", err)
 	}
 	return msg
 }

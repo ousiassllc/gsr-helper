@@ -174,13 +174,17 @@ func TestRegisterCmdReachesParentOnlyOnce(t *testing.T) {
 	m.initCmd = func() tea.Msg { flowed++; return nil }
 
 	next, first := m.Update(st)
-	cmdtest.RunAll(first)
+	if err := cmdtest.RunAll(first, cmdtest.CmdTimeout); err != nil {
+		t.Fatalf("最初の共有状態の Cmd を流せない: %v", err)
+	}
 	if flowed != 1 {
 		t.Fatalf("最初の共有状態で登録の Cmd が流れた回数 = %d, want 1", flowed)
 	}
 
 	_, second := next.Update(st)
-	cmdtest.RunAll(second)
+	if err := cmdtest.RunAll(second, cmdtest.CmdTimeout); err != nil {
+		t.Fatalf("2 度目の共有状態の Cmd を流せない: %v", err)
+	}
 	if flowed != 1 {
 		t.Errorf("登録の Cmd が流れた累計 = %d, want 1（2 度目にも流れている）", flowed)
 	}

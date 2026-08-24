@@ -41,12 +41,12 @@ func TestStateMsgEmitsOnlyChrome(t *testing.T) {
 	for range 3 {
 		var cmd tea.Cmd
 		m, cmd = m.Update(testState(80, 16))
-		msgs := cmdtest.Msgs(cmd)
-		if len(msgs) != 1 {
-			t.Fatalf("発行された Msg の件数 = %d, want 1", len(msgs))
+		got := cmdtest.MustMsgs(cmd, cmdtest.CmdTimeout)
+		if len(got) != 1 {
+			t.Fatalf("発行された Msg の件数 = %d, want 1", len(got))
 		}
-		if _, ok := msgs[0].(page.ChromeMsg); !ok {
-			t.Errorf("発行された Msg = %T, want page.ChromeMsg", msgs[0])
+		if _, ok := got[0].(page.ChromeMsg); !ok {
+			t.Errorf("発行された Msg = %T, want page.ChromeMsg", got[0])
 		}
 	}
 }

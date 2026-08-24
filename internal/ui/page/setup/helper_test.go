@@ -51,9 +51,9 @@ func fakeOf(t *testing.T, st page.StateMsg) *exec.Fake {
 func chromeOf(t *testing.T, m tea.Model) page.ChromeMsg {
 	t.Helper()
 
-	c, ok := pagetest.ChromeAfter(m)
-	if !ok {
-		t.Fatal("ChromeMsg が発行されていない")
+	c, err := pagetest.ChromeAfter(m)
+	if err != nil {
+		t.Fatalf("ChromeMsg を取り出せない: %v", err)
 	}
 	return c
 }

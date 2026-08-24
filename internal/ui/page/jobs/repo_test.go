@@ -66,7 +66,7 @@ func settle(t *testing.T, st page.StateMsg) tea.Model {
 	t.Helper()
 
 	m, cmd := jobs.New(1, st).Update(st)
-	for _, msg := range cmdtest.Msgs(cmd) {
+	for _, msg := range cmdtest.MustMsgs(cmd, cmdtest.CmdTimeout) {
 		if tab, ok := msg.(page.TabMsg); ok {
 			msg = tab.Msg
 		}
@@ -182,7 +182,7 @@ func TestJobInfoIsRetriedUntilTheLogAppears(t *testing.T) {
 	// 2 周目: ログが現れたら引き直して埋まる。
 	workerLog(t, dir, trackingLine(r.WorkDir))
 	m, cmd := m.Update(st)
-	for _, msg := range cmdtest.Msgs(cmd) {
+	for _, msg := range cmdtest.MustMsgs(cmd, cmdtest.CmdTimeout) {
 		if tab, ok := msg.(page.TabMsg); ok {
 			msg = tab.Msg
 		}

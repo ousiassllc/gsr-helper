@@ -1,7 +1,9 @@
 package pagetest
 
 import (
+	"errors"
 	"fmt"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -77,10 +79,10 @@ func Press1[M tea.Model](m M, k string) (M, page.ChromeMsg, tea.Cmd) {
 //
 // フッタは page が ChromeMsg で報告したものを親が描くため、フッタの表示を検証するには
 // page → 親の 1 往復が要る。**入れ子の tea.Batch まで辿る**（1 段だけ展開する Expand
-// ではなく Msgs を使うのはこのためである）。親は共有状態の配布と、起動後に 1 度だけ走る
+// ではなく MustMsgs を使うのはこのためである）。親は共有状態の配布と、起動後に 1 度だけ走る
 // 取得を 1 つの Batch にまとめて返すので、1 段だけ展開すると配布ぶんが Batch のまま残る。
 func ApplyChrome[M tea.Model](m M, cmd tea.Cmd) M {
-	for _, msg := range cmdtest.Msgs(cmd) {
+	for _, msg := range cmdtest.MustMsgs(cmd, cmdtest.CmdTimeout) {
 		c, ok := msg.(page.ChromeMsg)
 		if !ok {
 			continue
@@ -91,30 +93,61 @@ func ApplyChrome[M tea.Model](m M, cmd tea.Cmd) M {
 }
 
 // IsQuit は Cmd が終了を指示しているかを返す。
+// 辿る途中で待ち時間切れが起きて終了が見つからなければ ErrCmdTimeout を返す。
 //
 // 終了は page の後始末を流し切ってから行うため tea.Sequence に包まれる
 // （ui/keys.go の quit）。包みの中まで見ないと終了を見落とす。
-func IsQuit(cmd tea.Cmd) bool {
+//
+// **包みの中も締め切りを通す**（cmdtest.RunCmd）。素で呼んでいたころは、後始末の
+// Cmd に戻らないものが 1 本混じるとそこで止まり、壊れ方が失敗ではなくハングになった
+// （Issue #150）。1 本諦めても残りは辿る。
+//
+// **諦めたことを偽に混ぜない。** 終了を待ち時間切れで見落として偽を返すと、呼び出し
+// 側は「q が終了に繋がっていない」という実際には無い退行を疑う（cmdtest が
+// ErrNotFound と ErrCmdTimeout を分ける理由と同じ。Issue #140 / #145）。
+// 偽は「終了しない」と「判定できなかった」の両方で返るので ok だけでは分けられず、
+// 分けるのは err である——終了を確かめたい側は err で止めてから ok を信じること
+// （真に error は付かない）。
+func IsQuit(cmd tea.Cmd, timeout time.Duration) (bool, error) {
 	if cmd == nil {
-		return false
+		return false, nil
 	}
-	msg := cmd()
-	if _, ok := msg.(tea.QuitMsg); ok {
-		return true
+
+	msg, err := cmdtest.RunCmd(cmd, timeout)
+	if err != nil {
+		return false, fmt.Errorf("終了の判定で Cmd を実行できない: %w", err)
 	}
-	seq, ok := cmdtest.Cmds(msg)
-	if !ok {
-		return false
+	if _, isQuit := msg.(tea.QuitMsg); isQuit {
+		return true, nil
 	}
+
+	seq, isBundle := cmdtest.Cmds(msg)
+	if !isBundle {
+		return false, nil
+	}
+
+	gaveUp := 0
 	for _, c := range seq {
 		if c == nil {
 			continue
 		}
-		if _, quit := c().(tea.QuitMsg); quit {
-			return true
+		inner, cmdErr := cmdtest.RunCmd(c, timeout)
+		if cmdErr != nil {
+			if errors.Is(cmdErr, cmdtest.ErrCmdTimeout) {
+				gaveUp++
+			}
+
+			continue
+		}
+		if _, isQuit := inner.(tea.QuitMsg); isQuit {
+			return true, nil
 		}
 	}
-	return false
+	if gaveUp > 0 {
+		return false, fmt.Errorf("%w（%d 本が %s 以内に戻らなかった）", cmdtest.ErrCmdTimeout, gaveUp, timeout)
+	}
+
+	return false, nil
 }
 
 // Blocked はモーダル表示中と入力中の 2 つの状態を作る関数を名前で返す。
@@ -129,14 +162,24 @@ func Blocked() map[string]func(s *Spy) {
 	}
 }
 
-// OpenTabOf は Cmd の結果から page.OpenTabMsg を取り出す。無ければ ok が偽。
-func OpenTabOf(cmd tea.Cmd) (page.OpenTabMsg, bool) {
-	for _, msg := range cmdtest.Msgs(cmd) {
+// OpenTabOf は Cmd の結果から page.OpenTabMsg を取り出す。
+// 束に無ければ cmdtest.ErrNotFound、戻らない Cmd で辿り切れなければ cmdtest.ErrCmdTimeout を返す。
+//
+// **「無い」と「戻らない」を分けて返す。** 1 つの偽で返していると、待ち時間切れを
+// 呼び出し側が「タブを開く指示が出ていない」と読み、実際には無い配線の欠落を疑う
+// （cmdtest.HostReqOf と同じ理由。Issue #150）。
+func OpenTabOf(cmd tea.Cmd) (page.OpenTabMsg, error) {
+	msgs, err := cmdtest.Msgs(cmd, cmdtest.CmdTimeout)
+	for _, msg := range msgs {
 		if open, ok := msg.(page.OpenTabMsg); ok {
-			return open, true
+			return open, nil
 		}
 	}
-	return page.OpenTabMsg{Title: "", Msg: nil}, false
+	if err != nil {
+		return page.OpenTabMsg{Title: "", Msg: nil}, err
+	}
+
+	return page.OpenTabMsg{Title: "", Msg: nil}, cmdtest.ErrNotFound
 }
 
 // Discovered は検出が 1 周期終わった Model と、そのとき返った Cmd を返す。
@@ -173,7 +216,7 @@ func WorkScanStarts[M tea.Model](m M, dir string, n int) int {
 	for seq := 1; seq <= n; seq++ {
 		var cmd tea.Cmd
 		m, cmd = Update(m, discovery.Msg{Seq: seq, Result: res, Err: nil})
-		for _, msg := range cmdtest.Msgs(cmd) {
+		for _, msg := range cmdtest.MustMsgs(cmd, cmdtest.CmdTimeout) {
 			if _, ok := msg.(workscan.Msg); ok {
 				starts++
 			}

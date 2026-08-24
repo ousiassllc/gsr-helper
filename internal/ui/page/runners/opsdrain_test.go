@@ -60,7 +60,9 @@ func TestDrainCancelIssuesNoStop(t *testing.T) {
 	canceled = cmdtest.Advance(canceled, cmd, cmdtest.AdvanceRounds)
 
 	// 留めておいた待機の Cmd をここで走らせる。キャンセル済みなので停止しない。
-	cmdtest.Msgs(drainCmd)
+	if err := cmdtest.RunAll(drainCmd, cmdtest.CmdTimeout); err != nil {
+		t.Fatalf("留めておいた待機の Cmd を流せない: %v", err)
+	}
 
 	if got := issued(f); len(got) != 0 {
 		t.Errorf("キャンセルしたのにコマンドが発行された: %v", got)
