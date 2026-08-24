@@ -253,6 +253,21 @@ func TestViewDeclaresAltScreen(t *testing.T) {
 	}
 }
 
+// 書き込めた設定は以後の共有状態へ載る（Issue #128）。載せ直さないと、Disk タブの
+// 警告閾値超過と doctor のリソース診断が再起動まで起動時の閾値で判定し続ける。
+func TestConfigSavedUpdatesSharedState(t *testing.T) {
+	cfg := appconfig.Default()
+	cfg.DiskThresholds = appconfig.DiskThresholds{Warn: 55, Critical: 77}
+	a, cmd := update(newApp(exec.NewFake()), page.ConfigSavedMsg{Conf: cfg})
+
+	if got := a.state().Disk.Thresholds; got != cfg.DiskThresholds {
+		t.Errorf("保存後の StateMsg.Disk.Thresholds = %+v, want %+v", got, cfg.DiskThresholds)
+	}
+	if cmd == nil {
+		t.Error("保存後に共有状態を配り直していない（開いている page が古い閾値のまま）")
+	}
+}
+
 // 起動時に決まる値は共有状態へ載り、まだ確定していない値は載らない。
 //
 // 組み立ては 1 つ（New → state）なので 1 本にまとめてある。表明ごとの理由は次のとおり。

@@ -9,10 +9,11 @@
 // page/pagetest/import_test.go の TestOnlyTabsetImportsTabs で、タブを import して
 // よいのは ui/tabset だけであることを本番ファイルの import から検査する。
 //
-// このパッケージが持つのは次の 3 つである。
-//   - 親 Model と page の間でやり取りする Msg（StateMsg / ChromeMsg）
-//   - 操作の可否と理由の判定（actions.go）
-//   - Runners タブと Jobs タブが共用する詳細画面とモーダルの重なり（detail.go / overlay.go）
+// このパッケージが持つのは次の 4 つである。
+//   - 親 Model と page の間でやり取りする Msg（StateMsg / ChromeMsg と lifecycle.go）
+//   - タブをまたぐ移動（opentab.go）と、親が配る設定の差し戻し（cfgsaved.go）
+//   - モーダルの重なりと開閉（modal.go / modalcmd.go / overlay.go / overlaystate.go）
+//   - タブ共通のキー束とヘルプ（binding.go / helpmodal.go）
 //
 // ドメイン層を tea.Cmd で呼ぶのは page 階層のみである（atomic-design.md の依存の規則）。
 package page
@@ -163,9 +164,11 @@ type ScopeState struct {
 // 本ツール自身の設定（FR-41〜FR-42）を扱うために要るもので、runner 側の設定
 // （.env / .path / drop-in）は検出結果（Result）から引けるためここには無い。
 //
-// いずれも cmd が起動時に決め、UI 側で環境や設定を読み直さない（SetupDeps と
+// Path と FirstRun は cmd が起動時に決め、UI 側で環境や設定を読み直さない（SetupDeps と
 // 同じ方針）。**設定ファイルのパスを UI 側で決め直さない**のは、配置先の決定が
 // appconfig/confpath の責務であり、SUDO_USER の扱いを 2 か所に分けないためである。
+// **Conf だけは起動時の値に固定されない**——Config タブが書き込めた設定を
+// ConfigSavedMsg で親へ返し、親が差し替えて配り直す（Issue #128）。
 type ConfigDeps struct {
 	// Conf は読み込み済みの自身の設定。ウィザードの初期値に使う。
 	Conf appconfig.Config
