@@ -55,13 +55,13 @@ graph TD
 
 ```
 internal/ui/
-  app.go            親 Model（ページ切替・検出結果・Caps・端末サイズ・背景の明暗・Tick）
+  app.go            親 Model（ページ切替・検出結果・Caps・端末サイズ・背景の明暗）
   keys.go           キーの配送（ctrl+c と、page が差し戻したグローバルキーの解釈）
-  chrome.go         親 Model の値を chrome/ の入力へ写す 1 手
-  discover.go       自動更新（Tick）と、discovery/ への薄い委譲
+  chrome.go         親 Model の値を chrome/ の入力へ写す 1 手（Doctor タブの番号キーの解決を含む）
+  discover.go       検出の駆動のうち親にしか決められないもの（1 周期分の入力の組み立てと走査ルートの合成）
   background.go     起動後に 1 度だけ走る取得の駆動（前提チェック・_work 集計・保有スコープ）
-  discovery/        検出の予算・結果 Msg・発行・間隔決定・周期の突き合わせ（UI ランタイムを知らない）
-  hostreq/          起動時のジョブ実行の前提チェック（FR-44）の発行。1 度だけ走らせる仕組みを持つ
+  discovery/        検出の予算・発行・間隔決定・周期の突き合わせと、周期の状態（State と契機 TickMsg）
+  hostreq/          起動時のジョブ実行の前提チェック（FR-44）の発行と、その状態（State。1 度きりと件数）
   workscan/         runner ごとの _work 使用量の集計と、その周期の管理。再検出サイクルには載せない
   ghscope/          トークンの保有スコープの取得。起動後に 1 度だけ引く
   token/            色・記号・幅・余白の定数
@@ -1087,7 +1087,7 @@ Context の登録漏れは人の注意に頼らない。`Set` の全フィール
 
 | 区分 | 対象 |
 |------|------|
-| 実装済み | `token`（`huh.Theme` の組み立てを含む）/ `keymap` / `atom` / `molecule`（操作リスト・列選択・`FSSummaryLine` / `CommandBlock` / `LogLine` / `SummaryCounts` / `ProgressRow`）/ `molecule/listrow`（`RunnerRow` / `JobRow` / `OrphanRow` / `DiskTargetRow` / `LogRow` / `DoctorRow` / `SettingRow` / `DiffLine`）/ `molecule/chromebar`（`CapsBar` / `TabBar` / `KeyBar`）/ `chrome` / `hostreq` / `tabset` / `organism`（`ChoiceList`）/ `organism/table` / `organism/pane`（`Detail` / `Help` / `Log` / `ProgressList`）/ `organism/dialog`（`Confirm` / `DiffApproval` / `DrainWaiter` / `Form`）/ `template`（`Frame` / `Modal`）/ `page` / `page/runners` / `page/jobs` / `page/disk` / `page/logs` / `page/doctor` / `page/config` / `page/runnerdetail` / `page/runnerop` / `page/action` / `page/setup` / `page/progressmodal`（進捗表示の配線。Setup / Disk が共有） / `page/diskclean`（クリーンアップの実行） / `page/configmodal` / `page/setupmodal` / `page/disk/confirmmodal` / `page/disk/cleanview` / `page/runners/rowview` / `page/pagetest`（テスト用フィクスチャ）/ `discovery` / `workscan` / `ghscope`（いずれも ui 直下から分けた取得と純粋関数） |
+| 実装済み | `token`（`huh.Theme` の組み立てを含む）/ `keymap` / `atom` / `molecule`（操作リスト・列選択・`FSSummaryLine` / `CommandBlock` / `LogLine` / `SummaryCounts` / `ProgressRow`）/ `molecule/listrow`（`RunnerRow` / `JobRow` / `OrphanRow` / `DiskTargetRow` / `LogRow` / `DoctorRow` / `SettingRow` / `DiffLine`）/ `molecule/chromebar`（`CapsBar` / `TabBar` / `KeyBar`）/ `chrome` / `hostreq` / `tabset` / `organism`（`ChoiceList`）/ `organism/table` / `organism/pane`（`Detail` / `Help` / `Log` / `ProgressList`）/ `organism/dialog`（`Confirm` / `DiffApproval` / `DrainWaiter` / `Form`）/ `template`（`Frame` / `Modal`）/ `page` / `page/runners` / `page/jobs` / `page/disk` / `page/logs` / `page/doctor` / `page/config` / `page/runnerdetail` / `page/runnerop` / `page/action` / `page/setup` / `page/progressmodal`（進捗表示の配線。Setup / Disk が共有） / `page/diskclean`（クリーンアップの実行） / `page/configmodal` / `page/setupmodal` / `page/disk/confirmmodal` / `page/disk/cleanview` / `page/runners/rowview` / `page/pagetest`（テスト用フィクスチャ）/ `discovery` / `workscan` / `ghscope`（`hostreq` と併せ、ui 直下から分けた取得・純粋関数と、その進行状況を持つ `State`。Issue #139 で `discovery` / `hostreq` も `State` を持つようになり、4 つとも同じ形にそろった） |
 | 未実装（部品が無い） | `organism.ErrorBanner` |
 | 実装済みだが未接続 | （現時点では該当なし） |
 
@@ -1107,7 +1107,6 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 
 | ディレクトリ | 行数 | 残り | 判定 |
 |------------|------|------|------|
-| `ui` | 2105 | -105 | **warn** |
 | `ui/page` | 1998 | 2 | pass |
 | `ui/page/disk` | 1996 | 4 | pass |
 | `ui/organism/dialog` | 1994 | 6 | pass |
@@ -1115,6 +1114,7 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 | `ui/page/runners` | 1983 | 17 | pass |
 | `ui/page/config` | 1980 | 20 | pass |
 | `ui/organism/table` | 1969 | 31 | pass |
+| `ui` | 1953 | 47 | pass |
 | `ui/page/pagetest` | 1936 | 64 | pass |
 | `ui/page/setup` | 1883 | 117 | pass |
 | `ui/page/jobs` | 1684 | 316 | pass |
@@ -1130,15 +1130,15 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 | `ui/page/action` | 1184 | 816 | pass |
 | `ui/template` | 657 | 1343 | pass |
 | `ui/tabset` | 625 | 1375 | pass |
+| `ui/discovery` | 617 | 1383 | pass |
 | `ui/molecule/chromebar` | 543 | 1457 | pass |
 | `ui/organism` | 521 | 1479 | pass |
 | `ui/page/disk/cleanview` | 491 | 1509 | pass |
 | `ui/chrome` | 490 | 1510 | pass |
 | `ui/page/configmodal` | 453 | 1547 | pass |
+| `ui/hostreq` | 393 | 1607 | pass |
 | `ui/page/diskclean` | 372 | 1628 | pass |
 | `ui/workscan` | 337 | 1663 | pass |
-| `ui/discovery` | 290 | 1710 | pass |
-| `ui/hostreq` | 283 | 1717 | pass |
 | `ui/page/runners/rowview` | 269 | 1731 | pass |
 | `ui/ghscope` | 268 | 1732 | pass |
 | `ui/page/setupmodal` | 253 | 1747 | pass |
@@ -1192,7 +1192,7 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 | `internal/setup/setuptest` | 178 | 1822 | pass |
 | `internal/runner/scope` | 165 | 1835 | pass |
 
-**残りが 1 桁のディレクトリが 3 つある**（`internal/setup/tarball` 1 行・`internal/logs` 2 行・`internal/gh` 4 行。UI 側では `ui/page` が残り 2 行、`ui/page/disk` が残り 4 行、`ui/organism/dialog` と `ui/page/logs` が各 残り 6 行である）。**この 3 つに 1 行でも足す Issue は、足す前に空けること。** どれも警告帯には入っていないので `make check` は通るが、通ることと余裕があることは違う。**`ui` 直下は残り 1 桁ではなく既に警告帯である**（2105 行・残り -105 行。判断は下記「8 周目の判断」）。**`ui/page/config` も残り 20 行まで詰まった**（Issue #132 の回帰テスト）。
+**残りが 1 桁のディレクトリが 3 つある**（`internal/setup/tarball` 1 行・`internal/logs` 2 行・`internal/gh` 4 行。UI 側では `ui/page` が残り 2 行、`ui/page/disk` が残り 4 行、`ui/organism/dialog` と `ui/page/logs` が各 残り 6 行である）。**この 3 つに 1 行でも足す Issue は、足す前に空けること。** どれも警告帯には入っていないので `make check` は通るが、通ることと余裕があることは違う。**`ui` 直下は警告帯から出た**（1953 行・残り 47 行・pass。Issue #139 で 2105 行から戻した。判断と次の Issue への予算は下記「9 周目の空け方」）。**`ui/page/config` も残り 20 行まで詰まった**（Issue #132 の回帰テスト）。
 
 ##### `internal/disk` から `pathguard` を切り出した判断（Issue #101）
 
@@ -1223,7 +1223,7 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 
 #### ファイルの行数
 
-**同じチェックが 1 ファイル 300 行にも掛かる。** ディレクトリと同じく `warning_threshold: 10` が効くので、301〜330 行が **WARN**、331 行以上が **ERROR** である（設定の詳細は[環境構築](../environment/setup.md#linterly)）。現在 WARN 以上のファイルは無いが、`internal/ui/app_test.go` が上限ちょうどの **300 行（残り 0）**で張り付いている（下記「6 周目の空け方」）。次点は `internal/ui/app.go` の 298 行（Issue #132 で `Options.Roots` の doc が 2 行増えた）で、`internal/ui/page/runners/runners_test.go` が 297 行である。
+**同じチェックが 1 ファイル 300 行にも掛かる。** ディレクトリと同じく `warning_threshold: 10` が効くので、301〜330 行が **WARN**、331 行以上が **ERROR** である（設定の詳細は[環境構築](../environment/setup.md#linterly)）。現在 WARN 以上のファイルは無く、最大は `internal/ui/page/runners/runners_test.go` の **297 行（残り 3）**である。次点は `internal/ui/page/runners/runners.go` と `internal/ui/page/overlay_test.go` の各 296 行で、`internal/setup/tarball/fetch_test.go` が 293 行、`internal/ui/tabset/tabset.go` が 292 行と続く。**`internal/ui` 直下は最大でも `app.go` の 286 行である**（6 周目の 300 行張り付きは `app_test.go` で、Issue #139 が周期の状態を `discovery.State` へ移したことで 274 行になった。下記「9 周目の空け方」）。
 
 **採る手は 1 つだけである——同じディレクトリの中で責務の境界に沿ってファイルを分ける。** ディレクトリの 3 つの手（本節冒頭）と違い、ファイルの超過はパッケージ境界の問題ではないので、切り出し先を別ディレクトリにする理由が無い。上限値を緩めるのも、行を詰めて 300 行に収めるのも採らない——**前者は次の Issue が読む予算を壊し、後者は 1 行あたりの情報量を増やして読みにくくするだけで、責務は 1 つも減らない。**
 
@@ -1322,15 +1322,15 @@ Setup タブは追加・削除・バージョン更新の 3 操作と、フォ�
 
 設定の再読み込み（上記「例外は『親が配っている値をタブが書き換えたとき』」）は `Update` の `case` と回帰テストを `ui` 直下へ持ち込むため、本節の指示どおり先に空けた。**空けたのは本番コードの重複 1 つだけである**——`App.current`（有効タブを返す 6 行）は**添字の範囲しか見ておらず**、有効かどうかは唯一の呼び出し元である `View` の側が `ok && t.Model != nil` で補っていた。これを `tabset.Live`（添字の範囲・`Enabled`・`Model != nil`）へ寄せて捨てた。**判定が厳しくなっても挙動が変わらないのは、`tabset.New` が `t.Model = sp.New(...)` と `t.Enabled = true` を同一の分岐でしか設定しないため `Enabled ⟺ Model != nil` が成り立つからである**（`Enabled` を後から落とす経路も無い）。**`page/runners` の `findChrome` / `collect` を捨てたのと同じ性質の削減である**（共有の道具が既にあるのに写しが残っていた）。`app.go` は 299 行から 296 行になり、`ui` 直下は 1988 行から **2000 行（残り 0）** になった。
 
-**逼迫しているのはディレクトリだけではない。** 本 PR で `internal/ui/app_test.go` は **300 行（1 ファイル 300 行の上限に張り付き・残り 0）**になり、`internal/ui/page/` も **1998 行（残り 2 行）**になった。`ui` 直下へ回帰テストを足す Issue は `app_test.go` 以外のファイルへ書くか、まず同ファイルを空けること。`page` 直下へ共通の `Msg` を 1 つ足すなら**2 行以内**であり、それを超えるならタブをまたぐ移動や本例外と同じく「双方から見える場所がここしか無い」ことを確かめたうえで、先に何かを出すこと。
+**逼迫しているのはディレクトリだけではない。** 本 PR で `internal/ui/app_test.go` は **300 行（1 ファイル 300 行の上限に張り付き・残り 0）**になり、`internal/ui/page/` も **1998 行（残り 2 行）**になった。**前者は当時の値である**——9 周目（Issue #139）が周期の状態を `discovery.State` へ移した際に `app_test.go` は 274 行まで下がっており、いま `ui` 直下で最大のファイルは `app.go` の 286 行である（上記「ファイルの行数」）。後者の 1998 行・残り 2 行は現在も同じで、`page` 直下へ共通の `Msg` を 1 つ足すなら**2 行以内**であり、それを超えるならタブをまたぐ移動や本例外と同じく「双方から見える場所がここしか無い」ことを確かめたうえで、先に何かを出すこと。
 
-**当時の結論は「残り 0 行は文字どおりゼロである」だった。** 上の 3 つの手（本番の切り出し・テストの重複削減・道具を `page/pagetest` へ）はいずれも使い切っており、次に `ui` 直下へ 1 行でも足す Issue は、まず親 Model から切り出せるまとまりを見つけるところから始めること、という指示である。あわせて**警告帯（2000〜2200 行）へ入ること自体は CI を落とさないので、切り出しが今回のスコープに混ざるくらいなら、判断を本節へ残したうえで警告帯へ入る方を採ってよい**（`ui/page/runners` / `ui/page/disk` と同じ判断である）とも記した。**この逃げ道を実際に使ったのが 7 周目であり、8 周目も同じ手を採った**——現在の予算と次の Issue への指示は下記「8 周目の判断」が持つ。
+**当時の結論は「残り 0 行は文字どおりゼロである」だった。** 上の 3 つの手（本番の切り出し・テストの重複削減・道具を `page/pagetest` へ）はいずれも使い切っており、次に `ui` 直下へ 1 行でも足す Issue は、まず親 Model から切り出せるまとまりを見つけるところから始めること、という指示である。あわせて**警告帯（2000〜2200 行）へ入ること自体は CI を落とさないので、切り出しが今回のスコープに混ざるくらいなら、判断を本節へ残したうえで警告帯へ入る方を採ってよい**（`ui/page/runners` / `ui/page/disk` と同じ判断である）とも記した。**この逃げ道を実際に使ったのが 7 周目であり、8 周目も同じ手を採った**——そして 9 周目がその借りを返した。**現在の予算と次の Issue への指示は下記「9 周目の空け方」が持つ。**
 
-**残りは Issue #9 で 125 行から 27 行へ減り、Issue #8 でついに超過した。** タブをまたぐ移動（`page.OpenTabMsg`）は親でしか実現できず、`keys.go` の `openTab` とその検証（`route_test.go` の 3 本）が加わったためである。検証に使う道具のうち App の非公開な状態に触れないもの（受け取った `Msg` を型で数える `Delivered`）は `page/pagetest` へ出してある。**当時（Issue #8 の 2199 行）の結論は「次に `ui` 直下へ足す Issue は、まず既存のテストで `page/pagetest` へ出せるものを探すこと。超過した以上、テストを足す前に道具を出すこと」だった。** これは当時の記録であり、**現在の予算と次の Issue への指示は下記「8 周目の判断」が持つ**（その手は 6 周目までに使い切っている）。
+**残りは Issue #9 で 125 行から 27 行へ減り、Issue #8 でついに超過した。** タブをまたぐ移動（`page.OpenTabMsg`）は親でしか実現できず、`keys.go` の `openTab` とその検証（`route_test.go` の 3 本）が加わったためである。検証に使う道具のうち App の非公開な状態に触れないもの（受け取った `Msg` を型で数える `Delivered`）は `page/pagetest` へ出してある。**当時（Issue #8 の 2199 行）の結論は「次に `ui` 直下へ足す Issue は、まず既存のテストで `page/pagetest` へ出せるものを探すこと。超過した以上、テストを足す前に道具を出すこと」だった。** これは当時の記録であり、**現在の予算と次の Issue への指示は下記「9 周目の空け方」が持つ**（その手は 6 周目までに使い切っている）。
 
 **この周（Issue #31）は、余裕を「重複削減」ではなく「道具を `page/pagetest` へ出す」で作った。** Issue #31 でキーの配送を検証する道具を足したとき `ui` 直下は 1967 行（残り 33 行）まで詰まったが、走査の道具（`ScanKey`）とその形の網羅テストを `page/pagetest` へ移して 1875 行（残り 125 行）に戻した。`page/pagetest` は**現在 1936 行で、残りは 64 行しかない**。**そこは元々「タブと親で共用する検証の道具」の置き場である**（`helper_test.go` 冒頭の方針）が、次に道具を出すときは `page/pagetest` 側も同時に空けなければ入らない。
 
-出せるものと出せないものの境目は「`App` の非公開な状態に触れるか」である。`ScanKey` は `page.ChromeMsg` / `page.GlobalKeyMsg` と `pagetest.Msgs` しか使わないので `App` の非公開な状態を 1 つも export せずに出せた。一方 `gate_test.go`（`a.chrome` / `next.active` / `after.inflight` / `tickMsg`）と `app_keys_test.go`（`a.tabs` / `a.active` / `a.chrome`）の**テスト本体**は非公開に触れる内部テストなので出せない。**これらを出そうとして export を増やすのは採らない**（`ui/organism/table` の本体を分割しない判断と、非公開の export を避ける点で理由を共有する）。**ただしテストが使う道具は別である**——Issue #77 は `press1` / `isQuit` / `blocked` を `page/pagetest` へ出した（どれも `tea.Model` の口と `page` の Msg しか使わない）。**この「まず道具を `page/pagetest` へ出せないかを見る」という指示も Issue #77 当時のものである**——6 周目までに出せる道具は尽きており、次の Issue への指示は下記「8 周目の判断」に一本化してある。
+出せるものと出せないものの境目は「`App` の非公開な状態に触れるか」である。`ScanKey` は `page.ChromeMsg` / `page.GlobalKeyMsg` と `pagetest.Msgs` しか使わないので `App` の非公開な状態を 1 つも export せずに出せた。一方 `gate_test.go`（`a.chrome` / `next.active` / `a.disc`。当時は `after.inflight` と非公開の `tickMsg` を直に見ていた。9 周目で前者は `disc.Busy()` / `disc.Seq()` に、後者は `discovery.TickMsg` になった）と `app_keys_test.go`（`a.tabs` / `a.active` / `a.chrome`）の**テスト本体**は非公開に触れる内部テストなので出せない。**これらを出そうとして export を増やすのは採らない**（`ui/organism/table` の本体を分割しない判断と、非公開の export を避ける点で理由を共有する）。**ただしテストが使う道具は別である**——Issue #77 は `press1` / `isQuit` / `blocked` を `page/pagetest` へ出した（どれも `tea.Model` の口と `page` の Msg しか使わない）。**この「まず道具を `page/pagetest` へ出せないかを見る」という指示も Issue #77 当時のものである**——6 周目までに出せる道具は尽きており、次の Issue への指示は下記「9 周目の空け方」に一本化してある。
 
 ##### 7 周目の判断（Issue #132）——切り出さずに警告帯へ入った
 
@@ -1340,15 +1340,33 @@ Setup タブは追加・削除・バージョン更新の 3 操作と、フォ�
 
 1. **切り出せるまとまりが見つからなかった。** 3 つの手のうち (2)（テストの重複削減）と (3)（道具を `page/pagetest` へ）は 6 周目までに使い切っている。残る (1)（本番の切り出し）は「依存の向きを強制できる、あるいは増え方が違うまとまり」があるときだけの手だが、`ui` 直下に残るのは親 Model そのもの（`app.go` / `keys.go` / `discover.go` / `background.go` / `chrome.go` / `hostreq.go`）であり、どれも `App` の非公開な状態を読み書きする。**`hostreq.go` は既に本体を `ui/hostreq` へ出した後の 26 行のアダプタ**（`startHostReq` が `hostreq.StartOnce` を呼ぶだけ）で、これ以上出せるものが無いことの実例である。切り出せば `App` の内部を export することになり、`ui/organism/table` を分割しない判断と同じ理由で採れない。
 2. **本 Issue はバグ修正であり、切り出しはスコープ外である。** 走査ルートが再起動まで反映されないという不具合の修正に親 Model の再構成を混ぜると、レビューでどちらの変更がどのテストを動かしたのかを切り分けられない（Issue #132 が #128 から切り出された理由と同じである）。
-3. **CI は落ちなかった。** ERROR の境界は 2200 行で、**当時は 137 行の余裕があった**（`ui` が 2063 行だった時点の値である。**現在の余裕は 95 行**——8 周目が Issue #136 の回帰テスト 42 行を足した。値は上記「行数の予算」の表と下記「8 周目の判断」が持つ）。
+3. **CI は落ちなかった。** ERROR の境界は 2200 行で、**当時は 137 行の余裕があった**（`ui` が 2063 行だった時点の値である。8 周目が Issue #136 の回帰テスト 42 行を足して 95 行に減り、9 周目（Issue #139）が 2 つの状態を切り出して **247 行**まで戻した。**現在の値は上記「行数の予算」の表と下記「9 周目の空け方」が持つ**）。
 
-**当時の結論は「警告帯に入った以上、次は『足すついでに空ける』ではなく空けること自体を独立した Issue として立てること」だった。** 切り出しの候補として挙げたのは、親 Model の背景処理（`background.go` の `startBackground` と `discover.go` の `tick` / `onTick` / `discover` / `scanRoots` / `refresh`）を `internal/ui/discovery` 側へ寄せる案である。これらは `a.inflight` / `a.seq` / `a.applied` を進めるため、状態ごと移さなければ意味が無い。**「増え方が違うまとまり」であることは言えるので、(1) の条件は満たしうる**——ただし移す状態の設計から始まるので、行数を空ける目的だけで片手間に着手しないこと。**この指示はここで完了している**——8 周目が独立した Issue #139（`ui` 直下の分割）として実際に立てた。**現在の予算と次の Issue への指示は下記「8 周目の判断」が持つ。**
+**当時の結論は「警告帯に入った以上、次は『足すついでに空ける』ではなく空けること自体を独立した Issue として立てること」だった。** 切り出しの候補として挙げたのは、親 Model の背景処理（`background.go` の `startBackground` と `discover.go` の `tick` / `onTick` / `discover` / `scanRoots` / `refresh`）を `internal/ui/discovery` 側へ寄せる案である。これらは `a.inflight` / `a.seq` / `a.applied` を進めるため、状態ごと移さなければ意味が無い。**「増え方が違うまとまり」であることは言えるので、(1) の条件は満たしうる**——ただし移す状態の設計から始まるので、行数を空ける目的だけで片手間に着手しないこと。**この指示はここで完了している**——8 周目が独立した Issue #139（`ui` 直下の分割）として実際に立て、9 周目がそれを実施した。挙げた候補（背景処理を `discovery` 側へ状態ごと寄せる）はそのまま採られている。**現在の予算と次の Issue への指示は下記「9 周目の空け方」が持つ。**
 
 ##### 8 周目の判断（Issue #136）——警告帯のまま回帰テストを足した
 
 **`ui`（警告帯）へ Issue #136 の回帰テスト 42 行を足した。分割はしない。** 足したのは `ui/chrome_test.go` の 1 テストで、状態行が枠（`template.Frame`）を通った後も幅に収まることを見るものである。**この検証は `ui` 直下にしか置けない**——`App` を組み立てて `View()` を描く経路そのものが対象であり、`ui/chrome` へ移すと `chrome.Status` の戻り値を見るだけになって、枠が中略記号なしで断ち切る問題（Issue #136 が実際に踏んだ形）を素通りする。3 つの手（本節冒頭）のうち (3) テスト用の道具の切り出しは、この 1 テストが `pagetest` の道具を使うだけで新しい道具を足していないため空きを生まない。`ui` 直下は 2063 行から **2105 行（残り -105 行・WARN）** になった。
 
-**ERROR 境界 2200 まで 95 行である。** 7 周目の 137 行ではない。**次に `ui` 直下へ足す Issue は、この 95 行を予算として読むこと。** 7 周目が「空けること自体を独立した Issue として立てること」と定めた指示はこの周で果たしており、`ui` 直下の分割そのものは **Issue #139** として切り出してある（切り出しの候補と、状態ごと移さなければ意味が無いという条件は 7 周目の記述がそのまま生きている）。
+**当時の予算は「ERROR 境界 2200 まで 95 行」だった**（7 周目の 137 行ではない）。7 周目が「空けること自体を独立した Issue として立てること」と定めた指示はこの周で果たしており、`ui` 直下の分割そのものは **Issue #139** として切り出した。**その Issue を実施したのが下記「9 周目の空け方」であり、現在の予算と次の Issue への指示はそちらが持つ。**
+
+##### 9 周目の空け方（Issue #139）——警告帯から出た
+
+着手時点で **2105 行（残り -105 行・WARN）** で、8 周目が残した予算は ERROR 境界（2200 行）まで 95 行だった。7 周目・8 周目が 2 周続けて使った逃げ道（判断を残して警告帯へ入る）を返す周であり、**行数を空けること自体が唯一のスコープである**。上限値は緩めず、3 つの手のうち **(1) 本番の一部をパッケージ境界で切り出す**を 2 回打って **1953 行（残り 47 行・pass）** へ戻した。7 周目が挙げた候補（背景処理を `discovery` 側へ**状態ごと**寄せる）をそのまま採っている。
+
+1. **検出周期の状態を `discovery.State` へ寄せた。** 親が持っていた `inflight` / `seq` / `applied` と検出の結果・エラーを 1 つの `discovery.State` にまとめ、`Result()` / `Err()` / `Busy()` / `Seq()` / `FirstTick()` / `Tick()` / `OnTick()` / `Start()` / `Apply()` を生やした。`(*State).Start` は実行中なら nil を返す（`workscan.State.Start` と同形）。親から `tickMsg` / `tick` / `firstTick` / `discover` / `refresh` が消え、残ったのは 1 周期分の入力を組み立てる `input()` と、走査ルートを合成する `scanRoots()` だけである。**「実行中は重ねない」「古い周期を捨てる」は検出の側の不変条件なので、判断ごと移さなければ意味が無い**——状態だけを移して判断を親に残すと、片方だけを更新する経路ができる。
+2. **起動時の前提チェックの状態を `hostreq.State` へ寄せた。** 親の `hostReq` / `hostReqDone` / `hostChecks` の 3 フィールドが `hr hostreq.State` の 1 つになり、自由関数だった `hostreq.StartOnce` は `(*State).StartOnce` へ畳んだ。**これで `disc` / `work` / `scopes` / `hr` の 4 つが同じ形にそろった**——従来 `hostreq` だけが「1 度きり」の真偽と件数を親に持たせる非対称だった。26 行のアダプタ `internal/ui/hostreq.go` は消え、`startHostReq()` は `background.go` の `startBackground()` へ、`doctorKey()` は `chrome.go` へ移した（7 周目が「これ以上出せるものが無いことの実例」として挙げていたファイルである）。
+
+**`tickMsg` は公開型 `discovery.TickMsg` へ反転した。** 親の非公開型だったのは「外から自動更新を駆動できないようにする」ためだったが、周期の管理をサブパッケージへ移すにあたって公開する側を採った。理由は 2 つある。(a) **非対称だった**——同じく親が受け取る `hostreq.Msg` / `workscan.Msg` / `ghscope.Msg` はいずれも公開されており、契機の型だけを隠しても揃わない。(b) **実効性が限定的である**——`State.Start` は実行中なら nil を返すので、外から余計な `TickMsg` を撒いても起きるのは高々 1 周期ぶんの前倒しであり、多重起動を防ぐ判定（`Start` の doc の 40 プロセス）は破れない。**代替として import 検査を足す案（`page/pagetest/import_test.go` に `TestOnlyParentDrivesDiscovery` を足し、`discovery.TickMsg` を作る本番ファイルを親だけに限る）も検討したが採らなかった**——`page/pagetest` は 1936 行で残り 64 行しかなく、**`ui` 直下の行数を空ける Issue が別のディレクトリを逼迫させるのは本末転倒である**。**この判断は散文での記録に留めてある**（機械的な検査は無い）。次に `page/pagetest` へ余裕ができたときに足すのが筋である。
+
+**`internal/ui/refresh_test.go`（80 行）は削除したが、表明は 1 つも落ちていない。** 内訳は 3 本である。
+
+- `TestTickSkipsDiscoverWhileOneIsRunning` と `TestStaleDiscoverResultDoesNotOverwrite` は `discovery/state_test.go` へ移送した（`TestOnTickDoesNotOverlapRuns` / `TestApplyDropsStaleCycle`）。**移送のついでに強化してある**——`OnTick` が検出を始めなかった周期でも `TickMsg` を返すこと（自動更新がそこで止まらないこと）まで見るようにした。
+- `TestRefreshKeySkipsDiscoverWhileOneIsRunning` は削除した。**`gate_test.go` の `TestRefreshDuringDiscoveryShowsNotice` が同一経路・同一表明の真上位集合だからである**——どちらも `r` の打鍵で通し番号が進まないことを見ており、包含側はそれに加えて案内の文言と、次の打鍵で案内が消えることまで見る。**包含側にはその旨の注記を足した**（消した表明がどこで守られているかを、消した側からではなく残った側から辿れるようにするため）。
+
+あわせて `discovery/reconcile_test.go` を新設した。`reconcile.go` は 4 周目（Issue #63）で切り出して以来、親のテスト越しにしか駆動されていなかった（初の専用テストである）。
+
+**次の Issue への予算は残り 47 行、ERROR 境界 2200 まで 247 行である。** 8 周目の 95 行ではない。**次に `ui` 直下へ足す Issue は、この 47 行を予算として読むこと**——47 行は回帰テスト 1 本ぶんであり、それを超えるなら足す前に空けること。**採れる手はもう (1) しか残っていない**（(2) テストの重複削減と (3) 道具を `page/pagetest` へ出すは 6 周目までに使い切っており、受け皿の `page/pagetest` 自身も残り 64 行しかない）。**そして (1) の候補も 7 周目が挙げた 2 つを本周で使い切った。** 残る `app.go` / `keys.go` / `discover.go` / `chrome.go` はいずれも `App` の非公開な状態を読み書きするので、切り出せば内部を export することになり、`ui/organism/table` を分割しない判断と同じ理由で採れない。**次に 47 行を超える追加が要る Issue は、まず切り出せるまとまりの設計から始めること。** 行数を空ける目的だけで片手間に着手しないこと（7 周目の但し書きはそのまま生きている）。
 
 #### サービス制御を `page/runnerop` へ出した判断（Issue #5）
 
@@ -1502,3 +1520,4 @@ Issue #31 で `table_test.go` の空振りしていたテスト（`View() != ""`
 | 1.75 | 2026-08-24 | PR #138 の 3 周目レビュー指摘を反映。(1) **改訂 1.72 の理由欄を、実際にやったことへ書き直した**——「1.70 が定めた手順（現在形で行数を主張する箇所を機械的に全件抽出して実測と突き合わせる）を改めて通した」と記していたが通しておらず、突き合わせたのは 2 つの表と Config タブの散文 2 箇所だけで、Config タブの 3 箇所目（148 行過大）と `internal/disk` の節末尾（53 行過大）を取り落としていた。あわせて同欄が過大量を「73 行」としていたのを実際の **148 行**へ直した（`internal/disk` の「残り 73 行」からの混入で、隣接する改訂 1.73 の「148 行過大」と矛盾していた）。(2) `ui/page/runners` の節の「2164 行（残り -164 行）まで**伸びている**」を過去形へ改め、当時の値である旨と現在値（1983 行・残り 17 行。同じ段落の末尾が既に記している）への参照を添えた。**改訂 1.49 がこの是正を実施したと記していながら本文へ適用されていなかった**もので、本項の全件突き合わせで検出した。(3) 本項では実際に全件突き合わせを行った——2 つの表（UI 38 行・UI 層外 37 行）は全数値・残り・判定・網羅性・降順の並びが `go tool linterly check` の実測と一致、散文側は現在形で行数を主張する 20 箇所を抽出して照合し、食い違いは (2) の 1 件のみだった | **実施していない検証を実施したと書くこと自体が欠陥である。** 本書は「表だけを直して散文を取り残す」再発を 1.69 / 1.70 / 1.71 / 1.72 と 4 周にわたり記録してきたが、その是正を宣言する欄が偽だと、次の周は「もう全件見た」と信じて同じ箇所を読み飛ばす。現に 1.72 の偽の宣言は、取り落とし 2 件の訂正に 1.73 / 1.74 の 2 周を要させ、(2) の `ui/page/runners` に至っては 1.49 以来 26 改訂ぶん残存していた。隣接する改訂行が同一の出来事に矛盾した数値（73 行 / 148 行）を持つのも、どちらを事実とみなすかを読み手に委ねる点で同じ害である。**本項が (3) で検証の範囲と結果を具体的に書いたのは、次の周がこの欄を検算できるようにするためである**——「通した」とだけ書く欄は検算できない（PR #138 3 周目） |
 | 1.76 | 2026-08-24 | 行数表の `ui` を 2063 → 2105、`ui/chrome` を 347 → 490、`ui/atom` を 1262 → 1264、`ui/molecule` を 1513 → 1515 へ実測に合わせて更新し、`ui/chrome` を降順の正しい位置へ移した。切り出しの記録（`ui/chrome`）の散文にある「現在 347 行」も直した。`ui/atom` と `ui/molecule` は doc コメントの加筆分である。状態行を幅に収める検証（114 行）は、初めから `internal/ui/chrome/statuswidth_test.go` に置いた——`chrome_test.go`（206 行）へ足すと 320 行となり 1 ファイル 300 行の警告帯（301〜330 行）に入るためである。**`chrome_test.go` 自体には手を入れていない**（同ファイルは 206 行のまま）。境界は行数だけで引いたのではなく、「ファイルの行数」の方針どおり責務でも切ってある（`chrome_test.go` は「状態行に何が出るか」、`statuswidth_test.go` は「幅に収まらないときに何を削るか」）。`ui/chrome` は残り 1500 行超なのでディレクトリの予算は問題にならない。あわせて、警告帯の `ui` へ Issue #136 の回帰テスト 42 行を足した判断と、その検証を `ui` 直下から動かせない理由を「行数の予算」節に残した | 本節は「警告帯に入ったディレクトリへ部品を足すときは、先に分割の是非を検討し、判断と理由をこの節に残すこと」と自ら定めており、`ui` は既に警告帯だった。**表の値を据え置いたまま行を足すと、次に予算を引きに来た Issue が実際より多い残量を前提に判断する**。改訂 1.58 / 1.60 が「行数表は後続 Issue が読む予算の規範」「1 つの文書が 2 つの値を主張する欠陥」として 2 度是正した箇所そのものである（PR のレビュー指摘） |
 | 1.77 | 2026-08-24 | PR #144（Issue #136）のレビュー指摘（MAJOR 4 件）を反映。(1) UI 層の行数表で `ui/chrome`（490 行）が `ui/page/configmodal`（453 行）の直後に置かれ降順が崩れていたのを、`ui/page/disk/cleanview`（491 行）と `ui/page/configmodal`（453 行）の間へ移した（表の直前の散文が「行数の多い順に並べる」と定めている）。(2) 改訂 1.76 の「回帰テスト 40 行」を実測の **42 行**へ直した（同じ文書の「行数の予算」節は 42 行と書いており、1 つの文書が 2 つの値を主張していた。実測は 2063 → 2105 の +42 行）。(3) **「`chrome_test.go` が 1 ファイル 300 行を超えたので分けた」という存在しない事実を、改訂 1.76 の欄と `internal/ui/chrome/statuswidth_test.go` の doc コメントの 2 箇所とも書き直した**——同ファイルは 206 行で本 PR は 1 行も変えていない。実際は「この検証 114 行を `chrome_test.go` へ足すと 320 行となり警告帯（301〜330 行）に入るため、初めから別ファイルに置いた」である（コメントは行数を変えないよう同じ 5 行に収めた）。(4) 7 周目（Issue #132）の根拠 3 の現在形「まだ 137 行の余裕がある」を、`ui` が 2063 行だった当時の値である旨と現在値（**95 行**）およびその出所への参照を添えた過去形へ改めた（改訂 1.75(2) が `ui/page/runners` の 2164 行に施したのと同型の処置）。あわせて構成を是正し、系列の外（UI 層の行数表の直後）にあった Issue #136 の判断の段落を **`##### 8 周目の判断（Issue #136）`** として 7 周目の節の直後へ移した（6 周目 → 7 周目 の連番の系列に載せた）。本書の作法（改訂 1.72(4)）に従い、7 周目の現在形の指示「次に `ui` 直下へ足す Issue へ。…」を当時の記録へ改め、予算の引き継ぎを指す 4 箇所の相互参照（「残りが 1 桁のディレクトリ」の段落・6 周目の末尾・Issue #8 当時の記録・Issue #77 当時の記録）を「7 周目の判断」から「8 周目の判断」へ付け替えた（1 つ目は節より前にあるため「上記」を「下記」へ直した）。同段落が現在形で主張していた `ui` の 2063 行・残り -63 行も 2105 行・残り -105 行へ直した。**全件突き合わせを実際に通した結果は次のとおり。** `go tool linterly check --format json` の実測（82 ディレクトリ・622 ファイル）と、UI 層の表 38 行・UI 層の外の表 37 行のすべての行数・残り・判定・網羅性・降順を機械的に突き合わせ、**食い違いは上記 (1) の降順 1 件のみ**で数値・判定・網羅性は全件一致した。現在形で行数を主張する散文は 14 箇所を抽出して照合し、**食い違いは上記 (4) の 137 行と 2063 行・残り -63 行の 2 箇所のみ**——`internal/disk` 1980 行・残り 20 行、`internal/setup` 1970 行・残り 30 行、`ui/page/config` 残り 20 行、`ui/page/disk` 1996 行・残り 4 行、`ui/page/logs` 残り 6 行、`page/pagetest` 1936 行・残り 64 行、`page/disk/cleanview` 491 行、`ui/page/setup` 1883 行・残り 117 行、`molecule/listrow` 残り 477 行、`ui/token` 残り 783 行、`ui/tabset` 現在 625 行、`ui/chrome` 現在 490 行は実測と一致していた。「ファイルの行数」節の 3 つの主張（`internal/ui/app_test.go` 300 行・`internal/ui/app.go` 298 行・`internal/ui/page/runners/runners_test.go` 297 行、WARN 以上のファイルは無い）も実測と一致。`docs/ui/screens.md` は行数の主張を持たず、状態行の中略に関する記述と改訂 1.33 は実装（`internal/ui/chrome` の `Status`）と一致していたため変更なし。 | 4 件はいずれも**危険側**の誤りである。(4) は残り 95 行しかないところへ 137 行の予算を提示しており、次に `ui` 直下へ足す Issue が 42 行ぶん多い余裕を前提に判断して ERROR 境界（2200 行）を踏む。(2) は同じ文書が同じ増分に 40 と 42 の 2 つの値を主張する形で、改訂 1.21 / 1.40 / 1.58 / 1.60 が 4 度是正した欠陥の再発である。(3) は**実施していない事実を実施したと書く**もので、本書が 1.74 / 1.75 で 2 度是正した欠陥そのもの——「300 行を超えたら分ける」という前例として読まれると、次の Issue は超えるまで分けないことになり、実際の判断（超える前に別ファイルへ置く）とは逆の運用を導く。(1) は表の直前の散文が自ら定めた並びを表が破っているため、どこが逼迫しているかを表から読み取れない（改訂 1.57 / 1.60 が同じ理由で 2 度直している）。構成の是正は、#136 の判断だけが 6 周目 → 7 周目 の系列の外にあったことが 7 周目の「137 行」を取り残す一因だったためで、系列に載せないと次の周も同じく前周の現在形を取り残す（PR #144 のレビュー指摘） |
+| 1.78 | 2026-08-24 | Issue #139（`ui` 直下の分割）を反映。(1) 行数表を実測へ更新（`ui` **2105 → 1953 行・残り 47 行・pass**、`ui/discovery` 290 → **617**、`ui/hostreq` 283 → **393**）。3 行とも降順の位置を移した（`ui` は `ui/organism/table` 1969 と `ui/page/pagetest` 1936 の間、`ui/discovery` は `ui/tabset` 625 と `ui/molecule/chromebar` 543 の間、`ui/hostreq` は `ui/page/configmodal` 453 と `ui/page/diskclean` 372 の間）。(2) **`##### 9 周目の空け方（Issue #139）——警告帯から出た`** を新設し、打った 2 手（検出周期の状態を `discovery.State` へ／起動時の前提チェックを `hostreq.State` へ）、`tickMsg` を公開型 `discovery.TickMsg` へ反転させた設計判断とその 2 つの理由、代替の import 検査（`TestOnlyParentDrivesDiscovery`）を**採らずに散文の記録に留めた**理由（`page/pagetest` が残り 64 行しかなく、行数を空ける Issue が別のディレクトリを逼迫させる）、`refresh_test.go`（80 行）を消しても表明が落ちていない根拠（2 本は `discovery/state_test.go` へ移送し `OnTick` が busy でも `TickMsg` を返すことまで強化、1 本は `gate_test.go` の `TestRefreshDuringDiscoveryShowsNotice` が真上位集合として包含し包含側に注記を追加）、次の Issue への予算（残り 47 行・ERROR 境界まで 247 行）と、(1) 以外の手が尽きている旨を記録した。(3) **8 周目の現在形の指示（「ERROR 境界 2200 まで 95 行である」「次に足す Issue はこの 95 行を予算として読むこと」）を当時の記録へ改め**、予算の引き継ぎを指す 5 箇所の相互参照（「残りが 1 桁のディレクトリ」の段落・6 周目の末尾・Issue #8 当時の記録・Issue #77 当時の記録・7 周目の根拠 3 と末尾）を「8 周目の判断」から「9 周目の空け方」へ付け替えた。(4) 「ファイルの行数」の散文を実測へ——`internal/ui/app_test.go` の「上限ちょうどの 300 行（残り 0）で張り付いている」は 274 行になったので落とし、最大が `internal/ui/page/runners/runners_test.go` の 297 行、`ui` 直下の最大が `app.go` の 286 行であることへ書き換えた。6 周目の「本 PR で `app_test.go` は 300 行になった」にも当時の値である旨を添えた（`page/` の 1998 行・残り 2 行は現在も一致するのでそのまま）。(5) ディレクトリ構成のツリーを実ファイルへそろえた——`app.go` の説明から「Tick」を落とし（`discovery` へ移った）、`discover.go` を「検出の駆動のうち親にしか決められないもの」へ、`discovery/` を「周期の状態（State と契機 TickMsg）」を持つ形へ、`hostreq/` を「その状態（State）」を持つ形へ書き換え、`chrome.go` に `doctorKey()` の移動を反映した（`hostreq.go` は元々ツリーに無いため削除に伴う行の除去は不要だった）。(6) 実装状況の「実装済み」の行で `discovery` / `workscan` / `ghscope` の括弧書きを、`hostreq` を含む 4 つが `State` を持つ形にそろったことへ更新。(7) Issue #77 当時の記録が挙げていた `gate_test.go` の非公開参照（`after.inflight` / `tickMsg`）に、現在の姿（`disc.Busy()` / `disc.Seq()` / `discovery.TickMsg`）を添えた。**全件突き合わせを実際に通した結果は次のとおり。** `go tool linterly check --format json` の実測（82 ディレクトリ・625 ファイル）と、UI 層の表 38 行・UI 層の外の表 37 行のすべての行数・残り・判定・網羅性・降順を機械的に突き合わせ、**食い違いは上記 (1) の 3 行のみ**で、残る 72 行は数値・判定とも一致し、両表とも降順は崩れておらず、`internal/` と `cmd/` の行を持つディレクトリで表に載っていないものは無かった。行数を主張する散文（過去形の記録を含む）は 39 箇所を抽出して照合し、**実測と食い違っていたのは 5 箇所（数値としては 7 個）だけである**——「残りが 1 桁のディレクトリ」の段落の `ui` 2105 行・残り -105 行、「ファイルの行数」の `app_test.go` 300 行と `app.go` 298 行、6 周目の `app_test.go` 300 行、7 周目の「現在の余裕は 95 行」、8 周目の「2200 まで 95 行」である。残る 34 箇所——`internal/setup/tarball` 残り 1 行、`internal/logs` 残り 2 行、`internal/gh` 残り 4 行、`internal/disk` 1980 行・残り 20 行、`internal/setup` 1970 行・残り 30 行、`ui/page` 1998 行・残り 2 行、`ui/page/disk` 1996 行・残り 4 行、`ui/organism/dialog` / `ui/page/logs` 各 残り 6 行、`ui/page/runners` 1983 行・残り 17 行、`ui/page/config` 1980 行・残り 20 行、`ui/organism/table` 1969 行・残り 31 行（本体 6 ファイル 1053 行）、`page/pagetest` 1936 行・残り 64 行、`ui/page/setup` 1883 行・残り 117 行、`molecule/listrow` 残り 477 行、`ui/token` 残り 783 行、`ui/tabset` 625 行、`ui/chrome` 490 行、`page/disk/cleanview` 491 行、`organism/table/tabletest` 243 行はいずれも実測と一致していた。**依存グラフの裏取りも通した**——`go list` の直接 import で `ui/discovery` → `runner` / `exec` のみ（`appconfig` の辺は増えていない。`discovery.Input` はプリミティブだけを持つ）、`ui/hostreq` → `doctor` のみであることを確認し、[コンポーネント設計](../components/overview.md#依存の方向)のグラフに追記の要る辺は無かった。 | **`ui` 直下は 7 周目・8 周目と 2 周続けて「判断を残して警告帯へ入る」逃げ道を使っており、Issue #139 はその借りを返す周である。** 行数表は次の Issue が予算を引く唯一の材料であり、実測とずれていると境界に当たってから気付くことになる——**今回は危険側ではなく安全側のずれ（実際には 247 行あるのに 95 行と読ませる）だが、それでも誤りである**。予算を過小に見せると、47 行で足りる追加までもが「まず空けてから」という不要な前置きを負い、逆に 7 周目・8 周目が実際にそうしたように「どうせ警告帯だから」と分割の検討を省く根拠にもなる。あわせて **Issue #139 は #77 の再発である**（#77 も `ui` 直下が超過して空けた周で、当時の結論は「次に手を入れる Issue は 1 行足す前に必ず空けること」だった）。同じディレクトリが 5 周（#77 → #128 → #132 → #136 → #139）にわたって上限へ張り付き続けているのは、**現在形の予算がどの周にあるかを読み手が辿れないと、前周の指示が古いまま参照される**ためであり、改訂 1.69 が定めた「次の Issue への現在形の指示は最新の周に一本化する」規範を本項でも守った（上記 (3)）。散文を取り残す欠陥は 1.69〜1.75 で 4 周繰り返しているため、1.70 が定めた全件抽出の手順を実際に通し、その結果を上欄に列挙した（Issue #139） |
