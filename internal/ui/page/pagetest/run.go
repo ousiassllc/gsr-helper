@@ -210,3 +210,54 @@ func ChromeMsgs(cmd tea.Cmd) []page.ChromeMsg {
 	}
 	return out
 }
+
+// ErrNotFound は束を最後まで辿っても want を満たす Msg が無かったことを表す。
+//
+// ErrCmdTimeout と分けているのは、**呼び出し側の読み方が正反対だから**である
+// ——こちらは Msg を出す側の判断（差分が無いなど）を、待ち時間切れは機械の
+// 混み具合を疑う合図になる（Issue #140）。
+var ErrNotFound = errors.New("目当ての Msg が束に無い")
+
+// FindMsg は束の Cmd を順に走らせ、want を満たす最初の Msg を返す。
+//
+// **待ち時間切れで打ち切らない。** 束には戻らない Cmd が混じりうるので、1 本
+// 諦めても残りを辿る。目当てが最後まで見つからなかったときだけ、諦めた本数が
+// あれば ErrCmdTimeout を、無ければ ErrNotFound を返す——「見つからなかった」の
+// 理由をここで確定させないと、呼び出し側の失敗メッセージが取り違える。
+//
+// **束の展開にも締め切りを掛ける。** Expand は先頭の Cmd を締め切り無しで走らせる
+// ので、束になっていない戻らない Cmd を渡すとそこで止まる。待ち時間切れを区別して
+// 返すのに、区別する前に止まっては意味がない（Issue #140）。
+//
+// **戻らない Cmd を含む束には向かない。** 目当てが無いときは束を実行しきるので、
+// 購読を持つタブでは諦めるだけで timeout ぶん掛かる。そちらは Pump を使うこと。
+func FindMsg(cmd tea.Cmd, timeout time.Duration, want func(tea.Msg) bool) (tea.Msg, error) {
+	gaveUp := 0
+	queue := []tea.Cmd{cmd}
+	for len(queue) > 0 {
+		c := queue[0]
+		queue = queue[1:]
+
+		msg, err := RunCmd(c, timeout)
+		if errors.Is(err, ErrCmdTimeout) {
+			gaveUp++
+
+			continue
+		}
+		if err != nil {
+			continue
+		}
+		if inner, isBundle := Cmds(msg); isBundle {
+			queue = append(queue, inner...)
+
+			continue
+		}
+		if want(msg) {
+			return msg, nil
+		}
+	}
+	if gaveUp > 0 {
+		return nil, fmt.Errorf("%w（%d 本が %s 以内に戻らなかった）", ErrCmdTimeout, gaveUp, timeout)
+	}
+	return nil, ErrNotFound
+}

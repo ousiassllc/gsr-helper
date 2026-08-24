@@ -37,8 +37,8 @@ func TestApprovalIsAcceptedOnce(t *testing.T) {
 	// 2 回目の決定（連打・貼り付け）は捨てる。
 	_, again := send(t, m, page.ResultMsg{Kind: configmodal.DiffKind, Msg: dialog.DecidedMsg{Confirmed: true}})
 	// 目当てが無いことを見る筋なので、待ち時間切れでは代用できない（Issue #140）。
-	if _, err := doneOf(again); !errors.Is(err, errNotFound) {
-		t.Errorf("2 回目の決定の結果 = %v, want %v（同じ承認で 2 回書き込んだ）", err, errNotFound)
+	if _, err := doneOf(again); !errors.Is(err, pagetest.ErrNotFound) {
+		t.Errorf("2 回目の決定の結果 = %v, want %v（同じ承認で 2 回書き込んだ）", err, pagetest.ErrNotFound)
 	}
 	if bak, err := readFile(r.Dir + "/.env.bak"); err != nil || bak != before {
 		t.Errorf("バックアップ = %q, %v, want 元の内容 %q", bak, err, before)

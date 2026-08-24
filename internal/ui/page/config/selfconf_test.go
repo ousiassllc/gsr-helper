@@ -96,8 +96,8 @@ func TestSelfConfigSaveReturnsNewConfigToParent(t *testing.T) {
 			saved, err := savedOf(cmd)
 			if !tt.want {
 				// 返らないことを見る筋なので、待ち時間切れでは代用できない（Issue #140）。
-				if !errors.Is(err, errNotFound) {
-					t.Fatalf("親へ返さない筋の結果 = %v, want %v", err, errNotFound)
+				if !errors.Is(err, pagetest.ErrNotFound) {
+					t.Fatalf("親へ返さない筋の結果 = %v, want %v", err, pagetest.ErrNotFound)
 				}
 
 				return
@@ -254,7 +254,7 @@ func saveSelf(t *testing.T, m Model, refresh, audit string) (Model, string) {
 
 	m, cmd := send(t, m, page.ResultMsg{Kind: configmodal.DiffKind, Msg: dialog.DecidedMsg{Confirmed: true}})
 	done, err := doneOf(cmd)
-	if errors.Is(err, errNotFound) {
+	if errors.Is(err, pagetest.ErrNotFound) {
 		t.Fatal("書き込みの Cmd が出ていない（差分なしで飛ばされた）")
 	}
 	if err != nil {
