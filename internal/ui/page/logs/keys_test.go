@@ -32,8 +32,14 @@ func sample(t *testing.T, lines ...string) Model {
 }
 
 // bubbled は Cmd に親への差し戻し（GlobalKeyMsg）が含まれるかを返す。
-func bubbled(cmd tea.Cmd) bool {
-	for _, c := range pagetest.Expand(cmd) {
+func bubbled(t *testing.T, cmd tea.Cmd) bool {
+	t.Helper()
+
+	cmds, err := pagetest.Expand(cmd, pagetest.CmdTimeout)
+	if err != nil {
+		t.Fatalf("Cmd の束を展開できない: %v", err)
+	}
+	for _, c := range cmds {
 		if c == nil {
 			continue
 		}
@@ -67,7 +73,7 @@ func TestTabSwitchesPaneWithoutBubbling(t *testing.T) {
 	if next.focus != focusBody {
 		t.Errorf("tab の後のペイン = %v, want 本文", next.focus)
 	}
-	if bubbled(cmd) {
+	if bubbled(t, cmd) {
 		t.Error("tab を親へ差し戻している（次のタブへ移ってしまう）")
 	}
 	if got := chromeOf(t, cmd).Status; !strings.Contains(got, paneBody) {
@@ -192,7 +198,7 @@ func TestFilterSwallowsGlobalKeys(t *testing.T) {
 	m, _ = step(t, m, pagetest.Press("/"))
 
 	m, cmd := step(t, m, pagetest.Press("q"))
-	if bubbled(cmd) {
+	if bubbled(t, cmd) {
 		t.Error("入力中のキーを親へ差し戻している（q で終了してしまう）")
 	}
 	m, _ = step(t, m, pagetest.Press("enter"))

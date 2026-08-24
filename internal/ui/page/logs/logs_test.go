@@ -154,8 +154,14 @@ func TestEmptyStateMessages(t *testing.T) {
 }
 
 // listsDiag は Cmd の束に `_diag` の列挙が含まれるかを返す。
-func listsDiag(cmd tea.Cmd) bool {
-	for _, c := range pagetest.Expand(cmd) {
+func listsDiag(t *testing.T, cmd tea.Cmd) bool {
+	t.Helper()
+
+	cmds, err := pagetest.Expand(cmd, pagetest.CmdTimeout)
+	if err != nil {
+		t.Fatalf("Cmd の束を展開できない: %v", err)
+	}
+	for _, c := range cmds {
 		if c == nil {
 			continue
 		}
@@ -179,12 +185,12 @@ func TestRelistsOnlyWhileActive(t *testing.T) {
 	st, _ := withLogs(t)
 
 	back := newTab(t, st)
-	if _, cmd := step(t, back, st); listsDiag(cmd) {
+	if _, cmd := step(t, back, st); listsDiag(t, cmd) {
 		t.Error("裏に居るのに `_diag` を列挙している")
 	}
 
 	front := activated(t, st, 3)
-	if _, cmd := step(t, front, st); !listsDiag(cmd) {
+	if _, cmd := step(t, front, st); !listsDiag(t, cmd) {
 		t.Error("前面に居るのに `_diag` を取り直していない")
 	}
 }

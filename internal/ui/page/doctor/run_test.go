@@ -74,9 +74,9 @@ func TestRerunReportsStartupCountToParent(t *testing.T) {
 			m, _ := activated(t)
 			_, cmd := deliver(t, m, tt.results)
 
-			got, ok := pagetest.HostReqOf(cmd)
-			if !ok {
-				t.Fatal("件数が親へ届いていない（ヘッダと状態行が古いまま残る）")
+			got, err := pagetest.HostReqOf(cmd)
+			if err != nil {
+				t.Fatalf("件数が親へ届いていない（ヘッダと状態行が古いまま残る）: %v", err)
 			}
 			if got.Bad != tt.want {
 				t.Errorf("親へ届いた件数 = %d, want %d", got.Bad, tt.want)
@@ -96,7 +96,11 @@ func TestSingleRecheckRecountsStartup(t *testing.T) {
 	m, cmd := deliver(t, m, []dom.CheckResult{
 		result(id, "ジョブ実行の前提", "build01", dom.Fail),
 	})
-	if got, _ := pagetest.HostReqOf(cmd); got.Bad != 1 {
+	got, err := pagetest.HostReqOf(cmd)
+	if err != nil {
+		t.Fatalf("全体再実行で件数が親へ届いていない: %v", err)
+	}
+	if got.Bad != 1 {
 		t.Fatalf("全体再実行で届いた件数 = %d, want 1", got.Bad)
 	}
 
@@ -106,9 +110,9 @@ func TestSingleRecheckRecountsStartup(t *testing.T) {
 		at:      finishedAt,
 	})
 
-	got, ok := pagetest.HostReqOf(cmd)
-	if !ok {
-		t.Fatal("個別再実行のあとに件数が届いていない")
+	got, err = pagetest.HostReqOf(cmd)
+	if err != nil {
+		t.Fatalf("個別再実行のあとに件数が届いていない: %v", err)
 	}
 	if got.Bad != 0 {
 		t.Errorf("個別再実行で届いた件数 = %d, want 0", got.Bad)

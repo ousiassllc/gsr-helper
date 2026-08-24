@@ -98,3 +98,59 @@ func TestFindMsgKeepsScanningAfterATimeout(t *testing.T) {
 		t.Errorf("見つけた Msg = %#v, want marker{n: 7}", got)
 	}
 }
+
+// 束になっていない「戻らない Cmd」を渡しても止まらず、待ち時間切れとして返すこと
+// （Issue #145）。
+//
+// Expand が先頭の Cmd を締め切り無しで走らせていたころ、この形の Cmd を渡した
+// パッケージは `go test` の既定のタイムアウト（10 分）まで戻らなかった。**壊れ方が
+// 失敗ではなくハングになる**ため、CI では原因の分からない停止に見える。
+func TestExpandGivesUpOnCmdThatNeverReturns(t *testing.T) {
+	t.Parallel()
+
+	cmds, err := pagetest.Expand(blocked(), 10*time.Millisecond)
+	if !errors.Is(err, pagetest.ErrCmdTimeout) {
+		t.Fatalf("err = %v, want %v", err, pagetest.ErrCmdTimeout)
+	}
+	if cmds != nil {
+		t.Errorf("待ち時間切れで Cmd を %d 本返している, want 0", len(cmds))
+	}
+}
+
+// 締め切りを足しても、束の展開そのものは変わらないこと（Issue #145）。
+//
+// 中の Cmd は実行しない（実行すると Tick が自動更新の間隔だけ待つ）ので、本数だけを見る。
+func TestExpandUnwrapsBundles(t *testing.T) {
+	t.Parallel()
+
+	one := func() tea.Msg { return marker{n: 1} }
+
+	for _, tt := range []struct {
+		name string
+		cmd  tea.Cmd
+		want int
+	}{
+		{name: "Cmd が無ければ空", cmd: nil, want: 0},
+		{name: "束は中身を返す", cmd: tea.Batch(one, one, one), want: 3},
+		{name: "束でなければ Cmd 自身を返す", cmd: one, want: 1},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cmds, err := pagetest.Expand(tt.cmd, pagetest.CmdTimeout)
+			if err != nil {
+				t.Fatalf("束を展開できない: %v", err)
+			}
+			if len(cmds) != tt.want {
+				t.Fatalf("展開した Cmd の本数 = %d, want %d", len(cmds), tt.want)
+			}
+			// 束でない Cmd は「実行済みの Msg を包み直したもの」ではなく cmd 自身が
+			// 返る（呼び出し側はもう 1 度走らせる。Expand の doc）。
+			if tt.want == 1 {
+				if got, is := cmds[0]().(marker); !is || got.n != 1 {
+					t.Errorf("返った Cmd の Msg = %#v, want marker{n: 1}", cmds[0]())
+				}
+			}
+		})
+	}
+}

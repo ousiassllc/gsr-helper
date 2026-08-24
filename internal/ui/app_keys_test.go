@@ -191,7 +191,7 @@ func TestSwitchTabRefreshesChrome(t *testing.T) {
 	}
 	// 切り替えは離脱・活性化・共有状態の 3 本を束ねて返すため、束の中から探す。
 	found := false
-	for _, c := range pagetest.Expand(cmd) {
+	for _, c := range expand(t, cmd) {
 		if got, ok := c().(page.ChromeMsg); ok && got.Tab == 1 {
 			found = true
 		}

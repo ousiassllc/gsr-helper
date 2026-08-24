@@ -18,11 +18,26 @@ import (
 // testTab は検証で使うタブ番号（screens.md の [4]Logs は添字 3）。
 const testTab = 3
 
-// cmdTimeout は Cmd 1 本を待つ上限。
+// waitTimeout は購読の待ち受け（wait）を諦めるまでの上限。
 //
-// 購読の待ち受け（wait）は行が届くまで戻らない。**戻らないこと自体は正しい**ので、
-// 諦めて次へ進むための時間である。行を待つ検証は pumpUntil の条件で止める。
-const cmdTimeout = 2 * time.Second
+// 購読の待ち受けは行が届くまで戻らない。**戻らないこと自体は正しい**ので、諦めて
+// 次へ進むための時間である。行を待つ検証は pumpUntil の条件で止める。
+//
+// **必ず戻るはずの Cmd をこれで待たないこと。** 諦めるまでの時間がそのまま
+// テストの所要時間になるので短くしてあり、`make check`（-race で全パッケージを
+// 同時に実行）の負荷が掛かると、正しく戻る Cmd でも間に合わずに落ちうる。
+// そちらは pagetest.CmdTimeout（30 秒。速く戻る Cmd の速さには効かない）を使う
+// ——1 つの定数を両方に使っていたころ、config 側で同じ形の散発的な失敗が出た
+// （Issue #140 / #145）。
+const waitTimeout = 2 * time.Second
+
+// drainTimeout は畳んだ購読のチャネルが閉じるのを待つ上限。
+//
+// **これも「必ず終わるはずの待ち」だが、pagetest.CmdTimeout（30 秒）ほど倒さない。**
+// 畳み漏れの退行が入ると track の後始末はほぼ全テストに掛かるため、諦めるまでの時間が
+// そのままパッケージの所要時間になる。負荷に耐えるだけの余裕（2 秒の 2.5 倍）を持たせ、
+// 失敗したときの待ち時間は分単位にしない、という間を取った値である。
+const drainTimeout = 5 * time.Second
 
 // writeLog は runner の `_diag` にログを 1 つ作る（組み立ては pagetest.WriteDiagLog に任せる）。
 func writeLog(t *testing.T, r runner.Runner, name, body string, mod time.Time) string {
@@ -86,7 +101,7 @@ func track(t *testing.T, m Model) {
 		tracked.Delete(t)
 		lines := last.stream.lines
 		last.stop()
-		if lines != nil && !pagetest.Drained(lines, cmdTimeout) {
+		if lines != nil && !pagetest.Drained(lines, drainTimeout) {
 			t.Error("テストの終わりに購読が畳まれていない")
 		}
 	})
@@ -97,7 +112,7 @@ func track(t *testing.T, m Model) {
 func pumpUntil(t *testing.T, m Model, cmd tea.Cmd, cond func(Model) bool) Model {
 	t.Helper()
 
-	got, err := pagetest.Pump(m, testTab, cmd, cmdTimeout,
+	got, err := pagetest.Pump(m, testTab, cmd, waitTimeout,
 		func(m Model, msg tea.Msg) (Model, tea.Cmd) { return step(t, m, msg) }, cond)
 	if err != nil {
 		t.Fatal(err)

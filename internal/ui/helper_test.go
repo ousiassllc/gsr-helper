@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"errors"
+	"testing"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -38,6 +39,20 @@ var (
 	discovered   = pagetest.Discovered[App]
 	takeHostReq  = pagetest.TakeHostReq[App]
 )
+
+// expand は Cmd の束を 1 段展開する。締め切り内に戻らなければテストを止める。
+//
+// **ここで止めるのが要点である。** 素で走らせていたころは戻らない Cmd を渡すと
+// パッケージごとハングし、失敗として読めなかった（Issue #145）。
+func expand(t *testing.T, cmd tea.Cmd) []tea.Cmd {
+	t.Helper()
+
+	cmds, err := pagetest.Expand(cmd, pagetest.CmdTimeout)
+	if err != nil {
+		t.Fatalf("Cmd の束を展開できない: %v", err)
+	}
+	return cmds
+}
 
 // newApp は親 Model を組み立てる。走査ルートを空にして検出の入力を最小にする。
 func newApp(ex exec.Executor) App {

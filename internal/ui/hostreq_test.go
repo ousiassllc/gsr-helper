@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -49,14 +50,14 @@ func TestStartupHostRequirementRunsOnceAfterFirstSuccess(t *testing.T) {
 	a := withHostChecks(newApp(exec.NewFake()), pagetest.StubCheck{Status: check.Fail})
 
 	a, cmd := discovered(a, errTest)
-	if _, ok := takeHostReq(a, cmd); ok {
-		t.Fatal("検出に失敗した周期で前提チェックが発行された（空の runner 一覧で使い切る）")
+	if _, err := takeHostReq(a, cmd); !errors.Is(err, pagetest.ErrNotFound) {
+		t.Fatalf("検出に失敗した周期で前提チェックが発行された（空の runner 一覧で使い切る）: err = %v", err)
 	}
 
 	a, cmd = discovered(a, nil)
-	a, ok := takeHostReq(a, cmd)
-	if !ok {
-		t.Fatal("検出に成功した周期でも前提チェックが発行されない（FR-44 が走らない）")
+	a, err := takeHostReq(a, cmd)
+	if err != nil {
+		t.Fatalf("検出に成功した周期でも前提チェックが発行されない（FR-44 が走らない）: %v", err)
 	}
 	if a.hr.Bad() != 1 {
 		t.Errorf("届いた件数 = %d, want 1", a.hr.Bad())
@@ -65,8 +66,8 @@ func TestStartupHostRequirementRunsOnceAfterFirstSuccess(t *testing.T) {
 	for range 3 {
 		var next tea.Cmd
 		a, next = discovered(a, nil)
-		if _, again := takeHostReq(a, next); again {
-			t.Fatal("再検出のたびに前提チェックが走っている")
+		if _, err := takeHostReq(a, next); !errors.Is(err, pagetest.ErrNotFound) {
+			t.Fatalf("再検出のたびに前提チェックが走っている: err = %v", err)
 		}
 	}
 }
