@@ -493,7 +493,7 @@ issues:
 `formatters` には `gofmt` と `gci` を入れる。**両者は検出ゲートの数が違うので、まとめて説明しない。**
 
 - **`gofmt` は二重化されている。** `formatters` に入れることで `golangci-lint run` でも整形漏れを検出できる。`make fmt-check`（`gofmt -l`）と役割が重なるが、どちらか一方だけを実行しても検出できる状態にしておく。
-- **`gci` は二重化されていない。** `gci` は `gofmt` が見ない import のグループ分けを担う（[Format](#format) を参照）が、`make fmt-check` は `gofmt -l` しか実行しないため **gci 違反を検出するのは `make lint` だけ**である。
+- **`gci` は二重化されていない。** `gci` は `gofmt` が見ない import のグループ分けを担う（[Format](#format) を参照）が、`make fmt-check` は `gofmt -l` しか実行しないため **gci 違反は `make fmt-check` では検出できない**。検出するのは `golangci-lint run` を走らせる経路——`make lint` / pre-commit の lint（`go tool golangci-lint run --new-from-rev=HEAD`）/ CI の `make lint`——である（実測）。
 
 `nolintlint` は 3 つの設定をすべて有効にする。
 
@@ -560,7 +560,7 @@ issues:
 | gci も含めて整形する | `go tool golangci-lint fmt` | 適用する | 適用する |
 | 整形漏れを含めて lint する | `make lint`（= `golangci-lint run`） | 検出する | 検出する |
 
-**`make check` が `File is not properly formatted (gci)` で落ちたら `go tool golangci-lint fmt` を実行する。** これが gci 違反を自動修正する唯一の手段であり、`make fmt` を何度実行しても直らない（実測: import を誤グループにしたファイルに対し `make fmt` は無変化・`make fmt-check` は exit 0 で、`make lint` だけが落ちる）。差分だけ見たい場合は `go tool golangci-lint fmt --diff` を使う。
+**`make check` が `File is not properly formatted (gci)` で落ちたら `go tool golangci-lint fmt` を実行する。** `make fmt` を何度実行しても直らない（実測: import を誤グループにしたファイルに対し `make fmt` は無変化・`make fmt-check` は exit 0 で、`make lint` だけが落ちる）。`go tool golangci-lint run --fix` でも gci 違反は直るが（実測）、整形だけを目的とするなら `fmt` を使う。差分だけ見たい場合は `go tool golangci-lint fmt --diff` を使う。
 
 `gofmt -l` は未整形ファイルを列挙するだけで終了コードが 0 のままなので、`fmt-check` では出力が空であることを検証している。
 
@@ -578,13 +578,13 @@ issues:
 
 **`gofmt` ではこの規約を検出できない。** `gofmt` はグループ**内**を並べ替えるだけでグループ分け自体には手を入れない。そのため `gci` を入れる**前**は、自前パッケージが標準ライブラリのグループに紛れ込んでいても `make fmt-check` も `make lint` も緑のまま通っていた。実際に `internal/ui/app_test.go` / `internal/ui/page/pagetest/diag.go` / `internal/gh/errors.go` / `internal/ui/chrome_test.go` の 4 ファイルでこの形が入り込み、`internal/doctor/hostres/hostres.go` では自前パッケージが 2 グループに割れていた（Issue #119）。規約を「書いておくもの」のままにすると同じ書き方が静かに広がる。
 
-**`gci` を入れた現在は `make lint` が検出して落ちる。** ただし検出するのは `make lint` だけで、`make fmt-check` は今も `gofmt -l` しか実行しないため緑のまま通る（[Format](#format) のコマンド表を参照）。復旧は `go tool golangci-lint fmt` で行う。
+**`gci` を入れた現在は `golangci-lint run` を走らせる経路が検出して落ちる**（`make lint` / pre-commit の lint / CI の `make lint`）。**ただし `make fmt-check` は今も `gofmt -l` しか実行しないため緑のまま通る**（[Format](#format) のコマンド表を参照）。復旧は `go tool golangci-lint fmt` で行う。
 
 **`gci` を入れた判断の根拠は波及の小ささである。** 有効化にあたりリポジトリ全体の再整形が要るなら 2 ファイルの手直しで済ませる選択もあったが、`golangci-lint fmt --diff` で実測したところ差分は上記 5 ファイルだけだった。しかもうち 3 ファイルは Issue が挙げていない未発見の違反であり、道具を入れなければ気付けなかった。
 
 `gci` の指摘が実際に出ることは `internal/buildconfig` の `TestGolangciLintRejectsMisgroupedImports` が、設定そのものは `TestGolangciEnablesGci` が守る。前者は本リポジトリと同じモジュールパスの一時モジュールを作って `golangci-lint run` を実行する（`prefix` セクションに当てるため）。
 
-**後者の判定は `File is not properly formatted (gci)` という gci の実出力そのもので行う。** 単に `gci` を含むかで見ると `golangci-lint` や `.golangci.yml` にも部分一致し、設定を読めなかった場合（`can't load config: ... /.golangci.yml`）や多重起動で弾かれた場合（`Error: parallel golangci-lint is running`）に、**gci がフィクスチャを一度も評価していないのにテストが通る**（どちらも非 0 終了なので、直前の「lint が失敗したこと」の確認も抜けてしまう）。
+**前者の判定は `File is not properly formatted (gci)` という gci の実出力そのもので行う。** 単に `gci` を含むかで見ると `golangci-lint` や `.golangci.yml` にも部分一致し、設定を読めなかった場合（`can't load config: ... /.golangci.yml`）や多重起動で弾かれた場合（`Error: parallel golangci-lint is running`）に、**gci がフィクスチャを一度も評価していないのにテストが通る**（どちらも非 0 終了なので、直前の「lint が失敗したこと」の確認も抜けてしまう）。
 
 ## Linterly
 
@@ -761,5 +761,6 @@ pre-push:
 | 1.24 | 2026-08-23 | `internal/buildconfig` の責務を「設定ファイルとドキュメントの不変条件を守る回帰テスト」へ広げ、「設定ファイルの不変条件をテストで守る」節の本文と CI 構成表の「設定の不変条件」行を実態に合わせた。不変条件テスト一覧表に `TestDocRevisionHistoryVersionsUniqueAndAscending` の行を追加 | 1.23 で追加した改訂履歴の回帰テストは `docs/` 配下の Markdown を読むテストであり、「ビルド設定ファイルの回帰テストだけを置く」というパッケージの定義（`internal/buildconfig/doc.go`）と本節の記述の範囲外だった。同パッケージには既に仕様書のコードブロックを検査する `TestSetupDocEmbedsConfigFilesVerbatim` があり、ドキュメントを読むテストは既存の性格の延長であるため、パッケージを分けずに定義側を実態へ追随させた |
 | 1.25 | 2026-08-24 | 「設定ファイルの不変条件をテストで守る」の表の直後に、この表が `internal/buildconfig` に置いたものだけを挙げること・同じ性格の検査が `internal/ui/page/pagetest` にもあること・`buildconfig` へ集めるのは**どのパッケージにも属さない取り決め**だけであることを明記した | 表が「網羅ではない」とだけ断っており、**どこまでがこの表の範囲か**が読み取れなかった。共有部品の列挙を守る検査（Issue #130 で 3 本になった）をここへ足すべきか、対象の隣に置くべきかを次の Issue が判断できない。パッケージ固有の不変条件を `buildconfig` へ寄せると、対象を触る Issue が検査の存在に気付けない（Issue #130） |
 | 1.26 | 2026-08-24 | `.golangci.yml` の `formatters` に `gci` を追加し（セクションは `standard` / `default` / `prefix(github.com/ousiassllc/gsr-helper)`）、Format 節に「import のグループ分け」を新設。Lint 節の `formatters` の説明にも `gci` の役割を追記 | import を標準ライブラリ / 外部モジュール / 自前パッケージの 3 グループに分ける規約が `gofmt` では検出できず、`make fmt-check` も `make lint` も緑のまま 5 ファイルに違反が入り込んでいた（Issue #119）。`golangci-lint fmt --diff` で実測した波及がその 5 ファイルだけで、うち 3 ファイルは Issue が挙げていない未発見の違反だったため、2 ファイルの手直しではなく道具ごと入れて再発を機械的に止める方を採った |
+| 1.27 | 2026-08-24 | `.golangci.yml` の `gci` に `custom-order: true` を追加し（逐語ブロックも同期）、`TestGolangciEnablesGci` に同じアサーションを足した。`TestGolangciLintRejectsMisgroupedImports` の判定を部分一致の `gci` から `File is not properly formatted (gci)` へ改め、Format 節に、コマンドごとに `gofmt` / `gci` のどちらが効くかを示す表を新設。あわせて次の 3 つの記述の誤りを直した——(1) `File is not properly formatted (gci)` で判定するのは**前者**（フィクスチャに `golangci-lint run` を掛けるほう）であって「後者」ではない、(2) gci 違反を自動修正できるのは `golangci-lint fmt` だけではなく `golangci-lint run --fix` でも直る（実測）ので「唯一の手段」の断定を外した、(3) 「gci 違反を検出するのは `make lint` だけ」を、`make fmt-check` では検出できず `golangci-lint run` を走らせる経路（`make lint` / pre-commit の lint / CI の `make lint`）が検出する、という範囲の明示へ改めた（2 箇所） | `custom-order` が無いと `gci` は `sections` の記載順を無視して内蔵の既定順で並べるため、順序の指定もそのアサーションも実効にならなかった（実測）。旧判定は `golangci-lint` / `.golangci.yml` にも部分一致するため、設定を読めない場合と多重起動で弾かれた場合に gci がフィクスチャを一度も評価せず偽 PASS していた。文章側の 3 件は、同じ変更で書き足した記述そのものが事実と食い違っていたもので、とくに「唯一の手段」と「`make lint` だけ」は pre-commit も gci を報告する実態（`go tool golangci-lint run --new-from-rev=HEAD` が `File is not properly formatted (gci)` を出すことを実測で確認）と正面から食い違い、「コミットは gci では止まらない」と誤読させる（Issue #119） |
 
 **版番号は表への追加順ではなく、その変更が入った時点で採番している。** 1.22 の日付が直前の 1.21 より古いのはこのためである。1.22 の行はもともと重複した `1.8` として記録されており（`feat/#1` の取り込み時に 2 つの `1.8` を両方残したまま解消した）、重複を解消する際に、既に使われている 1.9〜1.21 と衝突しない番号として 1.22 を割り当てた。既存行の版番号を繰り下げないのは、他の行の変更理由が版番号で参照している箇所（1.12 / 1.13）まで書き換えることになるためである。
