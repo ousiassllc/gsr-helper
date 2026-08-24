@@ -28,8 +28,12 @@ type graphNodeRule struct {
 // graphNodeRules は docs/components/overview.md「## 依存関係」のグラフのノードと
 // 実装のパッケージの対応表。
 //
-// **新しいパッケージを足したらここへも足すこと。** 載っていないパッケージがあると
-// TestEveryPackageIsMappedToGraphNode が落ちる（黙って検査の網から外れるのを防ぐため）。
+// 既存のどのプレフィックスにも当たらない新設パッケージ（新しい最上位のツリー）は、
+// ここへ足すまで TestEveryPackageIsMappedToGraphNode が落ちる。
+// 一方、既存プレフィックス配下のサブパッケージは最長プレフィックス一致（nodeForPackage）
+// で親ノードへ黙って畳まれる。これは意図した設計で、internal/runner/procs のような
+// サブパッケージが層の図に辺を増やさないのはこのため。RScope / SetupJob のように独自
+// ノードを与えたい場合だけ、自分でここへ規則を足す判断が要る。
 // グラフに描かないと決めた場合は空ノード "" を理由付きで書く。
 var graphNodeRules = []graphNodeRule{
 	{"cmd/gsr-helper", "Main"},
@@ -135,6 +139,11 @@ func modulePackages(t *testing.T) []goListPackage {
 
 // implEdges は実装の直接 import から生じるノード間の辺と、その根拠の import を返す。
 // 同じノードへ畳まれた同士の辺（畳んだノードの内部）は辺として数えない。
+//
+// go list の Imports は本番ファイルの import なので、テスト専用のフィクスチャ・
+// パッケージ（pagetest / cmdtest / setuptest / tabletest）**自身**の import も辺として
+// 数える。現在はいずれも本番 import の裏付けがあるが、フィクスチャ限定の import が
+// 入ると本番に存在しない辺を図へ描くよう要求することになる。
 func implEdges(t *testing.T) map[graphEdge][]string {
 	t.Helper()
 
@@ -156,6 +165,11 @@ func implEdges(t *testing.T) map[graphEdge][]string {
 			e := graphEdge{from: from, to: to}
 			edges[e] = append(edges[e], p.ImportPath+" -> "+imp)
 		}
+	}
+	// 対象の取り違えで 0 件になったまま緑になるのを防ぐ。
+	if len(edges) == 0 {
+		t.Fatal("層をまたぐ import から辺を 1 本も作れない" +
+			"（modulePath が go.mod の module 宣言とずれていると全 import が外部依存扱いになる）")
 	}
 	return edges
 }

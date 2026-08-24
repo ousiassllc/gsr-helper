@@ -18,6 +18,9 @@ var (
 	mermaidSubgraph = regexp.MustCompile(`^\s*subgraph\s+(\w+)`)
 	mermaidEnd      = regexp.MustCompile(`^\s*end\s*$`)
 	mermaidNodeDecl = regexp.MustCompile(`^\s*(\w+)\[`)
+	// mermaidArrow は矢印記法を行中から広く拾う。mermaidEdge が拾えない形の辺
+	// （ラベル付き・点線など）を黙って捨てないための検出用。
+	mermaidArrow = regexp.MustCompile(`--+>|-\.-+>|==+>`)
 )
 
 // graphEdge は mermaid の 1 本の辺。
@@ -90,6 +93,10 @@ func parseDepGraph(t *testing.T) depGraph {
 			for _, sg := range open {
 				g.subgraph[sg][id] = true
 			}
+		case mermaidArrow.MatchString(line):
+			// 矢印なのにここまで来た＝この形の辺に mermaidEdge が対応していない。
+			// 黙って捨てると図にある辺を「グラフに無い」と実態と逆の理由で落とす。
+			t.Fatalf("mermaid のこの形の辺に対応していない（mermaidEdge が拾えない）: %q", line)
 		}
 	}
 	if len(open) != 0 {
