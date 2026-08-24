@@ -1071,7 +1071,7 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 
 **未実装の節を削らない。** 削ると、タブを足す Issue が同じ設計判断（`Confirm` を 1 実装に統一する、進捗バーを出す範囲、`Table` を増やさない）をやり直すことになる。実装が追いついた時点でこの表から行を外す。
 
-### ディレクトリの行数
+### 行数の予算
 
 行数チェック（`linterly`）の上限は 1 ディレクトリ 2000 行（テストを含む）で、集計は直下のファイルのみを対象とする。
 
@@ -1095,7 +1095,7 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 | `ui/page/config` | 1737 | 263 | pass |
 | `ui/page/jobs` | 1684 | 316 | pass |
 | `ui/keymap` | 1681 | 319 | pass |
-| `ui/page/doctor` | 1580 | 420 | pass |
+| `ui/page/doctor` | 1600 | 400 | pass |
 | `ui/organism/pane` | 1559 | 441 | pass |
 | `ui/molecule/listrow` | 1523 | 477 | pass |
 | `ui/molecule` | 1513 | 487 | pass |
@@ -1110,7 +1110,7 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 | `ui/organism` | 521 | 1479 | pass |
 | `ui/page/disk/cleanview` | 491 | 1509 | pass |
 | `ui/page/configmodal` | 453 | 1547 | pass |
-| `ui/page/diskclean` | 363 | 1637 | pass |
+| `ui/page/diskclean` | 372 | 1628 | pass |
 | `ui/chrome` | 347 | 1653 | pass |
 | `ui/workscan` | 337 | 1663 | pass |
 | `ui/discovery` | 290 | 1710 | pass |
@@ -1126,12 +1126,49 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 
 **同じ上限は `internal/` 直下のディレクトリにも掛かる。** 本書は UI 層の設計を記す文書だが、行数チェック（`linterly`）はリポジトリ全体を見る。**空け方の判断はここに集約する**——3 つの手（本節冒頭）は層に依らず同じであり、判断を 2 か所に置くと片方だけが古くなるためである。
 
+**表は UI 層と同じく全件を載せる。** 判断の記録があるディレクトリだけを並べると、記録が無いまま逼迫しているディレクトリ（現に `internal/setup/tarball` は残り 1 行である）が表から消え、**まさに先に空けるべき場所が見えなくなる**。`testdata/` のフィクスチャは対象外なので載せない。
+
 | ディレクトリ | 行数 | 残り | 判定 |
 |------------|------|------|------|
+| `internal/setup/tarball` | 1999 | 1 | pass |
+| `internal/logs` | 1998 | 2 | pass |
+| `internal/gh` | 1996 | 4 | pass |
+| `internal/disk` | 1980 | 20 | pass |
 | `internal/setup` | 1970 | 30 | pass |
-| `internal/disk` | 1927 | 73 | pass |
+| `internal/config/edit` | 1922 | 78 | pass |
+| `internal/exec/command` | 1853 | 147 | pass |
+| `internal/runner` | 1704 | 296 | pass |
+| `internal/doctor/jobreq` | 1495 | 505 | pass |
+| `internal/buildconfig` | 1394 | 606 | pass |
+| `internal/audit` | 1393 | 607 | pass |
+| `internal/doctor/hostres` | 1384 | 616 | pass |
+| `internal/svc` | 1353 | 647 | pass |
+| `internal/appconfig` | 1343 | 657 | pass |
+| `internal/doctor/hostcfg` | 1184 | 816 | pass |
+| `cmd/gsr-helper` | 989 | 1011 | pass |
+| `internal/doctor/authz` | 822 | 1178 | pass |
+| `internal/doctor/netcheck` | 812 | 1188 | pass |
+| `internal/doctor/check` | 807 | 1193 | pass |
+| `internal/appconfig/confpath` | 782 | 1218 | pass |
+| `internal/setup/job` | 781 | 1219 | pass |
+| `internal/config/fileio` | 708 | 1292 | pass |
+| `internal/doctor` | 681 | 1319 | pass |
+| `internal/config/envfile` | 641 | 1359 | pass |
+| `internal/config` | 629 | 1371 | pass |
+| `internal/exec/mask` | 622 | 1378 | pass |
+| `internal/runner/systemd` | 552 | 1448 | pass |
+| `internal/exec` | 541 | 1459 | pass |
+| `internal/appconfig/hostcaps` | 523 | 1477 | pass |
+| `internal/config/dropin` | 484 | 1516 | pass |
+| `internal/setup/valid` | 480 | 1520 | pass |
+| `internal/runner/procs` | 426 | 1574 | pass |
+| `internal/gh/ghtoken` | 418 | 1582 | pass |
+| `internal/config/apply` | 354 | 1646 | pass |
 | `internal/disk/pathguard` | 288 | 1712 | pass |
 | `internal/setup/setuptest` | 178 | 1822 | pass |
+| `internal/runner/scope` | 165 | 1835 | pass |
+
+**残りが 1 桁のディレクトリが 3 つある**（`internal/setup/tarball` 1 行・`internal/logs` 2 行・`internal/gh` 4 行）。**この 3 つに 1 行でも足す Issue は、足す前に空けること。** どれも警告帯には入っていないので `make check` は通るが、通ることと余裕があることは違う。
 
 ##### `internal/disk` から `pathguard` を切り出した判断（Issue #101）
 
@@ -1159,6 +1196,16 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 **(1) を採らなかった理由。** 本番で切れる境界は「計画の組み立て（`add.go` / `remove.go` / `update.go`）」と「計画の実行（`apply.go`）」だが、実行は組み立てた `Plan` / `Unit` / `Step` を受け取るので依存は片方向に決まるものの、**増え方は同じ**である（どちらも FR-19〜FR-23 の手順が増えれば一緒に増える）。本節の (1) が求める「依存の向きを強制できる、あるいは増え方が違うまとまり」に当たらない。
 
 結果は 1970 行（残り 30 行）である。**残り 30 行は実質ゼロなので、次にこのディレクトリへ手を入れる Issue は 1 行足す前に空けること。** (3) はこの 1 周で使い切った（残る道具は無い）ので、次に採るのはテストの重複削減か、上記の (1)——`apply.go` とその 3 つのテストファイル（`apply_test.go` / `applycancel_test.go` / `applyscope_test.go`）を `internal/setup/setupapply` へ出すこと——である。
+
+#### ファイルの行数
+
+**同じチェックが 1 ファイル 300 行にも掛かる。** ディレクトリと同じく `warning_threshold: 10` が効くので、301〜330 行が **WARN**、331 行以上が **ERROR** である（設定の詳細は[環境構築](../environment/setup.md#linterly)）。現在 WARN 以上のファイルは無く、最大は `internal/ui/app.go` の 299 行である。
+
+**採る手は 1 つだけである——同じディレクトリの中で責務の境界に沿ってファイルを分ける。** ディレクトリの 3 つの手（本節冒頭）と違い、ファイルの超過はパッケージ境界の問題ではないので、切り出し先を別ディレクトリにする理由が無い。上限値を緩めるのも、行を詰めて 300 行に収めるのも採らない——**前者は次の Issue が読む予算を壊し、後者は 1 行あたりの情報量を増やして読みにくくするだけで、責務は 1 つも減らない。**
+
+**ただしディレクトリの予算を先に見ること。** ファイルを 2 つに分けると `package` 宣言と import のぶんだけディレクトリの合計が数行増える。残りが 1 桁のディレクトリでファイルを分けると、ファイルの WARN を解いた代わりにディレクトリを警告帯へ押し込むことになる。その場合はディレクトリを先に空ける。
+
+**前例。** Issue #77 は `internal/ui/app.go` を 302 行から 299 行へ戻したが、これは `Init` の `tea.Batch` を 1 行に畳んだだけで責務は動かしていない（3 行なので境界を切るまでもなかった）。Issue #108〜#114 は 300 行を超えていた 7 ファイルを責務の境界で分けている（`page/config` の回帰テストを自身の設定と runner 設定へ、`runner/discover.go` の紐付けを `attach.go` へ、`appconfig` の書き込みを `save.go` / `save_test.go` へ、`exec/command` の秘匿値検証を `auditsecret_test.go` へ、`keymap` のヘルプ組み立てを `help.go` へ、`hostcaps` の時間の検証を `timeout_test.go` へ）。**分けた先の名前が責務を言い当てられないなら、それは境界を間違えている。**
 
 #### `ui/page/config` を `page/configmodal` へ分けた判断（Issue #12 / 実施は Issue #104）
 
@@ -1389,3 +1436,4 @@ Issue #31 で `table_test.go` の空振りしていたテスト（`View() != ""`
 | 1.61 | 2026-08-24 | 2 周目レビューの残りを反映。存在しないファイルを指していた `formmodal.go` を `formmodal.go` → `setupmodal/form.go` へ、`page/runnerop` の利用者を実測（Runners / Jobs。`runnerdetail` は import していない——向きは `runnerop` → `runnerdetail` である）へ、空け方の手 (3) の例に `internal/setup/setuptest` を追加。依存の規則の「`token` は `lipgloss` のみ」を、同じ行の理由列（`huh.Theme` を token 内で組む）と整合する「`lipgloss` と `huh` のみ」へ訂正。1.59 が補おうとして二重になっていた `Spy` の 1 文を直した | 1.59 は「語中で切れた文を補完」と記録しながら断片を継ぎ足して別の壊し方をしており、`formmodal.go` は `docs/components/overview.md` の `ValidatePath` と同じ「移動・改名で存在しなくなった識別子を指す」乖離が 1 文だけ取り残されていた。`page/runnerop` の括弧は本改訂 (1.57) が新設した配置基準の根拠そのもので、誤ると基準の読み方を誤らせる |
 | 1.62 | 2026-08-24 | `feat/#1` を取り込み、1.49（Issue #96 / PR #115）と重なった箇所を解決した。共有部品の列挙に `page/diskclean` / `page/configmodal` / `page/setupmodal` を追加（`TestSharedPackagesMatchDoc` が要求する）。1.49 が Disk / Setup の**将来の**切り出し手順をネスト（`page/disk/clean` / `page/setup/modal`）へ改めていたが、その切り出しは Issue #102 / #105 が**フラットな名前で実施済み**であり、受け入れ条件が `shared` への登録を含んでいたため、当該節は実施結果の記述で置き換えた（配置基準の節に例外として理由を明記してある）。行数表と散文を合流後の実測へ再更新（`page/pagetest` 1696 → 1744 ほか） | 2 つの sweep が同じ文書の同じ節を並行して直したため。1.49 の手順は「これから切り出す場合」の指針で、既に実施済みの節に残すと、次の Issue が完了済みの作業をもう一度探すことになる。行数は両ブランチの変更を合算した値になるので、どちらの表をそのまま採っても実測とずれる |
 | 1.63 | 2026-08-24 | ゲート検証の指摘を反映。`page/configmodal` の節が指していた `modals.go` を実在するファイル（`configmodal/configmodal.go` / `configmodal/approve.go`）へ改めた（1.61 が `formmodal.go` について直したのと同じ乖離が 1 行だけ残っていた）。配置基準の節の利用者の列挙に `page/runnerop` を補い（`page/action` / `page/runnerdetail` の実際の import 元）、`molecule/chromebar` の doc の依存を本番の実態（`atom` / `token`。`lipgloss` は検証のみ）へ直した | 「移動・改名で存在しなくなった識別子を指す」乖離は本 PR が繰り返し是正してきた種類のもので、1 箇所でも残ると次の Issue が実装を探せない。配置基準の列挙は基準そのものの根拠なので、欠けると読み方を誤らせる |
+| 1.64 | 2026-08-24 | 「ディレクトリの行数」を「行数の予算」へ改称し、`#### ファイルの行数` を新設して 1 ファイル 300 行の WARN に対する方針（同じディレクトリの中で責務の境界に沿って分ける／上限は緩めない／ディレクトリの残りを先に見る）と前例を明記。「UI 層の外のディレクトリ」の表を判断の記録があるものだけの 4 行から非 UI の全ディレクトリ（`testdata/` を除く 37 行）へ広げ、残りが 1 桁の 3 件（`internal/setup/tarball` 1 行・`internal/logs` 2 行・`internal/gh` 4 行）を名指しした。実測のずれ 3 件（`ui/page/doctor` 1580 → 1600、`ui/page/diskclean` 363 → 372、`internal/disk` 1927 → 1980）を直した | 本節は「警告帯に入ったディレクトリへ部品を足すときは先に分割の是非を検討すること」を規約として定めながら、**ファイル単位の警告には方針が 1 行も無かった**。Issue #108〜#114 が実際に 7 ファイルを分けた実績があるのに、その判断が本書のどこからも読み取れない。非 UI の表も判断の記録があるディレクトリだけを載せていたため、記録が無いまま残り 1 行まで詰まっている `internal/setup/tarball` が表から消えており、**まさに先に空けるべき場所が見えなかった**。節が「空け方の判断はここに集約する」と宣言している以上、在庫は全件でなければ集約になっていない（Issue #125） |
