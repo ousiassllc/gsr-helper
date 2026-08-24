@@ -682,7 +682,7 @@ runner のサービス制御（開始 / 停止 / 強制停止 / ドレイン停�
 |------|---------|:---:|
 | `internal/ui/page/<tab>/` | 新規パッケージ。`tea.Model` を実装し、`page.StateMsg` を受けて `page.ChromeMsg` を返す | 必須 |
 | `internal/ui/tabset/` | import 1 行と、`specs()` の該当行に `New`（`func(tab int, st page.StateMsg) tea.Model`）を足す。番号キーと page へ渡すタブ番号は `tabset.New` が並び順から機械的に決めるので書かない | 必須 |
-| `internal/ui/molecule/listrow/` | 行の組み立て（`RunnerRow` に相当するもの）を 1 つ足す。**依存の規則により `molecule` 以下しかドメイン型を落とした行を描けない**ので、`page/<tab>/rows.go` から呼ぶ形になる（`page/runners/rows.go` が既定） | 必須 |
+| `internal/ui/molecule/listrow/` | 行の組み立て（`RunnerRow` に相当するもの）を 1 つ足す。**依存の規則により `molecule` 以下しかドメイン型を落とした行を描けない**ので、`page/<tab>` の行を組み立てる側から呼ぶ形になる（既定は `page/runners/rowview`。Logs タブは `page/logs/filerow`） | 必須 |
 | `internal/ui/token/width.go` | その一覧の列定義（`token.Column` の並び）と、幅が足りないときに落とす順（`ColumnRules`）を足す | 必須 |
 | `internal/ui/keymap/` | そのタブ固有のキーがある場合のみ、定義と `Set` への 1 フィールド、および `Set.Contexts()` への登録（そのキーが同時に有効になるコンテキスト）。登録漏れは `TestContextsCoverEverySetField` が落とす | 任意 |
 
@@ -1230,7 +1230,7 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 
 #### ファイルの行数
 
-**同じチェックが 1 ファイル 300 行にも掛かる。** ディレクトリと同じく `warning_threshold: 10` が効くので、301〜330 行が **WARN**、331 行以上が **ERROR** である（設定の詳細は[環境構築](../environment/setup.md#linterly)）。現在 WARN 以上のファイルは無く、最大は `internal/ui/page/runners/runners_test.go` の **297 行（残り 3）**である。次点は `internal/ui/page/runners/runners.go` と `internal/ui/page/overlay_test.go` の各 296 行で、`internal/setup/tarball/fetch_test.go` が 293 行、`internal/ui/tabset/tabset.go` が 292 行と続く。**`internal/ui` 直下は最大でも `app.go` の 286 行である**（6 周目の 300 行張り付きは `app_test.go` で、Issue #139 が周期の状態を `discovery.State` へ移したことで 274 行になった。下記「9 周目の空け方」）。
+**同じチェックが 1 ファイル 300 行にも掛かる。** ディレクトリと同じく `warning_threshold: 10` が効くので、301〜330 行が **WARN**、331 行以上が **ERROR** である（設定の詳細は[環境構築](../environment/setup.md#linterly)）。現在 WARN 以上のファイルは無く、最大は `internal/ui/page/runners/runners_test.go` の **298 行（残り 2）**である。次点は `internal/ui/page/runners/runners.go` と `internal/ui/page/overlay_test.go` の各 296 行で、`internal/setup/tarball/fetch_test.go` が 293 行、`internal/ui/tabset/tabset.go` と `internal/ui/page/pagetest/cmdtest/run.go` が各 292 行と続く。**`internal/ui` 直下は最大でも `app.go` の 284 行である**（6 周目の 300 行張り付きは `app_test.go` で、Issue #139 が周期の状態を `discovery.State` へ移したことで 274 行になった。下記「9 周目の空け方」）。
 
 **採る手は 1 つだけである——同じディレクトリの中で責務の境界に沿ってファイルを分ける。** ディレクトリの 3 つの手（本節冒頭）と違い、ファイルの超過はパッケージ境界の問題ではないので、切り出し先を別ディレクトリにする理由が無い。上限値を緩めるのも、行を詰めて 300 行に収めるのも採らない——**前者は次の Issue が読む予算を壊し、後者は 1 行あたりの情報量を増やして読みにくくするだけで、責務は 1 つも減らない。**
 
@@ -1244,9 +1244,9 @@ Config タブは項目の一覧・フォーム 6 種・差分の承認・反映�
 
 **行数のためだけの移動ではない。** 差分の組み立てと書き込みは端末を起動せずに検証できるのに、`tea.Model` の中に置くとファイルが正しく書けたかを確かめるのにキー入力の再現が要る。実際、切り出し先のテストは `t.TempDir()` に runner を作って `.env` を書き、退避と「変更行だけの置換」を直接見ている。
 
-**その後の研磨で警告帯に入った（当時 2059 行・残り -59 行。ピークは 2117 行・残り -117 行で、Issue #104 / #108 を経て 1737 行まで下がり、Issue #128 が +95 行し、Issue #132 が +148 行し、Issue #140 が +9 行し、Issue #141 が +66 行、Issue #142 が +43 行した現在は 2098 行・残り -98 行・**warn** である）。** 押し上げたのは critical 7 件の回帰テストである（二重承認でバックアップが壊れる、実行中の対象切り替えで別の runner へ書く、処理中に新しい編集を始められる、など）。**安全側の検証を行数の都合で落とさない方を採った。** 同じ判断を `ui/page/disk`（当時 2101 行、現在 1996 行・残り 4 行。Issue #102 で分割済み）と `ui/page/runners`（当時 2164 行、現在 1983 行。Issue #107 で削減済み）も記録している。
+**その後の研磨で警告帯に入った（当時 2059 行・残り -59 行。ピークは 2117 行・残り -117 行で、Issue #104 / #108 を経て 1737 行まで下がり、Issue #128 が +95 行し、Issue #132 が +148 行し、Issue #140 が +9 行し、Issue #141 が +66 行、Issue #142 が +43 行して 2098 行・残り -98 行の **warn** になり、Issue #147 が `page/config/itemview` を切り出した現在は **1990 行・残り 10 行・pass** である）。** 押し上げたのは critical 7 件の回帰テストである（二重承認でバックアップが壊れる、実行中の対象切り替えで別の runner へ書く、処理中に新しい編集を始められる、など）。**安全側の検証を行数の都合で落とさない方を採った。** 同じ判断を `ui/page/disk`（当時 2101 行、現在 1996 行・残り 4 行。Issue #102 で分割済み）と `ui/page/runners`（当時 2164 行、現在 1983 行。Issue #107 で削減済み）も記録している。
 
-**Issue #104 で 2117 行から 1719 行へ戻した**（その後 Issue #108 が `regress_test.go` を 2 ファイルに分けたぶんを含めて 1737 行になり、Issue #128 が自身の設定を親へ返す経路とその回帰テストで +95 行し、Issue #132 が監査ログの案内とその回帰テストで +148 行し、Issue #140 が +9 行（回帰テストと道具は `page/pagetest` へ出したため増分が小さい）、Issue #141 / #142 が見出しの回帰テスト（`title_test.go`、92 行）で +109 行した現在は 2098 行・残り -98 行）**。** ただし本節がそれまで挙げていた候補——「残った tea 非依存の部分（`items.go` の要約、`form.go` の検証）を `config/edit` へ出す」——は**もう使えなかった。**
+**Issue #104 で 2117 行から 1719 行へ戻した**（その後 Issue #108 が `regress_test.go` を 2 ファイルに分けたぶんを含めて 1737 行になり、Issue #128 が自身の設定を親へ返す経路とその回帰テストで +95 行し、Issue #132 が監査ログの案内とその回帰テストで +148 行し、Issue #140 が +9 行（回帰テストと道具は `page/pagetest` へ出したため増分が小さい）、Issue #141 / #142 が見出しの回帰テスト（`title_test.go`、92 行）で +109 行して 2098 行・残り -98 行になり、Issue #147 が一覧の行の組み立てを `page/config/itemview` へ出した現在は **1990 行・残り 10 行**）**。** ただし本節がそれまで挙げていた候補——「残った tea 非依存の部分（`items.go` の要約、`form.go` の検証）を `config/edit` へ出す」——は**もう使えなかった。**
 
 - **`form.go` の検証は既に出ている。** `ValidateLine` / `ValidateHook` / `ValidateLabelInput` / `ValidateRoots` / `ValidateRefresh` / `ValidatePercent` / `ValidateAuditLog` はすべて `config/edit` にあり、`form.go` に残っていたのは `huh.Field` の組み立てだけだった。**`huh` は端末の入力欄なので、ドメインの `config/edit` へは出せない**（依存が UI → ドメインの一方向でなくなる）。
 - **`items.go` の要約も同じである。** 現在値の読み取りは `edit.Summarize` / `edit.Summary` として既に出ており、残っていたのは `listrow.SettingView` と `token.Column` を組む部分である。これも UI の型なのでドメインへは出せない。
@@ -1255,7 +1255,7 @@ Config タブは項目の一覧・フォーム 6 種・差分の承認・反映�
 
 `page/pagetest/import_test.go` の `shared` マップに `"configmodal"` を登録してある（足さないとタブとして扱われ `TestOnlyTabsetImportsTabs` が落ちる）。**`shared` へ足したら、本書の 3 箇所——「1 ディレクトリ 1 タブ」ではないの段落・[ディレクトリ構成](#ディレクトリ構成)のツリー・[実装状況](#実装状況)の「実装済み」の行——も同時に直すこと**（順に `TestSharedPackagesMatchDoc` / `TestDirectoryTreeMatchesShared` / `TestImplementedListCoversSharedPackages` が落ちる）。
 
-**次にこのタブへ手を入れる Issue には予算が無い。** 2098 行・残り -98 行の警告帯で、ERROR の境界（2200 行）まで 102 行しかない。採れる手は、`config.go` / `flow.go` / `results.go` の状態遷移そのものではなく、初回設定ウィザード（`selfconf.go`。編集対象が runner ではなくアプリ自身で、FR-41 / FR-42 と他の項目で要件が分かれている）を出すことである。
+**次にこのタブへ手を入れる Issue の予算は残り 10 行である**（1990 行・pass。Issue #147 が 2098 行の警告帯から戻した。下記「Issue #147 の空け方」）。**警告帯は出たが余裕があるわけではない**ので、10 行を超える追加が要るなら足す前に空けること。**採れる手として本節が挙げていた `selfconf.go` の切り出しは、Issue #147 が検討して採らなかった**——5 つとも `Model` のメソッドで、出せば親の非公開を export することになる（`ui/organism/table` を分割しない判断と同じ理由）。次に空けるなら、残る候補は `config.go` / `flow.go` / `results.go` の状態遷移ではなく、テストの重複削減である。
 
 ##### Issue #140 / #141 / #142 の判断——警告帯へ入れて回帰テストを足した
 
@@ -1270,7 +1270,7 @@ Config タブは項目の一覧・フォーム 6 種・差分の承認・反映�
 
 つまり `ui/page/pagetest` を警告帯へ入れたのは Issue #140、`ui/page/config` を入れたのは Issue #141 である。**Issue #140 は `ui/page/config` をほとんど増やしていない**（+9 行）——回帰テストと道具を一度は置いたものの、下記のとおり `page/pagetest` へ出したためである。
 
-**本節冒頭の (3) は実際に採った。** 束を辿る道具は初め `ui/page/config` の `helper_test.go` に `findMsg` として置いたが、引数が `tea.Cmd` と述語だけで config 固有の型に依存しないため、**回帰テストごと `page/pagetest` へ出して `FindMsg` にした**（`doneMsg` に依存するのは述語を渡す `doneOf` の側だけである）。これで `ui/page/config` は 2119 行から 1989 行へ下がり、Issue #140 の時点では警告帯に入らずに済んだ（その後 Issue #141 / #142 が見出しの回帰テストで +109 行するので、最終的な値は 2098 行・残り -98 行である）。**受け皿の `page/pagetest` は代わりに 2121 行へ上がり、こちらが警告帯の深いほうになった**——合計は減っていないので、2 つとも警告帯を出るには別ディレクトリの通常パッケージを新設するしかない（Issue #147 に切り出した）。
+**本節冒頭の (3) は実際に採った。** 束を辿る道具は初め `ui/page/config` の `helper_test.go` に `findMsg` として置いたが、引数が `tea.Cmd` と述語だけで config 固有の型に依存しないため、**回帰テストごと `page/pagetest` へ出して `FindMsg` にした**（`doneMsg` に依存するのは述語を渡す `doneOf` の側だけである）。これで `ui/page/config` は 2119 行から 1989 行へ下がり、Issue #140 の時点では警告帯に入らずに済んだ（その後 Issue #141 / #142 が見出しの回帰テストで +109 行して 2098 行・残り -98 行になり、Issue #147 が `page/config/itemview` を切り出して 1990 行・残り 10 行へ戻した）。**受け皿の `page/pagetest` は代わりに 2121 行へ上がり、こちらが警告帯の深いほうになった**——合計は減っていないので、2 つとも警告帯を出るには別ディレクトリの通常パッケージを新設するしかなかった。**Issue #147 がそれを実施した**（`page/pagetest/cmdtest` と `page/config/itemview` の新設。2 つとも警告帯を出ている）。
 
 それでも最終的に 2 つとも警告帯に残したのは、次の 2 つによる。
 
@@ -1305,7 +1305,7 @@ Disk タブは 1 ディレクトリに一覧・集計・クリーンアップ・
 
 **テストも境界に沿って分けた。** 到着順に依らず確定する（進捗の出し切りと終了通知の両方がそろうまで結果を確定しない）ことは `Job` を直に駆動する `page/diskclean` のテストが見る。タブ側に残したのは後始末——報告を状態行へ出し、選択を解き、実行中の状態を捨てること——の検証である。結果は 2128 行から 1943 行（残り 57 行）になった。
 
-**その後 Issue #127 の回帰テストで 1996 行（残り 4 行）まで詰まった。** 押し上げたのは inode だけが逼迫した行で `⚠ 警告閾値超過` が出ることを固定する検証で、doctor との判定の食い違いを閉じるためのものである（[画面仕様](screens.md#disk-タブ)）。**次にこのディレクトリへ 1 行でも足す Issue は、足す前に空けること。** 採れる手は本節冒頭の (3)——タブ側のテストの道具を `page/pagetest` へ出すこと——だが、そちらも Issue #140 で警告帯に入った（2121 行・残り -121 行）ので、先に `page/disk/cleanview`（491 行・残り 1509 行）へ寄せられる純粋関数が無いかを見るほうが早い。
+**その後 Issue #127 の回帰テストで 1996 行（残り 4 行）まで詰まった**（Issue #147 の `cmdtest` への追従で 1 行増え、現在は 1997 行・残り 3 行である）**。** 押し上げたのは inode だけが逼迫した行で `⚠ 警告閾値超過` が出ることを固定する検証で、doctor との判定の食い違いを閉じるためのものである（[画面仕様](screens.md#disk-タブ)）。**次にこのディレクトリへ 1 行でも足す Issue は、足す前に空けること。** 採れる手は本節冒頭の (3)——タブ側のテストの道具を `page/pagetest` へ出すこと——である。**受け皿は空いた**（Issue #140 で 2121 行の警告帯に入っていたが、Issue #147 が 1564 行・残り 436 行まで戻した）。`page/disk/cleanview`（491 行・残り 1509 行）へ寄せられる純粋関数が無いかを先に見る手も引き続き採れる。
 
 **`ui/page/logs` は Issue #147 で 1927 行（残り 73 行）になった。**（以下は Issue #145 で 2025 行の警告帯へ入るまでの記録である。）**当時の残りは 6 行しかなかった。** Logs タブ（Issue #9）は本文の組み立てと購読の 2 つを 1 つのタブに持つため、`page/<tab>` のなかで最も大きい。**次にこのディレクトリへ足す Issue は、まず道具を `page/pagetest` へ出すこと。** Issue #9 の 2 周目で回帰テストを 2 本足したときもそうして 120 行あまりを空けた（`Cmd` を回す道具 `RunCmd` / `ChromeOf` / `Pump` / `Drained` と、`_diag` のフィクスチャ `DiagRunner` / `WriteDiagLog`。`page/pagetest` が 824 行から 1003 行へ増えているのはこの移動ぶんである）。**ただしその受け皿は当時もう空いていなかった**——`page/pagetest` は Issue #140 で警告帯に入り 2121 行・残り -121 行だったので、何行の移動であってもそのままでは入らず、`page/pagetest` 側を先に空けるか別の受け皿を選ぶ必要があった。**Issue #147 が受け皿ごと空けた**（`page/pagetest` は 1564 行・残り 436 行）ので、次にこの手を採る Issue は使える。ただし `ui/page/logs` 自身は本節冒頭の (1) で空けた（`page/logs/filerow`）。
 
@@ -1313,7 +1313,7 @@ Disk タブは 1 ディレクトリに一覧・集計・クリーンアップ・
 
 #### `ui/page/setup` を `page/setupmodal` へ分けた判断（Issue #8 の 2 周目 / 実施は Issue #105）
 
-Setup タブは追加・削除・バージョン更新の 3 操作と、フォーム・確認・進捗・結果の 4 つのモーダルを持つ（進捗と結果報告は Issue #75 で `page/progressmodal` へ切り出し済みで、当時このディレクトリに残っていたのはフォームと確認の 2 種だった）。**当時は 2081 行で警告帯（2000〜2200）に入っており、上限 2000 を 81 行超過していた**（その 2 種も Issue #105 で `page/setupmodal` へ出し、現在は 1883 行・残り 117 行・pass である。下記「4 周目」）。
+Setup タブは追加・削除・バージョン更新の 3 操作と、フォーム・確認・進捗・結果の 4 つのモーダルを持つ（進捗と結果報告は Issue #75 で `page/progressmodal` へ切り出し済みで、当時このディレクトリに残っていたのはフォームと確認の 2 種だった）。**当時は 2081 行で警告帯（2000〜2200）に入っており、上限 2000 を 81 行超過していた**（その 2 種も Issue #105 で `page/setupmodal` へ出し、現在は 1886 行・残り 114 行・pass である。下記「4 周目」）。
 
 押し上げたのは本文ではなくテストである。レビューで挙がった 2 点——(1) 承認後の実行が本物の GitHub API を叩いており、CI（self-hosted runner）の `GH_TOKEN` を拾って `remove-token` を POST しうること、(2) 追加の経路（`spec` / `planAdd` / ウィザードの入口 / `validate*`）がまったく通っていなかったこと——を塞ぐには、注入の継ぎ目（`page.SetupDeps` の `NewClient` / `Fetch`）と、フォームを `FormDoneMsg` まで駆動するテストが要る。**ネットワークへ出るテストを行数の都合で残す方は採らなかった。**
 
@@ -1371,7 +1371,7 @@ Setup タブは追加・削除・バージョン更新の 3 操作と、フォ�
 
 **残りは Issue #9 で 125 行から 27 行へ減り、Issue #8 でついに超過した。** タブをまたぐ移動（`page.OpenTabMsg`）は親でしか実現できず、`keys.go` の `openTab` とその検証（`route_test.go` の 3 本）が加わったためである。検証に使う道具のうち App の非公開な状態に触れないもの（受け取った `Msg` を型で数える `Delivered`）は `page/pagetest` へ出してある。**当時（Issue #8 の 2199 行）の結論は「次に `ui` 直下へ足す Issue は、まず既存のテストで `page/pagetest` へ出せるものを探すこと。超過した以上、テストを足す前に道具を出すこと」だった。** これは当時の記録であり、**現在の予算と次の Issue への指示は下記「9 周目の空け方」が持つ**（その手は 6 周目までに使い切っている）。
 
-**この周（Issue #31）は、余裕を「重複削減」ではなく「道具を `page/pagetest` へ出す」で作った。** Issue #31 でキーの配送を検証する道具を足したとき `ui` 直下は 1967 行（残り 33 行）まで詰まったが、走査の道具（`ScanKey`）とその形の網羅テストを `page/pagetest` へ移して 1875 行（残り 125 行）に戻した。`page/pagetest` は**現在 2121 行で、残り -121 行の警告帯である**（Issue #140）。**そこは元々「タブと親で共用する検証の道具」の置き場である**（`helper_test.go` 冒頭の方針）が、次に道具を出すときは `page/pagetest` 側も同時に空けなければ入らない。
+**この周（Issue #31）は、余裕を「重複削減」ではなく「道具を `page/pagetest` へ出す」で作った。** Issue #31 でキーの配送を検証する道具を足したとき `ui` 直下は 1967 行（残り 33 行）まで詰まったが、走査の道具（`ScanKey`）とその形の網羅テストを `page/pagetest` へ移して 1875 行（残り 125 行）に戻した。`page/pagetest` は**現在 1564 行・残り 436 行である**（Issue #140 で 2121 行の警告帯へ入り、Issue #147 が `page/pagetest/cmdtest` を切り出して戻した）。**そこは元々「タブと親で共用する検証の道具」の置き場である**（`helper_test.go` 冒頭の方針）が、次に道具を出すときは `page/pagetest` 側も同時に空けなければ入らない。
 
 出せるものと出せないものの境目は「`App` の非公開な状態に触れるか」である。`ScanKey` は `page.ChromeMsg` / `page.GlobalKeyMsg` と `cmdtest.Msgs`（Issue #147 までは `pagetest.Msgs`）しか使わないので `App` の非公開な状態を 1 つも export せずに出せた。一方 `gate_test.go`（`a.chrome` / `next.active` / `a.disc`。当時は `after.inflight` と非公開の `tickMsg` を直に見ていた。9 周目で前者は `disc.Busy()` / `disc.Seq()` に、後者は `discovery.TickMsg` になった）と `app_keys_test.go`（`a.tabs` / `a.active` / `a.chrome`）の**テスト本体**は非公開に触れる内部テストなので出せない。**これらを出そうとして export を増やすのは採らない**（`ui/organism/table` の本体を分割しない判断と、非公開の export を避ける点で理由を共有する）。**ただしテストが使う道具は別である**——Issue #77 は `press1` / `isQuit` / `blocked` を `page/pagetest` へ出した（どれも `tea.Model` の口と `page` の Msg しか使わない）。**この「まず道具を `page/pagetest` へ出せないかを見る」という指示も Issue #77 当時のものである**——6 周目までに出せる道具は尽きており、次の Issue への指示は下記「9 周目の空け方」に一本化してある。
 
@@ -1397,10 +1397,10 @@ Setup タブは追加・削除・バージョン更新の 3 操作と、フォ�
 
 着手時点で **2105 行（残り -105 行・WARN）** で、8 周目が残した予算は ERROR 境界（2200 行）まで 95 行だった。7 周目・8 周目が 2 周続けて使った逃げ道（判断を残して警告帯へ入る）を返す周であり、**行数を空けること自体が唯一のスコープである**。上限値は緩めず、3 つの手のうち **(1) 本番の一部をパッケージ境界で切り出す**を 2 回打って **1953 行（残り 47 行・pass）** へ戻した。7 周目が挙げた候補（背景処理を `discovery` 側へ**状態ごと**寄せる）をそのまま採っている。
 
-1. **検出周期の状態を `discovery.State` へ寄せた。** 親が持っていた `inflight` / `seq` / `applied` と検出の結果・エラーを 1 つの `discovery.State` にまとめ、`Result()` / `Err()` / `Busy()` / `Seq()` / `FirstTick()` / `Tick()` / `OnTick()` / `Start()` / `Apply()` を生やした。`(*State).Start` は実行中なら nil を返す（`workscan.State.Start` と同形）。親から `tickMsg` / `tick` / `firstTick` / `discover` / `refresh` が消え、`discover.go` に残ったのは 4 つである——`discovery.State` へ 1 周期を委ねる `onTick()`（1 行）、結果を取り込む `applyDiscovered()`（本体 23 行・doc コメント込みで 29 行。`Apply` の返す `Outcome` を見て `Stale` なら捨て、そうでなければ `distribute()` を呼び、`StartHostReq` なら `startBackground()` を束ねる）、1 周期分の入力を組み立てる `input()`、走査ルートを合成する `scanRoots()` である。**周期の管理（実行中は重ねない・追い抜かれた周期を捨てる・次の Tick を予約する）は残らず `discovery.State` 側にあるが、検出まわりで親が保持する責務が消えたわけではない**——`Outcome` を受けて共有状態を配り背景処理を起こす束ね（`applyDiscovered`）は、`a.distribute()` と `a.startBackground()` という親の非公開に触れるため親に残っている。**「実行中は重ねない」「古い周期を捨てる」は検出の側の不変条件なので、判断ごと移さなければ意味が無い**——状態だけを移して判断を親に残すと、片方だけを更新する経路ができる。
+1. **検出周期の状態を `discovery.State` へ寄せた。** 親が持っていた `inflight` / `seq` / `applied` と検出の結果・エラーを 1 つの `discovery.State` にまとめ、`Result()` / `Err()` / `Busy()` / `Seq()` / `FirstTick()` / `Tick()` / `OnTick()` / `Start()` / `Apply()` を生やした。`(*State).Start` は実行中なら nil を返す（`workscan.State.Start` と同形）。親から `tickMsg` / `tick` / `firstTick` / `discover` / `refresh` が消え、`discover.go` に残ったのは 4 つである——`discovery.State` へ 1 周期を委ねる `onTick()`（1 行）、結果を取り込む `applyDiscovered()`（本体 23 行・doc コメント込みで 29 行。`Apply` の返す `Outcome` を見て `Stale` なら捨て、そうでなければ `distribute()` を呼び、`StartHostReq` なら `startBackground()` を束ねる。**この関数は現存しない**——10 周目（Issue #148）が `startup.State.StartAll` へ移した）、1 周期分の入力を組み立てる `input()`、走査ルートを合成する `scanRoots()` である。**周期の管理（実行中は重ねない・追い抜かれた周期を捨てる・次の Tick を予約する）は残らず `discovery.State` 側にあるが、検出まわりで親が保持する責務が消えたわけではない**——`Outcome` を受けて共有状態を配り背景処理を起こす束ね（`applyDiscovered`）は、`a.distribute()` と当時の `a.startBackground()`（現在は `a.bg.StartAll`）という親の非公開に触れるため親に残っている。**「実行中は重ねない」「古い周期を捨てる」は検出の側の不変条件なので、判断ごと移さなければ意味が無い**——状態だけを移して判断を親に残すと、片方だけを更新する経路ができる。
 2. **起動時の前提チェックの状態を `hostreq.State` へ寄せた。** 親の `hostReq` / `hostReqDone` / `hostChecks` の 3 フィールドが `hr hostreq.State` の 1 つになり、自由関数だった `hostreq.StartOnce` は `(*State).StartOnce` へ畳んだ。**これで `disc` / `work` / `scopes` / `hr` の 4 つが同じ形にそろった**——従来 `hostreq` だけが「1 度きり」の真偽と件数を親に持たせる非対称だった。26 行のアダプタ `internal/ui/hostreq.go` は消え、`startHostReq()` は `background.go` の `startBackground()` へ、`doctorKey()` は `chrome.go` へ移した（7 周目が「これ以上出せるものが無いことの実例」として挙げていたファイルである）。
 
-**`tickMsg` は公開型 `discovery.TickMsg` へ反転した。** 親の非公開型だったのは「外から自動更新を駆動できないようにする」ためだったが、周期の管理をサブパッケージへ移すにあたって公開する側を採った。理由は 2 つある。(a) **非対称だった**——同じく親が受け取る `hostreq.Msg` / `workscan.Msg` / `ghscope.Msg` はいずれも公開されており、契機の型だけを隠しても揃わない。(b) **実効性が限定的である**——`State.Start` は実行中なら nil を返すので、外から余計な `TickMsg` を撒いても起きるのは高々 1 周期ぶんの前倒しであり、多重起動を防ぐ判定（`Start` の doc の 40 プロセス）は破れない。**代替として import 検査を足す案（`page/pagetest/import_test.go` に `TestOnlyParentDrivesDiscovery` を足し、`discovery.TickMsg` を作る本番ファイルを親だけに限る）も検討したが採らなかった**——`page/pagetest` は 1936 行で残り 64 行しかなく、**`ui` 直下の行数を空ける Issue が別のディレクトリを逼迫させるのは本末転倒である**。**この判断は散文での記録に留めてある**（機械的な検査は無い）。次に `page/pagetest` へ余裕ができたときに足すのが筋である。
+**`tickMsg` は公開型 `discovery.TickMsg` へ反転した。** 親の非公開型だったのは「外から自動更新を駆動できないようにする」ためだったが、周期の管理をサブパッケージへ移すにあたって公開する側を採った。理由は 2 つある。(a) **非対称だった**——同じく親が受け取る `hostreq.Msg` / `workscan.Msg` / `ghscope.Msg` はいずれも公開されており、契機の型だけを隠しても揃わない。(b) **実効性が限定的である**——`State.Start` は実行中なら nil を返すので、外から余計な `TickMsg` を撒いても起きるのは高々 1 周期ぶんの前倒しであり、多重起動を防ぐ判定（`Start` の doc の 40 プロセス）は破れない。**代替として import 検査を足す案（`page/pagetest/import_test.go` に `TestOnlyParentDrivesDiscovery` を足し、`discovery.TickMsg` を作る本番ファイルを親だけに限る）も検討したが採らなかった**——`page/pagetest` は当時 1936 行で残り 64 行しかなく、**`ui` 直下の行数を空ける Issue が別のディレクトリを逼迫させるのは本末転倒である**（その後 Issue #140 で警告帯へ入り、Issue #147 が 1564 行・残り 436 行まで戻した。**この検査を足す余地はできている**）。**この判断は散文での記録に留めてある**（機械的な検査は無い）。次に `page/pagetest` へ余裕ができたときに足すのが筋である。
 
 **`internal/ui/refresh_test.go`（80 行）は削除したが、表明は 1 つも落ちていない。** 内訳は 3 本である。
 
@@ -1449,7 +1449,7 @@ grep -n '^func' internal/ui/discover.go  # discover.go の関数（実測 4 個�
 - **得るものは「3 つが同じ性質である」ことが型で読めることである。** 平らな 3 フィールドは、次に同種の取得を足す Issue に対して「ここへ並べてよい」以上のことを言わない。`startup.State` に入れば、契機と 1 度きりの扱いを `StartAll` が引き受けることまで型から辿れる。
 - **`page/pagetest` を使わずに済む検証が増えた。** 「3 つとも 1 度だけ発行する」「発行できないものは束から落とす」は親 Model を組み立てなくても確かめられるようになり（`startup/startup_test.go`）、`ui` 直下の予算を使わずに足せる。
 
-**次の Issue への予算は残り 75 行、ERROR 境界 2200 まで 275 行である。** 9 周目の 47 行ではない。**採れる手は依然 (1) だけである**（(2)(3) は 6 周目までに使い切っており、受け皿の `page/pagetest` 自身が警告帯にある。Issue #147）。残る `app.go` / `chrome.go` / `discover.go` / `keys.go` の 4 ファイル（`ui` 直下の本番ファイルはこれで全部である）はいずれも `App` の非公開な状態を読み書きするので、切り出せば内部を export することになり、`ui/organism/table` を分割しない判断と同じ理由で採れない。**次に 75 行を超える追加が要る Issue は、まず切り出せるまとまりの設計から始めること。**
+**次の Issue への予算は残り 75 行、ERROR 境界 2200 まで 275 行である。** 9 周目の 47 行ではない。**採れる手は依然 (1) だけである**（(2)(3) は 6 周目までに使い切っている。受け皿の `page/pagetest` は Issue #147 が 1564 行・残り 436 行まで空けたので、道具を出す先としては使えるようになった）。残る `app.go` / `chrome.go` / `discover.go` / `keys.go` の 4 ファイル（`ui` 直下の本番ファイルはこれで全部である）はいずれも `App` の非公開な状態を読み書きするので、切り出せば内部を export することになり、`ui/organism/table` を分割しない判断と同じ理由で採れない。**次に 75 行を超える追加が要る Issue は、まず切り出せるまとまりの設計から始めること。**
 
 #### サービス制御を `page/runnerop` へ出した判断（Issue #5）
 
@@ -1460,9 +1460,9 @@ Runners タブと Jobs タブは、同じサービス制御（確認 → 実行 
 
 依存は `page/runnerop` → `page` / `page/action` / `page/runnerdetail` / `organism/dialog` / `svc` の一方向で、タブからは `runnerop` を import するが逆は無い。**タブではないので `page/pagetest/import_test.go` の `shared` に登録してある**（登録しないと `TestOnlyTabsetImportsTabs` がタブと誤認して落ちる）。**`shared` への追記だけでは足りない。** [ディレクトリ構成](#ディレクトリ構成)のツリーと[実装状況](#実装状況)の「実装済み」の行にも同じ名前を載せること（`TestDirectoryTreeMatchesShared` / `TestImplementedListCoversSharedPackages` が突き合わせる）。
 
-`ui/page/runners` は 1187 → 2091 行になり、**警告帯に入った**。Setup タブ（Issue #8）が `n` / `D` / `u` の引き渡し（`keys.go` の `openSetup` / `setupBlocked`）を足したことで 2164 行（残り -164 行）まで伸びた（**当時の値である。現在は本段落の末尾に記す 1983 行・残り 17 行**）。増分の大半はサービス制御の検証（発行コマンド列・確認の経路・一括操作・可否の再判定・詳細画面からの起点）で、Logs タブ（Issue #9）が足した `l` の経路もここに乗る。**分割せず警告帯に入ることを選んだのは `ui/page/disk` と同じ判断である**（上記）。サービス制御の配線と Logs タブのマージを 1 つの差分で行っており、そこへパッケージ移動を混ぜるとレビューで「どちらが壊したか」を切り分けられなくなる。エラー境界（2200 行）までは 36 行しかなく、`page/runners/rowview` を切り出して 2018 行へ戻した。**その後 Issue #107 が本節の指示どおりの削減を実施し、2018 行から 1983 行（残り 17 行）まで空けた。** `runners/helper_test.go` が持っていた `findChrome`（束を辿る再帰）と `collect`（Msg の平坦化）はどちらも `pagetest.ChromeOf` / `pagetest.Msgs` の写しだったので捨てた。**そのとき `pagetest.ChromeOf` の側にも欠陥が見つかった**——「1 段だけ展開すればよい（ChromeMsg が入れ子の奥から出てくることは無い）」という前提が成り立たず、絞り込みを始める `/` では page 自身の `ChromeMsg` と部品の返した束がもう 1 段深い形になる。写しの側だけが正しく辿っていたので、共有の道具を再帰へ直した（見つかった時点で打ち切るので、点滅の `Cmd` を踏まないという性質は変えていない）。
+`ui/page/runners` は 1187 → 2091 行になり、**警告帯に入った**。Setup タブ（Issue #8）が `n` / `D` / `u` の引き渡し（`keys.go` の `openSetup` / `setupBlocked`）を足したことで 2164 行（残り -164 行）まで伸びた（**当時の値である。現在は本段落の末尾に記す 1989 行・残り 11 行**）。増分の大半はサービス制御の検証（発行コマンド列・確認の経路・一括操作・可否の再判定・詳細画面からの起点）で、Logs タブ（Issue #9）が足した `l` の経路もここに乗る。**分割せず警告帯に入ることを選んだのは `ui/page/disk` と同じ判断である**（上記）。サービス制御の配線と Logs タブのマージを 1 つの差分で行っており、そこへパッケージ移動を混ぜるとレビューで「どちらが壊したか」を切り分けられなくなる。エラー境界（2200 行）までは 36 行しかなく、`page/runners/rowview` を切り出して 2018 行へ戻した。**その後 Issue #107 が本節の指示どおりの削減を実施し、2018 行から 1983 行（残り 17 行）まで空けた**（Issue #147 の `cmdtest` への追従で 6 行増え、現在は 1989 行・残り 11 行である）**。** `runners/helper_test.go` が持っていた `findChrome`（束を辿る再帰）と `collect`（Msg の平坦化）はどちらも `pagetest.ChromeOf` / `pagetest.Msgs` の写しだったので捨てた。**そのとき `pagetest.ChromeOf` の側にも欠陥が見つかった**——「1 段だけ展開すればよい（ChromeMsg が入れ子の奥から出てくることは無い）」という前提が成り立たず、絞り込みを始める `/` では page 自身の `ChromeMsg` と部品の返した束がもう 1 段深い形になる。写しの側だけが正しく辿っていたので、共有の道具を再帰へ直した（見つかった時点で打ち切るので、点滅の `Cmd` を踏まないという性質は変えていない）。
 
-**残り 17 行は実質ゼロである。次にこのタブへ足す Issue は、1 行足す前に空けること。** 道具の重複はこの 1 周で使い切ったので、次に採れるのはテストの重複削減（`ops_test.go` / `opsdrain_test.go` / `opsflow_test.go` の 589 行はサービス制御の経路を 3 ファイルに分けて見ている）である。
+**残り 11 行は実質ゼロである。次にこのタブへ足す Issue は、1 行足す前に空けること。** 道具の重複はこの 1 周で使い切ったので、次に採れるのはテストの重複削減（`ops_test.go` / `opsdrain_test.go` / `opsflow_test.go` の 589 行はサービス制御の経路を 3 ファイルに分けて見ている）である。
 
 非同期の往復（page が `Cmd` を返し、親が `page.TabMsg` を外して発行元のタブへ戻す）を回す道具 `cmdtest.Advance` は、Runners / Jobs の両方が使うため共有の置き場に置いた（当初は `page/pagetest`。Issue #147 で `page/pagetest/cmdtest` へ移した）。タブごとに写すと、往復の 1 段を書き忘れたテストだけが「何も起きない」を正常として緑になる。**`Pump` ではなく `Advance` という名前なのは、Logs タブ（Issue #9）が同じ階層に別の `Pump`（合否の判定関数を取る総称版）を先に置いているためである。** 2 つは役割が違う（`Advance` は既定の往復数まで Model を進めるだけ、`Pump` は条件を満たすまで辿る）ので、片方に寄せずに名前で書き分ける。
 
@@ -1472,7 +1472,7 @@ Runners タブと Jobs タブは、同じサービス制御（確認 → 実行 
 
 実際に行ったのは次の 2 つで、2194 行から 1845 行へ下げた。
 
-- **`ui/tabset`（切り出し当時 344 行。現在 625 行）** — タブのメタ情報と並び、およびそのテスト。タブを足す Issue が触るのはここであって親 Model ではない
+- **`ui/tabset`（切り出し当時 344 行。現在 635 行）** — タブのメタ情報と並び、およびそのテスト。タブを足す Issue が触るのはここであって親 Model ではない
 - **`ui/chrome`（切り出し当時 283 行。現在 490 行）** — ヘッダ・タブ行・状態行・フッタの組み立て。親 Model の型も bubbletea もドメインの型も知らない純粋関数にしたので、`App` も `page` も組み立てずに表示用の値だけで検証できる。`ui` 側に残るのは `App` の値を `chrome.View` へ写す `chromeView` の 1 メソッドだけである
 
 **検証の道具を `page/pagetest` へ寄せる**方針は引き続き有効である。親の検証はタブを差し替えて行うため道具立てが page 側と同じであり（キー入力の組み立て・能力・`Cmd` の展開・長寿命の処理を持つ page）、`ui` 直下に置くと道具の重複で行数だけが増える。前の版が「次に `ui` 直下へ足すときはまずこれを寄せること」と書いていた `ui` 直下の `spy` は、**寄せ終わっている**（Issue #45）。キーの差し戻しは `pagetest.Spy.Bubble` という任意の振る舞いにしたので、差し戻しの要る親の検証と、記録だけを見るタブ側の検証が同じ型を使う。`Spy` の記録は mutex で守り、読み出し（`States` / `Keys` / `Msgs`）は複製を返す。`Cmd` を別 goroutine で回すテストが `-race` で落ちないようにするためである。
