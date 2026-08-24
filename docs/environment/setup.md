@@ -342,7 +342,7 @@ updates:
 
 同じことが `docs/` 配下のドキュメントにも当てはまる。仕様書のコードブロックが設定ファイルの実体から乖離しても、改訂履歴の版番号が重複・逆順になっても、コンパイルエラーにも通常のテストの失敗にもならない。
 
-そこで `internal/buildconfig` 配下に**設定ファイルとドキュメントの不変条件を守る回帰テスト**を置く。一時ディレクトリに最小のモジュールを作って `make` を実際に走らせるもの、設定ファイルを読んで内容を検証するもの、`docs/` 配下の Markdown を読んで内容を検証するもの、実モジュールに `go list -json ./...` を掛けてドキュメントの図と実装の import を突き合わせるものからなる。
+そこで `internal/buildconfig` 配下に**設定ファイルとドキュメントの不変条件を守る回帰テスト**を置く。一時ディレクトリに最小のモジュールを作って `make` を実際に走らせるもの、設定ファイルを読んで内容を検証するもの、`docs/` 配下の Markdown を読んで内容を検証するもの、実モジュールに `go list -json ./...` を掛けてドキュメントの図と実装の import を突き合わせるもの、外部のツール（`go tool linterly check --format json`）を実行してその実測とドキュメントが書いた数値を突き合わせるものからなる。
 
 **検査は 2 つのディレクトリに分かれ、共有ヘルパが 3 つ目にある**——設定ファイルの検査は `internal/buildconfig` 直下、ドキュメントの検査は `internal/buildconfig/docscheck` にあり、両方が使うリポジトリルートの解決（`RepoRoot`）だけが `internal/buildconfig/buildconfigtest` にある（1 ディレクトリ 2000 行の上限を空けるため。判断は [TUI コンポーネント設計](../ui/atomic-design.md#行数の予算)の「`internal/buildconfig` を 2 つに分けた判断」）。**検査を置く 2 つは実行時のコードを持たない**——`doc.go` のほかはすべて `_test.go` で、本番のビルドには 1 行も入らない。**`buildconfigtest` だけは通常のパッケージである**（`_test.go` の中のヘルパはパッケージをまたげないため）。用途はテスト専用だが**本番からも import できてしまう**ので、`internal/ui/page/pagetest/import_test.go` の `fixtures` へ登録して `TestNoProductionCodeImportsTestFixtures` の網に入れてある。**新しい検査を足すときは対象に合わせて前の 2 つのどちらかを選ぶこと**——設定ファイルの不変条件なら `buildconfig`、ドキュメントの不変条件なら `docscheck` である（同じ文書を見る検査を 2 つに割らないため。`buildconfigtest` へ置いてよいのは両方が使う道具だけである）。
 
@@ -361,6 +361,8 @@ updates:
 | 依存グラフの辺と実装の層をまたぐ import が一致する（欠落・陳腐化の両方向） | `TestDependencyGraphDrawsEveryCrossLayerImport` / `TestDependencyGraphHasNoStaleEdge` |
 | モジュールの全パッケージが依存グラフのノード対応表のいずれかのプレフィックスに一致する（最長プレフィックス一致なので、既存のどれにも当たらない新しい最上位ツリーだけが落ちる） | `TestEveryPackageIsMappedToGraphNode` |
 | 畳んだノード（`UIApp` / `UIParts`）の散文の列挙が `internal/ui` 直下の実装と一致する | `TestCollapsedUINodesMatchDoc` |
+| 行数の予算の 2 つの表が `go tool linterly check` の実測と一致する（行数・残り・判定と、行数の多い順の並び） | `TestLineBudgetTablesMatchLinterly` |
+| 散文が現在形で主張する行数・残りが行数表の行として実在する（`当時` / `時点では` を含む文だけが除外される） | `TestLineBudgetProseMatchesTables` |
 
 この表は網羅ではない。設定やドキュメントに新しい取り決めを入れたときは、同じ場所にテストを足す。
 
@@ -777,3 +779,4 @@ pre-push:
 | 1.31 | 2026-08-25 | Issue #165（nolint 棚卸しの突き合わせが偽陽性で落ちる）を反映し、「抑制の方針」の末尾から 2 つ目の段落を書き直した。それまでは「`internal/buildconfig` 配下の 2 つのテストに `//nolint` という文字列が現れるが、`countNolintInTree` が `_test.go` を除いているので件数に影響しない」と、**`_test.go` の除外だけを理由に**説明していた。これを (1) 件数は文字列の出現数ではなく、`countNolintInTree` が Go ソースとして解析して golangci-lint 自身の規則（コメント本文を `strings.TrimLeft(text, "/ ")` した結果が `nolint` で始まるか）でディレクティブかどうかを判定していること、(2) したがって散文の言及も文字列リテラルも、テストファイルか本番コードかによらず数えないこと、(3) その実例として `internal/buildconfig/docscheck/doc.go` という **`_test.go` でない本番ファイル**がパッケージ doc コメントに `//nolint` を含むこと、へ改め、`_test.go` の除外は**独立した第 2 の理由**として残した | 突き合わせは以前ファイルのバイト列に `//nolint\b` を掛けており、本番コードの doc コメントに `//nolint` と書くだけで `TestSetupDocNolintInventoryMatchesTree` が偽陽性で落ちた。PR #163 はこれを `internal/buildconfig/docscheck/doc.go` の doc コメントから先頭の `//` を落とすことで回避したが、**その回避策はコードにも本書にも記録されなかった**ため、次に同じ文を書く人は理由の分からない失敗に当たる。判定を golangci-lint の規則に合わせたことで回避策は不要になり（`// nolint:gosec` のような先頭に空白のある形も拾うようになったので、抑制の取りこぼしはむしろ減る）、`doc.go` の `//` も復元した。本書が「`_test.go` を除いているから」を唯一の理由として挙げたままだと、**本番ファイルに現れる `//nolint` が数えられない理由を本書から説明できない**（Issue #165） |
 
 **版番号は表への追加順ではなく、その変更が入った時点で採番している。** 1.22 の日付が直前の 1.21 より古いのはこのためである。1.22 の行はもともと重複した `1.8` として記録されており（`feat/#1` の取り込み時に 2 つの `1.8` を両方残したまま解消した）、重複を解消する際に、既に使われている 1.9〜1.21 と衝突しない番号として 1.22 を割り当てた。既存行の版番号を繰り下げないのは、他の行の変更理由が版番号で参照している箇所（1.12 / 1.13）まで書き換えることになるためである。
+| 1.32 | 2026-08-25 | Issue #164（ドキュメントの行数が実測と突き合わされていない）を反映。(1) 不変条件テスト一覧表に `TestLineBudgetTablesMatchLinterly` と `TestLineBudgetProseMatchesTables` の 2 行を足した（どちらも `internal/buildconfig/docscheck`）。(2) 本節が挙げる検査の性格の列挙に 5 つ目——**外部のツール（`go tool linterly check --format json`）を実行し、その実測とドキュメントが書いた数値を突き合わせるもの**——を加えた | 本節は「設定やドキュメントに新しい取り決めを入れたときは、同じ場所にテストを足す」と定め、表に載せることを求めている（改訂 1.28 が Issue #151 の 4 本で同じことをした）。新設した 2 本は [TUI コンポーネント設計](../ui/atomic-design.md#行数の予算)の行数表と散文を `linterly` の実測へ縛るもので、**これまでどの検査も書かれた行数と実際の行数を突き合わせていなかった**。(2) は既存の 4 つの性格のどれにも当たらないためで、列挙を閉じたままにすると、次に外部ツールの出力を読む検査を足す人が「この節の範囲外だ」と判断して別の場所へ置くことになる（改訂 1.28 と同じ形の欠落） |
