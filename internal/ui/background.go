@@ -2,12 +2,14 @@ package ui
 
 import (
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/ousiassllc/gsr-helper/internal/doctor"
 )
 
 // 共有状態のうち、起動シーケンスの外で非同期に取りに行くものの駆動を集める
-// （_work 使用量 = Issue #73、保有スコープ = Issue #79）。取得の実装と進行状況の
-// 管理はサブパッケージ（workscan / ghscope）にあり、ここにあるのは「いつ始めるか」
-// だけである。
+// （前提チェック = FR-44、_work 使用量 = Issue #73、保有スコープ = Issue #79）。
+// 取得の実装と進行状況の管理はサブパッケージ（hostreq / workscan / ghscope）に
+// あり、ここにあるのは「いつ始めるか」だけである。
 //
 // **どちらも 3 秒ごとの再検出サイクルには載せない。** 走査は分単位、API は往復を
 // 要するため、既定タブ（Runners）の更新周期に載せると「起動から一覧表示まで
@@ -28,7 +30,7 @@ func (a *App) startBackground() []tea.Cmd {
 	// 周期」であり初回とは限らないので（discovery.Reconcile の StartHostReq は成功の
 	// たびに真になる）、ここで数え直さない。
 	cmds := []tea.Cmd{
-		a.startHostReq(),
+		a.hr.StartOnce(doctor.Input{Runners: a.disc.Result().Runners, Caps: a.caps, Exec: a.ex}),
 		a.work.StartOnce(a.disc.Result().Runners),
 		a.scopes.Start(a.ex, a.caps.GitHubToken),
 	}

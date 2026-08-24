@@ -86,18 +86,12 @@ type App struct {
 	// （起動・Tick・手動の再読み込み）と 1 周期分の入力だけである（discover.go）。
 	disc discovery.State
 
-	// hostReq は起動時のジョブ実行の前提チェック（FR-44）で見つかった不備の件数。
-	// hostReqDone は 1 度発行したか（hostreq.go）。
-	hostReq     int
-	hostReqDone bool
-	// hostChecks は起動時に走らせる診断項目。空なら走らせない。**テストの
-	// 差し替え口でもある**（本物は実ホストの sudo / docker / /etc/group を読む）。
-	hostChecks []doctor.Check
-
+	// hr は起動時のジョブ実行の前提チェック（FR-44）の件数と進行状況。
 	// work は runner ごとの _work 使用量とその集計の進行状況（Issue #73）。
 	// scopes はトークンの保有スコープと取得の進行状況（Issue #79）。
-	// どちらも駆動の契機だけを親が決め、周期の管理はサブパッケージが持つ
-	// （background.go）。
+	// いずれも駆動の契機だけを親が決め、周期と 1 度きりの管理はサブパッケージが
+	// 持つ（background.go）。
+	hr     hostreq.State
 	work   workscan.State
 	scopes ghscope.State
 }
@@ -125,8 +119,8 @@ func New(cfg appconfig.Config, caps appconfig.Caps, ex exec.Executor, o Options)
 		dark:   dark,
 		tabs:   tabset.New(caps, ex, keys, styles, dark),
 		chrome: pageChrome(0),
-		// disc/hostReq/hostReqDone はゼロ値のままでよい（起動直後）。
-		hostChecks: doctor.Startup(doctor.Default()),
+		// disc/work/scopes はゼロ値のままでよい（起動直後）。
+		hr: hostreq.State{Checks: doctor.Startup(doctor.Default())},
 	}
 }
 
@@ -168,7 +162,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := a.applyDiscovered(msg)
 		return a, cmd
 	case hostreq.Msg:
-		a.hostReq = msg.Bad
+		a.hr.Apply(msg)
 		return a, nil
 	case workscan.Msg:
 		// _work 使用量が確定した。共有状態として全タブへ配り直す（Issue #73）。
