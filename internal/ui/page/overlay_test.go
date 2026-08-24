@@ -84,6 +84,13 @@ func TestOverlayCloseOneByOne(t *testing.T) {
 	o.Open(kindFirst, nil)
 	o.Open(kindSecond, nil)
 
+	// 2 枚重ねた状態で描かれるのは最上位である（削除した
+	// TestOverlayRegisteredModalFollowsStackRules から引き継いだ検査。1 枚閉じた
+	// 後だけを見ると最上位と背後が同じ 1 枚になり、この規則を見落とす）。
+	if !strings.Contains(o.View(), "2 枚目") {
+		t.Error("2 枚重ねた状態で最上位が描かれていない")
+	}
+
 	o, _ = sendOverlay(o, "esc")
 	if !o.Active() {
 		t.Fatal("esc で 2 枚とも閉じている")

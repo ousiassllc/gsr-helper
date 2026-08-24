@@ -1,6 +1,7 @@
 package runners
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/ousiassllc/gsr-helper/internal/runner"
@@ -71,7 +72,10 @@ func TestLogsKeyIgnoresOrphanRow(t *testing.T) {
 	m, _ := step(t, New(0, st), st)
 
 	_, cmd := step(t, m, pagetest.Press("l"))
-	if _, err := pagetest.OpenTabOf(cmd, cmdtest.CmdTimeout); err == nil {
-		t.Error("孤児ユニットの行でログを開こうとしている")
+	// ErrNotFound（配線が無い＝期待どおり）と ErrCmdTimeout（Cmd が戻らず検査が
+	// 素通りした）を分ける（pagetest.OpenTabOf の doc）。偽 1 つに潰すと後者を
+	// 「開こうとしていない」と読んでしまう。
+	if _, err := pagetest.OpenTabOf(cmd, cmdtest.CmdTimeout); !errors.Is(err, cmdtest.ErrNotFound) {
+		t.Errorf("孤児ユニットの行でログを開こうとしている: %v", err)
 	}
 }
