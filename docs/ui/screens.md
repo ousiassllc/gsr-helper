@@ -569,7 +569,7 @@ Config タブは runner の設定だけでなく**本ツール自身の設定フ
 | ディスク使用率の危険閾値（%） | 1〜100。警告より大きくします | `disk_thresholds.critical` |
 | 監査ログの出力先 | 絶対パス | `audit_log` |
 
-**`scan_depth` の欄は無い。** 設定ファイルには在るが、このフォームは触れず元の値のまま素通しする。**素通しは `scan_depth` だけではない**——`defaults`（`name_prefix` / `install_base` / `labels` / `ephemeral`）も `SelfValues.Apply` が基準の設定からそのまま引き継ぎ、差分の 5 行にも出ない。この画面で編集できるのは下表の 5 欄だけである。
+**`scan_depth` の欄は無い。** 設定ファイルには在るが、このフォームは触れず元の値のまま素通しする。**素通しは `scan_depth` だけではない**——`defaults`（`name_prefix` / `install_base` / `labels` / `ephemeral`）も `SelfValues.Apply` が基準の設定からそのまま引き継ぎ、差分の 5 行にも出ない。この画面で編集できるのは上の表の 5 欄だけである。
 
 **検証は 2 段に分かれる。** 欄ごとの検証（`huh` の `Validate`）は次の欄へ移るか（`tab` / `enter`）、確定するか、欄からフォーカスが外れた時点で効き、欄をまたぐ検証は**確定した時点で初めて**効く。**打鍵のたびに効くのではない**——`huh` は打鍵のたびに出ているエラーを消すだけで、検証そのものは呼ばない（`field_input.go` の `Update` と `Blur`）。`huh` の検証は 1 欄しか見えないため、「警告 90 / 危険 80」のような組み合わせも、`disk_thresholds.warn` の上限が 99 であること（欄の説明文には書いてあるが、欄ごとの検証は 100 まで通す）も、そこでは弾けない。確定した入力は正規化とあわせて検証し、**落ちたら差分へ進まずに状態行へ理由を出す**（下表の 1 行目）。
 
@@ -588,7 +588,7 @@ Config タブは runner の設定だけでなく**本ツール自身の設定フ
 
 - `refresh_interval` / `disk_thresholds`: **止めているのは欄ごとの検証だけである。** `SelfValues.Apply` は `appconfig.Normalize` より前に `atoiField` を呼ぶが、その実体は `strconv.Atoi` なので**弾けるのは空文字と数として読めない入力だけ**である（`数値を入力してください`。`ErrBadNumber`）。**`0` は読めてしまう。** `Apply` は `0` のまま `Normalize` へ渡し、`Normalize` はそれを「未指定」と読んで既定値で埋める——実際 `Refresh` / `Warn` / `Critical` を `0` にした `Apply` はエラーを返さず `3` / `80` / `90` を返す。`0` を差分の手前で止めているのは欄ごとの検証（`edit.ValidateRefresh` / `edit.ValidatePercent`）だけで、`refresh_interval は 1〜3600 秒で指定してください: 0` / `1〜100 の範囲で入力してください` を返す。**この 2 つを「`atoiField` が弾くので冗長」と外すと、`0` が黙って既定値に化ける経路が開く。**
 - `scan_depth`: フォームに欄が無く素通しである。基準の値は `appconfig.Load`（内部で正規化を通す）か、このセッションで保存した正規化後の設定なので、常に正規化済みの値が入る。
-- `audit_log`: **空欄を `Apply` が止めない唯一の欄である。** `Apply` の本体が当てるのは `strings.TrimSpace` だけで（`scan_roots` も本体では `SplitRoots` を呼ぶだけでエラーを返さない）、空欄はそのまま `Normalize` の `normalizeAbsPath` に既定値で埋められてしまう。止めているのは欄ごとの検証（`valid.Dir`）の `監査ログ: 絶対パスを指定してください` だけである。**ただし「`Apply` が何も止めない」わけではない**——非空の相対パスなら `Normalize` が `audit_log は絶対パスで指定してください: log/audit.log` で拒否するので `Apply` はエラーを返す。素通しになるのは空欄の場合に限られる。
+- `audit_log`: **空欄が既定値で埋められる唯一の欄である。** `Apply` の本体が当てるのは `strings.TrimSpace` だけで、空欄はそのまま `Normalize` の `normalizeAbsPath` へ渡り `/var/log/gsr-helper/audit.jsonl` になる。空欄で `Apply` がエラーを返さないこと自体は `scan_roots` も同じだが（`SplitRoots` はエラーを返さない）、あちらは空なら空のまま（`nil`）で既定値に化けない。止めているのは欄ごとの検証（`valid.Dir`）の `監査ログ: 絶対パスを指定してください` だけである。**ただし「`Apply` が何も止めない」わけではない**——非空の相対パスなら `Normalize` が `audit_log は絶対パスで指定してください: log/audit.log` で拒否するので `Apply` はエラーを返す。素通しになるのは空欄の場合に限られる。
 
 ```
  変更内容の確認   /home/runner/.config/gsr-helper/config.yaml
