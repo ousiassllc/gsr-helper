@@ -118,6 +118,37 @@ func openEnvForm(t *testing.T, m Model) Model {
 	return m
 }
 
+// fileAsDir は「ディレクトリとしては使えないパス」を返す。
+//
+// 書き込みの失敗を作るために使う。通常のファイルを 1 つ置き、その下へ書かせると
+// 親ディレクトリの作成が ENOTDIR で失敗する。権限に依らないので root でも再現する。
+func fileAsDir(t *testing.T) string {
+	t.Helper()
+
+	path := t.TempDir() + "/notadir"
+	if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
+		t.Fatalf("前提のファイルを作れない: %v", err)
+	}
+	return path
+}
+
+// savedOf は Cmd の束から親宛ての ConfigSavedMsg を取り出す（Issue #128）。
+//
+// doneOf と違って TabMsg を剥がさない。宛先は発行元のタブではなく親であり、
+// page.Do で包まないことがこの Msg の要件だからである（page.ConfigSaved の doc）。
+func savedOf(cmd tea.Cmd) (page.ConfigSavedMsg, bool) {
+	for _, c := range pagetest.Expand(cmd) {
+		msg, ok := pagetest.RunCmd(c, timeout)
+		if !ok {
+			continue
+		}
+		if saved, is := msg.(page.ConfigSavedMsg); is {
+			return saved, true
+		}
+	}
+	return page.ConfigSavedMsg{}, false
+}
+
 // doneOf は Cmd の束から書き込み・反映の結果を取り出す。
 //
 // 束（tea.Batch）で返るのは chrome の更新と処理本体が同時に流れるためで、

@@ -23,7 +23,7 @@ import (
 // group は GitHub 側で即時に反映され、再起動が要らない。
 func (m *Model) onDone(msg doneMsg) tea.Cmd {
 	m.busy = false
-	m.rememberSelf(msg.err)
+	saved := m.rememberSelf(msg.err)
 
 	if msg.err != nil {
 		m.report = "失敗: " + msg.err.Error()
@@ -33,22 +33,29 @@ func (m *Model) onDone(msg doneMsg) tea.Cmd {
 	m.refresh(organism.KeepCursor)
 
 	if m.pending.FileBacked() && len(m.applyTargets()) > 0 {
-		return configmodal.OpenApply(&m.overlay, applyChoices())
+		return tea.Batch(saved, configmodal.OpenApply(&m.overlay, applyChoices()))
 	}
 	m.pending = edit.Change{}
 
-	return nil
+	return saved
 }
 
 // rememberSelf は書き込めた自身の設定を以後の初期値・差分の基準にする（FR-42）。
-func (m *Model) rememberSelf(err error) {
+//
+// 併せて**親へ返す Cmd を戻す**（Issue #128）。親の設定は起動時に 1 度決まるだけ
+// なので、返さないと設定ファイルだけが新しくなり、ディスク閾値の判定は再起動まで
+// 古い値のままになる。書き込めなかったときは nil を返し、親は古い値を持ち続ける。
+func (m *Model) rememberSelf(err error) tea.Cmd {
 	if !m.savingSelf {
-		return
+		return nil
 	}
 	m.savingSelf = false
-	if err == nil {
-		m.conf, m.confSet = m.savedSelf, true
+	if err != nil {
+		return nil
 	}
+	m.conf, m.confSet = m.savedSelf, true
+
+	return page.ConfigSaved(m.conf)
 }
 
 // applyChoices は反映方法の選択肢を返す。既定（ドレイン再起動）を先頭に置く。

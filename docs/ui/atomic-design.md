@@ -692,6 +692,17 @@ runner のサービス制御（開始 / 停止 / 強制停止 / ドレイン停�
 
 **移動の要求は `page.Do` で包まない。** 包むと発行元のタブへ戻る（`TabMsg` の doc）。宛先は親である。
 
+**例外は「親が配っている値をタブが書き換えたとき」である（Issue #128）。** Config タブ（`e`）は gsr-helper 自身の設定ファイルを書き換えるが、親 Model の `cfg` は `New` で 1 度代入されるだけだったため、**書き込みは成功しているのに共有状態には古い値が載り続けていた**。`page.StateMsg.Disk.Thresholds` は `a.cfg.DiskThresholds` から配られるので、`disk_thresholds` を編集しても Disk タブの `⚠ 警告閾値超過` と doctor のリソース診断は再起動するまで古い閾値で判定する。**設定の真実を持つのは親である**以上、書き換えたタブが親へ返すほかに直す手が無い（タブが自分の写しだけを更新しても、他のタブが受け取る `StateMsg` は変わらない）。そこで `page.ConfigSavedMsg{Conf}` を親が受け、`cfg` を差し替えてから `distribute` で配り直す。
+
+| 対象 | 変更内容 |
+|------|---------|
+| `page` | 書き込めたことの通知（`ConfigSavedMsg`）とその発行（`ConfigSaved`）。**書き換える側（Config タブ）と配る側（親）の双方から見える場所がここしか無い** |
+| `internal/ui`（親 Model） | `Update` の `case page.ConfigSavedMsg`。`cfg` を差し替えて `distribute` を呼ぶだけで、**どのタブが書き換えたのかは知らない**（`workscan.Msg` / `ghscope.Msg` と同じ形） |
+
+**書き込みに成功したときだけ発行する。** 失敗した値を親が取り込むと、設定ファイルの中身と画面の判定が食い違う。判定は書き込みの結果を受け取る `page/config` の `rememberSelf` が持ち、失敗時は `nil` を返す。**この Msg も `page.Do` で包まない**（宛先は親である）。
+
+**逆に、親が持たない設定値はこの経路では直らない。** `scan_roots` と `audit_log` は `cfg` ではなく `Options.Roots`（`--root` と合成済み）/ `Options.Audit`（開いたログの実体）として cmd が起動時に畳んだ値なので、追従させるには合成のやり直しとログの開き直しが要る。`refresh_interval` と `scan_depth` は `a.cfg` から読むため、この経路で次の周期から効く。
+
 名前は文字列で突き合わせるので、タブ名を変えると移動だけが静かに効かなくなる（親は一致するタブが無ければ何もしない）。`tabset` の `TestOpenTabTitlesMatchTabs` が、`page.TabLogs` に対応する有効なタブが実在することを検査する。
 
 親 Model は `[]tabset.Tab` を走査するだけで個別のタブを知らない。共有状態は 1 本の `Msg` で全 page に配られるので、新しいタブは受け取り側を書くだけで済む。モーダルと入力中の有無も page が `Msg` で報告するため、親はタブの内部状態を知らない。
@@ -1083,16 +1094,16 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 
 | ディレクトリ | 行数 | 残り | 判定 |
 |------------|------|------|------|
+| `ui` | 2000 | 0 | pass |
+| `ui/page` | 1995 | 5 | pass |
 | `ui/organism/dialog` | 1994 | 6 | pass |
 | `ui/page/logs` | 1994 | 6 | pass |
-| `ui` | 1988 | 12 | pass |
 | `ui/page/runners` | 1983 | 17 | pass |
-| `ui/page` | 1970 | 30 | pass |
 | `ui/organism/table` | 1969 | 31 | pass |
 | `ui/page/disk` | 1943 | 57 | pass |
 | `ui/page/setup` | 1883 | 117 | pass |
+| `ui/page/config` | 1830 | 170 | pass |
 | `ui/page/pagetest` | 1744 | 256 | pass |
-| `ui/page/config` | 1737 | 263 | pass |
 | `ui/page/jobs` | 1684 | 316 | pass |
 | `ui/keymap` | 1681 | 319 | pass |
 | `ui/page/doctor` | 1580 | 420 | pass |
@@ -1245,6 +1256,12 @@ Setup タブは追加・削除・バージョン更新の 3 操作と、フォ�
 
 **残るのは非公開に触れる内部テストだけである。** `newApp` / `withHostChecks`（`a.hostChecks` / `a.scopes`）・`replaceTabs`（`a.tabs`）・`statusLine`（`chromeView`）は `App` の内側に触るので出せない。**これらを出すために export を増やすのは採らない**（`ui/organism/table` の本体を分割しない判断と理由を共有する）。**次に `ui` 直下へ手を入れる Issue は、1 行足す前に必ず行数を空けること**——残り 12 行は実質ゼロであり、上の 2 つの手はどちらも使い切っている。
 
+##### 6 周目の空け方（Issue #128）
+
+設定の再読み込み（上記「例外は『親が配っている値をタブが書き換えたとき』」）は `Update` の `case` と回帰テストを `ui` 直下へ持ち込むため、本節の指示どおり先に空けた。**空けたのは本番コードの重複 1 つだけである**——`App.current`（有効タブを返す 6 行）は `tabset.Live` と同じ判定（添字の範囲・`Enabled`・`Model != nil`）を書き写したもので、唯一の呼び出し元である `View` を `tabset.Live` へ寄せて捨てた。**`page/runners` の `findChrome` / `collect` を捨てたのと同じ性質の削減である**（共有の道具が既にあるのに写しが残っていた）。`app.go` は 299 行から 296 行になり、`ui` 直下は 1988 行から **2000 行（残り 0）** になった。
+
+**残り 0 行は文字どおりゼロである。** 上の 3 つの手（本番の切り出し・テストの重複削減・道具を `page/pagetest` へ）はいずれも使い切っており、**次に `ui` 直下へ 1 行でも足す Issue は、まず親 Model から切り出せるまとまりを見つけるところから始めること。** 警告帯（2000〜2200 行）へ入ること自体は CI を落とさないので、切り出しが今回のスコープに混ざるくらいなら、判断を本節へ残したうえで警告帯へ入る方を採ってよい（`ui/page/runners` / `ui/page/disk` と同じ判断である）。
+
 **残りは Issue #9 で 125 行から 27 行へ減り、Issue #8 でついに超過した。** タブをまたぐ移動（`page.OpenTabMsg`）は親でしか実現できず、`keys.go` の `openTab` とその検証（`route_test.go` の 3 本）が加わったためである。検証に使う道具のうち App の非公開な状態に触れないもの（受け取った `Msg` を型で数える `Delivered`）は `page/pagetest` へ出してある。**次に `ui` 直下へ足す Issue は、まず既存のテストで `page/pagetest` へ出せるものを探すこと。** 超過した以上、テストを足す前に道具を出すこと。
 
 **余裕は「重複削減」ではなく「道具を `page/pagetest` へ出す」で作る。** Issue #31 でキーの配送を検証する道具を足したとき `ui` 直下は 1967 行（残り 33 行）まで詰まったが、走査の道具（`ScanKey`）とその形の網羅テストを `page/pagetest` へ移して 1875 行（残り 125 行）に戻した。`page/pagetest` は現在 1744 行で余裕があり（残り 256 行）、**そこは元々「タブと親で共用する検証の道具」の置き場である**（`helper_test.go` 冒頭の方針）。
@@ -1389,3 +1406,4 @@ Issue #31 で `table_test.go` の空振りしていたテスト（`View() != ""`
 | 1.61 | 2026-08-24 | 2 周目レビューの残りを反映。存在しないファイルを指していた `formmodal.go` を `formmodal.go` → `setupmodal/form.go` へ、`page/runnerop` の利用者を実測（Runners / Jobs。`runnerdetail` は import していない——向きは `runnerop` → `runnerdetail` である）へ、空け方の手 (3) の例に `internal/setup/setuptest` を追加。依存の規則の「`token` は `lipgloss` のみ」を、同じ行の理由列（`huh.Theme` を token 内で組む）と整合する「`lipgloss` と `huh` のみ」へ訂正。1.59 が補おうとして二重になっていた `Spy` の 1 文を直した | 1.59 は「語中で切れた文を補完」と記録しながら断片を継ぎ足して別の壊し方をしており、`formmodal.go` は `docs/components/overview.md` の `ValidatePath` と同じ「移動・改名で存在しなくなった識別子を指す」乖離が 1 文だけ取り残されていた。`page/runnerop` の括弧は本改訂 (1.57) が新設した配置基準の根拠そのもので、誤ると基準の読み方を誤らせる |
 | 1.62 | 2026-08-24 | `feat/#1` を取り込み、1.49（Issue #96 / PR #115）と重なった箇所を解決した。共有部品の列挙に `page/diskclean` / `page/configmodal` / `page/setupmodal` を追加（`TestSharedPackagesMatchDoc` が要求する）。1.49 が Disk / Setup の**将来の**切り出し手順をネスト（`page/disk/clean` / `page/setup/modal`）へ改めていたが、その切り出しは Issue #102 / #105 が**フラットな名前で実施済み**であり、受け入れ条件が `shared` への登録を含んでいたため、当該節は実施結果の記述で置き換えた（配置基準の節に例外として理由を明記してある）。行数表と散文を合流後の実測へ再更新（`page/pagetest` 1696 → 1744 ほか） | 2 つの sweep が同じ文書の同じ節を並行して直したため。1.49 の手順は「これから切り出す場合」の指針で、既に実施済みの節に残すと、次の Issue が完了済みの作業をもう一度探すことになる。行数は両ブランチの変更を合算した値になるので、どちらの表をそのまま採っても実測とずれる |
 | 1.63 | 2026-08-24 | ゲート検証の指摘を反映。`page/configmodal` の節が指していた `modals.go` を実在するファイル（`configmodal/configmodal.go` / `configmodal/approve.go`）へ改めた（1.61 が `formmodal.go` について直したのと同じ乖離が 1 行だけ残っていた）。配置基準の節の利用者の列挙に `page/runnerop` を補い（`page/action` / `page/runnerdetail` の実際の import 元）、`molecule/chromebar` の doc の依存を本番の実態（`atom` / `token`。`lipgloss` は検証のみ）へ直した | 「移動・改名で存在しなくなった識別子を指す」乖離は本 PR が繰り返し是正してきた種類のもので、1 箇所でも残ると次の Issue が実装を探せない。配置基準の列挙は基準そのものの根拠なので、欠けると読み方を誤らせる |
+| 1.64 | 2026-08-24 | 設定の再読み込み（Issue #128）を反映。「タブを 1 つ追加するときに触る箇所」に 3 つ目の例外「親が配っている値をタブが書き換えたとき」を追加し、`page.ConfigSavedMsg` の対象/変更内容の表・成功時のみ発行する理由・`page.Do` で包まない理由・この経路では直らない設定値（`scan_roots` / `audit_log`）を明記。ディレクトリの行数表を実測へ更新し（`ui` 2000 行 / `ui/page` 1995 行 / `ui/page/config` 1830 行）、「6 周目の空け方」を新設して `App.current` を `tabset.Live` の写しとして捨てた削減と、残り 0 行になった事実・次の Issue への指示を記録 | 設定ファイルには書けているのに親 Model の `cfg` が `New` の 1 度きりしか代入されず、`disk_thresholds` を編集しても Disk タブの警告と doctor のリソース診断が再起動まで古い閾値で判定していた。設定の真実を持つのは親なので、書き換えたタブが親へ返す以外に直す手が無く、**本書が「1 行も触らない」と宣言している `internal/ui` 直下へ `case` が 1 つ増える**。既存の 2 つの例外と同じ形で明文化しないと、次に同種の問題（親が配る値をタブが書き換える）を踏んだ Issue が「契約違反だから直せない」と読む。行数表は次の Issue が予算を引く唯一の材料であり、残り 0 行を記さないと `ui` 直下へテストを足す Issue が境界に当たってから気付くことになる（Issue #128） |

@@ -184,6 +184,11 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.scopes.Apply(msg)
 		cmd := a.distribute()
 		return a, cmd
+	case page.ConfigSavedMsg:
+		// 設定を書き込めた。以後の共有状態へ新しい値を載せる（Issue #128）。
+		a.cfg = msg.Conf
+		cmd := a.distribute()
+		return a, cmd
 	case page.ChromeMsg:
 		if msg.Tab == a.active {
 			a.chrome = msg
@@ -212,9 +217,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // スクロールバックを汚さない。
 func (a App) View() tea.View {
 	body := ""
-	if t, ok := a.current(); ok && t.Model != nil {
+	if tabset.Live(a.tabs, a.active) {
 		// page は tea.Model なので tea.View を返す。枠に流し込むのは中身の文字列だけ。
-		body = t.Model.View().Content
+		body = a.tabs[a.active].Model.View().Content
 	}
 
 	cv := a.chromeView()
@@ -288,12 +293,4 @@ func (a *App) distribute() tea.Cmd {
 // そのもの（無効なタブへは配らない）は tabset.Deliver の doc を参照。
 func (a App) forward(msg tea.Msg) (App, tea.Cmd) {
 	return a, tabset.Deliver(a.tabs, a.active, msg)
-}
-
-// current は有効タブを返す。
-func (a App) current() (tabset.Tab, bool) {
-	if a.active < 0 || a.active >= len(a.tabs) {
-		return tabset.Tab{}, false
-	}
-	return a.tabs[a.active], true
 }
