@@ -8,7 +8,6 @@ import (
 
 	"github.com/ousiassllc/gsr-helper/internal/appconfig"
 	"github.com/ousiassllc/gsr-helper/internal/exec"
-	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/ui/keymap"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
@@ -45,18 +44,17 @@ func newTestTabs(caps appconfig.Caps) []Tab {
 }
 
 // testState はタブへ配る共有状態のスナップショット。
+//
+// **私物の組み立てを持たない。** 自前で組むと、フィクスチャ側が守っている不変条件
+// （Exec を nil にしない・プロセス走査を実ホストの /proc に落とさない。pagetest の
+// state_test.go）から外れた**親が決して作らない状態**でタブを検証することになる
+// （Issue #31 / #155）。配色だけはこのテストが明暗を指定するので上書きする。
 func testState() page.StateMsg {
-	return page.StateMsg{
-		Result: runner.Result{},
-		Caps:   pagetest.Caps(),
-		Styles: token.NewStyles(true, false),
-		Keys:   keymap.New(),
-		Exec:   exec.NewFake(),
-		Dark:   true,
-		BodyW:  80,
-		BodyH:  20,
-		Err:    nil,
-	}
+	st := pagetest.State(80, 20)
+	st.Styles = token.NewStyles(true, false)
+	st.Keys = keymap.New()
+
+	return st
 }
 
 // chromeTab は Cmd に含まれる ChromeMsg が名乗るタブ番号を返す。

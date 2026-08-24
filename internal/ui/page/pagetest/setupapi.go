@@ -200,10 +200,14 @@ func FakeOf(st page.StateMsg) (*exec.Fake, bool) {
 //
 // 状態行は Cmd としてしか外へ出ない（page.ChromeMsg）ため、読むには何か 1 つ
 // Msg を配る必要がある。表示を変えない tea.WindowSizeMsg を使う。
-func ChromeAfter(m tea.Model) (page.ChromeMsg, error) {
+//
+// **timeout は呼び出し側が決める**（cmdtest.ChromeOf と同じ形。Issue #156 / #157）。
+// 内側で cmdtest.CmdTimeout を固定していると、諦める側の腕を検証する 1 本がそのまま
+// 30 秒かかる。必ず戻る Cmd しか出さないタブでは CmdTimeout をそのまま渡してよい。
+func ChromeAfter(m tea.Model, timeout time.Duration) (page.ChromeMsg, error) {
 	_, cmd := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 
-	return cmdtest.ChromeOf(cmd, cmdtest.CmdTimeout)
+	return cmdtest.ChromeOf(cmd, timeout)
 }
 
 // RemoveRequest は runner の削除を一覧側から依頼する Msg を返す。

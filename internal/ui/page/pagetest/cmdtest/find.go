@@ -99,14 +99,19 @@ func chromeOf(cmd tea.Cmd, timeout time.Duration) (page.ChromeMsg, int, bool) {
 //
 // **束の先頭も中身も締め切りを通す。** 先頭だけに掛けても、戻らない Cmd が束の
 // 2 本目以降に混じればそこで止まる（Issue #145）。1 本諦めても残りは辿る。
-func HostReqOf(cmd tea.Cmd) (hostreq.Msg, error) {
-	cmds, err := Expand(cmd, CmdTimeout)
+//
+// **timeout は呼び出し側が決める**（ChromeOf と同じ形。Issue #156）。CmdTimeout を
+// 内側で固定していたころは、諦める側を検証する 1 本がそのまま 30 秒かかり、
+// `make check` が毎回それを払っていた。諦めるまでの時間がそのまま所要時間になる
+// 検証はミリ秒の締め切りで書くこと。
+func HostReqOf(cmd tea.Cmd, timeout time.Duration) (hostreq.Msg, error) {
+	cmds, err := Expand(cmd, timeout)
 	if err != nil {
 		return hostreq.Msg{}, err
 	}
 	gaveUp := 0
 	for _, c := range cmds {
-		msg, err := RunCmd(c, CmdTimeout)
+		msg, err := RunCmd(c, timeout)
 		if err != nil {
 			if errors.Is(err, ErrCmdTimeout) {
 				gaveUp++
@@ -119,7 +124,7 @@ func HostReqOf(cmd tea.Cmd) (hostreq.Msg, error) {
 		}
 	}
 	if gaveUp > 0 {
-		return hostreq.Msg{}, fmt.Errorf("%w（%d 本が %s 以内に戻らなかった）", ErrCmdTimeout, gaveUp, CmdTimeout)
+		return hostreq.Msg{}, fmt.Errorf("%w（%d 本が %s 以内に戻らなかった）", ErrCmdTimeout, gaveUp, timeout)
 	}
 	return hostreq.Msg{}, ErrNotFound
 }

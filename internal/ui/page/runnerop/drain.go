@@ -80,13 +80,17 @@ func (m *Model) openDrain() tea.Cmd {
 
 	open := m.overlay.Open(DrainKind, drainOpenMsg{runner: r, label: progressLabel(d.index, len(d.targets))})
 
-	ex := m.st.Exec
+	// 走査は共有状態の継ぎ目をそのまま渡す。nil なら svc 側が procs.Scan を使うので
+	// 本番の挙動は変わらない（page.StateMsg.ScanProcs の doc）。既定値固定の
+	// svc.Drain を呼んでいたころは、停止条件が実ホストの /proc に固定されていて
+	// 差し替えようが無かった（Issue #155）。
+	drainer := svc.Drainer{Exec: m.st.Exec, Scan: m.st.ScanProcs, Interval: 0, Now: nil}
 	seq, index := d.seq, d.index
 	// progress は渡さない。コールバックは svc 側の goroutine から呼ばれ、そこから
 	// tea.Model を触ると競合する。待機中の表示は 3 秒ごとに届く共有状態から
 	// 引き直す（drainModal.refresh の doc）。
 	run := page.Do(m.tab, func() tea.Msg {
-		err := svc.Drain(ctx, ex, r, nil)
+		err := drainer.Drain(ctx, r, nil)
 		cancel()
 		return Msg{Payload: drainStepMsg{seq: seq, index: index, runner: r.Name(), err: err}}
 	})

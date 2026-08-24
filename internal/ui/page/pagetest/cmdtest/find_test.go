@@ -126,16 +126,24 @@ func TestChromeOfTellsTimeoutApartFromMissingChrome(t *testing.T) {
 // ハングだった。諦めたことを ErrNotFound に丸めると、呼び出し側は「件数が親へ
 // 届いていない」という実際には無い配送の欠落を疑う。
 //
-// **待つ検証はこの 1 件だけに絞る。** HostReqOf に待ち時間の引数は無く
-// cmdtest.CmdTimeout（30 秒）を使うので、諦めるまでの時間がそのまま所要時間になる。
+// **締め切りはミリ秒で渡す。** 諦めるまでの時間がそのまま所要時間になる検証なので、
+// HostReqOf が cmdtest.CmdTimeout（30 秒）を内側で固定していたころは、この 1 本だけで
+// パッケージのテストが 30 秒かかっていた（Issue #156）。ここで待つのは戻らない Cmd を
+// 諦めるまでの分だけであり、速さを測っているわけではないので短くしてよい。
 func TestHostReqOfGivesUpOnBlockedCmd(t *testing.T) {
 	t.Parallel()
 
-	_, err := cmdtest.HostReqOf(tea.Batch(blocked(), func() tea.Msg { return marker{} }))
+	cmd := tea.Batch(blocked(), func() tea.Msg { return marker{} })
+	_, err := cmdtest.HostReqOf(cmd, 10*time.Millisecond)
 	if !errors.Is(err, cmdtest.ErrCmdTimeout) {
 		t.Fatalf("err = %v, want %v", err, cmdtest.ErrCmdTimeout)
 	}
 	if !strings.Contains(err.Error(), "1 本") {
 		t.Errorf("err = %v, 諦めた本数を伝えていない", err)
+	}
+	// 渡した締め切りが実際に使われたことを、報告された長さで確かめる。内側で
+	// CmdTimeout を固定していると 30 秒と報告され、ここで落ちる（Issue #156）。
+	if !strings.Contains(err.Error(), "10ms") {
+		t.Errorf("err = %v, 渡した締め切り（10ms）が使われていない", err)
 	}
 }

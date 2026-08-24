@@ -51,12 +51,12 @@ func TestStartupHostRequirementRunsOnceAfterFirstSuccess(t *testing.T) {
 	a := withHostChecks(newApp(exec.NewFake()), pagetest.StubCheck{Status: check.Fail})
 
 	a, cmd := discovered(a, errTest)
-	if _, err := takeHostReq(a, cmd); !errors.Is(err, cmdtest.ErrNotFound) {
+	if _, err := takeHostReq(a, cmd, cmdtest.CmdTimeout); !errors.Is(err, cmdtest.ErrNotFound) {
 		t.Fatalf("検出に失敗した周期で前提チェックが発行された（空の runner 一覧で使い切る）: err = %v", err)
 	}
 
 	a, cmd = discovered(a, nil)
-	a, err := takeHostReq(a, cmd)
+	a, err := takeHostReq(a, cmd, cmdtest.CmdTimeout)
 	if err != nil {
 		t.Fatalf("検出に成功した周期でも前提チェックが発行されない（FR-44 が走らない）: %v", err)
 	}
@@ -67,7 +67,7 @@ func TestStartupHostRequirementRunsOnceAfterFirstSuccess(t *testing.T) {
 	for range 3 {
 		var next tea.Cmd
 		a, next = discovered(a, nil)
-		if _, err := takeHostReq(a, next); !errors.Is(err, cmdtest.ErrNotFound) {
+		if _, err := takeHostReq(a, next, cmdtest.CmdTimeout); !errors.Is(err, cmdtest.ErrNotFound) {
 			t.Fatalf("再検出のたびに前提チェックが走っている: err = %v", err)
 		}
 	}

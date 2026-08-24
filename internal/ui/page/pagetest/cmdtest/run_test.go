@@ -159,3 +159,24 @@ func TestExpandUnwrapsBundles(t *testing.T) {
 		})
 	}
 }
+
+// 束に nil の Cmd が混じっても読み飛ばし、諦めた本数には数えない。
+//
+// **待ち時間切れと区別する。** bundle は 1 本ずつ締め切り付きで走らせるが、nil の
+// Cmd が返すのは ErrNoCmd であって ErrCmdTimeout ではない。ここを一緒に数えると、
+// 束に nil が 1 本混じっただけで「戻らない Cmd があった」と報告され、呼び出し側は
+// 実際には無い機械の混み具合を疑うことになる（find.go の ErrNotFound の doc）。
+func TestFindMsgSkipsNilCmdInBundle(t *testing.T) {
+	t.Parallel()
+
+	cmd := func() tea.Msg {
+		return []tea.Cmd{nil, func() tea.Msg { return marker{n: 5} }}
+	}
+	msg, err := cmdtest.FindMsg(cmd, nestTimeout, isMarker)
+	if err != nil {
+		t.Fatalf("nil の Cmd で辿りが止まった: %v", err)
+	}
+	if got, ok := msg.(marker); !ok || got.n != 5 {
+		t.Errorf("Msg = %#v, want marker{n:5}", msg)
+	}
+}
