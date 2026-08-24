@@ -22,8 +22,10 @@ var (
 	// mermaidArrow は mermaid のリンク記法（実線 --/---、点線 -.-、太線 ==、不可視 ~~~、
 	// 終端 >/x/o/無し）を行中から広く拾う。mermaidEdge が拾えない形の辺を黙って捨てない
 	// ための検出用なので、mermaidEdge 側は厳密なままにしておく。実線を `--` 以上に限るのは
-	// cmd/gsr-helper のような 1 個のハイフンを辺と取り違えないため。
-	mermaidArrow = regexp.MustCompile(`--+[->xo]|-\.+-+[>xo]?|==+[=>xo]|~~~`)
+	// cmd/gsr-helper のような 1 個のハイフンを辺と取り違えないため。点線を「ハイフン直後の
+	// ドット」で拾うのは、テキスト付き点線リンク `-. text .->` がドットの後もドットであり、
+	// ドットの後に `-` を要求すると取りこぼすためである。
+	mermaidArrow = regexp.MustCompile(`--+[->xo]|-\.|==+[=>xo]|~~~`)
 )
 
 // cutAtLineStart は lead で始まる行を 1 つだけ探し、その直後から末尾までを返す。
@@ -74,14 +76,18 @@ func readComponentOverview(t *testing.T) string {
 }
 
 // dependencyMermaid は行頭の見出し「## 依存関係」の直後の mermaid フェンスの中身を返す。
+//
+// フェンスの開始行も cutAtLineStart で**行頭に 1 個**と数える。最初の一致へ無条件に
+// アンカーすると、本文を逐語引用する改訂履歴の慣行でグラフの改訂前/改訂後が併記された
+// とき解析対象が静かにずれ、レンダリング後に読者が見る 2 つ目のグラフが無検査になる
+// （cutAtLineStart の doc コメントが見出し・段落について述べているのと同じ理由が
+// フェンスにも当てはまる）。見出し以降の tail 全体（文書末尾の改訂履歴まで）で数える
+// ことになるが、本書の mermaid フェンスは現在この 1 個だけである。
 func dependencyMermaid(t *testing.T) string {
 	t.Helper()
 
 	tail := cutAtLineStart(t, readComponentOverview(t), "## 依存関係")
-	_, tail, ok := strings.Cut(tail, "```mermaid\n")
-	if !ok {
-		t.Fatalf("%s の「## 依存関係」の後に mermaid フェンスが無い", componentOverviewPath)
-	}
+	tail = cutAtLineStart(t, tail, "```mermaid")
 	body, _, ok := strings.Cut(tail, "\n```")
 	if !ok {
 		t.Fatalf("%s の mermaid フェンスが閉じていない", componentOverviewPath)

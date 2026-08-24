@@ -106,6 +106,14 @@ func uiLayerNodes() map[string]bool {
 	return inUI
 }
 
+// uiInternalDrawnEdge は UI 層の内部で唯一グラフに描いてある辺。本書は「粒度の要約である
+// 2 ノードの間の 1 本（`UIApp --> UIParts`）だけは例外で、上のグラフに描いてある」と現在形で
+// 宣言しており、この 1 本まで UI 層内部として除外すると、散文が宣言する唯一の例外がどの検査
+// にも裏取りされず、図から消えても全部緑になる（対になる TestDependencyGraphHasNoStaleEdge は
+// 「図に在る辺」しか見ないので、図から消えた辺には反応しない）。ノード名をベタ書きしているのは、
+// これが一覧ではなく散文が名指しした 1 本の例外だからである。
+var uiInternalDrawnEdge = graphEdge{from: "UIApp", to: "UIParts"}
+
 // relPackage は import パスからモジュールの接頭辞を落とす。モジュール外のパスは
 // そのまま返る（呼び手はこれでモジュール内かを判定する）。
 func relPackage(importPath string) string {
@@ -235,6 +243,8 @@ func TestEveryPackageIsMappedToGraphNode(t *testing.T) {
 // だけは例外」と宣言しており、`organism` → `keymap` のような辺は
 // docs/ui/atomic-design.md の依存グラフが持つ。どのノードが UI 層かは mermaid の
 // subgraph UI から読み取る（ここにノード名をベタ書きすると図と二重管理になる）。
+// ただし散文が例外として名指しする 1 本（uiInternalDrawnEdge）だけは除外しない。除外すると
+// 「上のグラフに描いてある」という宣言がどの検査にも裏取りされず、図から消せてしまう。
 func TestDependencyGraphDrawsEveryCrossLayerImport(t *testing.T) {
 	g := parseDepGraph(t)
 
@@ -255,7 +265,7 @@ func TestDependencyGraphDrawsEveryCrossLayerImport(t *testing.T) {
 
 	edges := implEdges(t)
 	for _, e := range sortedEdges(edges) {
-		if g.edges[e] || (ui[e.from] && ui[e.to]) {
+		if g.edges[e] || (ui[e.from] && ui[e.to] && e != uiInternalDrawnEdge) {
 			continue
 		}
 		reasons := edges[e]
