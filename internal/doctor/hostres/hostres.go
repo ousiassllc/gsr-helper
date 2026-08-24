@@ -18,9 +18,8 @@ import (
 	"strings"
 
 	"github.com/ousiassllc/gsr-helper/internal/disk"
-	"github.com/ousiassllc/gsr-helper/internal/exec"
-
 	"github.com/ousiassllc/gsr-helper/internal/doctor/check"
+	"github.com/ousiassllc/gsr-helper/internal/exec"
 )
 
 // Checks は本パッケージの診断項目を一覧の順で返す。

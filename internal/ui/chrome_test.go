@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
 	"strconv"
 	"strings"
 	"testing"
@@ -13,6 +12,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/ui/chrome"
 	"github.com/ousiassllc/gsr-helper/internal/ui/discovery"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
 )
 
 // 本体以外の領域（タブ行・状態行・フッタ）の表示を検証する。

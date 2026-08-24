@@ -37,6 +37,13 @@ linters:
 formatters:
   enable:
     - gofmt
+    - gci
+  settings:
+    gci:
+      sections:
+        - standard
+        - default
+        - prefix(github.com/ousiassllc/gsr-helper)
 
 issues:
   # 抑制やエラーを棚卸しできるよう、同種の指摘を打ち切らない

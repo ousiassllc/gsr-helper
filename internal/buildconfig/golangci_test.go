@@ -17,6 +17,10 @@ type nolintlintSettings struct {
 	RequireSpecific    bool `yaml:"require-specific"`
 }
 
+type gciSettings struct {
+	Sections []string `yaml:"sections"`
+}
+
 type golangciConfig struct {
 	Linters struct {
 		Enable   []string `yaml:"enable"`
@@ -24,6 +28,12 @@ type golangciConfig struct {
 			Nolintlint nolintlintSettings `yaml:"nolintlint"`
 		} `yaml:"settings"`
 	} `yaml:"linters"`
+	Formatters struct {
+		Enable   []string `yaml:"enable"`
+		Settings struct {
+			Gci gciSettings `yaml:"gci"`
+		} `yaml:"settings"`
+	} `yaml:"formatters"`
 	Issues struct {
 		MaxIssuesPerLinter *int `yaml:"max-issues-per-linter"`
 		MaxSameIssues      *int `yaml:"max-same-issues"`
@@ -162,5 +172,64 @@ func Clean() { //nolint:errcheck // 理由: 抑制対象が無い
 				t.Errorf("nolintlint の指摘 %q が出ていない\n出力:\n%s", tt.want, out)
 			}
 		})
+	}
+}
+
+// import を標準ライブラリ / 外部モジュール / 自前パッケージの 3 グループに固定するため、
+// gci をこの順のセクションで使う。
+func TestGolangciEnablesGci(t *testing.T) {
+	cfg := loadGolangciConfig(t)
+
+	if !slices.Contains(cfg.Formatters.Enable, "gci") {
+		t.Fatalf("gci が有効になっていない: %v", cfg.Formatters.Enable)
+	}
+	want := []string{"standard", "default", "prefix(github.com/ousiassllc/gsr-helper)"}
+	if got := cfg.Formatters.Settings.Gci.Sections; !slices.Equal(got, want) {
+		t.Errorf("gci.sections が %v（期待: %v）", got, want)
+	}
+}
+
+// gci が実際に「自前パッケージが標準ライブラリのグループに混ざっている」を落とすことを、
+// リポジトリの設定で確認する。
+//
+// gofmt はグループ内を並べ替えるだけでグループ分けは直さないため、この形は gofmt でも
+// `make fmt-check` でも検出できない（Issue #119）。フィクスチャの import はアルファベット順に
+// 並んでいるので、指摘が出るとすれば gci だけである。
+func TestGolangciLintRejectsMisgroupedImports(t *testing.T) {
+	bin := golangciLintBinary(t)
+	config := filepath.Join(repoRoot(t), ".golangci.yml")
+
+	// prefix セクションに当てるため、フィクスチャのモジュールパスを本リポジトリに合わせる。
+	dir := newModule(t, map[string]string{
+		"go.mod": "module github.com/ousiassllc/gsr-helper\n\ngo 1.24\n",
+		"sub/sub.go": `// Package sub は検証用。
+package sub
+
+// Name は名前を返す。
+func Name() string { return "sub" }
+`,
+		"fixture.go": `// Package fixture は検証用。
+package fixture
+
+import (
+	"github.com/ousiassllc/gsr-helper/sub"
+	"strings"
+)
+
+// Upper は sub の名前を大文字にする。
+func Upper() string { return strings.ToUpper(sub.Name()) }
+`,
+	})
+
+	cmd := exec.Command(bin, "run", "--config", config, "./...")
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), goWorkOff...)
+	out, err := cmd.CombinedOutput()
+
+	if err == nil {
+		t.Fatalf("自前パッケージが標準ライブラリのグループに混ざっているのに lint が成功した\n出力:\n%s", out)
+	}
+	if !strings.Contains(string(out), "gci") {
+		t.Errorf("gci の指摘が出ていない\n出力:\n%s", out)
 	}
 }

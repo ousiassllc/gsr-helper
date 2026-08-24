@@ -462,6 +462,13 @@ linters:
 formatters:
   enable:
     - gofmt
+    - gci
+  settings:
+    gci:
+      sections:
+        - standard
+        - default
+        - prefix(github.com/ousiassllc/gsr-helper)
 
 issues:
   # 抑制やエラーを棚卸しできるよう、同種の指摘を打ち切らない
@@ -480,7 +487,7 @@ issues:
 | `nolintlint` | `//nolint` 自体の検査。抑制方針（行単位・理由必須・リンター名必須）を機械的に強制し、不要になった抑制の除去漏れも検出する |
 | `depguard` | import できるモジュールパスの制限。Charm の v1 系（`github.com/charmbracelet/*`）を禁止する |
 
-`formatters` に `gofmt` を入れることで、`golangci-lint run` でも整形漏れを検出できる。`make fmt-check` と役割が重なるが、どちらか一方だけを実行しても検出できる状態にしておく。
+`formatters` に `gofmt` を入れることで、`golangci-lint run` でも整形漏れを検出できる。`make fmt-check` と役割が重なるが、どちらか一方だけを実行しても検出できる状態にしておく。**`gci` は `gofmt` が見ない import のグループ分けを担う**（[Format](#format) を参照）。
 
 `nolintlint` は 3 つの設定をすべて有効にする。
 
@@ -536,7 +543,7 @@ issues:
 
 ## Format
 
-**gofmt のみを使う。** Go 標準ツールチェーンで完結し、追加の依存もエディタ設定の追従も不要である。
+**整形は `gofmt` と `gci` の 2 つで行う。** `gofmt` が Go 標準の整形を、`gci` が import のグループ分けを受け持つ。どちらも `golangci-lint` の `formatters` として動くので、追加の依存もエディタ設定の追従も要らない。
 
 | 用途 | コマンド |
 |------|---------|
@@ -551,7 +558,15 @@ issues:
 
 **`go list` の失敗と対象 0 件は明示的に失敗させる。** コマンド置換の終了ステータスを捨てると、`go.mod` の破損等で `go list` が失敗しても検査ゲートが静かに通ってしまう。また対象が 0 件だと `gofmt` が引数なしで起動して標準入力を読むため、端末から `make check` を実行すると無言でハングする。どちらも `exit 1` で止める。
 
-import の並び順は `gocritic` / `revive` の範囲では強制しない。必要になった時点で golangci-lint の `formatters` に `goimports` を追加する（設定ファイル 1 行の追加で済むため、先回りしない）。
+### import のグループ分け
+
+**import は標準ライブラリ / 外部モジュール / 自前パッケージの 3 グループに空行で分ける。** これを `golangci-lint` の `formatters` の `gci` で機械的に固定し、セクションを `standard` / `default` / `prefix(github.com/ousiassllc/gsr-helper)` の順に指定する。
+
+**`gofmt` ではこの規約を検出できない。** `gofmt` はグループ**内**を並べ替えるだけでグループ分け自体には手を入れないため、自前パッケージが標準ライブラリのグループに紛れ込んでいても `make fmt-check` も `make lint` も緑のまま通る。実際に `internal/ui/app_test.go` / `internal/ui/page/pagetest/diag.go` / `internal/gh/errors.go` / `internal/ui/chrome_test.go` の 4 ファイルでこの形が入り込み、`internal/doctor/hostres/hostres.go` では自前パッケージが 2 グループに割れていた（Issue #119）。規約を「書いておくもの」のままにすると同じ書き方が静かに広がる。
+
+**`gci` を入れた判断の根拠は波及の小ささである。** 有効化にあたりリポジトリ全体の再整形が要るなら 2 ファイルの手直しで済ませる選択もあったが、`golangci-lint fmt --diff` で実測したところ差分は上記 5 ファイルだけだった。しかもうち 3 ファイルは Issue が挙げていない未発見の違反であり、道具を入れなければ気付けなかった。
+
+`gci` の指摘が実際に出ることは `internal/buildconfig` の `TestGolangciLintRejectsMisgroupedImports` が、設定そのものは `TestGolangciEnablesGci` が守る。前者は本リポジトリと同じモジュールパスの一時モジュールを作って `golangci-lint run` を実行する（`prefix` セクションに当てるため）。
 
 ## Linterly
 
@@ -727,5 +742,6 @@ pre-push:
 | 1.23 | 2026-08-23 | 改訂履歴表の重複した版番号 `1.8` のうち「fork からの PR で self-hosted ジョブを起動しない」節を private 前提に更新した行を `1.22` へ振り直して表の末尾へ移し、`1.7` の行を `1.8`（`make build`）の前へ戻した。あわせて採番の規則（版番号は変更が入った時点で採番するため、日付が版番号の順と一致しないことがある）を表の直後に明記し、`internal/buildconfig` に改訂履歴の版番号が重複せず昇順であることの回帰テストを追加 | 別々の変更に同じ `1.8` が付き、`1.7` が `1.8` の後ろに並んでいたため、表を版番号で引けなかった（Issue #59）。振り直し先に `1.9` 以降を使わず末尾の `1.22` を割り当てたのは、既存行を繰り下げると他の行の変更理由が版番号で参照している箇所（`1.12` / `1.13`）まで書き換えることになり、「変更内容・変更理由は書き換えない」という前提を満たせないためである |
 | 1.24 | 2026-08-23 | `internal/buildconfig` の責務を「設定ファイルとドキュメントの不変条件を守る回帰テスト」へ広げ、「設定ファイルの不変条件をテストで守る」節の本文と CI 構成表の「設定の不変条件」行を実態に合わせた。不変条件テスト一覧表に `TestDocRevisionHistoryVersionsUniqueAndAscending` の行を追加 | 1.23 で追加した改訂履歴の回帰テストは `docs/` 配下の Markdown を読むテストであり、「ビルド設定ファイルの回帰テストだけを置く」というパッケージの定義（`internal/buildconfig/doc.go`）と本節の記述の範囲外だった。同パッケージには既に仕様書のコードブロックを検査する `TestSetupDocEmbedsConfigFilesVerbatim` があり、ドキュメントを読むテストは既存の性格の延長であるため、パッケージを分けずに定義側を実態へ追随させた |
 | 1.25 | 2026-08-24 | 「設定ファイルの不変条件をテストで守る」の表の直後に、この表が `internal/buildconfig` に置いたものだけを挙げること・同じ性格の検査が `internal/ui/page/pagetest` にもあること・`buildconfig` へ集めるのは**どのパッケージにも属さない取り決め**だけであることを明記した | 表が「網羅ではない」とだけ断っており、**どこまでがこの表の範囲か**が読み取れなかった。共有部品の列挙を守る検査（Issue #130 で 3 本になった）をここへ足すべきか、対象の隣に置くべきかを次の Issue が判断できない。パッケージ固有の不変条件を `buildconfig` へ寄せると、対象を触る Issue が検査の存在に気付けない（Issue #130） |
+| 1.26 | 2026-08-24 | `.golangci.yml` の `formatters` に `gci` を追加し（セクションは `standard` / `default` / `prefix(github.com/ousiassllc/gsr-helper)`）、Format 節に「import のグループ分け」を新設。Lint 節の `formatters` の説明にも `gci` の役割を追記 | import を標準ライブラリ / 外部モジュール / 自前パッケージの 3 グループに分ける規約が `gofmt` では検出できず、`make fmt-check` も `make lint` も緑のまま 5 ファイルに違反が入り込んでいた（Issue #119）。`golangci-lint fmt --diff` で実測した波及がその 5 ファイルだけで、うち 3 ファイルは Issue が挙げていない未発見の違反だったため、2 ファイルの手直しではなく道具ごと入れて再発を機械的に止める方を採った |
 
 **版番号は表への追加順ではなく、その変更が入った時点で採番している。** 1.22 の日付が直前の 1.21 より古いのはこのためである。1.22 の行はもともと重複した `1.8` として記録されており（`feat/#1` の取り込み時に 2 つの `1.8` を両方残したまま解消した）、重複を解消する際に、既に使われている 1.9〜1.21 と衝突しない番号として 1.22 を割り当てた。既存行の版番号を繰り下げないのは、他の行の変更理由が版番号で参照している箇所（1.12 / 1.13）まで書き換えることになるためである。

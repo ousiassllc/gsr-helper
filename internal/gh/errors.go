@@ -3,12 +3,12 @@ package gh
 import (
 	"errors"
 	"fmt"
-	"github.com/ousiassllc/gsr-helper/internal/gh/ghtoken"
 	"net/http"
 	"time"
 
 	"github.com/google/go-github/v83/github"
 
+	"github.com/ousiassllc/gsr-helper/internal/gh/ghtoken"
 	"github.com/ousiassllc/gsr-helper/internal/runner/scope"
 )
 
