@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -180,5 +181,52 @@ func moduleRoot(t *testing.T) string {
 			t.Fatal("go.mod が見つからない")
 		}
 		dir = parent
+	}
+}
+
+// docShared は atomic-design.md の「1 ディレクトリ 1 タブ」の段落から、単体で
+// バッククォートに囲まれた `page/<名前>` を拾う。`page/pagetest/import_test.go` の
+// ようにパスが続くものや、`page/<名前>` というプレースホルダは閉じバッククォートが
+// 直後に来ないため拾わない。
+var docShared = regexp.MustCompile("`page/([a-z]+)`")
+
+// docSharedLead は当該段落の書き出し。段落の同定と、重複の検出に使う。
+const docSharedLead = "**`page/` は「1 ディレクトリ 1 タブ」ではない。**"
+
+// atomic-design.md の共有部品の列挙は shared と一致する。
+//
+// 本書は「どれがタブでどれが共有部品かは shared が決める」と定めながら、同じ説明の
+// 段落を 2 つ持ち、しかも列挙が食い違っていた（片方が runnerop を欠き、両方が
+// progressmodal を欠いていた）。読み手はどちらを写しても shared とずれる（Issue #96）。
+//
+// 正は shared の側なので、この検査は**文書が shared に追従しているか**だけを見る。
+func TestSharedPackagesMatchDoc(t *testing.T) {
+	path := filepath.Join(moduleRoot(t), "docs", "ui", "atomic-design.md")
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("%s を読めない: %v", path, err)
+	}
+
+	text := string(body)
+	if n := strings.Count(text, docSharedLead); n != 1 {
+		t.Fatalf("atomic-design.md に %q で始まる段落が %d 個ある（1 つに統合すること）", docSharedLead, n)
+	}
+
+	_, tail, _ := strings.Cut(text, docSharedLead)
+	para, _, _ := strings.Cut(tail, "\n\n")
+
+	listed := map[string]bool{}
+	for _, m := range docShared.FindAllStringSubmatch(para, -1) {
+		listed[m[1]] = true
+	}
+	for name := range shared {
+		if !listed[name] {
+			t.Errorf("atomic-design.md の列挙に page/%s が無い（shared には載っている）", name)
+		}
+	}
+	for name := range listed {
+		if !shared[name] {
+			t.Errorf("atomic-design.md が page/%s を共有部品として挙げているが shared に無い", name)
+		}
 	}
 }
