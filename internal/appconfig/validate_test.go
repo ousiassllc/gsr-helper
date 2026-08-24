@@ -241,3 +241,36 @@ func TestDiskThresholdsOrDefault(t *testing.T) {
 		})
 	}
 }
+
+// MergeScanRoots は引数の配列を返さない（doc の約束）。
+//
+// 返り値は 3 秒ごとの検出で別 goroutine へ渡るため、引数と実体を共有すると
+// 親 Model が持つ設定のスライスが走行中の走査から読まれ続ける。要素が 1 つも
+// 落ちない筋（片方が空）が最適化の誘惑を受けやすいので、そこを表明する。
+func TestMergeScanRootsDoesNotAliasArguments(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name       string
+		cfg, extra []string
+	}{
+		{name: "extra が空", cfg: []string{"/srv/a"}, extra: nil},
+		{name: "cfg が空", cfg: nil, extra: []string{"/srv/a"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := MergeScanRoots(tt.cfg, tt.extra)
+			if len(got) != 1 {
+				t.Fatalf("合成結果 = %v, want 要素 1 つ", got)
+			}
+			got[0] = "/srv/rewritten"
+
+			for _, in := range [][]string{tt.cfg, tt.extra} {
+				if len(in) == 1 && in[0] != "/srv/a" {
+					t.Errorf("引数が書き換わった = %v（戻り値が実体を共有している）", in)
+				}
+			}
+		})
+	}
+}

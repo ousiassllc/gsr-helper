@@ -100,9 +100,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 	)
 
 	app := ui.New(cfg, caps, ex, ui.Options{
-		Color:      colorEnabled(o.noColor, os.Getenv, isTerminal(os.Stdout)),
-		Refresh:    o.refresh,
-		Roots:      appconfig.MergeScanRoots(cfg.ScanRoots, o.roots),
+		Color:   colorEnabled(o.noColor, os.Getenv, isTerminal(os.Stdout)),
+		Refresh: o.refresh,
+		// 設定ファイルの scan_roots とはここで合わせない。合成を起動時に畳むと
+		// Config タブで保存しても再起動まで効かない（ui.Options.Roots。Issue #132）。
+		Roots:      o.roots,
 		Host:       hostname(),
 		Secrets:    secrets,
 		ConfigPath: confPath,

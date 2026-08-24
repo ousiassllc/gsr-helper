@@ -1,11 +1,11 @@
 package ui
 
 import (
-	"slices"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/ousiassllc/gsr-helper/internal/appconfig"
 	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/ui/discovery"
 )
@@ -87,10 +87,27 @@ func (a *App) discover() tea.Cmd {
 	a.seq++
 	seq := a.seq
 	ex := discovery.Exec(a.caps.Systemd, a.ex)
-	roots := slices.Clone(a.opts.Roots)
+	roots := a.scanRoots()
 	depth := a.cfg.ScanDepth
 
 	return discovery.Start(seq, runner.Options{Roots: roots, Depth: depth, Exec: ex})
+}
+
+// scanRoots は走査に渡す追加ルートを返す（Issue #132）。
+//
+// **合成は周期ごとにやり直す。** 設定ファイルの scan_roots は Config タブの保存で
+// 書き換わり、新しい値は page.ConfigSavedMsg で a.cfg に載る（app.go の case）。
+// 起動時に合成した結果を持ち回ると、設定ファイルには書けているのに走査の入力が
+// 再起動まで古いままになる。
+//
+// **--root は保存後も効き続ける。** 明示的に渡したルートを設定の保存で消すと、
+// 起動コマンドを変えていないのに走査対象が減る。順序は scan_roots → --root
+// （docs/components/overview.md の走査ルートの合成）。
+//
+// 返り値は MergeScanRoots が毎回作る新しいスライスなので、Cmd が別 goroutine で
+// 読んでも親 Model の状態とは切り離されている（discover の doc）。
+func (a App) scanRoots() []string {
+	return appconfig.MergeScanRoots(a.cfg.ScanRoots, a.opts.Roots)
 }
 
 // refresh は自動更新間隔を決める。中身は discovery.Interval に委ねる（discovery.go の package doc を参照）。

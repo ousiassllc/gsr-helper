@@ -66,6 +66,10 @@ type Model struct {
 	// savingSelf / savedSelf は書き込み中の自身の設定。成功を見てから conf へ移す。
 	savingSelf bool
 	savedSelf  appconfig.Config
+	// startupAudit は起動時の audit_log。**走っているログの出力先はこれである**
+	// （cmd が起動時に開いた ui.Options.Audit の実体）。保存が再起動を要するかは
+	// 前回の保存値ではなくこの値と比べて決める（rememberSelf。Issue #132）。
+	startupAudit string
 
 	notice string
 	report string
@@ -99,7 +103,10 @@ func New(tab int, st page.StateMsg) Model {
 		pendingSet: false, self: false,
 		conf: appconfig.Config{}, confSet: false,
 		savingSelf: false, savedSelf: appconfig.Config{},
-		notice: "", report: "", busy: false, formShown: false,
+		// startupAudit は最初の StateMsg で控える（setState）。**ここでは控えられない**
+		// ——タブを組み立てる tabset.New が渡す StateMsg は Config を持たない。
+		startupAudit: "",
+		notice:       "", report: "", busy: false, formShown: false,
 		newClient: defaultClient,
 	}
 	m.refresh(organism.ResetCursor)
@@ -168,6 +175,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m Model) setState(st page.StateMsg) (tea.Model, tea.Cmd) {
 	first := m.st.Config.Path == "" && st.Config.Path != ""
 	m.st = st
+	if first {
+		// 走っているログの出力先は起動時の audit_log である（startupAudit の doc）。
+		m.startupAudit = st.Config.Conf.AuditLog
+	}
 	m.list.Restyle(st.Keys.List, st.Styles)
 	m.list.SetSize(st.BodyW, st.BodyH)
 	m.picker.Restyle(st.Keys.List, st.Styles)

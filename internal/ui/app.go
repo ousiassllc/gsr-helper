@@ -38,7 +38,9 @@ type Options struct {
 	Color bool
 	// Refresh は一覧の自動更新間隔。0 以下なら設定ファイルの値を使う。
 	Refresh time.Duration
-	// Roots は追加の走査ルート（設定ファイルと --root を cmd が合わせたもの）。
+	// Roots は --root で渡された追加の走査ルート。**設定ファイルの scan_roots は
+	// 含めない**——保存で書き換わる値を起動時に畳むと再起動まで効かないためで、
+	// 合成は周期ごとに discover がやり直す（discover.go の scanRoots。Issue #132）。
 	Roots []string
 	// Host はヘッダに出すホスト名。既定の runner 名の接頭辞にも使う（FR-11）。
 	Host string
