@@ -97,6 +97,10 @@ internal/ui/
 
 **`page/` は「1 ディレクトリ 1 タブ」ではない。** タブが共用する部品（`page/action` / `page/runnerdetail` / `page/runnerop` / `page/progressmodal`）と、タブ 1 枚のために切り出した部品（`page/diskclean` / `page/configmodal` / `page/setupmodal`。下記の基準の例外）、テスト用フィクスチャ（`page/pagetest`）も同じ階層に並ぶ。どれがタブでどれが共有部品かは名前からは決まらないので、`page/pagetest/import_test.go` の `shared` に共有部品を列挙し、**そこに載っていない `page/<名前>` をタブとして扱う**。**正は `shared` の側であり、この段落の列挙はその写しである**（食い違いは `TestSharedPackagesMatchDoc` が止める）。新しいタブは自動で検査の対象になり、共有部品を足すときだけ明示的な追記が要る。
 
+**この段落と、[ディレクトリ構成](#ディレクトリ構成)のツリー、[実装状況](#実装状況)の「実装済み」の行の 3 つが検査の対象である。** `TestSharedPackagesMatchDoc`（段落）・`TestDirectoryTreeMatchesShared`（ツリー）・`TestImplementedListCoversSharedPackages`（実装済みの行）が、それぞれ `shared` との一致を突き合わせる。共有部品を足すときはこの 3 箇所すべてに書くこと。
+
+**検査は上の書き出し（`「1 ディレクトリ 1 タブ」ではない` の太字の 1 文）が行頭にちょうど 1 度現れることを前提にする。** 他の節からこの段落を参照するときは、書き出しをそのまま行頭へ写さずに節へのリンクで指すこと（写すと段落が 2 つあると判定されて検査が落ちる）。同じ理由で、ツリーは `page/<tab>/` の 1 行でタブをまとめ、**共有部品だけを個別の行で挙げる。**
+
 **タブ 1 枚のための切り出し先は `page/<tab>/` の下を既定とする。** 分かれ目は**利用者が何タブか**という、実装を見れば一意に決まる条件である。
 
 - **`page/<tab>/<名前>`（ネスト）** — **利用者が 1 タブに閉じるものはこちら。** `page/disk/cleanview`（文面と判定の純粋関数）・`page/disk/confirmmodal`（確認ダイアログの包み）・`page/runners/rowview`（行の組み立て）が該当する。`import_test.go` の `tabName` はスラッシュを含むパスをタブとみなさないので、`shared` への追記は要らない。行数の面でも同じ効果がある——`linterly` のディレクトリ集計は直下のファイルだけを数えるため、ネストしても親ディレクトリからは外れる。
@@ -1063,7 +1067,7 @@ Context の登録漏れは人の注意に頼らない。`Set` の全フィール
 
 | 区分 | 対象 |
 |------|------|
-| 実装済み | `token`（`huh.Theme` の組み立てを含む）/ `keymap` / `atom` / `molecule`（操作リスト・列選択・`FSSummaryLine` / `CommandBlock` / `LogLine` / `SummaryCounts` / `ProgressRow`）/ `molecule/listrow`（`RunnerRow` / `JobRow` / `OrphanRow` / `DiskTargetRow` / `LogRow` / `DoctorRow` / `SettingRow` / `DiffLine`）/ `molecule/chromebar`（`CapsBar` / `TabBar` / `KeyBar`）/ `chrome` / `hostreq` / `tabset` / `organism`（`ChoiceList`）/ `organism/table` / `organism/pane`（`Detail` / `Help` / `Log` / `ProgressList`）/ `organism/dialog`（`Confirm` / `DiffApproval` / `DrainWaiter` / `Form`）/ `template`（`Frame` / `Modal`）/ `page` / `page/runners` / `page/jobs` / `page/disk` / `page/logs` / `page/doctor` / `page/config` / `page/runnerdetail` / `page/runnerop` / `page/action` / `page/setup` / `page/progressmodal`（進捗表示の配線。Setup / Disk が共有） / `page/diskclean`（クリーンアップの実行） / `page/configmodal` / `page/setupmodal` / `page/disk/confirmmodal` / `page/disk/cleanview` / `page/runners/rowview` / `discovery` / `workscan` / `ghscope`（いずれも ui 直下から分けた取得と純粋関数） |
+| 実装済み | `token`（`huh.Theme` の組み立てを含む）/ `keymap` / `atom` / `molecule`（操作リスト・列選択・`FSSummaryLine` / `CommandBlock` / `LogLine` / `SummaryCounts` / `ProgressRow`）/ `molecule/listrow`（`RunnerRow` / `JobRow` / `OrphanRow` / `DiskTargetRow` / `LogRow` / `DoctorRow` / `SettingRow` / `DiffLine`）/ `molecule/chromebar`（`CapsBar` / `TabBar` / `KeyBar`）/ `chrome` / `hostreq` / `tabset` / `organism`（`ChoiceList`）/ `organism/table` / `organism/pane`（`Detail` / `Help` / `Log` / `ProgressList`）/ `organism/dialog`（`Confirm` / `DiffApproval` / `DrainWaiter` / `Form`）/ `template`（`Frame` / `Modal`）/ `page` / `page/runners` / `page/jobs` / `page/disk` / `page/logs` / `page/doctor` / `page/config` / `page/runnerdetail` / `page/runnerop` / `page/action` / `page/setup` / `page/progressmodal`（進捗表示の配線。Setup / Disk が共有） / `page/diskclean`（クリーンアップの実行） / `page/configmodal` / `page/setupmodal` / `page/disk/confirmmodal` / `page/disk/cleanview` / `page/runners/rowview` / `page/pagetest`（テスト用フィクスチャ）/ `discovery` / `workscan` / `ghscope`（いずれも ui 直下から分けた取得と純粋関数） |
 | 未実装（部品が無い） | `organism.ErrorBanner` |
 | 実装済みだが未接続 | （現時点では該当なし） |
 
@@ -1083,15 +1087,15 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 
 | ディレクトリ | 行数 | 残り | 判定 |
 |------------|------|------|------|
+| `ui/page/disk` | 1996 | 4 | pass |
 | `ui/organism/dialog` | 1994 | 6 | pass |
 | `ui/page/logs` | 1994 | 6 | pass |
 | `ui` | 1988 | 12 | pass |
 | `ui/page/runners` | 1983 | 17 | pass |
 | `ui/page` | 1970 | 30 | pass |
 | `ui/organism/table` | 1969 | 31 | pass |
-| `ui/page/disk` | 1943 | 57 | pass |
+| `ui/page/pagetest` | 1937 | 63 | pass |
 | `ui/page/setup` | 1883 | 117 | pass |
-| `ui/page/pagetest` | 1744 | 256 | pass |
 | `ui/page/config` | 1737 | 263 | pass |
 | `ui/page/jobs` | 1684 | 316 | pass |
 | `ui/keymap` | 1681 | 319 | pass |
@@ -1168,7 +1172,7 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 | `internal/setup/setuptest` | 178 | 1822 | pass |
 | `internal/runner/scope` | 165 | 1835 | pass |
 
-**残りが 1 桁のディレクトリが 3 つある**（`internal/setup/tarball` 1 行・`internal/logs` 2 行・`internal/gh` 4 行）。**この 3 つに 1 行でも足す Issue は、足す前に空けること。** どれも警告帯には入っていないので `make check` は通るが、通ることと余裕があることは違う。
+**残りが 1 桁のディレクトリが 3 つある**（`internal/setup/tarball` 1 行・`internal/logs` 2 行・`internal/gh` 4 行。UI 側では `ui/page/disk` が残り 4 行である）。**この 3 つに 1 行でも足す Issue は、足す前に空けること。** どれも警告帯には入っていないので `make check` は通るが、通ることと余裕があることは違う。
 
 ##### `internal/disk` から `pathguard` を切り出した判断（Issue #101）
 
@@ -1222,7 +1226,7 @@ Config タブは項目の一覧・フォーム 6 種・差分の承認・反映�
 
 **そこで代わりにモーダル 3 種を `page/configmodal` へ出した**（`modals.go` → `configmodal/configmodal.go` と `configmodal/approve.go`）**。** モーダルは `tea` に依るので「tea 非依存を出す」という上の方針からは外れるが、**タブの状態を 1 つも見ない**——フォーム・差分の承認・反映方法の選択はどれも `organism/dialog` と `organism.ChoiceList` を包み、開く指示を受けて決定を `page.ResultMsg` で差し戻すだけである。判断（何を差分に載せるか・どの反映方法を並べるか・承認後に何を書くか）はタブ側に残っている。**先例は `page/progressmodal` と `page/disk/confirmmodal`** で、どちらも同じ形のモーダルを page から分けたものである。入力欄の組み立て（`form.go` と `selfconf.go` の `selfFields`）も、フォームのモーダルと同じ場所に置いた。
 
-`page/pagetest/import_test.go` の `shared` マップに `"configmodal"` を登録してある（足さないとタブとして扱われ `TestOnlyTabsetImportsTabs` が落ちる）。
+`page/pagetest/import_test.go` の `shared` マップに `"configmodal"` を登録してある（足さないとタブとして扱われ `TestOnlyTabsetImportsTabs` が落ちる）。**`shared` へ足したら、本書の 3 箇所——「1 ディレクトリ 1 タブ」ではないの段落・[ディレクトリ構成](#ディレクトリ構成)のツリー・[実装状況](#実装状況)の「実装済み」の行——も同時に直すこと**（順に `TestSharedPackagesMatchDoc` / `TestDirectoryTreeMatchesShared` / `TestImplementedListCoversSharedPackages` が落ちる）。
 
 **次にこのタブへ手を入れる Issue は 263 行を使ってよい。** それを使い切った場合に残る手は、`config.go` / `flow.go` / `results.go` の状態遷移そのものではなく、初回設定ウィザード（`selfconf.go`。編集対象が runner ではなくアプリ自身で、FR-41 / FR-42 と他の項目で要件が分かれている）を出すことである。
 
@@ -1232,11 +1236,13 @@ Disk タブは 1 ディレクトリに一覧・集計・クリーンアップ・
 
 **Issue #13 は分割せず警告帯に入ることを選んだ。** 警告帯へ押し上げたのは FR-31 の穴（承認を待つ間にジョブが始まった runner の `_work` を消してしまう TOCTOU）を塞ぐ修正とその回帰テストで、**安全側の修正を行数の都合で先送りしない**方を採ったためである。分割を同じ変更に混ぜると、削除経路に触る修正とパッケージ移動が 1 つの差分に同居し、レビューで「どちらが壊したか」を切り分けられなくなる。**そのうえで「次に手を入れる Issue は先に分割すること」と本節に書き残した。**
 
-**Issue #102 がその分割を実施した。** 本節が挙げていたとおり、クリーンアップの**実行**は集計・表示と独立している——入力は承認済みの計画（`disk.CleanPlan`）1 つだけで、表の行にも選択にも触れない。そこで実行中の状態（進捗の channel・行・結果報告・到着順の突き合わせ）と結果報告の文面を `page/diskclean` の `Job` として切り出した。`page/pagetest/import_test.go` の `shared` マップにも `"diskclean"` を登録してある（登録しないとタブとして扱われ `TestOnlyTabsetImportsTabs` が落ちる）。切り出し先が `page/<tab>` の命名規約（1 ディレクトリ 1 タブ）から外れるため、`shared` への登録がその例外を明示する役割を持つ。
+**Issue #102 がその分割を実施した。** 本節が挙げていたとおり、クリーンアップの**実行**は集計・表示と独立している——入力は承認済みの計画（`disk.CleanPlan`）1 つだけで、表の行にも選択にも触れない。そこで実行中の状態（進捗の channel・行・結果報告・到着順の突き合わせ）と結果報告の文面を `page/diskclean` の `Job` として切り出した。`page/pagetest/import_test.go` の `shared` マップにも `"diskclean"` を登録してある（登録しないとタブとして扱われ `TestOnlyTabsetImportsTabs` が落ちる）。切り出し先が `page/<tab>` の命名規約（1 ディレクトリ 1 タブ）から外れるため、`shared` への登録がその例外を明示する役割を持つ。**`shared` への追記だけでは足りない。** [ディレクトリ構成](#ディレクトリ構成)のツリーと[実装状況](#実装状況)の「実装済み」の行にも同じ名前を載せること（`TestDirectoryTreeMatchesShared` / `TestImplementedListCoversSharedPackages` が突き合わせる）。
 
 **タブ側に残したものが境界を語っている。** 残したのは承認までの筋道（選択・ドライラン・確認・承認直前の見直し）と、確定後にタブの状態を戻す部分（報告・選択解除・再集計）である。**「確認を経ない破壊的経路を作らない」不変条件はタブ側に残る**（security.md）——`diskclean.Start` を呼ぶのは `startClean` 1 か所だけで、`startClean` を呼ぶのは `dialog.DecidedMsg{Confirmed: true}` を受けた `onResult` 1 か所だけである。切り出したのは実行の仕組みであって、承認の義務ではない。
 
 **テストも境界に沿って分けた。** 到着順に依らず確定する（進捗の出し切りと終了通知の両方がそろうまで結果を確定しない）ことは `Job` を直に駆動する `page/diskclean` のテストが見る。タブ側に残したのは後始末——報告を状態行へ出し、選択を解き、実行中の状態を捨てること——の検証である。結果は 2128 行から 1943 行（残り 57 行）になった。
+
+**その後 Issue #127 の回帰テストで 1996 行（残り 4 行）まで詰まった。** 押し上げたのは inode だけが逼迫した行で `⚠ 警告閾値超過` が出ることを固定する検証で、doctor との判定の食い違いを閉じるためのものである（[画面仕様](screens.md#disk-タブ)）。**次にこのディレクトリへ 1 行でも足す Issue は、足す前に空けること。** 採れる手は本節冒頭の (3)——タブ側のテストの道具を `page/pagetest` へ出すこと——だが、そちらも残り 63 行なので、先に `page/disk/cleanview`（491 行・残り 1509 行）へ寄せられる純粋関数が無いかを見るほうが早い。
 
 **`ui/page/logs` の残りは 6 行しかない。** Logs タブ（Issue #9）は本文の組み立てと購読の 2 つを 1 つのタブに持つため、`page/<tab>` のなかで最も大きい。**次にこのディレクトリへ足す Issue は、まず道具を `page/pagetest` へ出すこと。** Issue #9 の 2 周目で回帰テストを 2 本足したときもそうして 120 行あまりを空けた（`Cmd` を回す道具 `RunCmd` / `ChromeOf` / `Pump` / `Drained` と、`_diag` のフィクスチャ `DiagRunner` / `WriteDiagLog`。`page/pagetest` が 824 行から 1003 行へ増えているのはこの移動ぶんである）。
 
@@ -1254,7 +1260,7 @@ Setup タブは追加・削除・バージョン更新の 3 操作と、フォ�
 
 **3 周目の時点で上の 2 つの手はもう使い切っていた。** 残る道具は `newModel` だけで、それは上記の理由で出せない。テストの重複も 3 周目で畳んである。そこで本節は「次に取れるのは本文（`flow.go` / `form.go` / `setup.go`）ではなく**モーダルを `page/setupmodal` として切り出すこと**」と書き残した。ファイルを分けるだけでは 1 ディレクトリの合計は 1 行も減らない（`ui/organism/table` の本体を分割しない判断と同じ理由）ので、別ディレクトリへ出すこと自体が要件である。
 
-**4 周目（Issue #105）がその切り出しを実施し、2081 行から 1883 行（残り 117 行）へ戻した。** 出したのは 2 種類である——追加フォーム（`formmodal.go` → `setupmodal/form.go`）と確認ダイアログ（`confirm.go` の `confirmModal`。実行前プレビューと入力の破棄の 2 つの種類で使い回す 1 つのモーダル）。本節が挙げていた「モーダル 4 種」のうち進捗は既に `page/progressmodal` として出ており、そこには手を入れていない。`page/pagetest/import_test.go` の `shared` マップに `"setupmodal"` を登録してある（足さないとタブとして扱われ `TestOnlyTabsetImportsTabs` が落ちる）。
+**4 周目（Issue #105）がその切り出しを実施し、2081 行から 1883 行（残り 117 行）へ戻した。** 出したのは 2 種類である——追加フォーム（`formmodal.go` → `setupmodal/form.go`）と確認ダイアログ（`confirm.go` の `confirmModal`。実行前プレビューと入力の破棄の 2 つの種類で使い回す 1 つのモーダル）。本節が挙げていた「モーダル 4 種」のうち進捗は既に `page/progressmodal` として出ており、そこには手を入れていない。`page/pagetest/import_test.go` の `shared` マップに `"setupmodal"` を登録してある（足さないとタブとして扱われ `TestOnlyTabsetImportsTabs` が落ちる）。**`shared` への追記だけでは足りない。** [ディレクトリ構成](#ディレクトリ構成)のツリーと[実装状況](#実装状況)の「実装済み」の行にも同じ名前を載せること（`TestDirectoryTreeMatchesShared` / `TestImplementedListCoversSharedPackages` が突き合わせる）。
 
 **タブに残したものが境界を語っている。** モーダルは `organism/dialog` を包んで決定を `page.ResultMsg` で差し戻すだけで、**中身を組み立てない。** 計画から確認ダイアログの中身を作る `confirmInput` / `targetLines` / `commandLines` はタブ側（`confirm.go`、50 行）に残した——「追加はディレクトリを、削除・更新は runner 名とスコープを対象として出す」という判断は Setup タブ固有だからである（`page/progressmodal` が「見出しの文言・行の内容は呼び出し側が持つ」としているのと同じ分担）。フォームも同様で、`setupmodal.OpenForm` は組み立て済みの `huh.Form` ではなく**組み立てる関数**（`formValues.build`）を受け取る。何を入力させるかはタブが決め、配色（`token.HuhTheme`）の適用だけがモーダル側に残る。
 
@@ -1305,7 +1311,7 @@ Runners タブと Jobs タブは、同じサービス制御（確認 → 実行 
 - 「操作の起点は複数、確認は 1 つ」（[画面仕様の設計原則](screens.md#設計原則)）を構造で守るためである。書き写すと、片方のタブだけ確認を飛ばす退行がコンパイルも既存の検査も通ってしまう。
 - `ui/page` 直下（残り 30 行）には置けない。`page` は 7 タブすべてが import する共通の土台であり、runner 固有の制御をそこへ混ぜると Disk / Logs / Doctor まで引きずる。`page/runnerdetail` を分けたのと同じ判断である。
 
-依存は `page/runnerop` → `page` / `page/action` / `page/runnerdetail` / `organism/dialog` / `svc` の一方向で、タブからは `runnerop` を import するが逆は無い。**タブではないので `page/pagetest/import_test.go` の `shared` に登録してある**（登録しないと `TestOnlyTabsetImportsTabs` がタブと誤認して落ちる）。
+依存は `page/runnerop` → `page` / `page/action` / `page/runnerdetail` / `organism/dialog` / `svc` の一方向で、タブからは `runnerop` を import するが逆は無い。**タブではないので `page/pagetest/import_test.go` の `shared` に登録してある**（登録しないと `TestOnlyTabsetImportsTabs` がタブと誤認して落ちる）。**`shared` への追記だけでは足りない。** [ディレクトリ構成](#ディレクトリ構成)のツリーと[実装状況](#実装状況)の「実装済み」の行にも同じ名前を載せること（`TestDirectoryTreeMatchesShared` / `TestImplementedListCoversSharedPackages` が突き合わせる）。
 
 `ui/page/runners` は 1187 → 2091 行になり、**警告帯に入った**。Setup タブ（Issue #8）が `n` / `D` / `u` の引き渡し（`keys.go` の `openSetup` / `setupBlocked`）を足したことで 2164 行（残り -164 行）まで伸びている。増分の大半はサービス制御の検証（発行コマンド列・確認の経路・一括操作・可否の再判定・詳細画面からの起点）で、Logs タブ（Issue #9）が足した `l` の経路もここに乗る。**分割せず警告帯に入ることを選んだのは `ui/page/disk` と同じ判断である**（上記）。サービス制御の配線と Logs タブのマージを 1 つの差分で行っており、そこへパッケージ移動を混ぜるとレビューで「どちらが壊したか」を切り分けられなくなる。エラー境界（2200 行）までは 36 行しかなく、`page/runners/rowview` を切り出して 2018 行へ戻した。**その後 Issue #107 が本節の指示どおりの削減を実施し、2018 行から 1983 行（残り 17 行）まで空けた。** `runners/helper_test.go` が持っていた `findChrome`（束を辿る再帰）と `collect`（Msg の平坦化）はどちらも `pagetest.ChromeOf` / `pagetest.Msgs` の写しだったので捨てた。**そのとき `pagetest.ChromeOf` の側にも欠陥が見つかった**——「1 段だけ展開すればよい（ChromeMsg が入れ子の奥から出てくることは無い）」という前提が成り立たず、絞り込みを始める `/` では page 自身の `ChromeMsg` と部品の返した束がもう 1 段深い形になる。写しの側だけが正しく辿っていたので、共有の道具を再帰へ直した（見つかった時点で打ち切るので、点滅の `Cmd` を踏まないという性質は変えていない）。
 
@@ -1437,3 +1443,5 @@ Issue #31 で `table_test.go` の空振りしていたテスト（`View() != ""`
 | 1.62 | 2026-08-24 | `feat/#1` を取り込み、1.49（Issue #96 / PR #115）と重なった箇所を解決した。共有部品の列挙に `page/diskclean` / `page/configmodal` / `page/setupmodal` を追加（`TestSharedPackagesMatchDoc` が要求する）。1.49 が Disk / Setup の**将来の**切り出し手順をネスト（`page/disk/clean` / `page/setup/modal`）へ改めていたが、その切り出しは Issue #102 / #105 が**フラットな名前で実施済み**であり、受け入れ条件が `shared` への登録を含んでいたため、当該節は実施結果の記述で置き換えた（配置基準の節に例外として理由を明記してある）。行数表と散文を合流後の実測へ再更新（`page/pagetest` 1696 → 1744 ほか） | 2 つの sweep が同じ文書の同じ節を並行して直したため。1.49 の手順は「これから切り出す場合」の指針で、既に実施済みの節に残すと、次の Issue が完了済みの作業をもう一度探すことになる。行数は両ブランチの変更を合算した値になるので、どちらの表をそのまま採っても実測とずれる |
 | 1.63 | 2026-08-24 | ゲート検証の指摘を反映。`page/configmodal` の節が指していた `modals.go` を実在するファイル（`configmodal/configmodal.go` / `configmodal/approve.go`）へ改めた（1.61 が `formmodal.go` について直したのと同じ乖離が 1 行だけ残っていた）。配置基準の節の利用者の列挙に `page/runnerop` を補い（`page/action` / `page/runnerdetail` の実際の import 元）、`molecule/chromebar` の doc の依存を本番の実態（`atom` / `token`。`lipgloss` は検証のみ）へ直した | 「移動・改名で存在しなくなった識別子を指す」乖離は本 PR が繰り返し是正してきた種類のもので、1 箇所でも残ると次の Issue が実装を探せない。配置基準の列挙は基準そのものの根拠なので、欠けると読み方を誤らせる |
 | 1.64 | 2026-08-24 | 「ディレクトリの行数」を「行数の予算」へ改称し、`#### ファイルの行数` を新設して 1 ファイル 300 行の WARN に対する方針（同じディレクトリの中で責務の境界に沿って分ける／上限は緩めない／ディレクトリの残りを先に見る）と前例を明記。「UI 層の外のディレクトリ」の表を判断の記録があるものだけの 4 行から非 UI の全ディレクトリ（`testdata/` を除く 37 行）へ広げ、残りが 1 桁の 3 件（`internal/setup/tarball` 1 行・`internal/logs` 2 行・`internal/gh` 4 行）を名指しした。実測のずれ 3 件（`ui/page/doctor` 1580 → 1600、`ui/page/diskclean` 363 → 372、`internal/disk` 1927 → 1980）を直した | 本節は「警告帯に入ったディレクトリへ部品を足すときは先に分割の是非を検討すること」を規約として定めながら、**ファイル単位の警告には方針が 1 行も無かった**。Issue #108〜#114 が実際に 7 ファイルを分けた実績があるのに、その判断が本書のどこからも読み取れない。非 UI の表も判断の記録があるディレクトリだけを載せていたため、記録が無いまま残り 1 行まで詰まっている `internal/setup/tarball` が表から消えており、**まさに先に空けるべき場所が見えなかった**。節が「空け方の判断はここに集約する」と宣言している以上、在庫は全件でなければ集約になっていない（Issue #125） |
+| 1.65 | 2026-08-24 | 共有部品の列挙の検査を、段落 1 箇所から**ツリーと実装状況の「実装済み」の行を加えた 3 箇所**へ広げた（`TestDirectoryTreeMatchesShared` / `TestImplementedListCoversSharedPackages` を新設）。検出された乖離として「実装済み」の行に `page/pagetest` を追加。段落の直後に検査対象が 3 箇所であること・書き出しが行頭に 1 度だけ現れる前提であること・ツリーはタブを `page/<tab>/` にまとめ共有部品だけを個別行にすることを明記し、`diskclean` / `setupmodal` / `runnerop` の登録の記述にも「ツリーと実装済み一覧も同時に直すこと」を追記 | `shared` の写しは 3 箇所あるのに検査は段落 1 つしか見ておらず、ツリーと実装済み一覧は**古くなっても緑のまま**だった。実際 `page/pagetest` が実装済み一覧から漏れていた。ツリーは「新しい部品をどこへ置くか」を、実装済み一覧は「その部品が有るか」を最初に引く場所なので、古いと同じ責務のパッケージがもう 1 つ作られる（Issue #130） |
+| 1.66 | 2026-08-24 | 「行数の予算」の 2 つの表を本 PR 後の実測へ更新し（`ui/page/disk` 1943 → 1996・残り 4、`ui/page/pagetest` 1744 → 1937・残り 63、`internal/disk` 1927 → 1980・残り 20）、崩れた降順の並びを直した。`ui/page/disk` の節に、残り 4 行になった経緯（Issue #127 の回帰テスト）と次に触る Issue が先に空けること・採る手の順を追記。`page/pagetest/import_test.go` が 1 ファイル 300 行を超えたため、文書との一致を見る 3 本を `doc_test.go` へ分けた（新設の「ファイルの行数」の方針どおり、同じディレクトリの中で責務の境界に沿って分割） | 表は「実測値」と明記してあり、**この節が次の Issue の読む行数予算の規範である**。並びが崩れると、どこが逼迫しているかを表から読み取れない。残り 4 行を記さないと、次に Disk タブへテストを足す Issue が境界に当たってから気付くことになる（Issue #130 / #127） |
