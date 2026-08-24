@@ -1,9 +1,11 @@
 package config
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/ousiassllc/gsr-helper/internal/appconfig"
+	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/ui/organism"
 	"github.com/ousiassllc/gsr-helper/internal/ui/organism/dialog"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
@@ -53,5 +55,38 @@ func TestSelfConfigTitleStopsSayingFirstRunAfterSave(t *testing.T) {
 	}
 	if contains(m, selfTitleFirst) {
 		t.Errorf("書き込んだ後の見出しが %q のまま: %s", selfTitleFirst, view(m))
+	}
+}
+
+// 対象選択の見出しが runner に限定していないこと（Issue #142）。
+//
+// 一覧の最後の 1 件は runner ではなく gsr-helper 自身である。「runner を選べ」と
+// 読ませると、自身の設定を編集し直しに来た利用者（FR-42）がこの一覧を通り過ぎる
+// ——区切り線の下は視覚的にも本体から切り離されており、なおさら見落としやすい。
+func TestPickerTitleCoversSelfAsWellAsRunners(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name string
+		rs   []runner.Runner
+	}{
+		{name: "runner がいる", rs: []runner.Runner{withTempDir(t, "build01-1", "")}},
+		// 0 台なら一覧は自身の 1 件だけになる（区切り線も出ない）。
+		{name: "runner が 0 台", rs: nil},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			m := newPage(t, tt.rs...)
+			if !contains(m, titlePicker) {
+				t.Fatalf("対象選択の見出しが出ていない: %s", view(m))
+			}
+			if strings.Contains(titlePicker, "runner") {
+				t.Errorf("見出し = %q, want runner に限定しない文言", titlePicker)
+			}
+			if !contains(m, "gsr-helper 自身の設定") {
+				t.Errorf("一覧に自身が並んでいない: %s", view(m))
+			}
+		})
 	}
 }
