@@ -8,6 +8,7 @@
 // ProgressRow）は、タブとダイアログが増えるたびに種類が増える。
 //
 // 依存は atom / token / lipgloss だけで、**molecule も molecule/listrow も参照
-// しない。** 組み合わせるのは ui/chrome と ui/template である。同階層参照の禁止に
-// 例外を増やさないため、逆向き（molecule → chromebar）も作らない。
+// しない。** 組み合わせるのは ui/chrome（3 本すべて）と ui/tabset（TabView を組む）の
+// 2 つである。同階層参照の禁止に例外を増やさないため、逆向き（molecule → chromebar）も
+// 作らない。
 package chromebar
