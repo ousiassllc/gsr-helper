@@ -227,3 +227,56 @@ func TestApplyCanceled(t *testing.T) {
 		t.Error("キャンセル後に削除してしまった")
 	}
 }
+
+// cancelAfter は Err() が n 回目の呼び出しから context.Canceled を返す Context。
+// removeTree が再帰の各段の入口で ctx.Err() を見ることを、実時間のタイミングに
+// 依存せず固定するために使う。
+type cancelAfter struct {
+	context.Context
+
+	calls *int
+	n     int
+}
+
+func (c cancelAfter) Err() error {
+	*c.calls++
+	if *c.calls >= c.n {
+		return context.Canceled
+	}
+	return nil
+}
+
+// TestRemoveTreeCancelsInsideOneTarget は打ち切りの粒度が「対象と対象の間」ではなく
+// 「再帰の各段」であることを固定する（Issue #123）。
+//
+// diskclean.Job.Stop の設計判断（終了時にだけ打ち切る）は、打ち切ると消えかけのツリー
+// が残りうるという前提の上に乗っている。粒度を対象境界へ退化させる変更が入ると、
+// その doc コメントと docs/architecture/data-model.md の「削除の途中でキャンセルされた
+// 対象は失敗として 1 レコード記録される」がどちらも根拠を失う。
+func TestRemoveTreeCancelsInsideOneTarget(t *testing.T) {
+	target := filepath.Join(t.TempDir(), "tree")
+	mkFile(t, filepath.Join(target, "a.log"), 2)
+	mkFile(t, filepath.Join(target, "b.log"), 2)
+
+	// os.ReadDir は名前順なので、1 回目が removeTree(tree)、2 回目が a.log、
+	// 3 回目が b.log にあたる。3 回目で打ち切る。
+	calls := 0
+	ctx := cancelAfter{Context: context.Background(), calls: &calls, n: 3}
+
+	err := removeTree(ctx, target)
+	if err == nil {
+		t.Fatal("removeTree がエラーを返さなかった")
+	}
+	if !strings.Contains(err.Error(), "削除を中断しました") {
+		t.Errorf("エラー文言 = %q, want 中断が分かる文言", err.Error())
+	}
+	if exists(filepath.Join(target, "a.log")) {
+		t.Error("対象の途中で打ち切れていない（1 件目が消えていない）")
+	}
+	if !exists(filepath.Join(target, "b.log")) {
+		t.Error("打ち切ったのに 2 件目まで消えている")
+	}
+	if !exists(target) {
+		t.Error("打ち切ったのに対象の根まで消えている")
+	}
+}
