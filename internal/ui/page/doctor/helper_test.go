@@ -86,9 +86,9 @@ func deliver(t *testing.T, m Model, rs []dom.CheckResult) (Model, tea.Cmd) {
 func chromeOf(t *testing.T, cmd tea.Cmd) page.ChromeMsg {
 	t.Helper()
 
-	got, ok := cmdtest.ChromeOf(cmd)
-	if !ok {
-		t.Fatal("ChromeMsg が発行されていない（親が状態行とフッタを更新できない）")
+	got, err := cmdtest.ChromeOf(cmd, cmdtest.CmdTimeout)
+	if err != nil {
+		t.Fatalf("ChromeMsg を取り出せない（親が状態行とフッタを更新できない）: %v", err)
 	}
 	return got
 }

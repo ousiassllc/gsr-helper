@@ -20,7 +20,7 @@ import (
 func openTabMsg(t *testing.T, cmd tea.Cmd) (page.OpenTabMsg, bool) {
 	t.Helper()
 
-	for _, msg := range cmdtest.Msgs(cmd) {
+	for _, msg := range cmdtest.MustMsgs(cmd, cmdtest.CmdTimeout) {
 		if got, ok := msg.(page.OpenTabMsg); ok {
 			return got, true
 		}

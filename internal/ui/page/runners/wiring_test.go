@@ -75,12 +75,12 @@ func TestRegisterCmdReachesParentOnFirstState(t *testing.T) {
 	}
 
 	next, cmd := step(t, m, st)
-	if !attached(cmdtest.Msgs(cmd)) {
+	if !attached(cmdtest.MustMsgs(cmd, cmdtest.CmdTimeout)) {
 		t.Fatal("登録が返した Cmd が最初の共有状態で流れていない")
 	}
 
 	// 共有状態は 3 秒ごとに届く。2 周目以降で流し直さない。
-	if _, again := step(t, next, st); attached(cmdtest.Msgs(again)) {
+	if _, again := step(t, next, st); attached(cmdtest.MustMsgs(again, cmdtest.CmdTimeout)) {
 		t.Error("登録が返した Cmd が周期ごとに再実行されている")
 	}
 }
@@ -141,12 +141,12 @@ func TestResultMsgDoesNotReturnToModal(t *testing.T) {
 	}
 
 	// page が受けたときに親へ返すのは、モーダルの開閉を伝える ChromeMsg だけである。
-	msgs := cmdtest.Msgs(cmd)
-	if len(msgs) != 1 {
-		t.Fatalf("決定を受けて発行された Msg = %v, want ChromeMsg 1 件", msgs)
+	emitted := cmdtest.MustMsgs(cmd, cmdtest.CmdTimeout)
+	if len(emitted) != 1 {
+		t.Fatalf("決定を受けて発行された Msg = %v, want ChromeMsg 1 件", emitted)
 	}
-	if _, ok := msgs[0].(page.ChromeMsg); !ok {
-		t.Errorf("決定を受けて発行された Msg = %T, want page.ChromeMsg", msgs[0])
+	if _, ok := emitted[0].(page.ChromeMsg); !ok {
+		t.Errorf("決定を受けて発行された Msg = %T, want page.ChromeMsg", emitted[0])
 	}
 }
 

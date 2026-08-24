@@ -141,9 +141,9 @@ func TestRunnerKeysOpenSetupTab(t *testing.T) {
 			a := newAppWithRunner(f)
 
 			a, cmd := update(a, press(k))
-			open, ok := pagetest.OpenTabOf(cmd)
-			if !ok {
-				t.Fatal("page.OpenTabMsg が発行されていない")
+			open, err := pagetest.OpenTabOf(cmd)
+			if err != nil {
+				t.Fatalf("page.OpenTabMsg を取り出せない: %v", err)
 			}
 			if open.Title != page.TabSetup {
 				t.Errorf("移動先 = %q, want %q", open.Title, page.TabSetup)

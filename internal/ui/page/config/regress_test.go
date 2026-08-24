@@ -123,7 +123,9 @@ func TestUnchangedLabelsAreNotWritten(t *testing.T) {
 		kind: edit.KindLabels, dir: r.Dir,
 		labels: []string{"self-hosted", "Linux", "X64", "gpu"}, groups: nil, err: nil,
 	})
-	cmdtest.RunAll(cmd)
+	if err := cmdtest.RunAll(cmd, cmdtest.CmdTimeout); err != nil {
+		t.Fatalf("フォームを開く Cmd を流せない: %v", err)
+	}
 
 	if m.vals.Labels != "gpu" {
 		t.Fatalf("フォームの初期値 = %q, want gpu（予約ラベルは除く）", m.vals.Labels)
@@ -179,7 +181,7 @@ func TestFilteringSwallowsGlobalKeys(t *testing.T) {
 	}
 
 	_, cmd := send(t, m, pagetest.Press("q"))
-	for _, msg := range cmdtest.Msgs(cmd) {
+	for _, msg := range cmdtest.MustMsgs(cmd, cmdtest.CmdTimeout) {
 		if _, ok := msg.(page.GlobalKeyMsg); ok {
 			t.Error("絞り込み中の打鍵が親へ差し戻された")
 		}

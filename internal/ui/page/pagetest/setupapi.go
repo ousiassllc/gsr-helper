@@ -195,12 +195,15 @@ func FakeOf(st page.StateMsg) (*exec.Fake, bool) {
 }
 
 // ChromeAfter は領域を配り直し、そのとき発行された状態行とフッタを返す。
+// 発行されていなければ cmdtest.ErrNotFound、戻らない Cmd で辿り切れなければ
+// cmdtest.ErrCmdTimeout を返す（ChromeOf の返しをそのまま渡す）。
 //
 // 状態行は Cmd としてしか外へ出ない（page.ChromeMsg）ため、読むには何か 1 つ
 // Msg を配る必要がある。表示を変えない tea.WindowSizeMsg を使う。
-func ChromeAfter(m tea.Model) (page.ChromeMsg, bool) {
+func ChromeAfter(m tea.Model) (page.ChromeMsg, error) {
 	_, cmd := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
-	return cmdtest.ChromeOf(cmd)
+
+	return cmdtest.ChromeOf(cmd, cmdtest.CmdTimeout)
 }
 
 // RemoveRequest は runner の削除を一覧側から依頼する Msg を返す。

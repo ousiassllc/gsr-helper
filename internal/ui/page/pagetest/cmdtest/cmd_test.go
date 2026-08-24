@@ -1,0 +1,151 @@
+package cmdtest_test
+
+import (
+	"errors"
+	"fmt"
+	"strings"
+	"testing"
+	"time"
+
+	tea "charm.land/bubbletea/v2"
+
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest/cmdtest"
+)
+
+// 戻らない Cmd を含む束でも RunAll が戻ること（Issue #150）。
+//
+// 素で走らせていたころは束の途中で止まり、壊れ方が失敗ではなくハングだった。
+// CI では `go test` の既定のタイムアウト（10 分）ぶんの原因の分からない停止に
+// 見えるため、諦めたことを error で返させる。
+func TestRunAllGivesUpOnBlockedCmd(t *testing.T) {
+	t.Parallel()
+
+	ran := 0
+	err := cmdtest.RunAll(tea.Batch(
+		blocked(),
+		func() tea.Msg { ran++; return marker{n: 1} },
+	), 10*time.Millisecond)
+
+	if !errors.Is(err, cmdtest.ErrCmdTimeout) {
+		t.Fatalf("err = %v, want %v", err, cmdtest.ErrCmdTimeout)
+	}
+	// 1 本諦めても残りは走らせる（走らせること自体が RunAll の目的である）。
+	if ran != 1 {
+		t.Errorf("諦めた後に走った Cmd = %d 本, want 1", ran)
+	}
+}
+
+// 戻る Cmd だけの束では RunAll が error を返さず、すべて走らせること。
+//
+// 待ち時間切れを常に返すようになると、諦めたかどうかを呼び出し側が見分けられなくなる
+// （RunAll を呼ぶ側は「後始末が起きたか」をこの error だけで判断する）。
+func TestRunAllRunsEveryCmdWhenNoneBlocks(t *testing.T) {
+	t.Parallel()
+
+	ran := 0
+	err := cmdtest.RunAll(tea.Batch(
+		func() tea.Msg { ran++; return marker{n: 1} },
+		func() tea.Msg { ran++; return marker{n: 2} },
+	), 10*time.Millisecond)
+
+	if err != nil {
+		t.Fatalf("err = %v, want nil", err)
+	}
+	if ran != 2 {
+		t.Errorf("走った Cmd = %d 本, want 2", ran)
+	}
+}
+
+// 戻らない Cmd を含む束でも Msgs が戻り、残りの Msg は落とさないこと（Issue #150）。
+//
+// **諦めたことを error で返すのが要点である。** 黙って欠かすと、届かなかった Msg を
+// 呼び出し側が「発行されていない」と読み、実際には無い配送の欠落を疑う失敗
+// メッセージが出る（Issue #140 / #145 と同じ取り違え）。
+func TestMsgsGivesUpOnBlockedCmdAndKeepsTheRest(t *testing.T) {
+	t.Parallel()
+
+	got, err := cmdtest.Msgs(tea.Batch(
+		func() tea.Msg { return marker{n: 1} },
+		blocked(),
+		func() tea.Msg { return marker{n: 2} },
+	), 10*time.Millisecond)
+
+	if !errors.Is(err, cmdtest.ErrCmdTimeout) {
+		t.Fatalf("err = %v, want %v", err, cmdtest.ErrCmdTimeout)
+	}
+	want := []marker{{n: 1}, {n: 2}}
+	if len(got) != len(want) {
+		t.Fatalf("辿れた Msg = %v, want %v", got, want)
+	}
+	for i, w := range want {
+		if got[i] != tea.Msg(w) {
+			t.Errorf("Msg[%d] = %v, want %v", i, got[i], w)
+		}
+	}
+}
+
+// 戻る Cmd だけの束では Msgs が error を返さないこと。
+//
+// 待ち時間切れを常に返すようになると、呼び出し側の t.Fatalf がすべて発火して
+// 「諦めた」と「そもそも Msg が無い」の区別が付かなくなる。
+func TestMsgsReturnsNoErrorWhenEveryCmdReturns(t *testing.T) {
+	t.Parallel()
+
+	got, err := cmdtest.Msgs(assertNested(t, tea.Batch(
+		func() tea.Msg { return marker{n: 1} },
+		tea.Batch(
+			func() tea.Msg { return marker{n: 2} },
+			func() tea.Msg { return marker{n: 3} },
+		),
+	)), 10*time.Millisecond)
+	if err != nil {
+		t.Fatalf("err = %v, want nil", err)
+	}
+	if len(got) != 3 {
+		t.Errorf("辿れた Msg = %v, want 3 件（入れ子の束も辿る）", got)
+	}
+}
+
+// 辿り切れない束を渡された MustMsgs が panic で止まること（Issue #150）。
+//
+// **止めるのが要点である。** 黙って欠かすと、辿れなかった Msg を呼び出し側が
+// 「発行されていない」と読む assertion がすべて満たされて静かに緑になる。諦めるかを
+// 呼び出し側が決めたい場合のために Msgs が別にあるので、こちらは前提が破れたことを
+// 呼び出し側の組み立ての誤りとして扱う。
+func TestMustMsgsPanicsWhenACmdNeverReturns(t *testing.T) {
+	t.Parallel()
+
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Error("戻らない Cmd を含む束で panic していない（静かに欠けたまま緑になる）")
+
+			return
+		}
+		// 諦めたことを述べているかまで見る。理由の違う panic（nil 参照など）を
+		// 拾っても緑になると、この検証は panic の有無しか押さえない。
+		if got := fmt.Sprint(r); !strings.Contains(got, "Cmd の束を辿れない") {
+			t.Errorf("panic の内容 = %q, 諦めたことを述べていない", got)
+		}
+	}()
+
+	cmdtest.MustMsgs(tea.Batch(
+		func() tea.Msg { return marker{n: 1} },
+		blocked(),
+	), 10*time.Millisecond)
+}
+
+// 束をすべて辿れたときは MustMsgs が panic しないこと。
+//
+// 常に止まるようになると、前提を守っている呼び出し側まで巻き添えで落ちる。
+func TestMustMsgsDoesNotPanicWhenEveryCmdReturns(t *testing.T) {
+	t.Parallel()
+
+	got := cmdtest.MustMsgs(tea.Batch(
+		func() tea.Msg { return marker{n: 1} },
+		func() tea.Msg { return marker{n: 2} },
+	), 10*time.Millisecond)
+	if len(got) != 2 {
+		t.Errorf("辿れた Msg = %v, want 2 件", got)
+	}
+}

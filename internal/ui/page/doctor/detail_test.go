@@ -41,7 +41,7 @@ func detailModal(t *testing.T, r dom.CheckResult) modal {
 func recheckOf(t *testing.T, cmd tea.Cmd) (RecheckMsg, bool) {
 	t.Helper()
 
-	for _, msg := range cmdtest.Msgs(cmd) {
+	for _, msg := range cmdtest.MustMsgs(cmd, cmdtest.CmdTimeout) {
 		tab, ok := msg.(page.TabMsg)
 		if !ok {
 			continue

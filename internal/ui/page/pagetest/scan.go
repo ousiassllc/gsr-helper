@@ -12,7 +12,7 @@ import (
 // 親 Model の検証は「page がキーを閉じ込めたか、親へ差し戻したか」で合否が決まるため、
 // この判定を取りこぼすと閉じ込めが壊れていてもテストが緑になる。
 //
-// **束の中の Cmd はすべて実行する**（Msgs）。「差し戻しは無い」という結論は形でも
+// **束の中の Cmd はすべて実行する**（MustMsgs）。「差し戻しは無い」という結論は形でも
 // 時間でも安全には出せない。
 //
 // 形では判らない。tea.Batch は Cmd が 1 本になると束を畳むため、絞り込み入力中の
@@ -27,7 +27,9 @@ import (
 // 向きが「黙って緑」である以上 Issue #31 の主題に反する）。
 //
 // **走査する Cmd はすべて有限時間で返ることが前提。** 長寿命の購読を Cmd で返す page
-// （Logs タブなど）を親のテストに載せるときは、この走査を通さないこと。
+// （Logs タブなど）を親のテストに載せるときは、この走査を通さないこと。前提が破れたら
+// cmdtest.CmdTimeout で諦めて panic で止める（cmdtest.MustMsgs）——素で走らせていたころは
+// そこで止まり、壊れ方が失敗ではなくハングになった（Issue #150）。
 //
 // 代償は絞り込み入力中の打鍵ごとに一覧のカーソル点滅（約 0.5 秒）を待つことである。
 // **意図して受け入れている**（回帰ガードが取りこぼしを成功と区別できないより遅いほうが
@@ -40,7 +42,7 @@ func ScanKey(cmd tea.Cmd) (page.ChromeMsg, page.GlobalKeyMsg, bool) {
 		global    page.GlobalKeyMsg
 		hasGlobal bool
 	)
-	for _, msg := range cmdtest.Msgs(cmd) {
+	for _, msg := range cmdtest.MustMsgs(cmd, cmdtest.CmdTimeout) {
 		switch m := msg.(type) {
 		case page.ChromeMsg:
 			if !hasChrome {

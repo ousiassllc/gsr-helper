@@ -52,51 +52,56 @@ type marker struct{ n int }
 // isMarker は marker かを返す。
 func isMarker(m tea.Msg) bool { _, is := m.(marker); return is }
 
-// 待ち時間切れと「目当ての Msg が無い」を区別して返すこと（Issue #140）。
+// nestTimeout は assertNested が束を評価する上限。
 //
-// どちらを返すかで次に見る場所が正反対になる。ErrNotFound は Msg を出す側の
-// 判断（差分が無いなど）を、ErrCmdTimeout は機械の混み具合を疑う合図である。
-func TestFindMsgTellsTimeoutApartFromMissingMsg(t *testing.T) {
-	t.Parallel()
+// **速さの検証ではないので負荷の側へ倒す**（run.go の CmdTimeout と同じ考え方）。
+// ここで待つ Cmd は即座に戻るものだけであり、締め切りが効くのは平坦化された束の
+// 最後の要素が戻らない Cmd だったときだけである。詰めると `make check`（-race で
+// 全パッケージを同時に実行）の負荷でだけ落ちる不安定なテストになる（Issue #140 で
+// 3 秒の締め切りが使い切られた前例がある）。CmdTimeout の 30 秒より十分短ければ
+// 「ハングではなく失敗で止める」という目的は果たせる。
+const nestTimeout = 2 * time.Second
 
-	for _, tt := range []struct {
-		name string
-		cmd  tea.Cmd
-		want error
-	}{
-		{
-			name: "Msg が本当に無ければ見つからない",
-			cmd:  func() tea.Msg { return struct{}{} },
-			want: cmdtest.ErrNotFound,
-		},
-		{name: "戻らない Cmd だけなら待ち時間切れ", cmd: blocked(), want: cmdtest.ErrCmdTimeout},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			if _, err := cmdtest.FindMsg(tt.cmd, 10*time.Millisecond, isMarker); !errors.Is(err, tt.want) {
-				t.Fatalf("err = %v, want %v", err, tt.want)
-			}
-		})
-	}
-}
-
-// 1 本諦めても束の残りを辿ること（Issue #140）。
+// assertNested は cmd が入れ子の束（束の最後の要素がまた束）であることを確かめて cmd を返す。
 //
-// 待ち時間切れで打ち切ると、戻らない Cmd が先に並んだ束で目当てを取りこぼす。
-// 取りこぼしは「そもそも Msg が出ていない」と同じ見た目になる。
-func TestFindMsgKeepsScanningAfterATimeout(t *testing.T) {
-	t.Parallel()
+// **tea.Batch は非 nil の Cmd が 1 本だけなら束を作らずその Cmd を返す**
+// （bubbletea の compactCmds）。内側の Batch へ 1 本しか渡さない tea.Batch(a, tea.Batch(b)) は
+// 平坦な 2 要素の束に化けるため、束を再帰的に辿る経路（chromeOf / collectMsgs）を
+// 1 段も通らないまま緑になる。入れ子であることをここで固定する。
+//
+// **最後の要素しか実行しない。** 束の Cmd を呼んでも中の Cmd は走らず並びが返るだけ
+// なので、戻らない Cmd を前に置いた束でも安全に確かめられる——内側の束は末尾に置くこと。
+//
+// **評価は RunCmd を通す**（run.go の「諦める判断は RunCmd に集める」）。平坦化されて
+// 最後の要素が呼び出し側の Cmd に化けるのがここで捕まえたい壊れ方そのものであり、
+// 素で呼ぶとその Cmd が戻らないときに失敗ではなくハングになる（Issue #150）。
+func assertNested(t *testing.T, cmd tea.Cmd) tea.Cmd {
+	t.Helper()
 
-	found := func() tea.Msg { return marker{n: 7} }
+	if cmd == nil {
+		t.Fatal("見張りに nil の Cmd を渡している（tea.Batch へ非 nil の Cmd が 1 本も無い）")
+	}
+	msg, err := cmdtest.RunCmd(cmd, nestTimeout)
+	if errors.Is(err, cmdtest.ErrCmdTimeout) {
+		t.Fatalf("外側の束を評価できなかった（%s 以内に戻らない）", nestTimeout)
+	}
+	outer, isBundle := cmdtest.Cmds(msg)
+	if !isBundle {
+		t.Fatal("外側が束になっていない（tea.Batch が Cmd 1 本の束を畳んだ）")
+	}
+	if len(outer) == 0 {
+		t.Fatal("外側の束が空である：入れ子を確かめられない")
+	}
 
-	got, err := cmdtest.FindMsg(tea.Batch(blocked(), found), 10*time.Millisecond, isMarker)
-	if err != nil {
-		t.Fatalf("戻らない Cmd の後ろにある Msg を取れない: %v", err)
+	last, err := cmdtest.RunCmd(outer[len(outer)-1], nestTimeout)
+	if errors.Is(err, cmdtest.ErrCmdTimeout) {
+		t.Fatalf("内側の束を評価できなかった（%s 以内に戻らない）", nestTimeout)
 	}
-	if m, is := got.(marker); !is || m.n != 7 {
-		t.Errorf("見つけた Msg = %#v, want marker{n: 7}", got)
+	if _, nested := cmdtest.Cmds(last); !nested {
+		t.Fatal("内側の束が平坦化されている：束を再帰的に辿る経路を通らない")
 	}
+
+	return cmd
 }
 
 // 束になっていない「戻らない Cmd」を渡しても止まらず、待ち時間切れとして返すこと

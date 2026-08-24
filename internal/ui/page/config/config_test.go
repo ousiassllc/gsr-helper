@@ -91,7 +91,7 @@ func TestBackReturnsToPickerThenRunners(t *testing.T) {
 
 	_, cmd := send(t, m, pagetest.Press("esc"))
 	var opened bool
-	for _, msg := range cmdtest.Msgs(cmd) {
+	for _, msg := range cmdtest.MustMsgs(cmd, cmdtest.CmdTimeout) {
 		if open, ok := msg.(page.OpenTabMsg); ok && open.Title == page.TabRunners {
 			opened = true
 		}

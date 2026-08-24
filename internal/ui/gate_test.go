@@ -24,7 +24,7 @@ import (
 func TestPress1DeliversBubbledKeyWhenNotConfined(t *testing.T) {
 	a := newAppWithRunner(exec.NewFake())
 
-	if _, _, cmd := press1(a, "q"); !isQuit(cmd) {
+	if _, _, cmd := press1(a, "q"); !isQuit(t, cmd) {
 		t.Error("閉じ込めの無い状態で q が親へ届いていない")
 	}
 	if next, _, _ := press1(a, "2"); next.active != 1 {
@@ -71,7 +71,7 @@ func TestConfinesGlobalKeysBeforeChromeArrives(t *testing.T) {
 			}
 
 			// 直後の q で終了しない。
-			if _, _, cmd := press1(a, "q"); isQuit(cmd) {
+			if _, _, cmd := press1(a, "q"); isQuit(t, cmd) {
 				t.Errorf("%sの q でアプリが終了した", name)
 			}
 			// 直後の番号キーでタブも変わらない。1 は選択中のタブ自身なので、誤って
@@ -109,7 +109,7 @@ func TestRefreshDuringDiscoveryShowsNotice(t *testing.T) {
 	if a.disc.Seq() != before {
 		t.Errorf("検出中の r で検出が重なった（seq = %d, want %d）", a.disc.Seq(), before)
 	}
-	if isQuit(cmd) {
+	if isQuit(t, cmd) {
 		t.Fatal("r で終了している")
 	}
 	if !strings.Contains(statusLine(a), "検出中です") {
