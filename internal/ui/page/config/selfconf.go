@@ -20,6 +20,10 @@ import (
 // 現在値の決め方と、承認から書き込みまでの画面の流れだけである。
 
 // selfTitle はフォームの見出し。初回かどうかで変える。
+//
+// **「初回か」は firstRunUnsaved で決める**（openSelfForm）。生の FirstRun で
+// 決めると、このセッションで書き込んだ後に開き直しても「初回設定」のままになる
+// ——設定ファイルはもう存在しており、事実と食い違う（Issue #141）。
 const (
 	selfTitleFirst = "初回設定（gsr-helper 自身の設定）"
 	selfTitleEdit  = "gsr-helper 自身の設定"
@@ -48,7 +52,12 @@ func (m Model) selfConf() appconfig.Config {
 // firstRunUnsaved は設定ファイルがまだ無い状態か（初回起動で未保存）を返す。
 //
 // FirstRun は起動時の判定なので、このセッションで一度書き込んだ後（confSet）は
-// もうファイルがある。差分の基準をどこに置くかは saveSelf が使う。
+// もうファイルがある。差分の基準をどこに置くかは saveSelf が、フォームの見出しを
+// どちらにするかは openSelfForm が、**同じこの述語で**決める（Issue #141）。
+//
+// **「初回か」の答えを 2 つ持たないこと。** 見出しだけが生の FirstRun を見ていた
+// ころは、書き込んだ後のフォームが「初回設定」と名乗りながら差分は保存済みの値を
+// 基準に組む、という食い違いが 1 ファイルの中で同居していた。
 func (m Model) firstRunUnsaved() bool {
 	return m.st.Config.FirstRun && !m.confSet
 }
@@ -61,7 +70,7 @@ func (m *Model) openSelfForm() tea.Cmd {
 	m.vals.Self = edit.NewSelfValues(m.selfConf())
 
 	title := selfTitleEdit
-	if m.st.Config.FirstRun {
+	if m.firstRunUnsaved() {
 		title = selfTitleFirst
 	}
 

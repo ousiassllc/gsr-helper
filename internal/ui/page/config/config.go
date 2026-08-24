@@ -31,7 +31,15 @@ import (
 )
 
 // titlePicker は対象選択の見出し。
-const titlePicker = "設定を編集する runner を選んでください"
+//
+// **runner に限定した文言にしないこと。** 一覧の最後の 1 件は runner ではなく
+// gsr-helper 自身であり（pickerItems）、自身の設定を編集し直す経路（FR-42）は
+// 初回設定ウィザードを除けばこの一覧しかない。「runner を選べ」と読ませると、
+// 設定を直しに来た利用者がこの画面を通り過ぎる（Issue #142）。
+//
+// runner が 0 台なら一覧は自身の 1 件だけになる（区切り線も出ない）ので、
+// 台数に依らず成り立つ言い方であることも要る。
+const titlePicker = "設定の対象を選んでください"
 
 // Model は Config タブ。
 type Model struct {
