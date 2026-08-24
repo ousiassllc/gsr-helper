@@ -2,7 +2,6 @@ package ui
 
 import (
 	"errors"
-	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
 	"image/color"
 	"reflect"
 	"strings"
@@ -16,6 +15,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/ui/discovery"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
 	"github.com/ousiassllc/gsr-helper/internal/ui/template"
 )
 

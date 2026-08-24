@@ -2,13 +2,12 @@ package pagetest
 
 import (
 	"context"
-
 	"fmt"
-	"github.com/ousiassllc/gsr-helper/internal/doctor/check"
 	"os"
 	"path/filepath"
 	"time"
 
+	"github.com/ousiassllc/gsr-helper/internal/doctor/check"
 	"github.com/ousiassllc/gsr-helper/internal/logs"
 	"github.com/ousiassllc/gsr-helper/internal/runner"
 )
