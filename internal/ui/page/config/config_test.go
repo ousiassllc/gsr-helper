@@ -154,9 +154,9 @@ func TestApprovedWriteBacksUpAndAsksApplyMethod(t *testing.T) {
 
 	// 差分の承認。書き込みは Cmd として返る。
 	m, cmd := send(t, m, page.ResultMsg{Kind: configmodal.DiffKind, Msg: dialog.DecidedMsg{Confirmed: true}})
-	done, ok := doneOf(cmd)
-	if !ok {
-		t.Fatal("書き込みの Cmd が返らなかった")
+	done, err := doneOf(cmd)
+	if err != nil {
+		t.Fatalf("書き込みの結果を取れない: %v", err)
 	}
 	if done.err != nil {
 		t.Fatalf("書き込みでエラー: %v", done.err)

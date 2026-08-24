@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -87,9 +86,6 @@ func chromeOf(t *testing.T, cmd tea.Cmd) page.ChromeMsg {
 	return got
 }
 
-// timeout は Cmd の完了を待つ上限。
-const timeout = 3 * time.Second
-
 // readFile は path の内容を返す。
 func readFile(path string) (string, error) {
 	b, err := os.ReadFile(path)
@@ -136,35 +132,34 @@ func fileAsDir(t *testing.T) string {
 //
 // doneOf と違って TabMsg を剥がさない。宛先は発行元のタブではなく親であり、
 // page.Do で包まないことがこの Msg の要件だからである（page.ConfigSaved の doc）。
-func savedOf(cmd tea.Cmd) (page.ConfigSavedMsg, bool) {
-	for _, c := range pagetest.Expand(cmd) {
-		msg, ok := pagetest.RunCmd(c, timeout)
-		if !ok {
-			continue
-		}
-		if saved, is := msg.(page.ConfigSavedMsg); is {
-			return saved, true
-		}
+func savedOf(cmd tea.Cmd) (page.ConfigSavedMsg, error) {
+	msg, err := pagetest.FindMsg(cmd, pagetest.CmdTimeout, func(m tea.Msg) bool {
+		_, is := m.(page.ConfigSavedMsg)
+		return is
+	})
+	if err != nil {
+		return page.ConfigSavedMsg{}, err
 	}
-	return page.ConfigSavedMsg{}, false
+	return msg.(page.ConfigSavedMsg), nil
 }
 
 // doneOf は Cmd の束から書き込み・反映の結果を取り出す。
 //
 // 束（tea.Batch）で返るのは chrome の更新と処理本体が同時に流れるためで、
 // 本体だけを取り出して結果を見る。
-func doneOf(cmd tea.Cmd) (doneMsg, bool) {
-	for _, c := range pagetest.Expand(cmd) {
-		msg, ok := pagetest.RunCmd(c, timeout)
-		if !ok {
-			continue
+func doneOf(cmd tea.Cmd) (doneMsg, error) {
+	msg, err := pagetest.FindMsg(cmd, pagetest.CmdTimeout, func(m tea.Msg) bool {
+		if tab, wrapped := m.(page.TabMsg); wrapped {
+			m = tab.Msg
 		}
-		if tab, wrapped := msg.(page.TabMsg); wrapped {
-			msg = tab.Msg
-		}
-		if done, is := msg.(doneMsg); is {
-			return done, true
-		}
+		_, is := m.(doneMsg)
+		return is
+	})
+	if err != nil {
+		return doneMsg{}, err
 	}
-	return doneMsg{text: "", err: nil}, false
+	if tab, wrapped := msg.(page.TabMsg); wrapped {
+		msg = tab.Msg
+	}
+	return msg.(doneMsg), nil
 }

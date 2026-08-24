@@ -86,8 +86,8 @@ func AdvanceQuick(m tea.Model, cmd tea.Cmd, rounds int, timeout time.Duration) t
 
 // msgsWithin は Msgs と同じ平坦化を、1 本あたり timeout で諦めながら行う。
 func msgsWithin(cmd tea.Cmd, timeout time.Duration) []tea.Msg {
-	msg, ok := RunCmd(cmd, timeout)
-	if !ok {
+	msg, err := RunCmd(cmd, timeout)
+	if err != nil {
 		return nil
 	}
 	inner, isBundle := Cmds(msg)

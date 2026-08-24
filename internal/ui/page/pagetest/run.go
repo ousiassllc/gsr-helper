@@ -21,24 +21,50 @@ import (
 // doc）、import するとテスト用のフラグが本番のバイナリ側の依存に現れる。合否の判定は
 // 呼び出し側の _test.go に残し、ここは結果と成否だけを返す。
 
-// RunCmd は Cmd を 1 本実行して Msg を返す。timeout 内に戻らなければ偽を返す。
+// CmdTimeout は「必ず戻るはずの Cmd」を待つ上限。
+//
+// **戻りの速い Cmd の速さには効かない。** 締め切りが効くのは戻らない Cmd を諦める
+// までの時間だけなので、負荷の側へ大きく倒してよい。config の helper_test が同じ
+// 用途に 3 秒を使っていたころ、`make check`（-race で全パッケージを同時に実行）では
+// それを使い切ることがあり、自己設定テストが散発的に落ちた（Issue #140）。
+//
+// **何が 3 秒を使い切ったのかは特定していない。** 分かっているのは締め切りの側で
+// 落ちていたこと（その定数を縮めると同じ行・同じメッセージで落ちる）までで、
+// goroutine の遅れ・ファイル I/O・-race の負荷のどれが効いたかは切り分けていない。
+//
+// **購読の待ち受けにはこれを使わないこと。** 行が届くまで戻らない Cmd を諦めるのが
+// 目的の待ちは、諦めるまでの時間がそのままテストの所要時間になる。そちらは呼び出し
+// 側が短い値を決める（logs の cmdTimeout）。
+const CmdTimeout = 30 * time.Second
+
+// ErrNoCmd は走らせる Cmd が無かったことを表す。
+var ErrNoCmd = errors.New("走らせる Cmd が無い")
+
+// ErrCmdTimeout は Cmd が待ち時間内に戻らなかったことを表す。
+//
+// **「Msg が出なかった」と区別できることが要件である。** 両方を 1 つの偽で返して
+// いたころは、待ち時間切れを呼び出し側が「そもそも Cmd が出ていない」と読み、
+// 実際には無い差分の判定を疑う失敗メッセージが出ていた（Issue #140）。
+var ErrCmdTimeout = errors.New("待ち時間内に Cmd が戻らない")
+
+// RunCmd は Cmd を 1 本実行して Msg を返す。timeout 内に戻らなければ ErrCmdTimeout を返す。
 //
 // 戻らない Cmd がありうるのが前提である。購読の待ち受け（行が届くまで戻らない Cmd）は
 // **戻らないこと自体が正しい**ので、諦めて次へ進むための時間を呼び出し側が決める。
 //
 // チャネルに余裕を持たせるのは、諦めたあとに Cmd が戻ってきても送信で詰まらせない
 // ためである（購読を畳めば必ず戻る）。
-func RunCmd(cmd tea.Cmd, timeout time.Duration) (tea.Msg, bool) {
+func RunCmd(cmd tea.Cmd, timeout time.Duration) (tea.Msg, error) {
 	if cmd == nil {
-		return nil, false
+		return nil, ErrNoCmd
 	}
 	ch := make(chan tea.Msg, 1)
 	go func() { ch <- cmd() }()
 	select {
 	case msg := <-ch:
-		return msg, true
+		return msg, nil
 	case <-time.After(timeout):
-		return nil, false
+		return nil, ErrCmdTimeout
 	}
 }
 
@@ -120,8 +146,8 @@ func Pump[M any](
 		next := queue[0]
 		queue = queue[1:]
 
-		msg, ok := RunCmd(next, timeout)
-		if !ok {
+		msg, err := RunCmd(next, timeout)
+		if err != nil {
 			continue
 		}
 		if inner, isBatch := Cmds(msg); isBatch {
@@ -183,4 +209,55 @@ func ChromeMsgs(cmd tea.Cmd) []page.ChromeMsg {
 		}
 	}
 	return out
+}
+
+// ErrNotFound は束を最後まで辿っても want を満たす Msg が無かったことを表す。
+//
+// ErrCmdTimeout と分けているのは、**呼び出し側の読み方が正反対だから**である
+// ——こちらは Msg を出す側の判断（差分が無いなど）を、待ち時間切れは機械の
+// 混み具合を疑う合図になる（Issue #140）。
+var ErrNotFound = errors.New("目当ての Msg が束に無い")
+
+// FindMsg は束の Cmd を順に走らせ、want を満たす最初の Msg を返す。
+//
+// **待ち時間切れで打ち切らない。** 束には戻らない Cmd が混じりうるので、1 本
+// 諦めても残りを辿る。目当てが最後まで見つからなかったときだけ、諦めた本数が
+// あれば ErrCmdTimeout を、無ければ ErrNotFound を返す——「見つからなかった」の
+// 理由をここで確定させないと、呼び出し側の失敗メッセージが取り違える。
+//
+// **束の展開にも締め切りを掛ける。** Expand は先頭の Cmd を締め切り無しで走らせる
+// ので、束になっていない戻らない Cmd を渡すとそこで止まる。待ち時間切れを区別して
+// 返すのに、区別する前に止まっては意味がない（Issue #140）。
+//
+// **戻らない Cmd を含む束には向かない。** 目当てが無いときは束を実行しきるので、
+// 購読を持つタブでは諦めるだけで timeout ぶん掛かる。そちらは Pump を使うこと。
+func FindMsg(cmd tea.Cmd, timeout time.Duration, want func(tea.Msg) bool) (tea.Msg, error) {
+	gaveUp := 0
+	queue := []tea.Cmd{cmd}
+	for len(queue) > 0 {
+		c := queue[0]
+		queue = queue[1:]
+
+		msg, err := RunCmd(c, timeout)
+		if errors.Is(err, ErrCmdTimeout) {
+			gaveUp++
+
+			continue
+		}
+		if err != nil {
+			continue
+		}
+		if inner, isBundle := Cmds(msg); isBundle {
+			queue = append(queue, inner...)
+
+			continue
+		}
+		if want(msg) {
+			return msg, nil
+		}
+	}
+	if gaveUp > 0 {
+		return nil, fmt.Errorf("%w（%d 本が %s 以内に戻らなかった）", ErrCmdTimeout, gaveUp, timeout)
+	}
+	return nil, ErrNotFound
 }
