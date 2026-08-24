@@ -3,8 +3,6 @@ package runners
 import (
 	"testing"
 
-	tea "charm.land/bubbletea/v2"
-
 	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/action"
@@ -16,27 +14,15 @@ import (
 // `l`（ログを開く）の結線を検証する。**フッタに出しているキーが実際に何かを起こす**
 // ことを固定する（出したまま結線しないと「押せるが何も起きない」経路になる）。
 
-// openTabMsg は Cmd に含まれるタブ移動の要求を返す。
-func openTabMsg(t *testing.T, cmd tea.Cmd) (page.OpenTabMsg, bool) {
-	t.Helper()
-
-	for _, msg := range cmdtest.MustMsgs(cmd, cmdtest.CmdTimeout) {
-		if got, ok := msg.(page.OpenTabMsg); ok {
-			return got, true
-		}
-	}
-	return page.OpenTabMsg{}, false
-}
-
 // 一覧で l を押すと、その runner のログを Logs タブで開くよう親へ求める。
 func TestLogsKeyRequestsLogsTab(t *testing.T) {
 	st := pagetest.State(80, 16, pagetest.SampleRunner())
 	m, _ := step(t, New(0, st), st)
 
 	_, cmd := step(t, m, pagetest.Press("l"))
-	got, ok := openTabMsg(t, cmd)
-	if !ok {
-		t.Fatal("l を押してもタブ移動を求めていない")
+	got, err := pagetest.OpenTabOf(cmd, cmdtest.CmdTimeout)
+	if err != nil {
+		t.Fatalf("l を押してもタブ移動を求めていない: %v", err)
 	}
 	if got.Title != page.TabLogs {
 		t.Errorf("移動先 = %q, want %q", got.Title, page.TabLogs)
@@ -69,8 +55,8 @@ func TestLogsFromDetailClosesModalAndRequestsTab(t *testing.T) {
 	if next.overlay.Active() {
 		t.Error("ログを開いても詳細画面が開いたままである")
 	}
-	if _, ok := openTabMsg(t, cmd); !ok {
-		t.Error("詳細画面からの決定でタブ移動を求めていない")
+	if _, err := pagetest.OpenTabOf(cmd, cmdtest.CmdTimeout); err != nil {
+		t.Errorf("詳細画面からの決定でタブ移動を求めていない: %v", err)
 	}
 }
 
@@ -85,7 +71,7 @@ func TestLogsKeyIgnoresOrphanRow(t *testing.T) {
 	m, _ := step(t, New(0, st), st)
 
 	_, cmd := step(t, m, pagetest.Press("l"))
-	if _, ok := openTabMsg(t, cmd); ok {
+	if _, err := pagetest.OpenTabOf(cmd, cmdtest.CmdTimeout); err == nil {
 		t.Error("孤児ユニットの行でログを開こうとしている")
 	}
 }

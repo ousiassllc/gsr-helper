@@ -19,7 +19,7 @@ import (
 // 利用者は「待てば必ず空く」と誤解して待ち続ける（FR-07 のドレイン停止の制約）。
 func TestDrainOpensWaiterWithoutConfirm(t *testing.T) {
 	st, f := opsState(sampleRunner("build01-1", true))
-	m := newOpsModel(t, st)
+	m, _ := newModel(t, st)
 
 	// 待機の Cmd は流さない。流すと待機がその場で終わってしまい、待機中の画面を
 	// 見られない（対象に Runner.Worker が居ない環境では即座に停止まで進む）。
@@ -52,7 +52,7 @@ func TestDrainOpensWaiterWithoutConfirm(t *testing.T) {
 // 操作が中断そのものになる。
 func TestDrainCancelIssuesNoStop(t *testing.T) {
 	st, f := opsState(sampleRunner("build01-1", true))
-	m := newOpsModel(t, st)
+	m, _ := newModel(t, st)
 
 	// 待機の Cmd を手元に留めたまま esc を打つ。実際の並びと同じく、キャンセルの
 	// あとに待機の Cmd が終わる（svc.Drain は ctx のキャンセルで戻る）状況を作る。
@@ -89,7 +89,7 @@ func TestDrainStopsAfterWaiting(t *testing.T) {
 	scans := 0
 	base := st.ScanProcs
 	st.ScanProcs = func() ([]runner.Process, error) { scans++; return base() }
-	m := newOpsModel(t, st)
+	m, _ := newModel(t, st)
 
 	m = opsSend(t, m, "d")
 
@@ -114,7 +114,7 @@ func TestDrainStopsAfterWaiting(t *testing.T) {
 // 同時に走らせると、待機画面 1 枚ではどの runner を待っているのかを表せない。
 func TestDrainRunsTargetsInOrder(t *testing.T) {
 	st, f := opsState()
-	m := newOpsModel(t, st)
+	m, _ := newModel(t, st)
 
 	m = opsSend(t, m, "space", "j", "space", "d")
 
@@ -145,7 +145,7 @@ func TestDrainWaiterTitleShowsProgress(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			st, _ := opsState()
-			m := newOpsModel(t, st)
+			m, _ := newModel(t, st)
 
 			m = opsSend(t, m, tt.keys[:len(tt.keys)-1]...)
 			// 待機の Cmd は流さない（流すと 1 件目が終わって次の見出しになる）。
@@ -165,7 +165,7 @@ func TestDrainWaiterTitleShowsProgress(t *testing.T) {
 // 待機中もモーダル表示中の規則が働き、グローバルキーは親へ差し戻されない。
 func TestDrainWaiterSwallowsGlobalKeys(t *testing.T) {
 	st, _ := opsState(sampleRunner("build01-1", true))
-	m := newOpsModel(t, st)
+	m, _ := newModel(t, st)
 	next, _ := m.Update(press("d"))
 
 	for _, k := range []string{"q", "1"} {
@@ -186,7 +186,7 @@ func TestDrainWaiterSwallowsGlobalKeys(t *testing.T) {
 // から呼ばれ、そこから tea.Model を触ると競合する。
 func TestDrainWaiterFollowsStateUpdates(t *testing.T) {
 	st, _ := opsState(sampleRunner("build01-1", true))
-	m := newOpsModel(t, st)
+	m, _ := newModel(t, st)
 	next, _ := m.Update(press("d"))
 
 	// 同じ runner のジョブが 1 件終わった周期を配る。

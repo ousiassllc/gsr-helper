@@ -8,7 +8,6 @@ import (
 
 	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
-	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest/cmdtest"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/runners"
 	"github.com/ousiassllc/gsr-helper/internal/ui/token"
@@ -16,7 +15,7 @@ import (
 
 // StateMsg を受けると runner の区画と孤児ユニットの区画の両方に行が入る。
 func TestStateFillsBothSections(t *testing.T) {
-	m, _ := newModel(t, 80, 16)
+	m, _ := newModel(t, testState(80, 16))
 	got := m.View().Content
 	for _, want := range []string{"build01-1", "build01-2", "孤児ユニット", "old01.service"} {
 		if !strings.Contains(got, want) {
@@ -53,7 +52,7 @@ func TestStateMsgEmitsOnlyChrome(t *testing.T) {
 
 // enter で詳細画面が開き、モーダル表示中はグローバルキーを解釈しない。
 func TestEnterOpensModalAndKeepsIt(t *testing.T) {
-	m, c := newModel(t, 80, 16)
+	m, c := newModel(t, testState(80, 16))
 	if c.Modal {
 		t.Fatal("初期状態でモーダルが開いている")
 	}
@@ -81,7 +80,7 @@ func TestEnterOpensModalAndKeepsIt(t *testing.T) {
 // 孤児ユニットの行では詳細画面を開かない（対応するディレクトリが無い）。
 func TestEnterOnOrphanDoesNotOpenModal(t *testing.T) {
 	// G で一覧全体の末尾（孤児ユニットの区画）へ移る。
-	m, _ := newModel(t, 80, 16)
+	m, _ := newModel(t, testState(80, 16))
 	m, c := send(t, m, "G", "enter")
 	if c.Modal {
 		t.Error("孤児ユニットの行で詳細画面が開いている")
@@ -93,7 +92,7 @@ func TestEnterOnOrphanDoesNotOpenModal(t *testing.T) {
 
 // / で絞り込みが始まり、入力中であることを親へ報告する。
 func TestFilterReportsInput(t *testing.T) {
-	m, _ := newModel(t, 80, 16)
+	m, _ := newModel(t, testState(80, 16))
 	m, c := send(t, m, "/")
 	if c.Input != "絞り込み" {
 		t.Errorf("Input = %q, want 絞り込み", c.Input)
@@ -119,7 +118,7 @@ func TestFilterReportsInput(t *testing.T) {
 
 // space で選択が増え、件数を状態行に報告する。
 func TestSpaceSelects(t *testing.T) {
-	m, c := newModel(t, 80, 16)
+	m, c := newModel(t, testState(80, 16))
 	if strings.Contains(c.Status, "選択") {
 		t.Fatalf("初期状態の状態行 = %q, 選択件数が出ている", c.Status)
 	}
@@ -143,12 +142,12 @@ func TestSpaceSelects(t *testing.T) {
 
 // 本体の領域が一覧へ伝わる。幅で列が落ち、高さで行数が収まる。
 func TestBodySizeReachesTable(t *testing.T) {
-	wide, _ := newModel(t, 80, 16)
+	wide, _ := newModel(t, testState(80, 16))
 	if !strings.Contains(wide.View().Content, token.ColVersion) {
 		t.Errorf("幅 80 で VERSION 列が落ちている")
 	}
 
-	narrow, _ := newModel(t, 62, 8)
+	narrow, _ := newModel(t, testState(62, 8))
 	got := narrow.View().Content
 	if strings.Contains(got, token.ColVersion) {
 		t.Errorf("幅 62 で VERSION 列が残っている: %q", got)
@@ -160,7 +159,7 @@ func TestBodySizeReachesTable(t *testing.T) {
 
 // フッタは対象 runner の操作の可否と理由を持つ。
 func TestFooterCarriesReasons(t *testing.T) {
-	_, c := newModel(t, 80, 16)
+	_, c := newModel(t, testState(80, 16))
 	if len(c.Footer) == 0 {
 		t.Fatal("フッタのヒントが空である")
 	}
@@ -171,20 +170,13 @@ func TestFooterCarriesReasons(t *testing.T) {
 	}
 
 	// 孤児ユニットの区画では runner の操作を出さない。
-	_, c = send(t, tea.Model(mustModel(t, 80, 16)), "G")
+	m, _ := newModel(t, testState(80, 16))
+	_, c = send(t, m, "G")
 	for _, h := range c.Footer {
 		if h.Key == "D" {
 			t.Error("孤児ユニットの行で runner の削除キーを出している")
 		}
 	}
-}
-
-// mustModel は共有状態を配った Runners タブを返す。
-func mustModel(t *testing.T, w, h int) tea.Model {
-	t.Helper()
-
-	m, _ := newModel(t, w, h)
-	return m
 }
 
 // モーダル表示中のキーは背後の一覧へ届かない。
@@ -193,7 +185,7 @@ func mustModel(t *testing.T, w, h int) tea.Model {
 // organism.Table の経路は View がモーダルだけを返すため表示では気付けない。
 // 選択件数（状態行）とカーソル位置で、一覧の状態が動いていないことを見る。
 func TestModalKeysDoNotReachList(t *testing.T) {
-	m, _ := newModel(t, 80, 16)
+	m, _ := newModel(t, testState(80, 16))
 	before := cursorRow(t, m)
 
 	m, c := send(t, m, "enter")
@@ -238,7 +230,8 @@ func cursorRow(t *testing.T, m tea.Model) string {
 // 同じフッタの中で移動キーの表記が 2 通り（"j/↓/k/↑" と "j/k"）になる。
 func TestListHintsUseSameKeyNotationAsDetail(t *testing.T) {
 	// 孤児ユニットの区画では runner の操作ではなく一覧の移動を出す。
-	_, c := send(t, tea.Model(mustModel(t, 80, 16)), "G")
+	m, _ := newModel(t, testState(80, 16))
+	_, c := send(t, m, "G")
 	if len(c.Footer) == 0 {
 		t.Fatal("フッタのヒントが空である")
 	}
@@ -248,51 +241,4 @@ func TestListHintsUseSameKeyNotationAsDetail(t *testing.T) {
 	if got := c.Footer[1].Key; got != "/" {
 		t.Errorf("絞り込みのキーの表記 = %q, want %q", got, "/")
 	}
-}
-
-// systemd の管理状態が判定できない runner の行にも注意記号を出す。
-//
-// この状態の runner は「ユニットが無い」と区別できないまま run.sh 直起動として
-// 表示されていた行であり、注意記号もそれで付いていた。管理状態が分からない方が
-// 直起動と分かっているより要注意なので、記号を落としてはならない。
-func TestUnavailableManagedRowIsWarned(t *testing.T) {
-	r := pagetest.UnavailableRunner()
-	st := testState(80, 16)
-	st.Result = runner.Result{Runners: []runner.Runner{r}, OrphanUnits: nil, Warnings: nil}
-
-	m, _ := runners.New(0, st).Update(st)
-	for _, line := range strings.Split(m.View().Content, "\n") {
-		if !strings.Contains(line, r.Config.AgentName) {
-			continue
-		}
-		if !strings.Contains(line, token.IconWarn) {
-			t.Errorf("管理状態が判定できない行 = %q, 注意記号が無い", line)
-		}
-		return
-	}
-	t.Fatal("対象の runner の行が見つからない")
-}
-
-// 状態を取得できなかったユニットは、ユニットが無い runner と SVC 列で書き分ける。
-//
-// systemctl show が失敗したユニットは値の無い状態として渡ってくる（internal/runner の
-// プレースホルダ）。同じ "-" で描くと「サービス登録されていない」と誤読される。
-func TestUnknownServiceStateIsDistinguished(t *testing.T) {
-	st := testState(80, 16)
-	r := sampleRunner("build01-9", false)
-	// systemctl show が失敗したユニットのプレースホルダ（値が無い SvcState）。
-	r.Svc = &runner.SvcState{Unit: r.UnitName}
-	st.Result = runner.Result{Runners: []runner.Runner{r}, OrphanUnits: nil, Warnings: nil}
-
-	m, _ := runners.New(0, st).Update(st)
-	for _, line := range strings.Split(m.View().Content, "\n") {
-		if !strings.Contains(line, "build01-9") {
-			continue
-		}
-		if !strings.Contains(line, token.IconUnknown) {
-			t.Errorf("状態が取れなかった行 = %q, want %q を含む", line, token.IconUnknown)
-		}
-		return
-	}
-	t.Fatal("対象の runner の行が見つからない")
 }

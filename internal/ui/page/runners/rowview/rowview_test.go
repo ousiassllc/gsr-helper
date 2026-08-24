@@ -6,6 +6,7 @@ import (
 
 	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/runners/rowview"
 )
 
@@ -70,5 +71,43 @@ func TestOrphanRowsHaveNoWork(t *testing.T) {
 
 	if got := rows[0].Work; got != "" {
 		t.Errorf("孤児ユニットに work が入っている: %q", got)
+	}
+}
+
+// 行の注意記号（`Warn`）と SVC 列の不明表示（`SvcUnknown`）を検証する。
+//
+// どちらも `warned` / `svcUnknown` が決めており、page/runners のタブ全体を描いて
+// 記号の文字列を探さなくても固定できる。判定そのものはここが持つためである。
+
+// systemd の管理状態が判定できない runner の行にも注意記号を出す。
+//
+// この状態の runner は「ユニットが無い」と区別できないまま run.sh 直起動として
+// 表示されていた行であり、注意記号もそれで付いていた。管理状態が分からない方が
+// 直起動と分かっているより要注意なので、記号を落としてはならない。
+func TestUnavailableManagedRowIsWarned(t *testing.T) {
+	rows := rowview.Runners([]runner.Runner{pagetest.UnavailableRunner()}, page.DiskState{})
+
+	if !rowview.View(rows[0]).Warn {
+		t.Error("管理状態が判定できない行の RunnerView.Warn が偽である（注意記号が出ない）")
+	}
+}
+
+// 状態を取得できなかったユニットは、ユニットが無い runner と SVC 列で書き分ける。
+//
+// systemctl show が失敗したユニットは値の無い状態として渡ってくる（internal/runner の
+// プレースホルダ）。同じ "-" で描くと「サービス登録されていない」と誤読される。
+func TestUnknownServiceStateIsDistinguished(t *testing.T) {
+	unknown := pagetest.SampleRunner()
+	// systemctl show が失敗したユニットのプレースホルダ（値が無い SvcState）。
+	unknown.Svc = &runner.SvcState{Unit: unknown.UnitName}
+
+	rows := rowview.Runners([]runner.Runner{unknown, pagetest.StandaloneRunner()}, page.DiskState{})
+
+	if !rowview.View(rows[0]).SvcUnknown {
+		t.Error("状態が取れなかった行の RunnerView.SvcUnknown が偽である")
+	}
+	// ユニットを持たない runner は「取れなかった」ではない（同じ記号で描かせない）。
+	if rowview.View(rows[1]).SvcUnknown {
+		t.Error("ユニットが無い runner まで状態不明として扱っている")
 	}
 }
