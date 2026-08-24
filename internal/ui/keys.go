@@ -68,7 +68,7 @@ func (a App) handleGlobalKey(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		// _work 使用量も引き直す（Issue #73）。再検出とは別周期にしてあるので、
 		// 明示的な再読み込みが唯一の更新契機である（background.go）。実行中は
 		// 重ねないので、走査中の連打で goroutine は積み上がらない。
-		cmd := tea.Batch(a.disc.Start(a.input()), a.work.Start(a.disc.Result().Runners))
+		cmd := tea.Batch(a.disc.Start(a.input()), a.bg.Work.Start(a.disc.Result().Runners))
 		return a, cmd
 	case key.Matches(press, g.TabNext):
 		return a.moveTab(1)

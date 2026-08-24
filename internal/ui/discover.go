@@ -5,6 +5,7 @@ import (
 
 	"github.com/ousiassllc/gsr-helper/internal/appconfig"
 	"github.com/ousiassllc/gsr-helper/internal/ui/discovery"
+	"github.com/ousiassllc/gsr-helper/internal/ui/startup"
 )
 
 // 検出の駆動のうち、親 Model にしか決められないものだけをここに置く。周期の管理
@@ -38,7 +39,7 @@ func (a *App) applyDiscovered(msg discovery.Msg) tea.Cmd {
 	//
 	// 発行するものが無いときは束ねない。**共有状態の配布だけの Cmd の形を変えない**
 	// ためである（親の検証は 1 段展開で ChromeMsg を拾う）。
-	extra := a.startBackground()
+	extra := a.bg.StartAll(startup.Input{Runners: a.disc.Result().Runners, Caps: a.caps, Exec: a.ex})
 	if len(extra) == 0 {
 		return cmd
 	}

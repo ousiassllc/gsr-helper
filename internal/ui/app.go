@@ -24,6 +24,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/ui/hostreq"
 	"github.com/ousiassllc/gsr-helper/internal/ui/keymap"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
+	"github.com/ousiassllc/gsr-helper/internal/ui/startup"
 	"github.com/ousiassllc/gsr-helper/internal/ui/tabset"
 	"github.com/ousiassllc/gsr-helper/internal/ui/template"
 	"github.com/ousiassllc/gsr-helper/internal/ui/token"
@@ -86,14 +87,11 @@ type App struct {
 	// （起動・Tick・手動の再読み込み）と 1 周期分の入力だけである（discover.go）。
 	disc discovery.State
 
-	// hr は起動時のジョブ実行の前提チェック（FR-44）の件数と進行状況。
-	// work は runner ごとの _work 使用量とその集計の進行状況（Issue #73）。
-	// scopes はトークンの保有スコープと取得の進行状況（Issue #79）。
-	// いずれも駆動の契機だけを親が決め、周期と 1 度きりの管理はサブパッケージが
-	// 持つ（background.go）。
-	hr     hostreq.State
-	work   workscan.State
-	scopes ghscope.State
+	// bg は起動後に 1 度だけ取りに行く共有状態（前提チェック = FR-44、_work
+	// 使用量 = Issue #73、保有スコープ = Issue #79）。駆動の契機だけを親が決め、
+	// 周期と 1 度きりの管理は internal/ui/startup とその下の 3 つの State が
+	// 持つ（Issue #148）。
+	bg startup.State
 }
 
 // tea.Model を実装していることをコンパイル時に確かめる。
@@ -119,8 +117,8 @@ func New(cfg appconfig.Config, caps appconfig.Caps, ex exec.Executor, o Options)
 		dark:   dark,
 		tabs:   tabset.New(caps, ex, keys, styles, dark),
 		chrome: pageChrome(0),
-		// disc/work/scopes はゼロ値のままでよい（起動直後）。
-		hr: hostreq.State{Checks: doctor.Startup(doctor.Default())},
+		// disc と bg の残り（_work / 保有スコープ）はゼロ値のままでよい（起動直後）。
+		bg: startup.State{HostReq: hostreq.State{Checks: doctor.Startup(doctor.Default())}},
 	}
 }
 
@@ -162,16 +160,16 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := a.applyDiscovered(msg)
 		return a, cmd
 	case hostreq.Msg:
-		a.hr.Apply(msg)
+		a.bg.HostReq.Apply(msg)
 		return a, nil
 	case workscan.Msg:
 		// _work 使用量が確定した。共有状態として全タブへ配り直す（Issue #73）。
-		a.work.Apply(msg)
+		a.bg.Work.Apply(msg)
 		cmd := a.distribute()
 		return a, cmd
 	case ghscope.Msg:
 		// 保有スコープが確定した。操作の可否の判定に効く（Issue #79）。
-		a.scopes.Apply(msg)
+		a.bg.Scopes.Apply(msg)
 		cmd := a.distribute()
 		return a, cmd
 	case page.ConfigSavedMsg:
@@ -246,9 +244,9 @@ func (a App) state() page.StateMsg {
 		Audit:  a.opts.Audit,
 		Disk: page.DiskState{
 			Thresholds: a.cfg.DiskThresholds,
-			Work:       a.work.Usage(),
+			Work:       a.bg.Work.Usage(),
 		},
-		Scopes: a.scopes.Scopes(),
+		Scopes: a.bg.Scopes.Scopes(),
 		Setup: page.SetupDeps{
 			Host:     a.opts.Host,
 			Defaults: a.cfg.Defaults,

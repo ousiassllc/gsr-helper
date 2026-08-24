@@ -65,10 +65,10 @@ func newApp(ex exec.Executor) App {
 	// **起動時の前提チェック（FR-44）は既定で走らせない。** 本物の項目は実ホストの
 	// sudo / docker / /etc/group を読むため、親 Model の検証が実行環境の構成で
 	// 揺れる。FR-44 そのものを見るテストは withHostChecks で差し替える。
-	a.hr.Checks = nil
+	a.bg.HostReq.Checks = nil
 	// **保有スコープも本物の GitHub へ出させない。** 束の Cmd をすべて実行する検証
 	// （applyChrome）があるため、塞がないと api.github.com を叩いて Budget ぶん止まる。
-	a.scopes.NewClient = func(context.Context) (*gh.Client, error) {
+	a.bg.Scopes.NewClient = func(context.Context) (*gh.Client, error) {
 		return nil, errors.New("テストでは GitHub へ出ない")
 	}
 	return a
@@ -91,7 +91,7 @@ func newAppWithRunner(ex exec.Executor) App {
 
 // withHostChecks は起動時の前提チェックを差し替えた App を返す。
 func withHostChecks(a App, checks ...doctor.Check) App {
-	a.hr.Checks = checks
+	a.bg.HostReq.Checks = checks
 	return a
 }
 

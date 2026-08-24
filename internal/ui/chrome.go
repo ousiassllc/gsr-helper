@@ -30,7 +30,7 @@ func (a App) chromeView() chrome.View {
 		Tabs:        tabset.Views(a.tabs, a.active),
 		OrphanUnits: len(a.disc.Result().OrphanUnits),
 		Warnings:    len(a.disc.Result().Warnings),
-		HostReq:     a.hr.Bad(),
+		HostReq:     a.bg.HostReq.Bad(),
 		DoctorKey:   a.doctorKey(),
 		Err:         a.disc.Err(),
 		Notice:      a.notice,

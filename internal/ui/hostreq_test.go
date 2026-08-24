@@ -59,8 +59,8 @@ func TestStartupHostRequirementRunsOnceAfterFirstSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("検出に成功した周期でも前提チェックが発行されない（FR-44 が走らない）: %v", err)
 	}
-	if a.hr.Bad() != 1 {
-		t.Errorf("届いた件数 = %d, want 1", a.hr.Bad())
+	if a.bg.HostReq.Bad() != 1 {
+		t.Errorf("届いた件数 = %d, want 1", a.bg.HostReq.Bad())
 	}
 
 	for range 3 {
