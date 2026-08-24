@@ -168,8 +168,13 @@ func Blocked() map[string]func(s *Spy) {
 // **「無い」と「戻らない」を分けて返す。** 1 つの偽で返していると、待ち時間切れを
 // 呼び出し側が「タブを開く指示が出ていない」と読み、実際には無い配線の欠落を疑う
 // （cmdtest.HostReqOf と同じ理由。Issue #150）。
-func OpenTabOf(cmd tea.Cmd) (page.OpenTabMsg, error) {
-	msgs, err := cmdtest.Msgs(cmd, cmdtest.CmdTimeout)
+//
+// **timeout は呼び出し側が決める**（cmdtest.ChromeOf と同じ形。Issue #156）。
+// cmdtest.CmdTimeout を内側で固定していたころは、諦める側を検証する 1 本がそのまま
+// 30 秒かかっていた。諦めるまでの時間がそのまま所要時間になる検証はミリ秒の
+// 締め切りで書くこと。
+func OpenTabOf(cmd tea.Cmd, timeout time.Duration) (page.OpenTabMsg, error) {
+	msgs, err := cmdtest.Msgs(cmd, timeout)
 	for _, msg := range msgs {
 		if open, ok := msg.(page.OpenTabMsg); ok {
 			return open, nil
@@ -197,10 +202,10 @@ func Discovered[M tea.Model](m M, err error) (M, tea.Cmd) {
 }
 
 // TakeHostReq は Cmd の束から起動時の前提チェック（FR-44）の結果を取り込む。
-// 束に含まれていなければ ErrNotFound、束の展開が待ち時間内に戻らなければ
-// ErrCmdTimeout を返す（HostReqOf の返しをそのまま渡す）。
-func TakeHostReq[M tea.Model](m M, cmd tea.Cmd) (M, error) {
-	msg, err := cmdtest.HostReqOf(cmd)
+// 束に含まれていなければ ErrNotFound、束の展開が timeout 内に戻らなければ
+// ErrCmdTimeout を返す（HostReqOf の返しをそのまま渡す。timeout の決め方も同じ）。
+func TakeHostReq[M tea.Model](m M, cmd tea.Cmd, timeout time.Duration) (M, error) {
+	msg, err := cmdtest.HostReqOf(cmd, timeout)
 	if err != nil {
 		return m, err
 	}

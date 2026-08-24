@@ -8,6 +8,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/exec"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest/cmdtest"
 )
 
 // domainResult は page が発行したドメイン呼び出しの結果に相当するテスト用の Msg。
@@ -141,7 +142,7 @@ func TestRunnerKeysOpenSetupTab(t *testing.T) {
 			a := newAppWithRunner(f)
 
 			a, cmd := update(a, press(k))
-			open, err := pagetest.OpenTabOf(cmd)
+			open, err := pagetest.OpenTabOf(cmd, cmdtest.CmdTimeout)
 			if err != nil {
 				t.Fatalf("page.OpenTabMsg を取り出せない: %v", err)
 			}

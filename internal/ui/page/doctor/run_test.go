@@ -75,7 +75,7 @@ func TestRerunReportsStartupCountToParent(t *testing.T) {
 			m, _ := activated(t)
 			_, cmd := deliver(t, m, tt.results)
 
-			got, err := cmdtest.HostReqOf(cmd)
+			got, err := cmdtest.HostReqOf(cmd, cmdtest.CmdTimeout)
 			if err != nil {
 				t.Fatalf("件数が親へ届いていない（ヘッダと状態行が古いまま残る）: %v", err)
 			}
@@ -97,7 +97,7 @@ func TestSingleRecheckRecountsStartup(t *testing.T) {
 	m, cmd := deliver(t, m, []dom.CheckResult{
 		result(id, "ジョブ実行の前提", "build01", dom.Fail),
 	})
-	got, err := cmdtest.HostReqOf(cmd)
+	got, err := cmdtest.HostReqOf(cmd, cmdtest.CmdTimeout)
 	if err != nil {
 		t.Fatalf("全体再実行で件数が親へ届いていない: %v", err)
 	}
@@ -111,7 +111,7 @@ func TestSingleRecheckRecountsStartup(t *testing.T) {
 		at:      finishedAt,
 	})
 
-	got, err = cmdtest.HostReqOf(cmd)
+	got, err = cmdtest.HostReqOf(cmd, cmdtest.CmdTimeout)
 	if err != nil {
 		t.Fatalf("個別再実行のあとに件数が届いていない: %v", err)
 	}

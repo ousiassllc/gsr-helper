@@ -2,6 +2,7 @@ package pagetest_test
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -128,8 +129,9 @@ func TestOpenTabOfTellsMissingApartFromTimeout(t *testing.T) {
 			cmd:  func() tea.Msg { return struct{}{} },
 			want: cmdtest.ErrNotFound,
 		},
-		// OpenTabOf に待ち時間の引数は無く、cmdtest.CmdTimeout（30 秒）を使う。
-		// 待つのはこの 1 件だけであり、他のケースと並行に走らせて所要時間を重ねない。
+		// 諦めるまでの時間がそのまま所要時間になるので、締め切りはミリ秒で渡す
+		// （Issue #156。OpenTabOf が CmdTimeout を内側で固定していたころは、この
+		// 1 ケースだけでパッケージのテストが 30 秒かかっていた）。
 		{
 			name: "戻らない Cmd は待ち時間切れ",
 			cmd:  func() tea.Msg { select {} },
@@ -139,12 +141,17 @@ func TestOpenTabOfTellsMissingApartFromTimeout(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := pagetest.OpenTabOf(tt.cmd)
+			got, err := pagetest.OpenTabOf(tt.cmd, 10*time.Millisecond)
 			if !errors.Is(err, tt.want) {
 				t.Fatalf("err = %v, want %v", err, tt.want)
 			}
 			if tt.want == nil && got.Title != page.TabLogs {
 				t.Errorf("移動先 = %q, want %q", got.Title, page.TabLogs)
+			}
+			// 渡した締め切りが実際に使われたことを、報告された長さで確かめる。内側で
+			// cmdtest.CmdTimeout を固定していると 30 秒と報告される（Issue #156）。
+			if errors.Is(err, cmdtest.ErrCmdTimeout) && !strings.Contains(err.Error(), "10ms") {
+				t.Errorf("err = %v, 渡した締め切り（10ms）が使われていない", err)
 			}
 		})
 	}

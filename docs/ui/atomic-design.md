@@ -1116,10 +1116,10 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 | `ui/organism/dialog` | 1994 | 6 | pass |
 | `ui/page/config` | 1992 | 8 | pass |
 | `ui/organism/table` | 1969 | 31 | pass |
-| `ui` | 1943 | 57 | pass |
+| `ui` | 1944 | 56 | pass |
 | `ui/page/logs` | 1927 | 73 | pass |
 | `ui/page/setup` | 1890 | 110 | pass |
-| `ui/page/pagetest` | 1783 | 217 | pass |
+| `ui/page/pagetest` | 1795 | 205 | pass |
 | `ui/page/jobs` | 1688 | 312 | pass |
 | `ui/keymap` | 1681 | 319 | pass |
 | `ui/page/doctor` | 1607 | 393 | pass |
@@ -1131,7 +1131,7 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 | `ui/page/runnerdetail` | 1224 | 776 | pass |
 | `ui/token` | 1217 | 783 | pass |
 | `ui/page/action` | 1184 | 816 | pass |
-| `ui/page/pagetest/cmdtest` | 1100 | 900 | pass |
+| `ui/page/pagetest/cmdtest` | 1113 | 887 | pass |
 | `ui/template` | 657 | 1343 | pass |
 | `ui/tabset` | 635 | 1365 | pass |
 | `ui/discovery` | 617 | 1383 | pass |
@@ -1230,7 +1230,7 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 
 #### ファイルの行数
 
-**同じチェックが 1 ファイル 300 行にも掛かる。** ディレクトリと同じく `warning_threshold: 10` が効くので、301〜330 行が **WARN**、331 行以上が **ERROR** である（設定の詳細は[環境構築](../environment/setup.md#linterly)）。現在 WARN 以上のファイルは無く、最大は `internal/ui/page/runners/runners_test.go` の **298 行（残り 2）**である。次点は 296 行が 3 つあり（`internal/ui/page/runners/runners.go` / `internal/ui/page/overlay_test.go` / `internal/buildconfig/docs_depgraph_test.go`。最後の 1 つは PR #153 の最終レビューで 286 行から増えた）、`internal/setup/tarball/fetch_test.go` が 293 行、`internal/ui/tabset/tabset.go` が 292 行、`internal/ui/organism/choicelist_test.go` が 291 行と続く。**`cmdtest/run.go` はこの一覧から外れた**——Issue #150 で 292 行から `find.go` を切り出し、現在は `run.go` 193 行 / `find.go` 158 行である（同じ Issue でテストも `run_test.go` 161 行 / `cmd_test.go` 151 行 / `find_test.go` 141 行の 3 つに分かれている。`find_test.go` は `find.go` の検証を集めた新規ファイルで、PR #154 のレビュー指摘で `ChromeOf` / `HostReqOf` の未検証の腕を足した際に `run_test.go` から分けた）。**`internal/ui` 直下は最大でも `app.go` の 284 行である**（6 周目の 300 行張り付きは `app_test.go` で、Issue #139 が周期の状態を `discovery.State` へ移したことで 274 行になった。下記「9 周目の空け方」）。
+**同じチェックが 1 ファイル 300 行にも掛かる。** ディレクトリと同じく `warning_threshold: 10` が効くので、301〜330 行が **WARN**、331 行以上が **ERROR** である（設定の詳細は[環境構築](../environment/setup.md#linterly)）。現在 WARN 以上のファイルは無く、最大は `internal/ui/page/runners/runners_test.go` の **298 行（残り 2）**である。次点は 296 行が 3 つあり（`internal/ui/page/runners/runners.go` / `internal/ui/page/overlay_test.go` / `internal/buildconfig/docs_depgraph_test.go`。最後の 1 つは PR #153 の最終レビューで 286 行から増えた）、`internal/setup/tarball/fetch_test.go` が 293 行、`internal/ui/tabset/tabset.go` が 292 行、`internal/ui/organism/choicelist_test.go` が 291 行と続く。**`cmdtest/run.go` はこの一覧から外れた**——Issue #150 で 292 行から `find.go` を切り出し、現在は `run.go` 193 行 / `find.go` 163 行である（同じ Issue でテストも `run_test.go` 161 行 / `cmd_test.go` 151 行 / `find_test.go` 149 行の 3 つに分かれている。`find_test.go` は `find.go` の検証を集めた新規ファイルで、PR #154 のレビュー指摘で `ChromeOf` / `HostReqOf` の未検証の腕を足した際に `run_test.go` から分けた）。**`internal/ui` 直下は最大でも `app.go` の 284 行である**（6 周目の 300 行張り付きは `app_test.go` で、Issue #139 が周期の状態を `discovery.State` へ移したことで 274 行になった。下記「9 周目の空け方」）。
 
 **採る手は 1 つだけである——同じディレクトリの中で責務の境界に沿ってファイルを分ける。** ディレクトリの 3 つの手（本節冒頭）と違い、ファイルの超過はパッケージ境界の問題ではないので、切り出し先を別ディレクトリにする理由が無い。上限値を緩めるのも、行を詰めて 300 行に収めるのも採らない——**前者は次の Issue が読む予算を壊し、後者は 1 行あたりの情報量を増やして読みにくくするだけで、責務は 1 つも減らない。**
 
