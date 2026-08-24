@@ -49,7 +49,10 @@ func TestJobSettlesOnlyAfterBothSignals(t *testing.T) {
 		t.Fatal("両方そろっても確定しない")
 	}
 
-	in, notice := job.Settle()
+	in, notice, ok := job.Settle()
+	if !ok {
+		t.Fatal("両方そろっているのに Settle が確定しなかった")
+	}
 	if strings.Contains(notice, "未実行") {
 		t.Errorf("状態行に未実行が残っている: %q", notice)
 	}
@@ -76,6 +79,34 @@ func TestJobDoesNotSettleWithoutDone(t *testing.T) {
 	job.Stop()
 }
 
+// 合図が片方しか届いていない Job は Settle が確定を拒む。
+//
+// **呼び出し側の作法ではなく Job 自身が弾くことを見る。** 判定を呼び出し側に委ねると、
+// 終了通知だけが届いた時点で報告を組める形が残り、最後の対象が未着手のまま
+// 「未実行 1 件」として数えられる（切り出す前は同じガードが確定処理と同じ関数の中に
+// あった）。ここが緑である限り、呼び出し側の if を消しても不変条件は壊れない。
+func TestSettleRefusesUnsettledJob(t *testing.T) {
+	t.Run("終了通知だけ", func(t *testing.T) {
+		job, _ := diskclean.Start(0, exec.NewFake(), nil, dockerPlan())
+		job.Record(diskclean.DoneMsg{Err: nil})
+
+		if _, _, ok := job.Settle(); ok {
+			t.Error("進捗を出し切る前に確定した")
+		}
+		job.Stop()
+	})
+
+	t.Run("進捗の出し切りだけ", func(t *testing.T) {
+		job, _ := diskclean.Start(0, exec.NewFake(), nil, dockerPlan())
+		job.Mark(diskclean.ProgressMsg{Progress: disk.Progress{}, OK: false})
+
+		if _, _, ok := job.Settle(); ok {
+			t.Error("終了通知が来ていないのに確定した")
+		}
+		job.Stop()
+	})
+}
+
 // 失敗した対象があれば解放量を出さず、失敗件数を書き分ける。
 func TestJobNoticeWritesFailureInsteadOfFreedBytes(t *testing.T) {
 	job, _ := diskclean.Start(0, exec.NewFake(), nil, dockerPlan())
@@ -90,7 +121,10 @@ func TestJobNoticeWritesFailureInsteadOfFreedBytes(t *testing.T) {
 	job.Mark(diskclean.ProgressMsg{Progress: disk.Progress{}, OK: false})
 	job.Record(diskclean.DoneMsg{Err: errFake("prune が終了コード 1 で終了しました")})
 
-	_, notice := job.Settle()
+	_, notice, ok := job.Settle()
+	if !ok {
+		t.Fatal("両方そろっているのに Settle が確定しなかった")
+	}
 	if !strings.Contains(notice, "1 件失敗") {
 		t.Errorf("状態行 = %q, want 失敗件数を含む", notice)
 	}

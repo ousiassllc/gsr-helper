@@ -147,11 +147,14 @@ func (m *Model) onApplyDone(msg diskclean.DoneMsg) tea.Cmd {
 // この集計は有限時間で必ず終わり、戻ったときに古い使用量を見せないほうが実害が
 // 小さい（畳むために「今前面か」を持つと、状態が 1 つ増えて寿命の通知と二重管理になる）。
 func (m *Model) finish() tea.Cmd {
-	if m.clean == nil || !m.clean.Settled() {
+	if m.clean == nil {
 		return nil
 	}
-
-	in, notice := m.clean.Settle()
+	// 両方の合図がそろっていなければ Settle が偽を返して何もしない（diskclean の doc）。
+	in, notice, ok := m.clean.Settle()
+	if !ok {
+		return nil
+	}
 	m.notice = notice
 	report := progressmodal.Set(&m.overlay, in)
 	stop := progressmodal.Stop(&m.overlay)

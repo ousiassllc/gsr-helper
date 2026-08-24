@@ -164,21 +164,29 @@ func (j *Job) Input() pane.ProgressInput {
 }
 
 // Settle は結果を確定し、進捗表示へ送る中身と状態行の 1 行を返す。
+// 確定できる状態でなければ第 3 戻り値に偽を返し、**何もしない。**
 //
-// 実行の context はここで解放するので、**返った後の Job は使わない。**
+// 実行の context は確定したときにだけ解放するので、**真を返った後の Job は使わない。**
+//
+// **両方の合図がそろっていない呼び出しをここで弾くのが要点である。** 判定
+// （Settled）を呼び出し側の作法に委ねると、終了通知だけが届いた時点で報告を組める
+// 形が残り、最後の対象が未着手のまま「未実行 1 件」として数えられる。切り出す前は
+// 同じガードが確定処理と同じ関数の中にあった（page/disk の finish）ので、構造で
+// 守られていた性質である。呼び出し側の if を消しても壊れないようにしておく。
 //
 // **件数の出どころは行の状態 1 つに固定する**（cleanview.Counts）。報告は
 // ProgressList の結果報告欄に出し、状態行にも 1 行残す。進捗表示を閉じたあとでも
 // 結果が読めるようにするためである（次の打鍵で消える）。
-func (j *Job) Settle() (pane.ProgressInput, string) {
-	var err error
-	if j.result != nil {
-		err = j.result.Err
+func (j *Job) Settle() (pane.ProgressInput, string, bool) {
+	if !j.Settled() {
+		return pane.ProgressInput{}, "", false
 	}
+
+	err := j.result.Err
 	j.report = cleanview.Report(j.rows, j.bytes, err)
 	in := j.Input()
 	j.cancel()
-	return in, notice(j.rows, j.bytes, err)
+	return in, notice(j.rows, j.bytes, err), true
 }
 
 // notice は結果報告の 1 行を返す。

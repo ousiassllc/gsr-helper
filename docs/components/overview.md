@@ -218,7 +218,7 @@ runner の検出とモデル定義。**最下層**であり、他のドメイン
 
 `internal/runner` の下位に置くのは 2 つの理由による。`Scope` は GitHub API のパス生成にも使うため（[データモデル](../architecture/data-model.md#scope)）、`internal/gh` が `internal/runner` 全体を import せずにスコープだけを参照できる。また `internal/runner` の行数上限（1 ディレクトリ 2000 行）に対する余裕を確保する。
 
-行数チェック（`linterly`）の集計は直下のファイルのみを対象とする。現在の使用量は `internal/runner` 1656 / `runner/systemd` 552 / `runner/procs` 426 / `runner/scope` 165 行である。**`internal/runner` は残り 344 行しか無い。** サービス制御や追加・削除の Issue が `runner` へ機能を足す場合は、先に切り出し先を決めること。
+行数チェック（`linterly`）の集計は直下のファイルのみを対象とする。現在の使用量は `internal/runner` 1704 / `runner/systemd` 552 / `runner/procs` 426 / `runner/scope` 165 行である。**`internal/runner` は残り 296 行しか無い。** サービス制御や追加・削除の Issue が `runner` へ機能を足す場合は、先に切り出し先を決めること。
 
 `Parse` は判定できない入力を必ず error にする。**Unknown を error 無しで返すことはない**（[データモデル](../architecture/data-model.md#scope)）。
 
@@ -278,6 +278,7 @@ runner の追加・削除・バージョン更新。最も破壊的な操作を�
 |-----------|---------|
 | `setup` | `Plan` / `Unit` / `Step` / `PlanAdd` / `PlanRemove` / `PlanUpdate` / `Apply` / `NextIndex` |
 | `setup/valid` | 入力検証（`Name` / `Labels` / `Dir` / `URL` / `Count`）とその理由の文言。**外部コマンドを一切起動しない純粋な判定**であり、[セキュリティ設計の「入力を検証してから渡す」](../architecture/security.md#外部コマンド実行の安全性) の表を実装する |
+| `setup/setuptest` | `internal/setup` のテストが共用するフィクスチャ（`AddSpec` / `Runner` / `Phases` / `FindExtract` / `MakeTarball` / `Issued` / `AddPlanIn`）。`_test.go` ではなく通常のパッケージなのは 1 ディレクトリ 2000 行の上限に収めるためで（Issue #103）、**テスト専用で本番からは import しない**（`page/pagetest/import_test.go` の `fixtures` へ登録済み。`TestNoProductionCodeImportsTestFixtures` が検査する）。先例は `ui/organism/table/tabletest` |
 | `setup/tarball` | tarball の取得（`Fetch`）・検証（`Verify`）・展開（`Extract`）・上書きしない名前（`PreservedNames`。FR-21）。**内部パッケージを 1 つも import しない**（`net/http` と `os` だけで完結する） |
 | `setup/job` | 短命トークンの取得と tarball の手配を済ませて `setup.Apply` を呼ぶ（`Deps` / `Input` / `Run` / `LatestVersion`）。`internal/gh` を import する唯一のドメイン側 |
 
@@ -299,7 +300,7 @@ runner の追加・削除・バージョン更新。最も破壊的な操作を�
 | `DockerUsage(ctx, ex)` | `docker system df --format {{json .}}` の解析 |
 | `PlanClean(targets) (CleanPlan, error)` | 削除計画。対象パスと解放見込み容量を確定させる（ドライラン）。保護された対象（`Target.Protected` が空でない）を 1 件でも含めば計画を作らない |
 | `PruneReclaimable(items) int64` | `docker system prune -f` が実際に回収する見込みの容量（Containers / Build Cache のみ） |
-| `ValidatePath(base, target) error` | **削除パスの検証**。基準ディレクトリ配下であること、`..` を含まないこと、許可サブツリー内であることを判定 |
+| `pathguard.Validate(base, target) error` | **削除パスの検証**（`internal/disk/pathguard`）。基準ディレクトリ配下であること、`..` を含まないこと、許可サブツリー内であることを判定 |
 | `Apply(ctx, ex, lg, CleanPlan, progress)` | 削除の実行。シンボリックリンクは辿らず、リンク自体のみを削除 |
 | `DockerLabel` | docker の削除の進捗（`Progress.Label`）に出る表示名。**公開しているのは表示側が名前で行を突き合わせるためである**（`page/disk/cleanview.Mark`）。写しを持つと、こちらを変えた瞬間に docker の行だけ永久に未着手で残り報告の件数もずれる。コンパイルもテストも通ってしまうので、名前の一致は型で保証する |
 
@@ -309,13 +310,19 @@ runner の追加・削除・バージョン更新。最も破壊的な操作を�
 
 **シンボリックリンクの扱いは「読む」と「消す」で分ける。** `WorkUsage` は `_work` 自体がリンクでも`filepath.EvalSymlinks` で辿る——`_work` を別ボリュームへ寄せた構成があり、辿らないと `filepath.WalkDir` がroot を `Lstat` で見てリンク 1 件ぶんを数え、**集計できていないのに 0 バイトという確定値**を一覧に出すためである（未集計は `-` に縮退させるのが本来の扱い）。`Scan` は集計対象が `_work` の**子**なのでリンクは経路の途中にあり、明示的に辿らなくても同じ実サイズが得られる（走査の root がリンクになるのは `WorkUsage` だけ）。一方 `Apply` の削除は辿らない。リンク先の実体を消さないための約束であり（[セキュリティ設計](../architecture/security.md#シンボリックリンクの扱い)）、読むだけの集計とは要件が違う。
 
-**`internal/disk` は行数の警告帯（2000 行超）に入っている。** 本 PR で 1778 行 → 2181 行になった（`WorkUsage` とファイル削除の監査記録、およびそれぞれの検証）。エラー境界の 2200 までは 19 行しかない。**次にこのパッケージへ手を入れる Issue は、足す前に分割の是非を検討すること**（`docs/ui/atomic-design.md` の「ディレクトリの行数」と同じ規範を `internal/` 側にも適用する）。分割の候補は、削除の実行（`apply.go`）と集計（`scan.go` / `work.go`）が既に別ファイルに分かれているので、テストの重い側（`apply_test.go` / `audit_test.go`）をサブパッケージへ出す形になる。
+**`internal/disk` は一度警告帯（2000 行超）に入り、Issue #101 で戻した。** 2181 行（エラー境界の 2200 まで 19 行）まで詰まっていたものを、削除パスの検証を `internal/disk/pathguard` へ切り出して **1927 行・残り 73 行・pass** にしてある。判断と理由は `docs/ui/atomic-design.md` の「UI 層の外のディレクトリ」に記録した（同書の「ディレクトリの行数」と同じ規範を `internal/` 側にも適用する）。
+
+#### 分割したパッケージ
+
+| パッケージ | 置くもの |
+|-----------|---------|
+| `disk/pathguard` | 削除してよいパスかの検証（`Validate` / `WorkDir` / `DiagDir`）。依存は **`disk` → `disk/pathguard`** の一方向で、こちらは `disk` の型（`Target` / `CleanPlan`）を一切知らない。判定に要るのは基準ディレクトリと対象パスの 2 つだけなので、「計画に載っているから通す」ような迂回を書けない |
 
 **`Scan` の `out` は閉じない。** 呼び出し側が runner ごとの `Scan` を 1 本のチャネルへ集約するため、閉じる責務は集約する側にある。`Scan` は全対象を送り終えてから返るので、呼び出し側は `WaitGroup` で待ってから閉じられる。
 
-集計と削除の対象は runner ディレクトリ直下の `_work` / `_diag` に固定する。`ValidatePath` が許可するサブツリーと同じものだけを見ることで、集計に出た対象が計画の段階で弾かれる食い違いを防ぐ。
+集計と削除の対象は runner ディレクトリ直下の `_work` / `_diag` に固定する。`scan.go` の `workDirName` / `diagDirName` は `pathguard.WorkDir` / `pathguard.DiagDir` **そのものを参照する**ので、集計に出た対象が計画の段階で弾かれる食い違いは構造として起きない（リテラルの写しは Issue #101 で消した）。
 
-`ValidatePath` は `PlanClean` と `Apply` の**両方**から呼ばれる構造にし、検証を通らないパスを削除できないようにする。`Apply` が削除直前にもう一度呼ぶのは、計画を組み立てずに `Apply` を呼ぶ経路が将来できても検証を迂回できないようにするためである。異常系のテストを必須とする（[セキュリティ設計](../architecture/security.md#1-削除パスの検証を必須にする)）。
+`pathguard.Validate` は `PlanClean` と `Apply` の**両方**から呼ばれる構造にし、検証を通らないパスを削除できないようにする。`Apply` が削除直前にもう一度呼ぶのは、計画を組み立てずに `Apply` を呼ぶ経路が将来できても検証を迂回できないようにするためである。異常系のテストを必須とする（[セキュリティ設計](../architecture/security.md#1-削除パスの検証を必須にする)）。
 
 **ジョブ実行中の保護（[FR-31](../requirements/functional.md)）も同じ形で二重にする。** `Scan` が判定した理由は `Usage.Reason` から `Target.Protected` へ引き継ぎ、`PlanClean` と `Apply` の両方が空でない `Protected` を拒否する。可否を UI（選択できない行）にだけ持たせると、`Target` を直接組む呼び出しが 1 つ増えた時点で保護が外れる（[セキュリティ設計](../architecture/security.md#3-ジョブ実行中の操作をガードする)）。
 
@@ -637,15 +644,19 @@ bubbletea の Model 群。**内部を Atomic Design で階層化する。** 部�
 | `ui/organism/table/tabletest` | organism | `organism/table` の検証で使うフィクスチャ（行の型・区画 2 種・組み立て・打鍵・配色の見本）。参照は `tabletest` → `table` の一方向で、`table` の非公開な状態は 1 つも export していない。**テスト専用で本番からは import しない**（`TestNoProductionCodeImportsTestFixtures` が検査する） |
 | `ui/organism/pane` | organism | スクロールする領域（`Detail` / `Help` / `Log` / `ProgressList`）。`Detail` / `Help` は表示専用、`Log` は追従の ON/OFF とフィルタの入力欄を持つ（ただし一致の判定は持たず、装飾済みの行を受け取るだけである）。`ProgressList` は一括処理の逐次表示と結果報告で、行の状態を決めるのは page 側である |
 | `ui/organism/dialog` | organism | 承認・待機・入力のダイアログ（`Confirm` / `DiffApproval` / `DrainWaiter` / `Form`）。`Form` は `huh.Form` のラッパーで、ドメイン層は呼ばず完了・中断を `tea.Msg` で page へ返すだけである。`DiffApproval` は Config タブ（Issue #12）で実装済み |
-| `ui/molecule` | molecule | 1 区画の描画（ヘッダ・タブ行・フッタ・操作リスト・列の選択）。純粋関数 |
+| `ui/molecule` | molecule | 1 区画の描画（操作リスト・列の選択・`FSSummaryLine` / `CommandBlock` / `LogLine` / `SummaryCounts` / `ProgressRow`）。純粋関数。**共通レイアウトの帯（ヘッダ・タブ行・フッタ）は `ui/molecule/chromebar` にある**（Issue #106） |
+| `ui/molecule/chromebar` | molecule | 共通レイアウトの帯（`CapsBar` / `TabBar` / `KeyBar`）。純粋関数。1 画面に 1 本ずつで**タブが増えても本数が変わらない**ため `molecule` 直下から分けた。`atom` / `token` だけに依存し、`molecule` も `molecule/listrow` も参照しない |
 | `ui/molecule/listrow` | molecule | 一覧の 1 行。セル列（`[]string`）を返す。純粋関数。一覧を持つタブが 1 つずつ足す |
-| `ui/chrome` | molecule | 本体以外の領域（ヘッダ・タブ行・状態行・フッタ）の中身の組み立て。親 Model の型も bubbletea も知らない純粋関数。import するのは `ui/molecule` / `ui/atom` / `ui/token` だけで、**ドメインの型は受け取らない**（`chrome.View` はバッジの真偽値・件数・`[]molecule.TabView` といった表示用の値のみ）。`Caps` / `Result` / `[]tabset.Tab` からの写し替えは親 Model が行う |
+| `ui/chrome` | molecule | 本体以外の領域（ヘッダ・タブ行・状態行・フッタ）の中身の組み立て。親 Model の型も bubbletea も知らない純粋関数。import するのは `ui/molecule/chromebar` / `ui/atom` / `ui/token` だけで、**ドメインの型は受け取らない**（`chrome.View` はバッジの真偽値・件数・`[]chromebar.TabView` といった表示用の値のみ）。`Caps` / `Result` からの写し替えは親 Model が、`[]tabset.Tab` → `[]chromebar.TabView` は `tabset.Views` が行う |
 | `ui/tabset` | page | タブのメタ情報と並び。`ui/page/<tab>` を import する唯一の場所 |
 | `ui/hostreq` | — | 起動時のジョブ実行の前提チェック（[FR-44](../requirements/functional.md)）の発行。「1 度だけ走らせる」仕組み（`StartOnce`）を持つ |
 | `ui/discovery` | — | 検出の予算・結果 Msg・発行・間隔決定・周期の突き合わせ（`Reconcile`）。`tea.Cmd` は返すが `tea.Model` も `tick` も持たない（親 Model の状態に触れない） |
 | `ui/workscan` | — | runner ごとの `_work` 使用量の集計と、その周期の管理。**再検出サイクルには載せない** |
 | `ui/ghscope` | — | トークンの保有スコープの取得。起動後に 1 度だけ引き、取得前・失敗時は操作を塞がない |
 | `ui/page/progressmodal` | page | `organism/pane.ProgressList` を `page.Modal` へ配線する汎用部分。Setup / Disk タブが共有 |
+| `ui/page/diskclean` | page | Disk タブのクリーンアップの**実行**（進捗の channel・行・到着順の突き合わせ・結果報告）。承認の義務はタブ側に残る（`diskclean.Start` を呼ぶのは承認を受けた 1 か所だけ）。タブではないので `shared` へ登録済み |
+| `ui/page/configmodal` | page | Config タブのモーダル 3 種（フォーム / 差分の承認 / 反映方法の選択）と入力欄の組み立て。中身は組み立てず、開く指示を受けて決定を `page.ResultMsg` で差し戻すだけ。タブではないので `shared` へ登録済み |
+| `ui/page/setupmodal` | page | Setup タブのモーダル 2 種（追加フォーム / 確認ダイアログ）。確認の中身（計画 → `ConfirmInput`）はタブ側が組む。タブではないので `shared` へ登録済み |
 | `ui/page/disk/confirmmodal` | page | Disk タブのクリーンアップ確認ダイアログの包み |
 | `ui/page/disk/cleanview` | page | 確認の文面・進捗行・削除可否の判定。すべて純粋関数 |
 | `ui/page/runners/rowview` | page | Runners タブの一覧の行の組み立て。純粋関数 |
@@ -683,7 +694,7 @@ interface はこの 3 つに留める。ドメインごとの interface は、�
 | `Name` / `Labels` / `Dir` / `URL` / `Count`（入力検証） | `internal/setup/valid` のテーブルテスト。先頭が `-`・`..` を含むパス・予約ラベル・GitHub 以外のホストを網羅。**認証情報を埋め込んだ URL は、解析できるものと解析に失敗するもの（`%` の直後が 16 進でないなど）の両方**を含め、どちらもエラー文言に入力が載らないことを検証する——解析失敗の分岐だけが入力を echo する形の欠陥を再発させないためである |
 | tarball の検証と展開 | `internal/setup/tarball`。SHA-256 の不一致、絶対パス・`..`・展開先の外を指すリンクを含む tar、サイズ上限の超過を必ず含める。**一時ディレクトリが成功時・失敗時のどちらでも残らないこと**と、**保持対象へリンクで潜り込む tar**（`ErrPreservedLink`）は、リンクを 1 段辿るだけの tar と、リンクを鎖状に重ねた tar（`d -> .` の下に `d/link -> .runner` を置き `d/link` へ書き込む）の両方を含める——1 段しか見ない実装は前者だけでは落ちない |
 | 計画の組み立てと実行 | `internal/setup`。発行コマンド列（トークンの位置がプレースホルダのままであること）、失敗した台で中止して成功分を残すこと、上書きしない名前を網羅 |
-| `ValidatePath` | `internal/disk`。異常系（`..`、基準外、リンクによる逸脱、基準自身）を網羅 |
+| `pathguard.Validate` | `internal/disk/pathguard`。異常系（`..`、基準外、リンクによる逸脱、基準自身）を網羅 |
 | `Validate*`（ラベル・名前・パス） | `internal/config` のテーブルテスト |
 | コマンド発行を伴う処理 | 各ドメインで `Executor` のテスト実装に差し替え、発行コマンド列を検証 |
 | マスク処理 | `internal/exec/mask`。キー名ベースと値一致ベースの両方 |
