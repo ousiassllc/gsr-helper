@@ -72,21 +72,41 @@ func Caps() appconfig.Caps {
 
 // State は共有状態のスナップショットを組み立てる。
 //
-// 本体の領域と検出結果だけを引数に取る。配色・キー定義・能力・Executor は既定
-// （色なし・全能力・exec.Fake）であり、そこを振るテストは戻り値の該当フィールドだけを
-// 差し替える。
+// 本体の領域と検出結果だけを引数に取る。配色・キー定義・能力・Executor・プロセス走査は
+// 既定（色なし・全能力・exec.Fake・ScanOf）であり、そこを振るテストは戻り値の該当
+// フィールドだけを差し替える。
 func State(w, h int, runners ...runner.Runner) page.StateMsg {
 	return page.StateMsg{
-		Result: runner.Result{Runners: runners},
-		Caps:   Caps(),
-		Styles: Styles(),
-		Keys:   Keys(),
-		Exec:   exec.NewFake(),
-		Dark:   true,
-		BodyW:  w,
-		BodyH:  h,
-		Err:    nil,
+		Result:    runner.Result{Runners: runners},
+		Caps:      Caps(),
+		Styles:    Styles(),
+		Keys:      Keys(),
+		Exec:      exec.NewFake(),
+		ScanProcs: ScanOf(runners...),
+		Dark:      true,
+		BodyW:     w,
+		BodyH:     h,
+		Err:       nil,
 	}
+}
+
+// ScanOf は渡した runner が持つ Runner.Worker だけを返すプロセス走査を組む。
+//
+// **共有状態から実ホストの /proc を締め出すためにある。** page.StateMsg.ScanProcs が
+// nil だと svc 側は procs.Scan に落ちる（page.StateMsg.ScanProcs の doc）。そうなると
+// ドレイン停止（FR-07）の停止条件は「テストを走らせるホストに `/opt/runners/*` の
+// worker が居ないこと」になり、居るホストでは待ち時間が無制限である以上、待機が
+// 終わらず cmdtest.Advance が待ち時間切れで panic する（Issue #155）。
+//
+// 表を runner の Workers から組むので、「一覧が busy と出している runner は走査でも
+// busy」という一貫した世界になる。Executor を exec.Fake に固定しているのと同じ趣旨で、
+// **State を使うテストは既定でホストに依らない**。
+func ScanOf(runners ...runner.Runner) func() ([]runner.Process, error) {
+	out := make([]runner.Process, 0, len(runners))
+	for _, r := range runners {
+		out = append(out, r.Workers...)
+	}
+	return func() ([]runner.Process, error) { return out, nil }
 }
 
 // SampleRunner は systemd 管理で稼働中の runner を返す。

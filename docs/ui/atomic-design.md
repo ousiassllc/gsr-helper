@@ -1110,23 +1110,23 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 
 | ディレクトリ | 行数 | 残り | 判定 |
 |------------|------|------|------|
-| `ui/page` | 1998 | 2 | pass |
+| `ui/page` | 2003 | -3 | warn |
+| `ui/page/runners` | 2000 | 0 | pass |
 | `ui/page/disk` | 1997 | 3 | pass |
 | `ui/organism/dialog` | 1994 | 6 | pass |
 | `ui/page/config` | 1992 | 8 | pass |
-| `ui/page/runners` | 1991 | 9 | pass |
 | `ui/organism/table` | 1969 | 31 | pass |
 | `ui` | 1943 | 57 | pass |
 | `ui/page/logs` | 1927 | 73 | pass |
 | `ui/page/setup` | 1890 | 110 | pass |
-| `ui/page/pagetest` | 1763 | 237 | pass |
+| `ui/page/pagetest` | 1783 | 217 | pass |
 | `ui/page/jobs` | 1688 | 312 | pass |
 | `ui/keymap` | 1681 | 319 | pass |
 | `ui/page/doctor` | 1607 | 393 | pass |
 | `ui/organism/pane` | 1559 | 441 | pass |
 | `ui/molecule/listrow` | 1523 | 477 | pass |
 | `ui/molecule` | 1515 | 485 | pass |
-| `ui/page/runnerop` | 1400 | 600 | pass |
+| `ui/page/runnerop` | 1404 | 596 | pass |
 | `ui/atom` | 1264 | 736 | pass |
 | `ui/page/runnerdetail` | 1224 | 776 | pass |
 | `ui/token` | 1217 | 783 | pass |
@@ -1199,7 +1199,7 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 | `internal/setup/setuptest` | 178 | 1822 | pass |
 | `internal/runner/scope` | 165 | 1835 | pass |
 
-**残りが 1 桁のディレクトリが 8 つある**（`internal/setup/tarball` 1 行・`internal/logs` 2 行・`internal/gh` 4 行。UI 側では `ui/page` が残り 2 行、`ui/page/disk` が残り 3 行、`ui/organism/dialog` が残り 6 行、`ui/page/config` が残り 8 行、`ui/page/runners` が残り 9 行である）。**この 8 つに 1 行でも足す Issue は、足す前に空けること。** 末尾の 2 つは Issue #150 が入れた——`cmdtest` の締め切りへの追従で `page/config` が 1990 → **1992 行**、`page/runners` が 1989 → **1991 行**になり、どちらも 1 桁の帯へ落ちた。 どれも警告帯には入っていないので `make check` は通るが、通ることと余裕があることは違う。**警告帯に入っているディレクトリは `internal/buildconfig` の 1 つである**（2122 行・残り -122 行・warn。入れた判断と理由は下記「`internal/buildconfig` を警告帯へ入れた判断」）。その前に入っていた 3 つは Issue #147 が出した——`ui/page/pagetest` 2197 → **1564**、`ui/page/config` 2098 → **1990**、`ui/page/logs` 2025 → **1927**（判断は下記「Issue #147 の空け方」の節）。**`ui` 直下も警告帯の外にある**（1943 行・残り 57 行・pass。Issue #139 が 2105 行から戻し、Issue #148 がさらに下げた。予算と次の Issue への指示は下記「10 周目の空け方」）。
+**残りが 1 桁のディレクトリが 7 つある**（`internal/setup/tarball` 1 行・`internal/logs` 2 行・`internal/gh` 4 行。UI 側では `ui/page/runners` が残り 0 行、`ui/page/disk` が残り 3 行、`ui/organism/dialog` が残り 6 行、`ui/page/config` が残り 8 行である）。**この 7 つに 1 行でも足す Issue は、足す前に空けること。** `page/runners` を残り 0 行まで詰めたのは Issue #155 で、その前に Issue #150 が `cmdtest` の締め切りへの追従で `page/config` を 1990 → **1992 行**、`page/runners` を 1989 → **1991 行**にしていた。 どれも警告帯には入っていないので `make check` は通るが、通ることと余裕があることは違う。**警告帯に入っているディレクトリは `internal/buildconfig` と `ui/page` の 2 つである**（順に 2122 行・残り -122 行・warn と 2003 行・残り -3 行・warn。入れた判断と理由は下記「`internal/buildconfig` を警告帯へ入れた判断」「`ui/page` を警告帯へ入れた判断」）。その前に入っていた 3 つは Issue #147 が出した——`ui/page/pagetest` 2197 → **1564**、`ui/page/config` 2098 → **1990**、`ui/page/logs` 2025 → **1927**（判断は下記「Issue #147 の空け方」の節）。**`ui` 直下も警告帯の外にある**（1943 行・残り 57 行・pass。Issue #139 が 2105 行から戻し、Issue #148 がさらに下げた。予算と次の Issue への指示は下記「10 周目の空け方」）。
 
 ##### `internal/disk` から `pathguard` を切り出した判断（Issue #101）
 
@@ -1256,6 +1256,20 @@ Config タブは項目の一覧・フォーム 6 種・差分の承認・反映�
 `page/pagetest/import_test.go` の `shared` マップに `"configmodal"` を登録してある（足さないとタブとして扱われ `TestOnlyTabsetImportsTabs` が落ちる）。**`shared` へ足したら、本書の 3 箇所——「1 ディレクトリ 1 タブ」ではないの段落・[ディレクトリ構成](#ディレクトリ構成)のツリー・[実装状況](#実装状況)の「実装済み」の行——も同時に直すこと**（順に `TestSharedPackagesMatchDoc` / `TestDirectoryTreeMatchesShared` / `TestImplementedListCoversSharedPackages` が落ちる）。
 
 **次にこのタブへ手を入れる Issue の予算は残り 8 行である**（1992 行・pass。Issue #147 が 2098 行の警告帯から 1990 行へ戻し、Issue #150 の `cmdtest` への追従で 2 行増えた。下記「Issue #147 の空け方」）。**警告帯は出たが余裕があるわけではない**ので、8 行を超える追加が要るなら足す前に空けること。**採れる手として本節が挙げていた `selfconf.go` の切り出しは、Issue #147 が検討して採らなかった**——5 つとも `Model` のメソッドで、出せば親の非公開を export することになる（`ui/organism/table` を分割しない判断と同じ理由）。次に空けるなら、残る候補は `config.go` / `flow.go` / `results.go` の状態遷移ではなく、テストの重複削減である。
+
+##### `ui/page` を警告帯へ入れた判断（Issue #155）
+
+着手時点で 1998 行（残り 2 行）だった。**足したのは `page.StateMsg` のフィールド 1 つ（`ScanProcs`）と doc 4 行で、2003 行（残り -3 行・warn）になった。**
+
+置き場所は選べなかった。ドレイン停止（FR-07）の待機は `svc.Drainer.Scan` という差し替え口を持つのに、`page/runnerop` が既定値固定の package 関数 `svc.Drain` を呼んでいたため、停止条件が**テストを走らせるホストの `/proc`** に固定されていた（`/opt/runners/*` の worker が居るホストでは待ち時間が無制限である以上、待機が終わらず `cmdtest.Advance` が待ち時間切れで panic する）。`runnerop.Model` はタブの `New` が組み立てるので、テストから届く経路は**共有状態しか無い**——`Exec` を `StateMsg` に載せている理由（「page に Executor を渡す道が他に無い」）がそのまま当てはまる。
+
+1. **3 つの手のうち (1) は当たらない。** `ui/page` に残っているのは `StateMsg` と `Overlay` のようにタブ全体が参照する土台だけで、切り出せば `page` → `page/<名前>` → `page` の循環になる（`SetupDeps` / `ConfigDeps` をネストする案も、`StateMsg` がフィールドとして持つ以上は同じ）。
+2. **(2) テストの重複削減は本 Issue の範囲外である。** `ui/page` 直下のテストは 6 ファイル 824 行で、削るなら `overlay_test.go`（296 行）の重なりの検証であり、**本 Issue が触れていない部分を触ることになる**。
+3. **足す側は削った。** doc は当初 13 行だったものを 4 行に詰め、詳しい理由は余裕のある `pagetest.ScanOf`（`ui/page/pagetest`・残り 217 行）側へ置いた。**同じ Issue で `ui/page/runners` は 2000 行（残り 0 行・pass）に収めてある**——回帰の検証は既存の `TestDrainStopsAfterWaiting` に足し、走査の既定は `pagetest.State` へ寄せた。
+4. **ERROR 境界（2200 行）まで 197 行ある。** `make check` は通る。
+5. **1 ファイル 300 行も守っている**（`page.go` は 284 行・残り 16 行で、警告帯 301〜330 行の外）。
+
+**次に `ui/page` 直下へ足す Issue へ。** 残りはマイナスである。**空けること自体を独立した Issue に立てること**（Issue #159 として切り出した）。候補は上記 2. のテストの重複削減で、本 Issue は「判断を残して警告帯へ入る」逃げ道を 1 度使った。
 
 ##### `internal/buildconfig` を警告帯へ入れた判断（PR #153 の 2 周目レビュー）
 

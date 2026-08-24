@@ -66,7 +66,12 @@ type StateMsg struct {
 	// cmd 側が TUI の終了後にまとめて出す。**UI から stderr へ書かない**（描画が壊れる）ため、
 	// 監査エラーの受け皿を page へ配る必要はない。
 	Exec exec.Executor
-	Dark bool
+	// ScanProcs は稼働プロセスの走査を差し替える口（svc.Drainer.Scan と同じ形。nil なら
+	// svc が procs.Scan で /proc を読む）。**テストをホストのプロセス表から切り離すための
+	// 継ぎ目である**（SetupDeps.NewClient / Fetch と同じ役目。既定は pagetest.ScanOf が
+	// 入れる。理由は Issue #155 とそちらの doc）。runner.Process は procs.Process の別名。
+	ScanProcs func() ([]runner.Process, error)
+	Dark      bool
 	// Color は色を使うか。NO_COLOR / --no-color / 非 TTY を cmd が 1 つの値に
 	// まとめたもので、UI 側で環境を読み直さない。Styles には畳み込み済みだが、
 	// huh のテーマを組み立てるには真偽値そのものが要る（token.HuhTheme）。

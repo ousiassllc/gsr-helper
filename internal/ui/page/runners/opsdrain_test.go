@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest/cmdtest"
 )
@@ -79,14 +80,22 @@ func TestDrainCancelIssuesNoStop(t *testing.T) {
 // 待機が終われば停止コマンドを発行し、待機画面を閉じて結果を報告する。
 //
 // 対象に Runner.Worker が 1 つも残っていなければ、待機は最初の走査で終わる
-// （svc.Drainer.Drain）。テストを走らせるホストに検出対象の runner は居ないので、
-// この経路が「待ち終わった」場合に相当する。
+// （svc.Drainer.Drain）。**走査は共有状態から来る**のでホストに依らない（pagetest.ScanOf）。
+// 既定値固定の svc.Drain を呼んでいたころは停止条件が実ホストの /proc で決まり、worker が
+// 居るホストでは待ち時間が無制限（FR-07）である以上待機が終わらなかった（Issue #155）。
+// **走査が 1 度も呼ばれていなければ落とす**のはそのためである。
 func TestDrainStopsAfterWaiting(t *testing.T) {
 	st, f := opsState(sampleRunner("build01-1", false))
+	scans := 0
+	base := st.ScanProcs
+	st.ScanProcs = func() ([]runner.Process, error) { scans++; return base() }
 	m := newOpsModel(t, st)
 
 	m = opsSend(t, m, "d")
 
+	if scans == 0 {
+		t.Error("走査が 1 度も呼ばれていない: 停止条件がホストのプロセス表に依存している")
+	}
 	want := []string{"systemctl stop " + unit1}
 	if got := issued(f); !reflect.DeepEqual(got, want) {
 		t.Fatalf("発行コマンド = %v, want %v", got, want)
