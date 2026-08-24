@@ -28,11 +28,11 @@ func (a App) chromeView() chrome.View {
 		Systemd:     a.caps.Systemd,
 		HasToken:    a.caps.GitHubToken,
 		Tabs:        tabset.Views(a.tabs, a.active),
-		OrphanUnits: len(a.result.OrphanUnits),
-		Warnings:    len(a.result.Warnings),
-		HostReq:     a.hostReq,
+		OrphanUnits: len(a.disc.Result().OrphanUnits),
+		Warnings:    len(a.disc.Result().Warnings),
+		HostReq:     a.hr.Bad(),
 		DoctorKey:   a.doctorKey(),
-		Err:         a.err,
+		Err:         a.disc.Err(),
 		Notice:      a.notice,
 		Status:      a.chrome.Status,
 		Hints:       a.chrome.Footer,
@@ -40,3 +40,9 @@ func (a App) chromeView() chrome.View {
 		Styles:      a.styles,
 	}
 }
+
+// doctorKey は Doctor タブの番号キーを返す。無効なら空文字。
+//
+// 状態行の誘導（`⚠ ホスト前提 2 件（5 で詳細）`）に添える番号である。引くのは
+// tabset の仕事で、親はタブの番号を書き写さない（tabset.KeyOf）。
+func (a App) doctorKey() string { return tabset.KeyOf(a.tabs, page.TabDoctor) }

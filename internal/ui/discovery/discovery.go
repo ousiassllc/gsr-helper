@@ -1,13 +1,16 @@
-// Package discovery は runner の検出処理のうち、UI ランタイム（tea.Model /
-// tickMsg）を知らない純粋な取得処理だけを置く。
+// Package discovery は runner の検出と、その周期の管理を親 Model の代わりに担う。
 //
 // 親 Model（ui）から切り出してあるのは 2 つの理由による。1 つは行数で、ui 直下は
 // 1 ディレクトリ 2000 行の上限に対して余裕が無く、タブが要する起動時の値を足すたびに
-// 押し上がる（internal/ui/hostreq と同じ事情）。もう 1 つは境界で、いつ検出を
-// 始めるか・実行中の本数（inflight）や通し番号（seq）をどう進めるかは親 Model の
-// 状態に属する判断であり、ここには持ち込まない。ここが持つのは「1 回分の検出を
-// どう起こすか」と「自動更新の間隔をどう決めるか」という、親の状態を読まなくても
-// 答えが決まる処理だけである。
+// 押し上がる（internal/ui/hostreq と同じ事情）。もう 1 つは境界で、実行中の本数
+// （inflight）と通し番号（seq）をどう進めるか・追い抜かれた周期をどう捨てるかは
+// 検出の側の不変条件であり、親に int を並べさせると片方だけを更新する経路ができる
+// （workscan / ghscope と同じ判断。Issue #139）。
+//
+// **UI ランタイムを知らない。** tea.Cmd と TickMsg を返す以外に bubbletea の状態を
+// 持たず、周期を始める契機（起動・Tick・手動の再読み込み）を決めるのは親である。
+// 親が渡す 1 周期分の入力は Input にまとめてあり、appconfig の型は持ち込まない
+// （設定とフラグの合成・既定値の解決は親の仕事。Input の doc）。
 package discovery
 
 import (
@@ -40,7 +43,7 @@ const (
 	// 想定台数（20 台程度）でも 15 秒は十分に余る。一方 systemctl が応答しない異常時には
 	// 1 コマンドの上限（30 秒）より先に打ち切るため、1 回の検出が 30 秒以上生き残って
 	// 積み上がることはない。期限切れの周期の部分結果は採用せず、直前の成功結果を保つ
-	// （ui.App.applyDiscovered の discovery.Msg の分岐）。
+	// （State.Apply が呼ぶ Reconcile の分岐）。
 	Budget = 15 * time.Second
 )
 
@@ -64,10 +67,10 @@ type Msg struct {
 // ディスク走査・/proc 走査・systemctl 参照を伴い、UI スレッドで走らせるとキー入力への
 // 反応が止まるためである（非機能要件の「UI をブロックしない処理」）。
 //
-// seq と opts は呼び出し側（ui.App.discover）が Cmd の外で確定させて渡す。Cmd が
+// seq と opts は呼び出し側（State.Start）が Cmd の外で確定させて渡す。Cmd が
 // 別の goroutine で走る間に親 Model の状態が書き換わっても、検出の入力が変わらない
 // ようにするためである。実行中の本数（inflight）を進めて二重起動を防ぐのも
-// 呼び出し側の責務であり、ここでは数えない（ui.App.onTick を参照）。
+// 呼び出し側の責務であり、この関数では数えない（State.Start を参照）。
 func Start(seq int, opts runner.Options) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), Budget)

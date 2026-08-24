@@ -54,20 +54,21 @@ func (a App) handleGlobalKey(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return a.quit()
 	case key.Matches(press, g.Refresh):
 		// 手動の再読み込みは Tick を待たずに検出の Cmd を発行する。実行中の検出が
-		// あるときは重ねない（自動更新と同じ理由。discover.go の onTick）。その検出の
+		// あるときは重ねない（自動更新と同じ理由。discovery.State.Start）。その検出の
 		// 結果は遅くとも discovery.Budget 以内に届く。
 		//
 		// 重ねないときは理由を状態行に出す。黙って何もしないと「効かないキー」に
 		// 見えるが（screens.md の設計原則 2）、待たされる時間は最大 15 秒ある。
-		// 無効なタブの番号キー（selectTab）と同じ形の案内にそろえる。
-		if a.inflight > 0 {
+		// 無効なタブの番号キー（selectTab）と同じ形の案内にそろえる。**Start は
+		// 始めなかったことを nil でしか返さないので、案内を出すかは Busy で見る。**
+		if a.disc.Busy() {
 			a.notice = refreshNotice(g.Refresh)
 			return a, nil
 		}
 		// _work 使用量も引き直す（Issue #73）。再検出とは別周期にしてあるので、
 		// 明示的な再読み込みが唯一の更新契機である（background.go）。実行中は
 		// 重ねないので、走査中の連打で goroutine は積み上がらない。
-		cmd := tea.Batch(a.discover(), a.work.Start(a.result.Runners))
+		cmd := tea.Batch(a.disc.Start(a.input()), a.work.Start(a.disc.Result().Runners))
 		return a, cmd
 	case key.Matches(press, g.TabNext):
 		return a.moveTab(1)

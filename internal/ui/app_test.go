@@ -35,16 +35,16 @@ func TestInitEmitsBackgroundColorAndFirstTick(t *testing.T) {
 		t.Errorf("1 本目の Msg = %#v, want 背景色の問い合わせ", got)
 	}
 
-	// 2 本目は即時の tickMsg。検出はこの Msg を受けた Update が始める。
-	if _, ok := cmds[1]().(tickMsg); !ok {
-		t.Errorf("2 本目の Msg = %T, want tickMsg", cmds[1]())
+	// 2 本目は即時の TickMsg。検出はこの Msg を受けた Update が始める。
+	if _, ok := cmds[1]().(discovery.TickMsg); !ok {
+		t.Errorf("2 本目の Msg = %T, want discovery.TickMsg", cmds[1]())
 	}
 	if n := len(fake.Calls()); n != 0 {
 		t.Errorf("Init が Executor を使っている（%d 件）", n)
 	}
 }
 
-// 最初の tickMsg で検出と次の Tick が発行され、検出は Executor を使う（systemd が
+// 最初の TickMsg で検出と次の Tick が発行され、検出は Executor を使う（systemd が
 // ある能力なので systemctl を叩く）。
 //
 // **Cmd を実行する前に Executor の呼び出しを数える。** 重い処理はすべて tea.Cmd と
@@ -52,10 +52,10 @@ func TestInitEmitsBackgroundColorAndFirstTick(t *testing.T) {
 // 実行前の 0 件でしか見分けられない。
 func TestFirstTickRunsDiscover(t *testing.T) {
 	fake := exec.NewFake()
-	a, cmd := update(newApp(fake), tickMsg{})
+	a, cmd := update(newApp(fake), discovery.TickMsg{})
 	cmds := pagetest.Expand(cmd)
 	if len(cmds) != 2 {
-		t.Fatalf("tickMsg が発行した Cmd の本数 = %d, want 2（検出 + 次の Tick）", len(cmds))
+		t.Fatalf("TickMsg が発行した Cmd の本数 = %d, want 2（検出 + 次の Tick）", len(cmds))
 	}
 	if n := len(fake.Calls()); n != 0 {
 		t.Errorf("Update の中でドメイン層を呼んでいる（Executor の呼び出し %d 件）", n)
@@ -66,37 +66,42 @@ func TestFirstTickRunsDiscover(t *testing.T) {
 	if len(fake.Calls()) == 0 {
 		t.Error("検出が Executor を使っていない")
 	}
-	if a.inflight != 1 {
-		t.Errorf("実行中の検出の本数 = %d, want 1", a.inflight)
+	if !a.disc.Busy() || a.disc.Seq() != 1 {
+		t.Errorf("検出が 1 本走っていない（busy = %v, seq = %d）", a.disc.Busy(), a.disc.Seq())
 	}
 }
 
 // systemctl が無い環境では Executor を渡さず、systemd を参照しない。
 //
 // nil を返す判定そのものは discovery.Exec が持つ（discovery/discovery_test.go の
-// TestExecReturnsNilWithoutSystemd）。ここでは a.discover() がその判定を実際に
+// TestExecReturnsNilWithoutSystemd）。ここでは a.input() がその判定を実際に
 // 使っていることだけを見る。
 func TestDiscoverWithoutSystemd(t *testing.T) {
 	fake := exec.NewFake()
 	a := newApp(fake)
 	a.caps.Systemd = false
 
-	a.discover()()
+	a.disc.Start(a.input())()
 	if n := len(fake.Calls()); n != 0 {
 		t.Errorf("systemd が無いのにコマンドを %d 件発行している", n)
 	}
 }
 
-// discovery.Msg は有効な全タブへ配られる。
-func TestDiscoveredDistributesToAllTabs(t *testing.T) {
+// 検出結果は有効な全タブへ配られ、失敗した周期でも直前の成功結果を保つ。
+//
+// 成功周期 → 失敗周期の 1 本の筋にしてある（組み立てが同じで、後半は前半が配った
+// 結果が残っていることを見るため）。**部分結果で上書きしない判定そのものはここに
+// 無い。** それは discovery.Reconcile の責務で、discovery/reconcile_test.go が直接
+// 見る。ここに残すのは親にしか見えないもの——配布・状態行・画面遷移——だけである。
+func TestDiscoveredDistributesAndKeepsLastResult(t *testing.T) {
 	a, spies := withSpies(newApp(exec.NewFake()))
-	res := runner.Result{
-		Runners:     nil,
+	success := runner.Result{
+		Runners:     []runner.Runner{sampleRunner()},
 		OrphanUnits: []runner.SvcState{{Unit: "actions.runner.foo.old.service"}},
 		Warnings:    nil,
 	}
 
-	a, _ = update(a, discovery.Msg{Result: res, Err: nil})
+	a, _ = update(a, discovery.Msg{Seq: 1, Result: success, Err: nil})
 	for i, s := range spies {
 		if len(s.States()) != 1 {
 			t.Fatalf("タブ %d が受け取った StateMsg = %d 件, want 1", i, len(s.States()))
@@ -105,41 +110,13 @@ func TestDiscoveredDistributesToAllTabs(t *testing.T) {
 			t.Errorf("タブ %d に配られた孤児ユニット = %d 件, want 1", i, got)
 		}
 	}
-
 	// 孤児ユニットの件数は親が状態行に出す。
 	if got := statusLine(a); !strings.Contains(got, "孤児ユニット 1 件") {
 		t.Errorf("状態行 = %q, 孤児ユニットの件数が無い", got)
 	}
-}
-
-// errTest は検出のエラーを模した値。
-var errTest = errors.New("検出が間に合いませんでした")
-
-// 期限切れ・失敗した周期の部分結果で直前の成功結果を上書きせず、エラーは状態行に
-// 出し、画面遷移は巻き戻さない。
-//
-// runner.Discover は ctx がキャンセルされた時点で残りの systemctl show を発行せず、
-// 取れた分だけを返す。その部分結果を採ると systemd 管理の runner が run.sh / - と
-// 誤表示され、⚠ が誤って点き、孤児ユニットも過少報告される。
-func TestDiscoverErrorKeepsLastResult(t *testing.T) {
-	success := runner.Result{
-		Runners:     []runner.Runner{sampleRunner()},
-		OrphanUnits: []runner.SvcState{{Unit: "actions.runner.foo.old.service"}},
-		Warnings:    nil,
-	}
-
-	a, spies := withSpies(newApp(exec.NewFake()))
-	a, _ = update(a, discovery.Msg{Result: success, Err: nil})
 
 	// 期限切れの周期。取れた分だけの部分結果（runner 0 台・孤児 0 件）が届く。
-	a, _ = update(a, discovery.Msg{Result: runner.Result{}, Err: errTest})
-
-	if got := len(a.result.Runners); got != 1 {
-		t.Errorf("一覧の runner = %d 台, want 1（部分結果で上書きしている）", got)
-	}
-	if got := len(a.result.OrphanUnits); got != 1 {
-		t.Errorf("孤児ユニット = %d 件, want 1（部分結果で上書きしている）", got)
-	}
+	a, _ = update(a, discovery.Msg{Seq: 2, Result: runner.Result{}, Err: errTest})
 	if !strings.Contains(statusLine(a), errTest.Error()) {
 		t.Errorf("状態行 = %q, 検出の警告が出ていない", statusLine(a))
 	}
@@ -149,30 +126,27 @@ func TestDiscoverErrorKeepsLastResult(t *testing.T) {
 
 	// page へ配られるスナップショットも直前の成功結果を保つ。
 	st := spies[0].States()[len(spies[0].States())-1]
-	if len(st.Result.Runners) != 1 {
-		t.Errorf("page へ配られた runner = %d 台, want 1", len(st.Result.Runners))
+	if len(st.Result.Runners) != 1 || len(st.Result.OrphanUnits) != 1 {
+		t.Errorf("page へ配られた結果 = %+v, want 直前の成功結果", st.Result)
 	}
 	if st.Err == nil {
 		t.Error("page へ検出のエラーが配られていない")
 	}
-
-	// 成功した周期では置き換える。
-	a, _ = update(a, discovery.Msg{Result: runner.Result{}, Err: nil})
-	if len(a.result.Runners) != 0 || a.err != nil {
-		t.Errorf("成功した周期で結果が更新されていない: %+v / %v", a.result, a.err)
-	}
 }
+
+// errTest は検出のエラーを模した値。
+var errTest = errors.New("検出が間に合いませんでした")
 
 // 検出の deadline を自動更新間隔から切り離す判定そのものは discovery.Interval /
 // discovery.Budget の責務になった（discovery/interval_test.go の
-// TestBudgetIsDecoupledFromInterval を参照）。ここでは a.refresh() が discovery.Interval
-// への薄い委譲のままであることだけを確かめる。
+// TestBudgetIsDecoupledFromInterval を参照）。ここでは 1 周期分の入力に載る間隔が
+// discovery.Interval への薄い委譲のままであることだけを確かめる。
 func TestRefreshDelegatesToDiscoveryInterval(t *testing.T) {
 	a := newApp(exec.NewFake())
 	a.opts.Refresh = discovery.MinRefresh
 	want := discovery.Interval(a.opts.Refresh, a.cfg.RefreshDuration())
-	if got := a.refresh(); got != want {
-		t.Errorf("a.refresh() = %v, want discovery.Interval と同じ %v", got, want)
+	if got := a.input().Every; got != want {
+		t.Errorf("a.input().Every = %v, want discovery.Interval と同じ %v", got, want)
 	}
 }
 

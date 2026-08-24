@@ -18,7 +18,6 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/doctor"
 	"github.com/ousiassllc/gsr-helper/internal/exec"
 	"github.com/ousiassllc/gsr-helper/internal/gh"
-	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/ui/chrome"
 	"github.com/ousiassllc/gsr-helper/internal/ui/discovery"
 	"github.com/ousiassllc/gsr-helper/internal/ui/ghscope"
@@ -82,28 +81,17 @@ type App struct {
 	// notice は親が状態行に出す一時的な案内（無効なタブの理由）。次の打鍵で消える。
 	notice string
 
-	result runner.Result
-	err    error
+	// disc は検出の結果とその周期の進行状況（Issue #139）。実行中の本数・通し番号・
+	// 取り込み済みの周期は discovery.State が持ち、親が決めるのは駆動の契機
+	// （起動・Tick・手動の再読み込み）と 1 周期分の入力だけである（discover.go）。
+	disc discovery.State
 
-	// inflight は実行中の検出の本数。0 でない間は新しい検出を始めない（onTick）。
-	inflight int
-	// seq は発行した検出の通し番号、applied は取り込んだ結果の番号。
-	// 古い周期の結果で新しい一覧を上書きしないために持つ（discovery.Msg.Seq）。
-	seq     int
-	applied int
-
-	// hostReq は起動時のジョブ実行の前提チェック（FR-44）で見つかった不備の件数。
-	// hostReqDone は 1 度発行したか（hostreq.go）。
-	hostReq     int
-	hostReqDone bool
-	// hostChecks は起動時に走らせる診断項目。空なら走らせない。**テストの
-	// 差し替え口でもある**（本物は実ホストの sudo / docker / /etc/group を読む）。
-	hostChecks []doctor.Check
-
+	// hr は起動時のジョブ実行の前提チェック（FR-44）の件数と進行状況。
 	// work は runner ごとの _work 使用量とその集計の進行状況（Issue #73）。
 	// scopes はトークンの保有スコープと取得の進行状況（Issue #79）。
-	// どちらも駆動の契機だけを親が決め、周期の管理はサブパッケージが持つ
-	// （background.go）。
+	// いずれも駆動の契機だけを親が決め、周期と 1 度きりの管理はサブパッケージが
+	// 持つ（background.go）。
+	hr     hostreq.State
 	work   workscan.State
 	scopes ghscope.State
 }
@@ -131,23 +119,23 @@ func New(cfg appconfig.Config, caps appconfig.Caps, ex exec.Executor, o Options)
 		dark:   dark,
 		tabs:   tabset.New(caps, ex, keys, styles, dark),
 		chrome: pageChrome(0),
-		// inflight/seq/applied/hostReq/hostReqDone はゼロ値のままでよい（起動直後）。
-		hostChecks: doctor.Startup(doctor.Default()),
+		// disc/work/scopes はゼロ値のままでよい（起動直後）。
+		hr: hostreq.State{Checks: doctor.Startup(doctor.Default())},
 	}
 }
 
 // Init は背景色の問い合わせと最初の自動更新の周期を発行する。
 //
-// 検出をここで直に始めず即時の tickMsg に任せるのは、Init が Model を書き換えられない
-// （Cmd だけを返す）ためである。ここで発行すると「実行中の検出」を親が数えられず、
-// 二重起動を防ぐ判定（onTick）が起動直後だけ狂う。検出の入口を tickMsg の分岐 1 つに
-// 揃えることで、実行中の本数と通し番号が必ず親の状態に載る。
+// 検出をここで直に始めず即時の TickMsg に任せるのは、Init が Model を書き換えられない
+// （Cmd だけを返す）ためである。ここで発行すると「実行中の検出」を数えられず、
+// 二重起動を防ぐ判定（discovery.State.Start）が起動直後だけ狂う。検出の入口を
+// TickMsg の分岐 1 つに揃えることで、実行中の本数と通し番号が必ず disc に載る。
 //
 // tea.RequestBackgroundColor は Cmd ではなく Msg を返す関数なので、**呼ばずに**
 // 関数値のまま渡す（呼ぶと Msg になり Cmd として渡せない）。tea.Cmd は
 // func() tea.Msg なので、この関数値がそのまま Cmd になる。
 func (a App) Init() tea.Cmd {
-	return tea.Batch(tea.RequestBackgroundColor, firstTick())
+	return tea.Batch(tea.RequestBackgroundColor, discovery.FirstTick())
 }
 
 // Update は Msg を種類ごとに振り分ける。
@@ -167,14 +155,14 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.styles = token.NewStyles(a.dark, a.opts.Color)
 		cmd := a.distribute()
 		return a, cmd
-	case tickMsg:
+	case discovery.TickMsg:
 		cmd := a.onTick()
 		return a, cmd
 	case discovery.Msg:
 		cmd := a.applyDiscovered(msg)
 		return a, cmd
 	case hostreq.Msg:
-		a.hostReq = msg.Bad
+		a.hr.Apply(msg)
 		return a, nil
 	case workscan.Msg:
 		// _work 使用量が確定した。共有状態として全タブへ配り直す（Issue #73）。
@@ -245,7 +233,7 @@ func (a App) View() tea.View {
 func (a App) state() page.StateMsg {
 	w, h := template.BodySize(a.width, a.height)
 	return page.StateMsg{
-		Result: a.result,
+		Result: a.disc.Result(),
 		Caps:   a.caps,
 		Styles: a.styles,
 		Keys:   a.keys,
@@ -254,7 +242,7 @@ func (a App) state() page.StateMsg {
 		Color:  a.opts.Color,
 		BodyW:  w,
 		BodyH:  h,
-		Err:    a.err,
+		Err:    a.disc.Err(),
 		Audit:  a.opts.Audit,
 		Disk: page.DiskState{
 			Thresholds: a.cfg.DiskThresholds,
