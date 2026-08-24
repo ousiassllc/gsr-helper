@@ -3,6 +3,7 @@ package doctor
 import (
 	"testing"
 
+	"github.com/ousiassllc/gsr-helper/internal/appconfig"
 	dom "github.com/ousiassllc/gsr-helper/internal/doctor"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
 )
@@ -111,5 +112,22 @@ func TestSingleRecheckRecountsStartup(t *testing.T) {
 	}
 	if got.Bad != 0 {
 		t.Errorf("個別再実行で届いた件数 = %d, want 0", got.Bad)
+	}
+}
+
+// 診断の入力には共有状態のディスク使用率の閾値が載る（Issue #89）。
+//
+// 載せないとリソース診断だけが既定（80 / 90）で判定し、設定を変えた運用者が
+// 同じ使用率に対して Disk タブの要約行と違うことを言われる。
+func TestCheckInputCarriesDiskThresholds(t *testing.T) {
+	t.Parallel()
+
+	want := appconfig.DiskThresholds{Warn: 55, Critical: 77}
+	st := pagetest.State(80, 20)
+	st.Disk.Thresholds = want
+	m, _ := send(t, newPage(t), st)
+
+	if got := m.checkInput().DiskThresholds; got != want {
+		t.Errorf("診断へ配った閾値 = %+v, want %+v", got, want)
 	}
 }

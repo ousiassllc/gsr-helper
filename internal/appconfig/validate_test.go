@@ -213,3 +213,31 @@ func TestCleanScanRoot(t *testing.T) {
 		}
 	}
 }
+
+// ゼロ値の項目だけが既定値で埋まり、指定された値はそのまま残ること。
+//
+// 閾値を読む側（Disk タブの要約行・doctor のリソース診断）はこのメソッドを通して
+// 既定値を得る。埋め方がここで狂うと、設定を書いた値と判定に使う値がずれる。
+func TestDiskThresholdsOrDefault(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		in   DiskThresholds
+		want DiskThresholds
+	}{
+		"どちらもゼロ値なら既定で埋まる": {in: DiskThresholds{}, want: DiskThresholds{Warn: 80, Critical: 90}},
+		"warn だけ指定":       {in: DiskThresholds{Warn: 55}, want: DiskThresholds{Warn: 55, Critical: 90}},
+		"critical だけ指定":   {in: DiskThresholds{Critical: 70}, want: DiskThresholds{Warn: 80, Critical: 70}},
+		"両方の指定はそのまま返る":    {in: DiskThresholds{Warn: 55, Critical: 70}, want: DiskThresholds{Warn: 55, Critical: 70}},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := tt.in.OrDefault(); got != tt.want {
+				t.Errorf("OrDefault() = %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}

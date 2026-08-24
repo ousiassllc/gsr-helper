@@ -51,7 +51,8 @@ const ProbeTimeout = 3 * time.Second
 //
 // テストのための差し替え口（Now / Dial / Getenv / LookPath / FSRoot /
 // NewClient）を持つ。ゼロ値のままでも実環境を見る既定へ落ちるので、本番の
-// 組み立て側はドメインの値（Runners / Caps / Exec）だけを詰めればよい。
+// 組み立て側はドメインの値（Runners / Caps / Exec / DiskThresholds）だけを
+// 詰めればよい。
 type Input struct {
 	// Runners は検出済みの runner 一覧。親 Model が検出したものを配る
 	// （doctor は自分で検出しない）。
@@ -61,6 +62,19 @@ type Input struct {
 	// Exec は外部プロセス実行の唯一の経路。nil のときコマンドを使う
 	// チェックは SKIP を返す。
 	Exec exec.Executor
+	// DiskThresholds は設定ファイルの disk_thresholds。ゼロ値なら既定
+	// （80 / 90）へ落ちる（appconfig.DiskThresholds.OrDefault）。
+	//
+	// 配るのは、ディスク使用率を見る項目が Disk タブの要約行（`⚠ 警告閾値超過`）と
+	// 同じ設定を読むためである。診断が独立の閾値を持つと、設定を変えた運用者が
+	// 同じホストの同じ使用率に対して 2 つの画面から違うことを言われる（Issue #89）。
+	//
+	// **詰めるのは Doctor タブの経路だけでよい。** 起動時の前提チェック（FR-44）は
+	// これを読む項目を 1 つも持たない——使用率を見る resource.fs は Startup() が偽で
+	// あり、hostres の項目が起動時に走らないことは同パッケージの
+	// TestHostResChecksAreNotRunAtStartup が固定している。読み手のいない経路へ
+	// 先回りして詰めると、値が効いていることを検証できないまま行が増える。
+	DiskThresholds appconfig.DiskThresholds
 
 	// Now は現在時刻。nil なら time.Now。
 	Now func() time.Time

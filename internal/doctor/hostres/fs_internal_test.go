@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/ousiassllc/gsr-helper/internal/appconfig"
 	"github.com/ousiassllc/gsr-helper/internal/disk"
 	"github.com/ousiassllc/gsr-helper/internal/doctor/check"
 	"github.com/ousiassllc/gsr-helper/internal/runner"
@@ -28,6 +29,11 @@ func stats(usedPct, inodePct int) disk.Stats {
 	}
 }
 
+// 閾値を渡さない入力（check.Input のゼロ値）では既定の 80 / 90 へ落ちる。
+//
+// 組み立て側が設定を配らなくても判定が消えないことを押さえる（check.Input の
+// 「ゼロ値のままでも実環境を見る既定へ落ちる」）。**設定に従うことは
+// TestFSCheckUsesConfiguredThresholds が見る。**
 func TestFSCheckThresholds(t *testing.T) {
 	t.Parallel()
 
@@ -52,6 +58,45 @@ func TestFSCheckThresholds(t *testing.T) {
 				return stats(tt.usedPct, tt.inodePct), nil
 			}}
 			got := c.Run(context.Background(), check.Input{})
+			if len(got) == 0 {
+				t.Fatal("結果が空（/tmp の行が必ず出るはず）")
+			}
+			if got[0].Status != tt.want {
+				t.Errorf("Status = %v, want %v（Detail: %s）", got[0].Status, tt.want, got[0].Detail)
+			}
+		})
+	}
+}
+
+// 判定は設定ファイルの disk_thresholds に従う（Issue #89）。
+//
+// かつて閾値は独立の定数（80 / 90）で持っており、設定を変えても doctor の判定だけが
+// 動かず、同じ使用率に対して Disk タブの `⚠ 警告閾値超過` と違うことを言っていた。
+// 期待値は既定に固定されていれば落ちる値（55 / 70）で書く。
+func TestFSCheckUsesConfiguredThresholds(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		usedPct  int
+		inodePct int
+		want     check.Status
+	}{
+		"容量が警告の手前":         {usedPct: 54, inodePct: 10, want: check.OK},
+		"容量が警告に達する":        {usedPct: 55, inodePct: 10, want: check.Warn},
+		"容量が異常の手前":         {usedPct: 69, inodePct: 10, want: check.Warn},
+		"容量が異常に達する":        {usedPct: 70, inodePct: 10, want: check.Fail},
+		"inode も同じ閾値で判定する": {usedPct: 10, inodePct: 55, want: check.Warn},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			c := fsCheck{stat: func(string) (disk.Stats, error) {
+				return stats(tt.usedPct, tt.inodePct), nil
+			}}
+			in := check.Input{DiskThresholds: appconfig.DiskThresholds{Warn: 55, Critical: 70}}
+			got := c.Run(context.Background(), in)
 			if len(got) == 0 {
 				t.Fatal("結果が空（/tmp の行が必ず出るはず）")
 			}

@@ -383,7 +383,7 @@ type Check interface {
 ```
 
 - 各チェックを独立した `Check` の実装とし、レジストリ（`doctor.Default()`）に並べる。項目の追加が既存コードに影響しない。
-- `Run(ctx, in)` は並列に実行される。`Input` に runner 一覧・`Caps`・`Executor` と、テストのための差し替え口（`Now` / `Dial` / `Getenv` / `LookPath` / `FSRoot` / `NewClient`）を渡す。差し替え口はゼロ値のままなら実環境を見る既定へ落ちるので、本番の組み立て側はドメインの値だけを詰めればよい。
+- `Run(ctx, in)` は並列に実行される。`Input` に runner 一覧・`Caps`・`Executor`・設定のディスク使用率の閾値（`DiskThresholds`）と、テストのための差し替え口（`Now` / `Dial` / `Getenv` / `LookPath` / `FSRoot` / `NewClient`）を渡す。差し替え口はゼロ値のままなら実環境を見る既定へ落ちるので、本番の組み立て側はドメインの値だけを詰めればよい。
 - 能力不足で実行できないチェックは `SKIP` を返し、失敗と区別する。`SKIP` は影響も対処も持たない（対処すべき不備が見つかっていない）。
 - `Startup()` が真のチェックは起動時にも実行する（[FR-44](../requirements/functional.md)）。判定はレジストリの絞り込み（`doctor.Startup`）だけで済み、doctor タブと起動時で実装が分かれない。対象はホスト内の読み取りと軽量なコマンドで完結するものに限る。
 
@@ -395,7 +395,7 @@ type Check interface {
 
 | パッケージ | 持つもの |
 |-----------|---------|
-| `doctor/check` | `Check` / `Input` / `Result` / `Status` と、`Input` の補助（`Probe` / `ReadFile` / `DialAddr` / `Client`）。**葉のパッケージ**であり、項目もレジストリも import しない |
+| `doctor/check` | `Check` / `Input` / `Result` / `Status` と、`Input` の補助（`Probe` / `ReadFile` / `DialAddr` / `Client`）。`Input` は runner 一覧・能力・`Executor` に加えて設定のディスク使用率の閾値（`DiskThresholds`）を運び、判定が Disk タブの要約行と同じ設定を見るようにする。**葉のパッケージ**であり、項目もレジストリも import しない |
 | `doctor` | `check` の型の別名、レジストリ（`Default`）、並列実行と整列（`Run` / `Sort` / `Replace`）、件数の集計（`Count`） |
 | `doctor/authz` | 認証・権限（パーミッション・`hidepid`・トークンスコープ） |
 | `doctor/netcheck` | ネットワーク（到達性・プロキシ設定の整合） |
@@ -742,3 +742,4 @@ interface はこの 3 つに留める。ドメインごとの interface は、�
 | 1.33 | 2026-08-24 | `internal/logs` の「先頭 1 MiB だけを読む」を実装（1 行ずつ抽出・優先順の保持・両方そろったら打ち切り・全体 8 MiB）へ書き換え。`internal/disk` に `WorkUsage` / `DockerLabel` の行と、シンボリックリンクを「読む」経路だけ辿る理由、行数が警告帯に入った記録を追加。依存グラフに `UIApp --> Exec` / `--> RScope` を追加し、サブパッケージ表に `ui/hostreq` を追加。`organism/dialog` の `DiffApproval` を実装済みへ訂正 | 「先頭 1 MiB」は旧実装の説明のままで、後続 Issue が上限を戻す修正を正当と判断しうる。`DiffApproval` は `docs/ui/atomic-design.md` と正反対を述べていた。辺の欠落は「その依存は存在しない」と読まれて正当な import が規則違反と判定される |
 | 1.34 | 2026-08-24 | `internal/ui` のサブパッケージ表に `ui/organism/table/tabletest` を追加し、テスト用フィクスチャの混入を止める検査の名前を `TestNoProductionCodeImportsPagetest` → `TestNoProductionCodeImportsTestFixtures` へ改めた（`pagetest` と `tabletest` の 2 つを見るようになったため） | Issue #65。`ui/organism/table` が行数上限を超えており、本体（`Model[T]`）を分割すると `section[T]` の export が要って「一覧の共通実装は 1 つ」を構造で守れなくなるため、テスト側のフィクスチャを一方向参照の別パッケージへ出して解消した。本表は「どのサブパッケージが何を持つか」を最初に引く場所であり、新設パッケージが載っていないと同じものをもう 1 つ作りかねない |
 | 1.35 | 2026-08-24 | PR #124（Issue #97〜#114）の切り出しを反映。`ValidatePath` の 4 箇所（API 表・許可サブツリーの散文・`PlanClean` / `Apply` の散文・テスト配置の表）を `pathguard.Validate` へ改め、`internal/disk` に「分割したパッケージ」表（`disk/pathguard`）を新設。`internal/setup` の表に `setup/setuptest` を追加。実測値を更新（`internal/disk` 2181 → 1927・残り 73・pass、`internal/runner` 1656 → 1704・残り 296）。`internal/ui` のサブパッケージ表で `ui/molecule` / `ui/chrome` の記述を chromebar 切り出し後の実態へ直し、`ui/molecule/chromebar` / `ui/page/diskclean` / `ui/page/configmodal` / `ui/page/setupmodal` の 4 行を追加 | 本書は「部品が有るか」「どこに置くか」を後続 Issue が最初に引く場所であり、切り出したパッケージが載っていないと同じものをもう 1 つ作りかねない。`ValidatePath` は `internal/disk` から `internal/disk/pathguard` へ移って名前も変わったため、API 表の記載のままでは存在しない関数を指す。行数は本書が「先に切り出し先を決めること」の判断材料として挙げているので、古い値は判断を誤らせる |
+| 1.36 | 2026-08-24 | `doctor/check` の行と、`Run(ctx, in)` が `Input` に何を渡すかを述べる箇条書きの両方に、`Input` が設定のディスク使用率の閾値（`DiskThresholds`）を運ぶことを追記 | `doctor/hostres` が独立の定数（80 / 90）で判定しており、設定の `disk_thresholds` を変えても Disk タブの要約行しか動かなかった。`Input` の持ち物を列挙する唯一の表からは、診断へ何が配られるのかが読み取れなかった（Issue #89）。本節は `Input` の中身を表と箇条書きの 2 か所で説明しており、表だけを直すと同じ文書が食い違って、先に読まれる箇条書きからは新しい項目に辿り着けない |

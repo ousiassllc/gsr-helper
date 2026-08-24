@@ -142,14 +142,27 @@ func MergeScanRoots(cfg, extra []string) []string {
 	return out
 }
 
-// normalizeThresholds は使用率の閾値を埋め、大小関係まで含めて検証する。
-func normalizeThresholds(t DiskThresholds) (DiskThresholds, error) {
+// OrDefault はゼロ値の項目を既定値で埋めた閾値を返す。
+//
+// 既定値（80 / 90）を持つのはこのパッケージだけにする。閾値を読むのは Disk タブの
+// 要約行と doctor のリソース診断の 2 か所であり、読む側がそれぞれ既定値を書き写すと、
+// 片方だけを変えたときに同じ使用率へ違う判定が出る（Issue #89）。
+//
+// **検証はしない。** 範囲と大小関係は設定を読み込む時点で normalizeThresholds が
+// 見ており、そこを通った値を配る側が埋め直すだけの用途である。
+func (t DiskThresholds) OrDefault() DiskThresholds {
 	if t.Warn == 0 {
 		t.Warn = defaultDiskWarn
 	}
 	if t.Critical == 0 {
 		t.Critical = defaultDiskCritical
 	}
+	return t
+}
+
+// normalizeThresholds は使用率の閾値を埋め、大小関係まで含めて検証する。
+func normalizeThresholds(t DiskThresholds) (DiskThresholds, error) {
+	t = t.OrDefault()
 	switch {
 	case t.Warn < minThreshold || t.Warn > maxDiskWarn:
 		return DiskThresholds{}, fmt.Errorf("disk_thresholds.warn は %d〜%d で指定してください: %d", minThreshold, maxDiskWarn, t.Warn)
