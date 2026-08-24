@@ -142,7 +142,7 @@ func OpenTabOf(cmd tea.Cmd) (page.OpenTabMsg, bool) {
 // err を渡すと期限切れ・失敗した周期になる（結果は取り込まれない）。
 //
 // **通し番号は 0 のままである。** 既に番号付きの周期を取り込んだ Model へ渡すと
-// discovery.Reconcile が追い抜かれた周期（msg.Seq < applied）と見て結果を捨てるため、
+// discovery.State.Apply が追い抜かれた周期（msg.Seq < applied）と見て結果を捨てるため、
 // 検出が届かないまま**静かに緑になる**。番号を進めた Model に対して使う場合は、この
 // 関数ではなく discovery.Msg を直に組んで Seq を明示すること。
 func Discovered[M tea.Model](m M, err error) (M, tea.Cmd) {

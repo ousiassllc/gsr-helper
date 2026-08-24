@@ -29,7 +29,7 @@ func (a *App) startBackground() []tea.Cmd {
 	// たびに真になる）、ここで数え直さない。
 	cmds := []tea.Cmd{
 		a.startHostReq(),
-		a.work.StartOnce(a.result.Runners),
+		a.work.StartOnce(a.disc.Result().Runners),
 		a.scopes.Start(a.ex, a.caps.GitHubToken),
 	}
 

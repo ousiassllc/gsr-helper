@@ -17,7 +17,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
 )
 
-// 内部テスト（package ui）にしてある。タブのメタ情報・tickMsg・chrome が非公開で、
+// 内部テスト（package ui）にしてある。タブのメタ情報・検出の状態・chrome が非公開で、
 // タブを差し替えて共有状態の配布を見るには内側へ触る必要があるためである。
 //
 // 共通の道具は page/pagetest から取る（書き写すと前提が食い違い、行数も増える）。

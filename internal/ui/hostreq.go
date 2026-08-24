@@ -13,7 +13,7 @@ import (
 // 走らせる仕組みは hostreq.StartOnce が持つ（doc 参照）。
 func (a *App) startHostReq() tea.Cmd {
 	return hostreq.StartOnce(&a.hostReqDone, doctor.Input{
-		Runners: a.result.Runners,
+		Runners: a.disc.Result().Runners,
 		Caps:    a.caps,
 		Exec:    a.ex,
 	}, a.hostChecks)

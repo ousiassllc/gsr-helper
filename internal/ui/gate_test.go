@@ -7,6 +7,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/ousiassllc/gsr-helper/internal/exec"
+	"github.com/ousiassllc/gsr-helper/internal/ui/discovery"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 )
 
@@ -79,8 +80,8 @@ func TestConfinesGlobalKeysBeforeChromeArrives(t *testing.T) {
 				t.Errorf("%sの番号キーでタブが %d に変わった", name, next.active)
 			}
 			// 直後の r でも検出は走らない（キーがモーダル・入力に閉じ込められる）。
-			if after, _, _ := press1(a, "r"); after.inflight != 0 {
-				t.Errorf("%sの r で検出が走った（inflight = %d）", name, after.inflight)
+			if after, _, _ := press1(a, "r"); after.disc.Seq() != 0 {
+				t.Errorf("%sの r で検出が走った（seq = %d）", name, after.disc.Seq())
 			}
 		})
 	}
@@ -90,20 +91,23 @@ func TestConfinesGlobalKeysBeforeChromeArrives(t *testing.T) {
 //
 // 待たされる時間は最大 discovery.Budget（15 秒）あり、無反応だと「効かないキー」に
 // 見える（screens.md の設計原則 2）。無効なタブの番号キーは既に理由を出している。
+//
+// **手動の再読み込みも実行中の検出に重ねないことをここで併せて見る**（案内を出す前提
+// そのものなので、通し番号が進まないことを案内の検証と同じ筋で固定しておく）。
 func TestRefreshDuringDiscoveryShowsNotice(t *testing.T) {
 	a := newApp(exec.NewFake())
 	a, _ = update(a, tea.WindowSizeMsg{Width: 100, Height: 30})
 
 	// 最初の Tick で検出が走り出す。
-	a, _ = update(a, tickMsg{})
-	if a.inflight == 0 {
+	a, _ = update(a, discovery.TickMsg{})
+	if !a.disc.Busy() {
 		t.Fatal("検出が始まっていない（前提が崩れている）")
 	}
 
-	before := a.inflight
+	before := a.disc.Seq()
 	a, cmd := sendKey(a, "r")
-	if a.inflight != before {
-		t.Errorf("検出中の r で検出が重なった（inflight = %d, want %d）", a.inflight, before)
+	if a.disc.Seq() != before {
+		t.Errorf("検出中の r で検出が重なった（seq = %d, want %d）", a.disc.Seq(), before)
 	}
 	if isQuit(cmd) {
 		t.Fatal("r で終了している")
