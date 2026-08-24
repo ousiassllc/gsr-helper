@@ -105,8 +105,9 @@ func ApplyChrome[M tea.Model](m M, cmd tea.Cmd) M {
 // **諦めたことを偽に混ぜない。** 終了を待ち時間切れで見落として偽を返すと、呼び出し
 // 側は「q が終了に繋がっていない」という実際には無い退行を疑う（cmdtest が
 // ErrNotFound と ErrCmdTimeout を分ける理由と同じ。Issue #140 / #145）。
-// 偽は「終了しない」と「判定できなかった」の両方で返るので、err だけでは分けられない
-// ——終了を確かめたい側は err で止めてから ok を信じること（真に error は付かない）。
+// 偽は「終了しない」と「判定できなかった」の両方で返るので ok だけでは分けられず、
+// 分けるのは err である——終了を確かめたい側は err で止めてから ok を信じること
+// （真に error は付かない）。
 func IsQuit(cmd tea.Cmd, timeout time.Duration) (bool, error) {
 	if cmd == nil {
 		return false, nil

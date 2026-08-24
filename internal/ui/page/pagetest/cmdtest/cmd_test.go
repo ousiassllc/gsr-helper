@@ -2,6 +2,8 @@ package cmdtest_test
 
 import (
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -30,6 +32,27 @@ func TestRunAllGivesUpOnBlockedCmd(t *testing.T) {
 	// 1 本諦めても残りは走らせる（走らせること自体が RunAll の目的である）。
 	if ran != 1 {
 		t.Errorf("諦めた後に走った Cmd = %d 本, want 1", ran)
+	}
+}
+
+// 戻る Cmd だけの束では RunAll が error を返さず、すべて走らせること。
+//
+// 待ち時間切れを常に返すようになると、諦めたかどうかを呼び出し側が見分けられなくなる
+// （RunAll を呼ぶ側は「後始末が起きたか」をこの error だけで判断する）。
+func TestRunAllRunsEveryCmdWhenNoneBlocks(t *testing.T) {
+	t.Parallel()
+
+	ran := 0
+	err := cmdtest.RunAll(tea.Batch(
+		func() tea.Msg { ran++; return marker{n: 1} },
+		func() tea.Msg { ran++; return marker{n: 2} },
+	), 10*time.Millisecond)
+
+	if err != nil {
+		t.Fatalf("err = %v, want nil", err)
+	}
+	if ran != 2 {
+		t.Errorf("走った Cmd = %d 本, want 2", ran)
 	}
 }
 
@@ -93,8 +116,16 @@ func TestMustMsgsPanicsWhenACmdNeverReturns(t *testing.T) {
 	t.Parallel()
 
 	defer func() {
-		if recover() == nil {
+		r := recover()
+		if r == nil {
 			t.Error("戻らない Cmd を含む束で panic していない（静かに欠けたまま緑になる）")
+
+			return
+		}
+		// 諦めたことを述べているかまで見る。理由の違う panic（nil 参照など）を
+		// 拾っても緑になると、この検証は panic の有無しか押さえない。
+		if got := fmt.Sprint(r); !strings.Contains(got, "Cmd の束を辿れない") {
+			t.Errorf("panic の内容 = %q, 諦めたことを述べていない", got)
 		}
 	}()
 
