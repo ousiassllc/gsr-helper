@@ -8,12 +8,13 @@ import (
 
 	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/setup"
+	"github.com/ousiassllc/gsr-helper/internal/setup/setuptest"
 )
 
 func TestPlanRemoveIssuesUninstallThenRemove(t *testing.T) {
 	t.Parallel()
 
-	r := testRunner("build01-3", "/opt/runners/build01-3", "actions.runner.foo.build01-3.service", true, false)
+	r := setuptest.Runner("build01-3", "/opt/runners/build01-3", "actions.runner.foo.build01-3.service", true, false)
 	p, err := setup.PlanRemove(setup.RemoveSpec{Runners: []runner.Runner{r}})
 	if err != nil {
 		t.Fatalf("err = %v", err)
@@ -34,7 +35,7 @@ func TestPlanRemoveIssuesUninstallThenRemove(t *testing.T) {
 func TestPlanRemoveSkipsServiceStepsWithoutUnit(t *testing.T) {
 	t.Parallel()
 
-	r := testRunner("build01-9", "/opt/runners/build01-9", "", false, false)
+	r := setuptest.Runner("build01-9", "/opt/runners/build01-9", "", false, false)
 	p, err := setup.PlanRemove(setup.RemoveSpec{Runners: []runner.Runner{r}})
 	if err != nil {
 		t.Fatalf("err = %v", err)
@@ -49,8 +50,8 @@ func TestPlanRemoveSkipsServiceStepsWithoutUnit(t *testing.T) {
 func TestPlanRemoveKeepsDirectoryAndWarnsOnBusy(t *testing.T) {
 	t.Parallel()
 
-	busy := testRunner("build01-3", "/opt/runners/build01-3", "u1.service", true, true)
-	idle := testRunner("build01-4", "/opt/runners/build01-4", "u2.service", true, false)
+	busy := setuptest.Runner("build01-3", "/opt/runners/build01-3", "u1.service", true, true)
+	idle := setuptest.Runner("build01-4", "/opt/runners/build01-4", "u2.service", true, false)
 
 	p, err := setup.PlanRemove(setup.RemoveSpec{Runners: []runner.Runner{busy, idle}})
 	if err != nil {
@@ -90,8 +91,8 @@ func TestPlanRemoveRejectsEmptyTargets(t *testing.T) {
 func TestPlanUpdatePreservesStateFilesAndRestoresOnlyRunning(t *testing.T) {
 	t.Parallel()
 
-	running := testRunner("build01-1", "/opt/runners/build01-1", "u1.service", true, false)
-	stopped := testRunner("build01-2", "/opt/runners/build01-2", "u2.service", false, false)
+	running := setuptest.Runner("build01-1", "/opt/runners/build01-1", "u1.service", true, false)
+	stopped := setuptest.Runner("build01-2", "/opt/runners/build01-2", "u2.service", false, false)
 
 	p, err := setup.PlanUpdate(setup.UpdateSpec{
 		Runners: []runner.Runner{running, stopped},
@@ -105,16 +106,16 @@ func TestPlanUpdatePreservesStateFilesAndRestoresOnlyRunning(t *testing.T) {
 	}
 
 	// 起動していた台: ドレイン停止 → 展開 → 起動
-	gotPhases := phases(p.Units[0])
+	gotPhases := setuptest.Phases(p.Units[0])
 	if want := []string{"ドレイン停止", "展開", "起動"}; !slices.Equal(gotPhases, want) {
 		t.Errorf("起動中の手順 = %v, want %v", gotPhases, want)
 	}
 	// 停止していた台: 展開のみ（元の状態へ戻すので起動しない）
-	if want := []string{"展開"}; !slices.Equal(phases(p.Units[1]), want) {
-		t.Errorf("停止中の手順 = %v, want %v", phases(p.Units[1]), want)
+	if want := []string{"展開"}; !slices.Equal(setuptest.Phases(p.Units[1]), want) {
+		t.Errorf("停止中の手順 = %v, want %v", setuptest.Phases(p.Units[1]), want)
 	}
 
-	keep := findExtract(t, p.Units[0])
+	keep := setuptest.FindExtract(t, p.Units[0])
 	for _, name := range []string{".runner", ".credentials", ".env", ".path", "_work", "_diag"} {
 		if !slices.Contains(keep, name) {
 			t.Errorf("保持対象に %q が無い（FR-21）: %v", name, keep)
@@ -125,9 +126,9 @@ func TestPlanUpdatePreservesStateFilesAndRestoresOnlyRunning(t *testing.T) {
 func TestPlanUpdateExcludesRunningRunnersItCannotStop(t *testing.T) {
 	t.Parallel()
 
-	standalone := testRunner("run-sh-1", "/opt/runners/run-sh-1", "", true, false)
+	standalone := setuptest.Runner("run-sh-1", "/opt/runners/run-sh-1", "", true, false)
 	standalone.Managed = runner.ManagedStandalone
-	ok := testRunner("build01-1", "/opt/runners/build01-1", "u1.service", true, false)
+	ok := setuptest.Runner("build01-1", "/opt/runners/build01-1", "u1.service", true, false)
 
 	p, err := setup.PlanUpdate(setup.UpdateSpec{
 		Runners: []runner.Runner{standalone, ok},
@@ -147,7 +148,7 @@ func TestPlanUpdateExcludesRunningRunnersItCannotStop(t *testing.T) {
 func TestPlanUpdateRejectsWhenNothingIsUpdatable(t *testing.T) {
 	t.Parallel()
 
-	r := testRunner("run-sh-1", "/opt/runners/run-sh-1", "", true, false)
+	r := setuptest.Runner("run-sh-1", "/opt/runners/run-sh-1", "", true, false)
 	r.Managed = runner.ManagedStandalone
 
 	_, err := setup.PlanUpdate(setup.UpdateSpec{Runners: []runner.Runner{r}, Version: "2.311.0"})

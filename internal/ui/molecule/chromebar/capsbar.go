@@ -1,4 +1,4 @@
-package molecule
+package chromebar
 
 import (
 	"strconv"

@@ -26,6 +26,7 @@ const (
 var fixtures = map[string]bool{
 	selfPath: true,
 	modulePath + "/internal/ui/organism/table/tabletest": true,
+	modulePath + "/internal/setup/setuptest":             true,
 }
 
 // shared は page/ 直下にあってタブではないパッケージ。
@@ -44,6 +45,12 @@ var shared = map[string]bool{
 	// progressmodal は Setup / Disk が共用する進捗表示のモーダルであり、タブではない
 	// （Issue #75）。
 	"progressmodal": true,
+	// diskclean は Disk タブのクリーンアップ実行部であり、タブではない（Issue #102）。
+	"diskclean": true,
+	// configmodal は Config タブのモーダル 3 種であり、タブではない（Issue #104）。
+	"configmodal": true,
+	// setupmodal は Setup タブのモーダル 2 種であり、タブではない（Issue #105）。
+	"setupmodal": true,
 }
 
 // テスト用の道具は本番の経路から import されない。

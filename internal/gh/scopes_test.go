@@ -122,25 +122,38 @@ func TestScopesHasFollowsHierarchy(t *testing.T) {
 	}
 }
 
-// 必要なスコープの表は API のエラーと診断で同じものを使う。
-func TestRequiredScope(t *testing.T) {
+// 必要なスコープと登録先の言い換えは API のエラー・診断・表示層で同じ表を使う。
+// 1 つのテストに並べているのは**片方だけが埋まった状態を落とす**ためである
+// （Issue #98。欠けると `レベルの操作には ... が必要です` と先頭を欠いた文言になる）。
+func TestRequiredScopeAndLevelNamePairUp(t *testing.T) {
 	t.Parallel()
 
 	tests := map[string]struct {
-		kind scope.Kind
-		want string
+		kind      scope.Kind
+		want      string
+		wantLevel string
 	}{
-		"repo":       {kind: scope.Repo, want: "repo"},
-		"org":        {kind: scope.Org, want: "admin:org"},
-		"enterprise": {kind: scope.Enterprise, want: "admin:enterprise"},
-		"判定不能":       {kind: scope.Unknown, want: ""},
+		"repo":       {kind: scope.Repo, want: "repo", wantLevel: "repo"},
+		"org":        {kind: scope.Org, want: "admin:org", wantLevel: "org"},
+		"enterprise": {kind: scope.Enterprise, want: "admin:enterprise", wantLevel: "enterprise"},
+		"判定不能":       {kind: scope.Unknown, want: "", wantLevel: ""},
+		// 表に無い Kind（新設したが表へ足していない場合）。両方とも空になり、
+		// 塞ぐ側（RequiredScope が空なら塞がない）にも倒れない。
+		"表に無い": {kind: scope.Enterprise + 1, want: "", wantLevel: ""},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			got := gh.RequiredScope(scope.Scope{Kind: tt.kind, Owner: "o", Repo: "r"})
+			sc := scope.Scope{Kind: tt.kind, Owner: "o", Repo: "r"}
+			got, level := gh.RequiredScope(sc), gh.ScopeLevelName(sc)
 			if got != tt.want {
 				t.Errorf("RequiredScope = %q, want %q", got, tt.want)
+			}
+			if level != tt.wantLevel {
+				t.Errorf("ScopeLevelName = %q, want %q", level, tt.wantLevel)
+			}
+			if (got == "") != (level == "") {
+				t.Errorf("必要スコープ %q と言い換え %q の片方だけが埋まっている", got, level)
 			}
 		})
 	}

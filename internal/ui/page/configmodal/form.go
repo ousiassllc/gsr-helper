@@ -1,4 +1,4 @@
-package config
+package configmodal
 
 import (
 	"charm.land/huh/v2"
@@ -112,4 +112,22 @@ func copyField(v *edit.Values) huh.Field {
 		Title("複製先の runner").
 		Description("選んだ runner の .env を、この runner の .env で置き換えます").
 		Options(opts...).Value(&v.CopyTo)
+}
+
+// selfFields は自身の設定の入力欄を返す。
+func selfFields(v *edit.Values) []huh.Field {
+	s := &v.Self
+	return []huh.Field{
+		huh.NewInput().Title("追加の走査ルート").
+			Description("カンマ区切りの絶対パス。空なら既定の場所だけを探します").
+			Value(&s.ScanRoots).Validate(edit.ValidateRoots),
+		huh.NewInput().Title("一覧の自動更新間隔（秒）").
+			Description("1〜3600").Value(&s.Refresh).Validate(edit.ValidateRefresh),
+		huh.NewInput().Title("ディスク使用率の警告閾値（%）").
+			Description("1〜99").Value(&s.Warn).Validate(edit.ValidatePercent),
+		huh.NewInput().Title("ディスク使用率の危険閾値（%）").
+			Description("1〜100。警告より大きくします").Value(&s.Critical).Validate(edit.ValidatePercent),
+		huh.NewInput().Title("監査ログの出力先").
+			Description("絶対パス").Value(&s.AuditLog).Validate(edit.ValidateAuditLog),
+	}
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/ui/organism"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/configmodal"
 )
 
 // 書き込みの結果を受けてから反映（FR-39）までを集める。results.go から分けたのは
@@ -32,7 +33,7 @@ func (m *Model) onDone(msg doneMsg) tea.Cmd {
 	m.refresh(organism.KeepCursor)
 
 	if m.pending.FileBacked() && len(m.applyTargets()) > 0 {
-		return m.overlay.Open(applyKind, applyOpenMsg{items: applyChoices()})
+		return configmodal.OpenApply(&m.overlay, applyChoices())
 	}
 	m.pending = edit.Change{}
 

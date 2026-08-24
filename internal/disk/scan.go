@@ -8,15 +8,19 @@ import (
 	"path/filepath"
 	"sync"
 
+	"github.com/ousiassllc/gsr-helper/internal/disk/pathguard"
 	"github.com/ousiassllc/gsr-helper/internal/runner"
 )
 
-// 集計対象になるディレクトリ名。ValidatePath が許可するサブツリーと同じものを
-// 見るため、リテラルで持つ。workFolder を既定から変えた runner は削除が許可された
-// サブツリーの外になるため、集計対象にもしない。
+// 集計対象になるディレクトリ名。
+//
+// 上の 2 つは pathguard が許可するサブツリーそのものを参照する。リテラルの写しを
+// 持つと、許可サブツリーを変えたときに「集計には出るが検証で必ず落ちる行」が生まれる。
+// workFolder を既定から変えた runner は削除が許可されたサブツリーの外になるため、
+// 集計対象にもしない。
 const (
-	workDirName = "_work"
-	diagDirName = "_diag"
+	workDirName = pathguard.WorkDir
+	diagDirName = pathguard.DiagDir
 	toolDirName = "_tool"
 	tempDirName = "_temp"
 )

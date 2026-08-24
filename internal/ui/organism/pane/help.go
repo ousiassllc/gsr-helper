@@ -13,7 +13,7 @@ import (
 
 // Help は ? の全キー一覧。列組みと折り返しは bubbles/help に委ねる。
 //
-// フッタ（molecule.KeyBar）には使わない。bubbles/help は無効な Binding をキーごと
+// フッタ（chromebar.KeyBar）には使わない。bubbles/help は無効な Binding をキーごと
 // 非表示にする設計であり、「キーを消さずグレーアウトして理由を示す」と両立しない
 // （atomic-design.md の Help と bubbles/help）。
 type Help struct {

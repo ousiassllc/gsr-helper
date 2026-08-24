@@ -124,7 +124,7 @@ func blurStyles(t *huh.Styles) {
 // helpStyles はフォームが自分で描くキーヒントの色を揃える。
 //
 // キーを Accent、説明と区切りを Muted にするのは atom.KeyHint と同じ配分である。
-// フッタ（molecule.KeyBar）と並んで見えるため、ここだけ配色が違うと同じキーヒントが
+// フッタ（chromebar.KeyBar）と並んで見えるため、ここだけ配色が違うと同じキーヒントが
 // 2 通りの見え方で並ぶ。
 func helpStyles(t *huh.Styles, s Styles) {
 	accent := s.Accent.GetForeground()

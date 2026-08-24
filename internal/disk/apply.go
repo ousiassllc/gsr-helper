@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/ousiassllc/gsr-helper/internal/audit"
+	"github.com/ousiassllc/gsr-helper/internal/disk/pathguard"
 	"github.com/ousiassllc/gsr-helper/internal/exec"
 )
 
@@ -43,7 +44,7 @@ const auditRemoveLabel = "(削除)"
 
 // Apply は削除計画を実行する（FR-30）。
 //
-// 削除の直前に ValidatePath をもう一度呼ぶ。計画を作ってから実行するまでの間に
+// 削除の直前に pathguard.Validate をもう一度呼ぶ。計画を作ってから実行するまでの間に
 // パスの実体が差し替えられる余地を残さないためであり、計画を組み立てずに Apply を
 // 呼ぶ経路が将来できても検証を迂回できないようにするためでもある。
 //
@@ -96,7 +97,7 @@ func report(progress func(Progress), p Progress) {
 
 // removeTarget は 1 対象を検証してから削除する。
 //
-// 保護の確認を ValidatePath と同じ位置で行うのは同じ理由による。保護された対象は
+// 保護の確認を pathguard.Validate と同じ位置で行うのは同じ理由による。保護された対象は
 // PlanClean が計画に載せないが、計画を組み立てずに Apply を呼ぶ経路が将来できても
 // ジョブ実行中の _work（FR-31）を迂回で消せないようにしておく。
 //
@@ -140,7 +141,7 @@ func checkRemovable(t Target) error {
 	if t.Protected != "" {
 		return fmt.Errorf("%s の削除を中止しました: %s", t.Label, t.Protected)
 	}
-	if err := ValidatePath(t.Base, t.Path); err != nil {
+	if err := pathguard.Validate(t.Base, t.Path); err != nil {
 		return fmt.Errorf("%s の削除を中止しました: %w", t.Label, err)
 	}
 	return nil

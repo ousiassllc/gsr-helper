@@ -51,7 +51,7 @@ func dockerTarget(bytes int64) Target {
 // protectedTarget は選べない理由が付いた対象を組み立てる（FR-31）。
 //
 // パスそのものは検証を通る（_work 配下の実在するディレクトリ）ものを使う。
-// 保護が「たまたま ValidatePath でも落ちる」ことで通ってしまわないようにするため
+// 保護が「たまたま pathguard.Validate でも落ちる」ことで通ってしまわないようにするため
 // で、これを混ぜると保護の判定が消えても回帰テストが緑のままになる。
 func protectedTarget(base, rel string) Target {
 	t := pathTarget(base, rel, 100)

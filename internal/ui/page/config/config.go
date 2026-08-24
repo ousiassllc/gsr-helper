@@ -26,14 +26,12 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/ui/organism"
 	"github.com/ousiassllc/gsr-helper/internal/ui/organism/table"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/configmodal"
 	"github.com/ousiassllc/gsr-helper/internal/ui/token"
 )
 
-// 画面の見出し。
-const (
-	titleApply  = "反映方法を選んでください"
-	titlePicker = "設定を編集する runner を選んでください"
-)
+// titlePicker は対象選択の見出し。
+const titlePicker = "設定を編集する runner を選んでください"
 
 // Model は Config タブ。
 type Model struct {
@@ -85,9 +83,9 @@ var _ tea.Model = Model{}
 // New は Config タブを組み立てる。
 func New(tab int, st page.StateMsg) Model {
 	overlay, help := page.NewOverlay(tab, st)
-	form := overlay.Register(formKind, newFormModal(st))
-	diff := overlay.Register(diffKind, newDiffModal(st))
-	applyReg := overlay.Register(applyKind, newApplyModal(st))
+	form := overlay.Register(configmodal.FormKind, configmodal.NewForm(st))
+	diff := overlay.Register(configmodal.DiffKind, configmodal.NewDiff(st))
+	applyReg := overlay.Register(configmodal.ApplyKind, configmodal.NewApply(st))
 	scopeCmd := overlay.SetHelpScope(keymap.Set.ConfigHelp)
 
 	m := Model{

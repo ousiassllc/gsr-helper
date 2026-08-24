@@ -10,6 +10,7 @@ import (
 
 	"github.com/ousiassllc/gsr-helper/internal/exec"
 	"github.com/ousiassllc/gsr-helper/internal/setup"
+	"github.com/ousiassllc/gsr-helper/internal/setup/setuptest"
 )
 
 func TestApplyIssuesPlannedCommandsWithRealToken(t *testing.T) {
@@ -20,10 +21,10 @@ func TestApplyIssuesPlannedCommandsWithRealToken(t *testing.T) {
 
 	res, err := setup.Apply(context.Background(), setup.ApplyInput{
 		Exec:     f,
-		Plan:     addPlanIn(t, base, 1),
+		Plan:     setuptest.AddPlanIn(t, base, 1),
 		Token:    "AREGISTRATIONTOKEN",
 		TokenFor: nil,
-		Tarball:  makeTarball(t),
+		Tarball:  setuptest.MakeTarball(t),
 		Drain:    nil,
 		Progress: nil,
 	})
@@ -41,7 +42,7 @@ func TestApplyIssuesPlannedCommandsWithRealToken(t *testing.T) {
 		"./svc.sh install",
 		"./svc.sh start",
 	}
-	if got := issued(f); !slices.Equal(got, want) {
+	if got := setuptest.Issued(f); !slices.Equal(got, want) {
 		t.Errorf("発行コマンド:\n got: %v\nwant: %v", got, want)
 	}
 
@@ -67,10 +68,10 @@ func TestApplyCreatesDirectoryAndExtractsTarball(t *testing.T) {
 	base := t.TempDir()
 	if _, err := setup.Apply(context.Background(), setup.ApplyInput{
 		Exec:     exec.NewFake(),
-		Plan:     addPlanIn(t, base, 1),
+		Plan:     setuptest.AddPlanIn(t, base, 1),
 		Token:    "TOKENTOKENTOKEN",
 		TokenFor: nil,
-		Tarball:  makeTarball(t),
+		Tarball:  setuptest.MakeTarball(t),
 		Drain:    nil,
 		Progress: nil,
 	}); err != nil {
@@ -104,10 +105,10 @@ func TestApplyStopsAtFailureAndKeepsSucceeded(t *testing.T) {
 
 	res, err := setup.Apply(context.Background(), setup.ApplyInput{
 		Exec:     f,
-		Plan:     addPlanIn(t, base, 3),
+		Plan:     setuptest.AddPlanIn(t, base, 3),
 		Token:    "TOKENTOKENTOKEN",
 		TokenFor: nil,
-		Tarball:  makeTarball(t),
+		Tarball:  setuptest.MakeTarball(t),
 		Drain:    nil,
 		Progress: nil,
 	})
@@ -155,10 +156,10 @@ func TestApplyReportsProgressPerPhase(t *testing.T) {
 	var got []string
 	_, err := setup.Apply(context.Background(), setup.ApplyInput{
 		Exec:     exec.NewFake(),
-		Plan:     addPlanIn(t, base, 1),
+		Plan:     setuptest.AddPlanIn(t, base, 1),
 		Token:    "TOKENTOKENTOKEN",
 		TokenFor: nil,
-		Tarball:  makeTarball(t),
+		Tarball:  setuptest.MakeTarball(t),
 		Drain:    nil,
 		Progress: func(p setup.Progress) {
 			got = append(got, p.Phase)
@@ -196,10 +197,10 @@ func TestApplyStopsOnCancelAndLeavesRemainingUntouched(t *testing.T) {
 
 	res, err := setup.Apply(ctx, setup.ApplyInput{
 		Exec:     f,
-		Plan:     addPlanIn(t, base, 3),
+		Plan:     setuptest.AddPlanIn(t, base, 3),
 		Token:    "TOKENTOKENTOKEN",
 		TokenFor: nil,
-		Tarball:  makeTarball(t),
+		Tarball:  setuptest.MakeTarball(t),
 		Drain:    nil,
 		Progress: nil,
 	})
@@ -232,7 +233,7 @@ func TestApplyValidatesInput(t *testing.T) {
 	t.Parallel()
 
 	base := t.TempDir()
-	plan := addPlanIn(t, base, 1)
+	plan := setuptest.AddPlanIn(t, base, 1)
 
 	tests := map[string]struct {
 		in   setup.ApplyInput

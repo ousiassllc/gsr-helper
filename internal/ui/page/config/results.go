@@ -11,6 +11,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/gh"
 	"github.com/ousiassllc/gsr-helper/internal/ui/organism/dialog"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/configmodal"
 )
 
 // openSelected はカーソル位置の項目の編集を始める。
@@ -118,17 +119,17 @@ func (m *Model) openForm(k edit.Kind) tea.Cmd {
 
 	m.formShown = true
 
-	return m.overlay.Open(formKind, formOpenMsg{title: k.FormTitle(), values: m.vals, st: m.st})
+	return configmodal.OpenForm(&m.overlay, k.FormTitle(), m.vals, m.st)
 }
 
 // onResult はモーダルの決定を処理する。
 func (m *Model) onResult(msg page.ResultMsg) tea.Cmd {
 	switch msg.Kind {
-	case formKind:
+	case configmodal.FormKind:
 		return m.onForm(msg.Msg)
-	case diffKind:
+	case configmodal.DiffKind:
 		return m.onApproved(msg.Msg)
-	case applyKind:
+	case configmodal.ApplyKind:
 		return m.onApplyChosen(msg.Msg)
 	default:
 		return nil

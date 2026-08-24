@@ -1,13 +1,15 @@
-package disk
+package pathguard_test
 
 import (
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ousiassllc/gsr-helper/internal/disk/pathguard"
 )
 
-// ValidatePath は root 権限での誤削除を防ぐ最後の砦であり、異常系の網羅が
+// Validate は root 権限での誤削除を防ぐ最後の砦であり、異常系の網羅が
 // 受け入れ条件になっている（docs/architecture/security.md
 // 「削除パスの検証を必須にする」）。ここでは実際に一時ディレクトリと
 // シンボリックリンクを作り、経路の逸脱が実物で弾かれることを確かめる。
@@ -45,7 +47,7 @@ func newValidateTree(t *testing.T) (base, outside string) {
 	return base, outside
 }
 
-func TestValidatePathAccepts(t *testing.T) {
+func TestValidateAccepts(t *testing.T) {
 	base, _ := newValidateTree(t)
 
 	tests := map[string]string{
@@ -56,14 +58,14 @@ func TestValidatePathAccepts(t *testing.T) {
 	}
 	for name, target := range tests {
 		t.Run(name, func(t *testing.T) {
-			if err := ValidatePath(base, target); err != nil {
-				t.Errorf("ValidatePath(%q) がエラーを返した: %v", target, err)
+			if err := pathguard.Validate(base, target); err != nil {
+				t.Errorf("Validate(%q) がエラーを返した: %v", target, err)
 			}
 		})
 	}
 }
 
-func TestValidatePathRejects(t *testing.T) {
+func TestValidateRejects(t *testing.T) {
 	base, outside := newValidateTree(t)
 
 	tests := []struct {
@@ -132,9 +134,9 @@ func TestValidatePathRejects(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := ValidatePath(tt.base, tt.target)
+			err := pathguard.Validate(tt.base, tt.target)
 			if err == nil {
-				t.Fatalf("ValidatePath(%q, %q) が許可してしまった", tt.base, tt.target)
+				t.Fatalf("Validate(%q, %q) が許可してしまった", tt.base, tt.target)
 			}
 			if !strings.Contains(err.Error(), tt.wantMsg) {
 				t.Errorf("エラー文言 = %q, want %q を含む", err.Error(), tt.wantMsg)
@@ -143,10 +145,10 @@ func TestValidatePathRejects(t *testing.T) {
 	}
 }
 
-// TestValidatePathRejectsSymlinkedSubtree は _work 自体がリンクで外を指す runner を
+// TestValidateRejectsSymlinkedSubtree は _work 自体がリンクで外を指す runner を
 // 弾くことを確かめる。リンクを解決せずにパスの文字列だけで判定していると、
 // 基準ディレクトリ配下に見えるまま外部のツリーを消してしまう。
-func TestValidatePathRejectsSymlinkedSubtree(t *testing.T) {
+func TestValidateRejectsSymlinkedSubtree(t *testing.T) {
 	root := t.TempDir()
 	base := filepath.Join(root, "runner")
 	outside := filepath.Join(root, "outside", "repo")
@@ -161,7 +163,7 @@ func TestValidatePathRejectsSymlinkedSubtree(t *testing.T) {
 	}
 
 	target := filepath.Join(base, "_work", "repo")
-	if err := ValidatePath(base, target); err == nil {
+	if err := pathguard.Validate(base, target); err == nil {
 		t.Fatalf("リンクで外を指す _work 配下を許可してしまった: %s", target)
 	}
 }

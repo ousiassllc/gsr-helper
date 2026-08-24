@@ -12,6 +12,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/ui/organism/dialog"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/progressmodal"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/setupmodal"
 )
 
 // onRequest は他のタブ（Runners の n / D / u）からの依頼を処理する。
@@ -45,7 +46,7 @@ func (m *Model) startAdd(kind formKindOf) tea.Cmd {
 	m.vals.reset(m.st, kind)
 	m.formShown = true
 
-	return m.overlay.Open(formKind, formOpenMsg{kind: kind, values: m.vals, st: m.st})
+	return setupmodal.OpenForm(&m.overlay, m.st, kind.title(), m.vals.build)
 }
 
 // startRemove は削除の計画を組み始める。
@@ -132,21 +133,21 @@ func (m *Model) onPlan(msg planMsg) tea.Cmd {
 	m.plan = msg.plan
 	m.apiScope = msg.scope
 
-	return m.overlay.Open(confirmKind, confirmOpenMsg{input: confirmInput(msg.plan)})
+	return setupmodal.OpenConfirm(&m.overlay, confirmInput(msg.plan))
 }
 
 // onResult はモーダルの決定を処理する。
 func (m *Model) onResult(msg page.ResultMsg) tea.Cmd {
 	switch msg.Kind {
-	case formKind:
+	case setupmodal.FormKind:
 		return m.onFormResult(msg.Msg)
-	case confirmKind:
+	case setupmodal.ConfirmKind:
 		decided, ok := msg.Msg.(dialog.DecidedMsg)
 		if !ok {
 			return nil
 		}
 		return m.confirmed(decided.Confirmed)
-	case discardKind:
+	case setupmodal.DiscardKind:
 		decided, ok := msg.Msg.(dialog.DecidedMsg)
 		if !ok {
 			return nil

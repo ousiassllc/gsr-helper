@@ -1,10 +1,26 @@
-package setup_test
+// Package setuptest は internal/setup のテストが共用するフィクスチャを置く。
+//
+// _test.go ではなく通常のパッケージなのは、**1 ディレクトリ 2000 行の上限**
+// （docs/ui/atomic-design.md「ディレクトリの行数」）に収めるためである。中身は
+// setup の型を組み立てる純粋なフィクスチャと、tar.gz を作る道具だけで、本番の
+// 構造には 1 つも手を入れていない。
+//
+// 代償として本番からも import できてしまうので、`page/pagetest/import_test.go` の
+// `fixtures` へ登録してある（`TestNoProductionCodeImportsTestFixtures` が検査する）。
+//
+// **`testing` を import する点だけは page/pagetest の規則の例外である。**
+// あちらは「テスト用のフラグが本番のバイナリ側の依存に現れる」ことを避けて
+// `testing` を持たず、合否の判定を呼び出し側の _test.go に残している（pagetest/run.go）。
+// ここは `t.Helper()` と `t.Fatalf` で準備の失敗をその場で止める形を採った——
+// フィクスチャの準備（tar.gz の作成・PlanAdd の成功）が失敗した場合に呼び出し側へ
+// error を返しても、全呼び出し元が同じ 3 行を書くだけになるためである。
+// 本番から import されないことは上記の検査が担保する。
+package setuptest
 
 import (
 	"archive/tar"
 	"compress/gzip"
 	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/ousiassllc/gsr-helper/internal/exec"
@@ -14,8 +30,8 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/setup"
 )
 
-// addSpec は最小限の妥当な AddSpec を返す。
-func addSpec() setup.AddSpec {
+// AddSpec は最小限の妥当な setup.AddSpec を返す。
+func AddSpec() setup.AddSpec {
 	return setup.AddSpec{
 		URL:           "https://github.com/orgs/foo",
 		Scope:         scope.Scope{Kind: scope.Org, Owner: "foo", Repo: ""},
@@ -36,8 +52,8 @@ func addSpec() setup.AddSpec {
 	}
 }
 
-// testRunner はテスト用の runner を組み立てる。
-func testRunner(name, dir, unit string, running, busy bool) runner.Runner {
+// Runner はテスト用の runner を組み立てる。
+func Runner(name, dir, unit string, running, busy bool) runner.Runner {
 	r := runner.Runner{
 		Dir:       dir,
 		Config:    runner.Config{AgentName: name},
@@ -63,8 +79,8 @@ func testRunner(name, dir, unit string, running, busy bool) runner.Runner {
 	return r
 }
 
-// phases は手順のフェーズ名を実行順に返す。
-func phases(u setup.Unit) []string {
+// Phases は手順のフェーズ名を実行順に返す。
+func Phases(u setup.Unit) []string {
 	out := make([]string, 0, len(u.Steps))
 	for _, s := range u.Steps {
 		out = append(out, s.Phase)
@@ -72,8 +88,8 @@ func phases(u setup.Unit) []string {
 	return out
 }
 
-// findExtract は展開の手順の Keep を返す。
-func findExtract(t *testing.T, u setup.Unit) []string {
+// FindExtract は展開の手順の Keep を返す。
+func FindExtract(t *testing.T, u setup.Unit) []string {
 	t.Helper()
 
 	for _, s := range u.Steps {
@@ -81,20 +97,24 @@ func findExtract(t *testing.T, u setup.Unit) []string {
 			return s.Keep
 		}
 	}
-	t.Fatalf("展開の手順が無い: %v", phases(u))
+	t.Fatalf("展開の手順が無い: %v", Phases(u))
 	return nil
 }
 
-// makeTarball は runner 本体を模した最小の tar.gz を作り、そのパスを返す。
+// MakeTarball は runner 本体を模した最小の tar.gz を作り、そのパスを返す。
 //
 // tarball 側にも .runner / .env を入れてある。これが無いと FR-21（保持対象を
 // 上書きしない）の検証が、そもそも衝突しないだけの空振りになる。中身は既存の
 // ファイルと必ず食い違う値にして、上書きが起きれば読み取りで分かるようにする。
-func makeTarball(t *testing.T) string {
+func MakeTarball(t *testing.T) string {
 	t.Helper()
 
-	path := filepath.Join(t.TempDir(), "runner.tar.gz")
-	f, err := os.Create(path)
+	// os.Create ではなく os.CreateTemp を使うのは、**gosec の G304 を抑制せずに
+	// 済ませるため**である。このファイルは _test.go ではない（1 ディレクトリの行数
+	// 上限のため通常のパッケージにしてある）ので、抑制を書くと本番コードの抑制の
+	// 棚卸し（docs/environment/setup.md「抑制の方針」）にテスト用フィクスチャの
+	// 行が混ざる。
+	f, err := os.CreateTemp(t.TempDir(), "runner-*.tar.gz")
 	if err != nil {
 		t.Fatalf("準備に失敗: %v", err)
 	}
@@ -128,11 +148,11 @@ func makeTarball(t *testing.T) string {
 	if err := gz.Close(); err != nil {
 		t.Fatalf("準備に失敗: %v", err)
 	}
-	return path
+	return f.Name()
 }
 
-// issued は Fake が記録したコマンド行を返す。
-func issued(f *exec.Fake) []string {
+// Issued は Fake が記録したコマンド行を返す。
+func Issued(f *exec.Fake) []string {
 	calls := f.Calls()
 	out := make([]string, 0, len(calls))
 	for _, c := range calls {
@@ -141,11 +161,11 @@ func issued(f *exec.Fake) []string {
 	return out
 }
 
-// addPlanIn は base 配下へ count 台追加する計画を返す。
-func addPlanIn(t *testing.T, base string, count int) setup.Plan {
+// AddPlanIn は base 配下へ count 台追加する計画を返す。
+func AddPlanIn(t *testing.T, base string, count int) setup.Plan {
 	t.Helper()
 
-	spec := addSpec()
+	spec := AddSpec()
 	spec.InstallBase = base
 	spec.Count = count
 	spec.Existing = nil
