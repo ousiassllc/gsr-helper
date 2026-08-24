@@ -21,24 +21,50 @@ import (
 // doc）、import するとテスト用のフラグが本番のバイナリ側の依存に現れる。合否の判定は
 // 呼び出し側の _test.go に残し、ここは結果と成否だけを返す。
 
-// RunCmd は Cmd を 1 本実行して Msg を返す。timeout 内に戻らなければ偽を返す。
+// CmdTimeout は「必ず戻るはずの Cmd」を待つ上限。
+//
+// **戻りの速い Cmd の速さには効かない。** 締め切りが効くのは戻らない Cmd を諦める
+// までの時間だけなので、負荷の側へ大きく倒してよい。config の helper_test が同じ
+// 用途に 3 秒を使っていたころ、`make check`（-race で全パッケージを同時に実行）では
+// それを使い切ることがあり、自己設定テストが散発的に落ちた（Issue #140）。
+//
+// **何が 3 秒を使い切ったのかは特定していない。** 分かっているのは締め切りの側で
+// 落ちていたこと（その定数を縮めると同じ行・同じメッセージで落ちる）までで、
+// goroutine の遅れ・ファイル I/O・-race の負荷のどれが効いたかは切り分けていない。
+//
+// **購読の待ち受けにはこれを使わないこと。** 行が届くまで戻らない Cmd を諦めるのが
+// 目的の待ちは、諦めるまでの時間がそのままテストの所要時間になる。そちらは呼び出し
+// 側が短い値を決める（logs の cmdTimeout）。
+const CmdTimeout = 30 * time.Second
+
+// ErrNoCmd は走らせる Cmd が無かったことを表す。
+var ErrNoCmd = errors.New("走らせる Cmd が無い")
+
+// ErrCmdTimeout は Cmd が待ち時間内に戻らなかったことを表す。
+//
+// **「Msg が出なかった」と区別できることが要件である。** 両方を 1 つの偽で返して
+// いたころは、待ち時間切れを呼び出し側が「そもそも Cmd が出ていない」と読み、
+// 実際には無い差分の判定を疑う失敗メッセージが出ていた（Issue #140）。
+var ErrCmdTimeout = errors.New("待ち時間内に Cmd が戻らない")
+
+// RunCmd は Cmd を 1 本実行して Msg を返す。timeout 内に戻らなければ ErrCmdTimeout を返す。
 //
 // 戻らない Cmd がありうるのが前提である。購読の待ち受け（行が届くまで戻らない Cmd）は
 // **戻らないこと自体が正しい**ので、諦めて次へ進むための時間を呼び出し側が決める。
 //
 // チャネルに余裕を持たせるのは、諦めたあとに Cmd が戻ってきても送信で詰まらせない
 // ためである（購読を畳めば必ず戻る）。
-func RunCmd(cmd tea.Cmd, timeout time.Duration) (tea.Msg, bool) {
+func RunCmd(cmd tea.Cmd, timeout time.Duration) (tea.Msg, error) {
 	if cmd == nil {
-		return nil, false
+		return nil, ErrNoCmd
 	}
 	ch := make(chan tea.Msg, 1)
 	go func() { ch <- cmd() }()
 	select {
 	case msg := <-ch:
-		return msg, true
+		return msg, nil
 	case <-time.After(timeout):
-		return nil, false
+		return nil, ErrCmdTimeout
 	}
 }
 
@@ -120,8 +146,8 @@ func Pump[M any](
 		next := queue[0]
 		queue = queue[1:]
 
-		msg, ok := RunCmd(next, timeout)
-		if !ok {
+		msg, err := RunCmd(next, timeout)
+		if err != nil {
 			continue
 		}
 		if inner, isBatch := Cmds(msg); isBatch {

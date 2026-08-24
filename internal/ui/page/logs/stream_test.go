@@ -255,9 +255,9 @@ func TestWaitBatchesPendingLines(t *testing.T) {
 	}
 	m := Model{tab: testTab, stream: stream{gen: 1, lines: ch}}
 
-	msg, ok := pagetest.RunCmd(m.wait(), cmdTimeout)
-	if !ok {
-		t.Fatal("待ち受けの Cmd が戻らない")
+	msg, err := pagetest.RunCmd(m.wait(), cmdTimeout)
+	if err != nil {
+		t.Fatalf("待ち受けの Cmd から Msg を取れない: %v", err)
 	}
 	tm, isTab := msg.(page.TabMsg)
 	if !isTab {

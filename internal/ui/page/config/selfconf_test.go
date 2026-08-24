@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"os"
 	"strconv"
 	"strings"
@@ -37,8 +38,11 @@ func TestSelfConfigReopensWithSavedValues(t *testing.T) {
 	m, _ = send(t, m, page.ResultMsg{Kind: configmodal.FormKind, Msg: dialog.FormDoneMsg{Form: nil}})
 
 	m, cmd := send(t, m, page.ResultMsg{Kind: configmodal.DiffKind, Msg: dialog.DecidedMsg{Confirmed: true}})
-	done, ok := doneOf(cmd)
-	if !ok || done.err != nil {
+	done, err := doneOf(cmd)
+	if err != nil {
+		t.Fatalf("書き込みの結果を取れない: %v", err)
+	}
+	if done.err != nil {
 		t.Fatalf("設定の書き込みに失敗: %v", done.err)
 	}
 	m, _ = send(t, m, done)
@@ -80,21 +84,26 @@ func TestSelfConfigSaveReturnsNewConfigToParent(t *testing.T) {
 			m, _ = send(t, m, page.ResultMsg{Kind: configmodal.FormKind, Msg: dialog.FormDoneMsg{Form: nil}})
 
 			m, cmd := send(t, m, page.ResultMsg{Kind: configmodal.DiffKind, Msg: dialog.DecidedMsg{Confirmed: true}})
-			done, ok := doneOf(cmd)
-			if !ok {
-				t.Fatal("書き込みの Cmd が出ていない")
+			done, err := doneOf(cmd)
+			if err != nil {
+				t.Fatalf("書き込みの結果を取れない: %v", err)
 			}
 			if got := done.err != nil; got == tt.want {
 				t.Fatalf("書き込みの成否 = %v（err = %v）, この筋の前提と食い違う", !got, done.err)
 			}
 
 			_, cmd = send(t, m, done)
-			saved, got := savedOf(cmd)
-			if got != tt.want {
-				t.Fatalf("親へ返したか = %v, want %v", got, tt.want)
-			}
+			saved, err := savedOf(cmd)
 			if !tt.want {
+				// 返らないことを見る筋なので、待ち時間切れでは代用できない（Issue #140）。
+				if !errors.Is(err, errNotFound) {
+					t.Fatalf("親へ返さない筋の結果 = %v, want %v", err, errNotFound)
+				}
+
 				return
+			}
+			if err != nil {
+				t.Fatalf("親へ返していない: %v", err)
 			}
 			if w := (appconfig.DiskThresholds{Warn: 55, Critical: 77}); saved.Conf.DiskThresholds != w {
 				t.Errorf("親へ返した閾値 = %+v, want %+v", saved.Conf.DiskThresholds, w)
@@ -129,9 +138,9 @@ func TestFirstRunWizardWritesWithoutEdits(t *testing.T) {
 	m, _ = send(t, m, page.ResultMsg{Kind: configmodal.FormKind, Msg: dialog.FormDoneMsg{Form: nil}})
 
 	m, cmd = send(t, m, page.ResultMsg{Kind: configmodal.DiffKind, Msg: dialog.DecidedMsg{Confirmed: true}})
-	done, ok := doneOf(cmd)
-	if !ok {
-		t.Fatalf("書き込みの Cmd が出ていない（差分なしで飛ばされた）: %s", view(m))
+	done, err := doneOf(cmd)
+	if err != nil {
+		t.Fatalf("書き込みの結果を取れない（%v）: %s", err, view(m))
 	}
 	if done.err != nil {
 		t.Fatalf("設定の書き込みに失敗: %v", done.err)
@@ -244,9 +253,12 @@ func saveSelf(t *testing.T, m Model, refresh, audit string) (Model, string) {
 	m, _ = send(t, m, page.ResultMsg{Kind: configmodal.FormKind, Msg: dialog.FormDoneMsg{Form: nil}})
 
 	m, cmd := send(t, m, page.ResultMsg{Kind: configmodal.DiffKind, Msg: dialog.DecidedMsg{Confirmed: true}})
-	done, ok := doneOf(cmd)
-	if !ok {
+	done, err := doneOf(cmd)
+	if errors.Is(err, errNotFound) {
 		t.Fatal("書き込みの Cmd が出ていない（差分なしで飛ばされた）")
+	}
+	if err != nil {
+		t.Fatalf("書き込みの結果を取れない: %v", err)
 	}
 	m, _ = send(t, m, done)
 

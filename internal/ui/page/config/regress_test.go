@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -29,14 +30,15 @@ func TestApprovalIsAcceptedOnce(t *testing.T) {
 	m = openEnvForm(t, m)
 
 	m, cmd := send(t, m, page.ResultMsg{Kind: configmodal.DiffKind, Msg: dialog.DecidedMsg{Confirmed: true}})
-	if _, ok := doneOf(cmd); !ok {
-		t.Fatal("1 回目の書き込みが走っていない")
+	if _, err := doneOf(cmd); err != nil {
+		t.Fatalf("1 回目の書き込みが走っていない: %v", err)
 	}
 
 	// 2 回目の決定（連打・貼り付け）は捨てる。
 	_, again := send(t, m, page.ResultMsg{Kind: configmodal.DiffKind, Msg: dialog.DecidedMsg{Confirmed: true}})
-	if _, ok := doneOf(again); ok {
-		t.Error("同じ承認で 2 回書き込んだ")
+	// 目当てが無いことを見る筋なので、待ち時間切れでは代用できない（Issue #140）。
+	if _, err := doneOf(again); !errors.Is(err, errNotFound) {
+		t.Errorf("2 回目の決定の結果 = %v, want %v（同じ承認で 2 回書き込んだ）", err, errNotFound)
 	}
 	if bak, err := readFile(r.Dir + "/.env.bak"); err != nil || bak != before {
 		t.Errorf("バックアップ = %q, %v, want 元の内容 %q", bak, err, before)
@@ -87,8 +89,8 @@ func TestCopyAppliesToTargetsNotSource(t *testing.T) {
 	_, cmd := send(t, m, page.ResultMsg{
 		Kind: configmodal.ApplyKind, Msg: organism.ChosenMsg{ID: apply.Force.Label(), Key: ""},
 	})
-	if _, ok := doneOf(cmd); !ok {
-		t.Fatal("反映が走っていない")
+	if _, err := doneOf(cmd); err != nil {
+		t.Fatalf("反映が走っていない: %v", err)
 	}
 
 	fake, ok := m.st.Exec.(*exec.Fake)

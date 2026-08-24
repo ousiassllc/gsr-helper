@@ -1,6 +1,8 @@
 package config
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -87,9 +89,6 @@ func chromeOf(t *testing.T, cmd tea.Cmd) page.ChromeMsg {
 	return got
 }
 
-// timeout は Cmd の完了を待つ上限。
-const timeout = 3 * time.Second
-
 // readFile は path の内容を返す。
 func readFile(path string) (string, error) {
 	b, err := os.ReadFile(path)
@@ -132,39 +131,91 @@ func fileAsDir(t *testing.T) string {
 	return path
 }
 
+// errNotFound は束を最後まで辿っても目当ての Msg が無かったことを表す。
+//
+// ErrCmdTimeout と分けているのは、**呼び出し側の読み方が正反対だから**である。
+// こちらは「Cmd が本当に出ていない」＝画面側の判断（差分が無いなど）を疑う合図で、
+// 待ち時間切れは「出ているかどうか分からない」＝機械の混み具合を疑う合図になる
+// （Issue #140）。
+var errNotFound = errors.New("目当ての Msg が束に無い")
+
 // savedOf は Cmd の束から親宛ての ConfigSavedMsg を取り出す（Issue #128）。
 //
 // doneOf と違って TabMsg を剥がさない。宛先は発行元のタブではなく親であり、
 // page.Do で包まないことがこの Msg の要件だからである（page.ConfigSaved の doc）。
-func savedOf(cmd tea.Cmd) (page.ConfigSavedMsg, bool) {
-	for _, c := range pagetest.Expand(cmd) {
-		msg, ok := pagetest.RunCmd(c, timeout)
-		if !ok {
-			continue
-		}
-		if saved, is := msg.(page.ConfigSavedMsg); is {
-			return saved, true
-		}
+func savedOf(cmd tea.Cmd) (page.ConfigSavedMsg, error) {
+	msg, err := findMsg(cmd, pagetest.CmdTimeout, func(m tea.Msg) bool {
+		_, is := m.(page.ConfigSavedMsg)
+		return is
+	})
+	if err != nil {
+		return page.ConfigSavedMsg{}, err
 	}
-	return page.ConfigSavedMsg{}, false
+	return msg.(page.ConfigSavedMsg), nil
 }
 
 // doneOf は Cmd の束から書き込み・反映の結果を取り出す。
 //
 // 束（tea.Batch）で返るのは chrome の更新と処理本体が同時に流れるためで、
 // 本体だけを取り出して結果を見る。
-func doneOf(cmd tea.Cmd) (doneMsg, bool) {
-	for _, c := range pagetest.Expand(cmd) {
-		msg, ok := pagetest.RunCmd(c, timeout)
-		if !ok {
+func doneOf(cmd tea.Cmd) (doneMsg, error) {
+	msg, err := findMsg(cmd, pagetest.CmdTimeout, func(m tea.Msg) bool {
+		if tab, wrapped := m.(page.TabMsg); wrapped {
+			m = tab.Msg
+		}
+		_, is := m.(doneMsg)
+		return is
+	})
+	if err != nil {
+		return doneMsg{}, err
+	}
+	if tab, wrapped := msg.(page.TabMsg); wrapped {
+		msg = tab.Msg
+	}
+	return msg.(doneMsg), nil
+}
+
+// findMsg は束の Cmd を順に走らせ、want を満たす最初の Msg を返す。
+//
+// **待ち時間切れで打ち切らない。** 束には戻らない Cmd が混じりうるので、1 本
+// 諦めても残りを辿る。目当てが最後まで見つからなかったときだけ、諦めた本数が
+// あれば ErrCmdTimeout を、無ければ errNotFound を返す——「見つからなかった」の
+// 理由をここで確定させないと、呼び出し側の失敗メッセージが取り違える。
+//
+// **束の展開にも締め切りを掛ける。** pagetest.Expand は先頭の Cmd を締め切り
+// 無しで走らせるので、束になっていない戻らない Cmd を渡すとそこで止まる。
+// 待ち時間切れを区別して返すのに、区別する前に止まっては意味がない（Issue #140）。
+//
+// **戻らない Cmd を含む束には向かない。** 目当てが無いときは束を実行しきるので、
+// 購読の待ち受けを持つタブでは諦めるだけで CmdTimeout ぶん掛かる（Config タブの
+// Cmd は購読を持たない）。そちらは短い締め切りを決めて pagetest.Pump を使うこと。
+func findMsg(cmd tea.Cmd, timeout time.Duration, want func(tea.Msg) bool) (tea.Msg, error) {
+	gaveUp := 0
+	queue := []tea.Cmd{cmd}
+	for len(queue) > 0 {
+		c := queue[0]
+		queue = queue[1:]
+
+		msg, err := pagetest.RunCmd(c, timeout)
+		if errors.Is(err, pagetest.ErrCmdTimeout) {
+			gaveUp++
+
 			continue
 		}
-		if tab, wrapped := msg.(page.TabMsg); wrapped {
-			msg = tab.Msg
+		if err != nil {
+			continue
 		}
-		if done, is := msg.(doneMsg); is {
-			return done, true
+		if inner, isBundle := pagetest.Cmds(msg); isBundle {
+			queue = append(queue, inner...)
+
+			continue
+		}
+		if want(msg) {
+			return msg, nil
 		}
 	}
-	return doneMsg{text: "", err: nil}, false
+	if gaveUp > 0 {
+		return nil, fmt.Errorf("%w（%d 本が %s 以内に戻らなかった）", pagetest.ErrCmdTimeout, gaveUp, timeout)
+	}
+	return nil, errNotFound
 }
