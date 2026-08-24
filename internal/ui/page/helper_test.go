@@ -151,3 +151,35 @@ func stubOf(t *testing.T, o Overlay, kind ModalKind) *stubModal {
 	}
 	return stub
 }
+
+// wantFullState は配られた共有状態が欠けていないことを見る。w / h は配った本体の領域。
+//
+// **中身をフィールドごとに見る。** 配られた件数だけを数えると、配るのが
+// StateMsg{Keys, Styles} だけに退行しても検証が通り、受け取ったモーダルが
+// Result / Caps / Exec を持てないという Issue #32 の症状を見逃す。
+func wantFullState(t *testing.T, stub *stubModal, w, h int) {
+	t.Helper()
+
+	got := stub.state
+	if n := len(got.Result.Runners); n != 1 || got.Result.Runners[0].Dir != testRunnerDir {
+		t.Errorf("配られた検出結果 = %+v, want %q 1 台", got.Result, testRunnerDir)
+	}
+	if !got.Caps.Systemd || got.Caps.SudoUser == "" {
+		t.Errorf("配られた能力 = %+v, want 渡した値", got.Caps)
+	}
+	if got.Exec == nil {
+		t.Error("配られた共有状態に Executor が無い（ドメイン層を呼ぶ道が渡っていない）")
+	}
+	if got.Keys.Global.Help.Help().Key == "" {
+		t.Error("配られた共有状態にキー定義が無い")
+	}
+	if got.BodyW != w || got.BodyH != h {
+		t.Errorf("配られた本体領域 = %dx%d, want %dx%d", got.BodyW, got.BodyH, w, h)
+	}
+	if stub.size.W == 0 || stub.size.H == 0 || stub.size.W >= w {
+		t.Errorf("配られた領域 = %+v, want 枠の分を引いた値", stub.size)
+	}
+	if stub.tab != testTab {
+		t.Errorf("配られたタブ番号 = %d, want %d", stub.tab, testTab)
+	}
+}

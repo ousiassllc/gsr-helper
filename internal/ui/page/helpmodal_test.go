@@ -1,6 +1,7 @@
 package page
 
 import (
+	"strings"
 	"testing"
 
 	"charm.land/bubbles/v2/key"
@@ -67,6 +68,33 @@ func TestHelpKeepsOffsetAcrossScopeChange(t *testing.T) {
 	}
 	if got := h.help.Offset(); got != want {
 		t.Errorf("範囲を差し替えた後の位置 = %d, want %d（先頭へ戻されている）", got, want)
+	}
+}
+
+// ? に出すキーの範囲は画面ごとに差し替えられる。
+//
+// 差し替えられないと、Set にキーの種類が増えるたびに全画面のヘルプへ他のタブの
+// キーが並ぶ（keymap.Set.Help の doc）。
+func TestOverlayHelpScopeIsPerPage(t *testing.T) {
+	drain := testKeys().Runner.Drain.Help().Desc
+
+	// 幅と高さを広く取る。bubbles/help はグループを列に並べて幅で落とすため、
+	// 狭い領域では範囲の違いではなく列落ちを見てしまう。
+	o, _ := NewOverlay(testTab, state(200, 40))
+	o.OpenHelp()
+	if !strings.Contains(o.View(), drain) {
+		t.Fatalf("既定のヘルプに runner の操作キー（%s）が無い", drain)
+	}
+
+	// 一覧のキーだけを持つ画面に差し替える。
+	o.SetHelpScope(func(s keymap.Set) [][]key.Binding {
+		return s.Help(s.List.Bindings())
+	})
+	if strings.Contains(o.View(), drain) {
+		t.Errorf("差し替えたヘルプに範囲外のキー（%s）が出ている:\n%s", drain, o.View())
+	}
+	if !strings.Contains(o.View(), testKeys().List.Filter.Help().Desc) {
+		t.Error("差し替えたヘルプに自分の範囲のキーが無い")
 	}
 }
 
