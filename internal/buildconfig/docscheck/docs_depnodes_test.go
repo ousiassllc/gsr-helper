@@ -1,5 +1,11 @@
 package docscheck
 
+// 依存グラフの検査のうち、**畳んだノードの内訳**を見る側を置く。overview.md の
+// 「畳んだノード」の段落が挙げる UIApp / UIParts の内訳と、internal/ui 直下の実装の
+// ツリーを突き合わせる。図の辺を読むのは docs_mermaid_test.go、実装の import を読むのは
+// docs_deppkg_test.go、その両者の辺を突き合わせるのは docs_depgraph_test.go であり、
+// ここは辺を 1 本も見ない——見るのは「どのパッケージがどちらのノードへ畳まれるか」だけである。
+
 import (
 	"regexp"
 	"slices"
