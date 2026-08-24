@@ -1,4 +1,4 @@
-package buildconfig
+package docscheck
 
 import (
 	"io/fs"
@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/ousiassllc/gsr-helper/internal/buildconfig/buildconfigtest"
 )
 
 // revisionRow は改訂履歴表の行頭の版番号を拾う。表は `| 版 | 日付 | ... |` の形で、
@@ -21,7 +23,7 @@ var revisionRow = regexp.MustCompile(`(?m)^\|\s*(\d+)\.(\d+)\s*\|`)
 // 実際に docs/environment/setup.md でブランチのマージ時に `1.8` が 2 行残り、
 // `1.7` が `1.8` の後ろに並んだ（Issue #59）。
 func TestDocRevisionHistoryVersionsUniqueAndAscending(t *testing.T) {
-	root := repoRoot(t)
+	root := buildconfigtest.RepoRoot(t)
 	docs := filepath.Join(root, "docs")
 
 	var checked int

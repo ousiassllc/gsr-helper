@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/ousiassllc/gsr-helper/internal/buildconfig/buildconfigtest"
 )
 
 // deniedCharmPrefix は禁止する Charm v1 系のモジュールパス接頭辞。
@@ -65,7 +67,7 @@ func Width(s string) int { return lipgloss.Width(s) }
 // Charm は charm.land/<name>/v2 に揃える。v1 系のパスを禁止していないと、
 // golangci-lint の推移依存として go.mod に残る v1 を誤って import できてしまう。
 func TestGolangciDeniesCharmV1Paths(t *testing.T) {
-	raw, err := os.ReadFile(filepath.Join(repoRoot(t), ".golangci.yml"))
+	raw, err := os.ReadFile(filepath.Join(buildconfigtest.RepoRoot(t), ".golangci.yml"))
 	if err != nil {
 		t.Fatalf(".golangci.yml を読めない: %v", err)
 	}
@@ -91,7 +93,7 @@ func TestGolangciDeniesCharmV1Paths(t *testing.T) {
 func TestGolangciLintRejectsCharmV1Import(t *testing.T) {
 	dir := newModule(t, charmStubModule)
 
-	cmd := exec.Command(golangciLintBinary(t), "run", "--config", filepath.Join(repoRoot(t), ".golangci.yml"), "./...")
+	cmd := exec.Command(golangciLintBinary(t), "run", "--config", filepath.Join(buildconfigtest.RepoRoot(t), ".golangci.yml"), "./...")
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), goWorkOff...)
 	out, err := cmd.CombinedOutput()

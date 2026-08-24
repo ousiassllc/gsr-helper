@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ousiassllc/gsr-helper/internal/buildconfig/buildconfigtest"
 )
 
 // unformattedGo は gofmt が必ず整形し直すソース。
@@ -93,7 +95,7 @@ func TestFmtCheckUsesGorootGofmt(t *testing.T) {
 		t.Fatalf("PATH 上の gofmt シムを使ってしまい fmt-check が成功した\n出力:\n%s", out)
 	}
 
-	recipe, code := runMake(t, repoRoot(t), nil, "-n", "fmt-check")
+	recipe, code := runMake(t, buildconfigtest.RepoRoot(t), nil, "-n", "fmt-check")
 	if code != 0 {
 		t.Fatalf("make -n fmt-check が失敗した: exit=%d\n出力:\n%s", code, recipe)
 	}

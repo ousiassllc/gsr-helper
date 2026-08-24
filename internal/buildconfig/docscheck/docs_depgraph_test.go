@@ -1,4 +1,4 @@
-package buildconfig
+package docscheck
 
 // 読み取った依存グラフ（docs_mermaid_test.go）と実装の辺（docs_deppkg_test.go）を
 // 突き合わせる検査を置く。図と実装のどちらかを読む道具はここには置かない。

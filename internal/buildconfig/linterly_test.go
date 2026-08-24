@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/ousiassllc/gsr-helper/internal/buildconfig/buildconfigtest"
 )
 
 type linterlyConfig struct {
@@ -21,7 +23,7 @@ type linterlyConfig struct {
 func loadLinterlyConfig(t *testing.T) linterlyConfig {
 	t.Helper()
 
-	raw, err := os.ReadFile(filepath.Join(repoRoot(t), ".linterly.yml"))
+	raw, err := os.ReadFile(filepath.Join(buildconfigtest.RepoRoot(t), ".linterly.yml"))
 	if err != nil {
 		t.Fatalf(".linterly.yml を読めない: %v", err)
 	}

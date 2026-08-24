@@ -1,4 +1,4 @@
-package buildconfig
+package docscheck
 
 // 依存グラフの検査のうち、**実装の側**を読む道具を置く。go list でモジュールの
 // パッケージを列挙し、ノード対応表で mermaid のノードへ畳み、層をまたぐ辺を作る
@@ -14,6 +14,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/ousiassllc/gsr-helper/internal/buildconfig/buildconfigtest"
 )
 
 // modulePath は go list が返す import パスの接頭辞。
@@ -71,9 +73,12 @@ var graphNodeRules = []graphNodeRule{
 	{"internal/audit", "Audit"},
 	{"internal/appconfig", "Appconf"},
 
-	// buildconfig はビルド設定とドキュメントの回帰テストだけを置くパッケージで、
-	// 本書の層の図に載る実行時の依存ではない。グラフの対象外であることを空ノードで
-	// 明示する（表から漏れたのか対象外なのかを区別するため）。
+	// buildconfig 配下はビルド設定とドキュメントの回帰テスト、およびその 2 つが共有する
+	// 道具だけを置くツリーで、本書の層の図に載る実行時の依存ではない。グラフの対象外で
+	// あることを空ノードで明示する（表から漏れたのか対象外なのかを区別するため）。
+	// この 1 規則が最長プレフィックス一致で覆うのは internal/buildconfig（ビルド設定の
+	// 検査）・internal/buildconfig/docscheck（ドキュメントの検査）・
+	// internal/buildconfig/buildconfigtest（両方が使う道具）の 3 パッケージである。
 	{"internal/buildconfig", ""},
 }
 
@@ -134,7 +139,7 @@ func modulePackages(t *testing.T) []goListPackage {
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "go", "list", "-json", "./...")
-	cmd.Dir = repoRoot(t)
+	cmd.Dir = buildconfigtest.RepoRoot(t)
 	var out, stderr bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &stderr
@@ -162,9 +167,10 @@ func modulePackages(t *testing.T) []goListPackage {
 // 同じノードへ畳まれた同士の辺（畳んだノードの内部）は辺として数えない。
 //
 // go list の Imports は本番ファイルの import なので、テスト専用のフィクスチャ・
-// パッケージ（pagetest / cmdtest / setuptest / tabletest）**自身**の import も辺として
-// 数える。現在はいずれも本番 import の裏付けがあるが、フィクスチャ限定の import が
-// 入ると本番に存在しない辺を図へ描くよう要求することになる。
+// パッケージ（pagetest / cmdtest / setuptest / tabletest / buildconfigtest）**自身**の
+// import も辺として数える。現在はいずれも本番 import の裏付けがあるが、フィクスチャ
+// 限定の import が入ると本番に存在しない辺を図へ描くよう要求することになる
+// （buildconfigtest は graphNodeRules で対象外の空ノードへ畳まれるため辺を作らない）。
 func implEdges(t *testing.T) map[graphEdge][]string {
 	t.Helper()
 

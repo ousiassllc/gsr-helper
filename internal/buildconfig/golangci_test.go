@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/ousiassllc/gsr-helper/internal/buildconfig/buildconfigtest"
 )
 
 type nolintlintSettings struct {
@@ -44,7 +46,7 @@ type golangciConfig struct {
 func loadGolangciConfig(t *testing.T) golangciConfig {
 	t.Helper()
 
-	raw, err := os.ReadFile(filepath.Join(repoRoot(t), ".golangci.yml"))
+	raw, err := os.ReadFile(filepath.Join(buildconfigtest.RepoRoot(t), ".golangci.yml"))
 	if err != nil {
 		t.Fatalf(".golangci.yml を読めない: %v", err)
 	}
@@ -61,7 +63,7 @@ func golangciLintBinary(t *testing.T) string {
 	t.Helper()
 
 	cmd := exec.Command("go", "tool", "-n", "golangci-lint")
-	cmd.Dir = repoRoot(t)
+	cmd.Dir = buildconfigtest.RepoRoot(t)
 	out, err := cmd.Output()
 	if err != nil {
 		t.Fatalf("golangci-lint の実体を解決できない: %v", err)
@@ -109,7 +111,7 @@ func TestGolangciDoesNotTruncateIssues(t *testing.T) {
 // nolintlint が実際に雑な抑制を落とすことを、リポジトリの設定で確認する。
 func TestGolangciLintRejectsSloppyNolint(t *testing.T) {
 	bin := golangciLintBinary(t)
-	config := filepath.Join(repoRoot(t), ".golangci.yml")
+	config := filepath.Join(buildconfigtest.RepoRoot(t), ".golangci.yml")
 
 	tests := []struct {
 		name   string
@@ -203,7 +205,7 @@ func TestGolangciEnablesGci(t *testing.T) {
 // 並んでいるので、指摘が出るとすれば gci だけである。
 func TestGolangciLintRejectsMisgroupedImports(t *testing.T) {
 	bin := golangciLintBinary(t)
-	config := filepath.Join(repoRoot(t), ".golangci.yml")
+	config := filepath.Join(buildconfigtest.RepoRoot(t), ".golangci.yml")
 
 	// prefix セクションに当てるため、フィクスチャのモジュールパスを本リポジトリに合わせる。
 	dir := newModule(t, map[string]string{
