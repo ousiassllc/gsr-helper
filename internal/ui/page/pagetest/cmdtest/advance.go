@@ -47,18 +47,20 @@ const AdvanceRounds = 8
 //
 // ChromeMsg と GlobalKeyMsg も配らない。どちらも親が解釈するもので、タブへは戻らない。
 //
-// **戻らない Cmd は CmdTimeout で諦める**（Msgs）。素で走らせていたころはそこで
-// 止まり、壊れ方が失敗ではなくハングになった（Issue #150）。諦めた本数は見ない
-// ——rounds で打ち切る時点でこの道具は「配れるだけ配る」ものであり、ここへ渡す
-// Cmd はいずれも速やかに戻る前提だからである（戻らない Cmd を含む往復は
-// AdvanceQuick を使うこと）。
+// **ここへ渡す Cmd はいずれも速やかに戻る前提であり、破れたら panic で止める**
+// （MustMsgs）。前提は仮定ではなく強制する——破れたのは呼び出し側の組み立ての誤りで
+// あって、この道具が受け止めてよい状態ではない。黙って諦めると、辿れなかった Msg を
+// 呼び出し側が「Msg が発行されていない」と読む assertion がすべて満たされて静かに
+// 緑になる（Issue #150）。素で走らせていたころは止まりもせず、壊れ方がハングだった。
+// pagetest の ScanKey / ApplyChrome / WorkScanStarts も同じ前提を同じ形（MustMsgs）で
+// 守っている。戻らない Cmd を含む往復は AdvanceQuick を使うこと。
 func Advance(m tea.Model, cmd tea.Cmd, rounds int) tea.Model {
 	for range rounds {
 		if cmd == nil {
 			return m
 		}
 
-		msgs, _ := Msgs(cmd, CmdTimeout)
+		msgs := MustMsgs(cmd, CmdTimeout)
 		next := make([]tea.Cmd, 0, 4)
 		for _, msg := range msgs {
 			inner, ok := deliverable(msg)

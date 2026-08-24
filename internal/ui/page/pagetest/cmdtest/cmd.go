@@ -88,8 +88,8 @@ func RunAll(cmd tea.Cmd, timeout time.Duration) error {
 // **諦めた本数は error で返す。** 平坦化した並びは「これで全部」として読まれる
 // ——黙って欠けさせると、届かなかった Msg を呼び出し側が「発行されていない」と読み、
 // 実際には無い配送の欠落を疑う失敗メッセージが出る（ErrNotFound と ErrCmdTimeout を
-// 分ける理由と同じ。Issue #140 / #145）。Msg 自体は返すので、欠けを承知で使う側
-// （AdvanceQuick）は error を捨ててよい。
+// 分ける理由と同じ。Issue #140 / #145）。Msg 自体は返すので、欠けを承知で error を
+// 捨てるのは AdvanceQuick だけである（Advance は MustMsgs で止める）。
 func Msgs(cmd tea.Cmd, timeout time.Duration) ([]tea.Msg, error) {
 	msgs, gaveUp := collectMsgs(cmd, timeout)
 	if gaveUp > 0 {

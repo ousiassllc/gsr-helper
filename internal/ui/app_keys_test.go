@@ -28,7 +28,7 @@ func TestInterruptQuitsInEveryState(t *testing.T) {
 			// 終了は後始末を流し切ってから行うため tea.Sequence に包まれる
 			// （page.ShutdownMsg の doc）。
 			if !isQuit(t, cmd) {
-				t.Errorf("ctrl+c の Msg = %T, want 終了を含む Cmd", cmd())
+				t.Error("ctrl+c の Cmd が終了を含まない（pagetest.IsQuit）")
 			}
 			if len(spies[0].Keys()) != 0 {
 				t.Error("ctrl+c を page へ渡している")

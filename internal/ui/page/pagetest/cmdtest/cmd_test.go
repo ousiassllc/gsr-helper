@@ -68,14 +68,53 @@ func TestMsgsGivesUpOnBlockedCmdAndKeepsTheRest(t *testing.T) {
 func TestMsgsReturnsNoErrorWhenEveryCmdReturns(t *testing.T) {
 	t.Parallel()
 
-	got, err := cmdtest.Msgs(tea.Batch(
+	got, err := cmdtest.Msgs(assertNested(t, tea.Batch(
 		func() tea.Msg { return marker{n: 1} },
-		tea.Batch(func() tea.Msg { return marker{n: 2} }),
-	), 10*time.Millisecond)
+		tea.Batch(
+			func() tea.Msg { return marker{n: 2} },
+			func() tea.Msg { return marker{n: 3} },
+		),
+	)), 10*time.Millisecond)
 	if err != nil {
 		t.Fatalf("err = %v, want nil", err)
 	}
+	if len(got) != 3 {
+		t.Errorf("辿れた Msg = %v, want 3 件（入れ子の束も辿る）", got)
+	}
+}
+
+// 辿り切れない束を渡された MustMsgs が panic で止まること（Issue #150）。
+//
+// **止めるのが要点である。** 黙って欠かすと、辿れなかった Msg を呼び出し側が
+// 「発行されていない」と読む assertion がすべて満たされて静かに緑になる。諦めるかを
+// 呼び出し側が決めたい場合のために Msgs が別にあるので、こちらは前提が破れたことを
+// 呼び出し側の組み立ての誤りとして扱う。
+func TestMustMsgsPanicsWhenACmdNeverReturns(t *testing.T) {
+	t.Parallel()
+
+	defer func() {
+		if recover() == nil {
+			t.Error("戻らない Cmd を含む束で panic していない（静かに欠けたまま緑になる）")
+		}
+	}()
+
+	cmdtest.MustMsgs(tea.Batch(
+		func() tea.Msg { return marker{n: 1} },
+		blocked(),
+	), 10*time.Millisecond)
+}
+
+// 束をすべて辿れたときは MustMsgs が panic しないこと。
+//
+// 常に止まるようになると、前提を守っている呼び出し側まで巻き添えで落ちる。
+func TestMustMsgsDoesNotPanicWhenEveryCmdReturns(t *testing.T) {
+	t.Parallel()
+
+	got := cmdtest.MustMsgs(tea.Batch(
+		func() tea.Msg { return marker{n: 1} },
+		func() tea.Msg { return marker{n: 2} },
+	), 10*time.Millisecond)
 	if len(got) != 2 {
-		t.Errorf("辿れた Msg = %v, want 2 件（入れ子の束も辿る）", got)
+		t.Errorf("辿れた Msg = %v, want 2 件", got)
 	}
 }

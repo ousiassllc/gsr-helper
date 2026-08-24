@@ -53,6 +53,30 @@ type marker struct{ n int }
 // isMarker は marker かを返す。
 func isMarker(m tea.Msg) bool { _, is := m.(marker); return is }
 
+// assertNested は cmd が入れ子の束（束の最後の要素がまた束）であることを確かめて cmd を返す。
+//
+// **tea.Batch は非 nil の Cmd が 1 本だけなら束を作らずその Cmd を返す**
+// （bubbletea の compactCmds）。内側の Batch へ 1 本しか渡さない tea.Batch(a, tea.Batch(b)) は
+// 平坦な 2 要素の束に化けるため、束を再帰的に辿る経路（chromeOf / collectMsgs）を
+// 1 段も通らないまま緑になる。入れ子であることをここで固定する。
+//
+// **最後の要素しか実行しない。** 束の Cmd を呼ぶと中身の Cmd が走るので、戻らない Cmd を
+// 前に置いた束でも安全に確かめられるよう、内側の束は末尾に置くこと（tea.Batch(...) 自体を
+// 呼んでも中の Cmd は走らず、並びが返るだけである）。
+func assertNested(t *testing.T, cmd tea.Cmd) tea.Cmd {
+	t.Helper()
+
+	outer, isBundle := cmdtest.Cmds(cmd())
+	if !isBundle {
+		t.Fatal("外側が束になっていない（tea.Batch が Cmd 1 本の束を畳んだ）")
+	}
+	if _, nested := cmdtest.Cmds(outer[len(outer)-1]()); !nested {
+		t.Fatal("内側の束が平坦化されている：束を再帰的に辿る経路を通らない")
+	}
+
+	return cmd
+}
+
 // 待ち時間切れと「目当ての Msg が無い」を区別して返すこと（Issue #140）。
 //
 // どちらを返すかで次に見る場所が正反対になる。ErrNotFound は Msg を出す側の
@@ -185,7 +209,7 @@ func TestChromeOfTellsTimeoutApartFromMissingChrome(t *testing.T) {
 		},
 		{
 			name: "入れ子の束の中にあっても見つける",
-			cmd:  tea.Batch(tea.Batch(blocked(), tea.Batch(chrome))),
+			cmd:  assertNested(t, tea.Batch(blocked(), tea.Batch(blocked(), chrome))),
 			want: nil,
 		},
 	} {
