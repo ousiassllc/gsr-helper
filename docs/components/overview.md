@@ -36,6 +36,7 @@ graph TD
     Main --> Appconf
     Main --> Audit
     Main --> GH
+    Main --> Exec
 
     UIApp --> UIParts
 
@@ -64,8 +65,11 @@ graph TD
     Logs --> Runner
     Doctor --> Runner
     Doctor --> GH
+    Doctor --> Disk
     Config --> Runner
     Config --> GH
+    Config --> Svc
+    Config --> Setup
 
     Runner --> Exec
     Runner --> RScope
@@ -78,12 +82,18 @@ graph TD
     Disk --> Audit
     Logs --> Exec
     Doctor --> Exec
+    Doctor --> Appconf
+    Config --> Exec
+    Config --> RScope
+    Config --> Appconf
     GH --> Exec
     GH --> RScope
     GH --> Appconf
     Appconf --> Exec
     Exec --> Audit
 ```
+
+**UI 層の 2 ノードは粒度の要約である。** `UIApp` は親 Model と `ui/page` 以下、`UIParts` は `ui/template` / `organism` / `molecule` / `atom` / `token` を束ねたもので、`ui/keymap` / `ui/tabset` / `ui/chrome` のような UI 内部のパッケージはこのグラフのノードではない。**UI 層の内部の依存は [TUI コンポーネント設計](../ui/atomic-design.md#依存の規則)の依存グラフが持つ**——同じ辺を 2 か所で維持すると片方だけが古くなるため、本書は層と層の間だけを描く。
 
 **UI 層が `setup` と `gh` を直に参照するのは値の型のためである。** 実行前プレビュー（FR-16）は `setup.Plan` をそのまま描くので `ui/page` 以下が `setup` を import し（本番ファイル 7 本）、短命トークンの預け先 `gh.Secrets` は起動時に `cmd` が 1 つ作って UI へ配るため `cmd` と `ui` の双方が `gh` を import する。**実行そのものを呼ぶのは `setup/job` だけである**——UI は `setup.Apply` を直接叩かない。
 
@@ -746,3 +756,4 @@ interface はこの 3 つに留める。ドメインごとの interface は、�
 | 1.37 | 2026-08-24 | 「監査ログを開けない場合の縮退」の要約を「全外部コマンドの監査ログ記録」から「外部コマンドと、それに準ずる破壊的操作の監査ログ記録」へ改め、参照先を [セキュリティ設計](../architecture/security.md#監査ログ)のアンカーまで届かせた | 1.31 で `internal/disk` の節と `internal/audit` の節を Issue #71 の契約拡張に追随させたのに、縮退の段落だけが旧契約（外部コマンド限定）の要約のまま残っていた。同じ文書の中で本文と要約が食い違うと、要約だけを読んだ人はファイル削除が統制の対象外だと結論する（Issue #117） |
 | 1.38 | 2026-08-24 | `internal/disk` の「ファイル削除も監査ログに残る」段落の末尾で、記録対象外を再検出の `systemctl list-units` / `show` の 1 種としていた記述を、ログ追従の `journalctl -u <unit> -n <N>` を含む 2 種へ改め、参照先に[セキュリティ設計](../architecture/security.md#記録対象外とする読み取りコマンド)（規則の本体）を加えた | 実装で `SkipAudit: true` を立てているのは `internal/runner/systemd`（`Scan`）と `internal/logs`（`readJournal`）の 2 箇所である。Issue #9 でログ追従を実装した際に `security.md` / `external-interfaces.md` / `non-functional.md` は 2 種へ追随したが、本書のこの行だけが 1 種のまま取り残されていた。参照先も `external-interfaces.md#systemd` だけでは journalctl を含む規則に届かない（Issue #121） |
 | 1.39 | 2026-08-24 | `internal/disk` の行数の記述を現在の実測（1980 行・残り 20 行）へ更新し、参照する節名を `docs/ui/atomic-design.md`「ディレクトリの行数」から「行数の予算」へ改めた | Issue #123 の回帰テストで `internal/disk` が 1927 行から 1980 行へ増えた。行数は「先に切り出し先を決めること」の判断材料として本書が挙げているので、古い値は判断を誤らせる。節名は Issue #125 でファイル単位の予算を同じ節へ入れたのに伴って変わった（Issue #125） |
+| 1.40 | 2026-08-24 | 依存グラフの辺を `go list` の import と全件突き合わせ、欠けていた 8 本（`Doctor --> Appconf` / `Doctor --> Disk` / `Main --> Exec` / `Config --> Exec` / `Config --> Appconf` / `Config --> RScope` / `Config --> Svc` / `Config --> Setup`）を追加した。あわせて、UI 層の 2 ノードが粒度の要約であり `ui/keymap` などの UI 内部パッケージはノードではないこと・UI 層の内部の依存は [TUI コンポーネント設計](../ui/atomic-design.md#依存の規則)が持つことを、グラフの直後に明記した | doctor は `check.Caps` の時点から `appconfig` を import しており、Issue #89 で `hostres` にも広がって同じ文書の `doctor/check` の行と `Run(ctx, in)` の箇条書きの両方が `DiskThresholds`（appconfig の型）を名指すようになった。**グラフだけが「その依存は無い」と述べる状態**で、本書は 1.22 / 1.27 / 1.29 / 1.32 / 1.33 と繰り返し同種の欠落を defect として直してきた（辺の欠落は「その依存は存在しない」と読まれ、正当な import が § 依存の規則 違反と判定される）。1 本ずつ後追いするより一度洗う方が安いので、今回は全ノード対全ノードで突き合わせた。`Config` 発の 5 本はいずれも #89 以前から存在していた欠落である。UI 層の注記は、突き合わせで唯一残った差（`ui/organism` → `ui/keymap`）がノードの粒度の話であって欠落ではないことを、次に洗う人が再発見しなくて済むようにするためである（Issue #129） |
