@@ -56,7 +56,7 @@ func Pad(s string, width int, a Align) string {
 //
 // 切る位置の判断を lipgloss（MaxWidth）に任せるのは、装飾済みの文字列に含まれる
 // ANSI 列を途中で割らないためである。自前に rune を数えると CSI の途中で切れて
-// 端末が後続の出力を飲み込む。molecule.KeyBar は装飾済みのキーヒントを Join へ
+// 端末が後続の出力を飲み込む。chromebar.KeyBar は装飾済みのキーヒントを Join へ
 // 渡し、Join は幅が足りない分をここで中略するので、この経路は実際に起きる。
 // あわせて書記素（結合文字・ZWJ 絵文字）も分割されなくなる。
 func Truncate(s string, width int) string {

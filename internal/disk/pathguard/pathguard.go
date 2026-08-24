@@ -1,4 +1,16 @@
-package disk
+// Package pathguard は削除してよいパスかの検証を担う
+// （docs/architecture/security.md「削除パスの検証を必須にする」）。
+//
+// internal/disk から分けているのは、**この判定が走査・削除とは別の理由で変わる**
+// ためである。集計と削除は FR-27 / FR-30（何を数え何を消すか）に紐づいて増えるが、
+// ここが増えるのは脅威モデル（相対参照・シンボリックリンク・許可サブツリー）が
+// 変わったときだけであり、security.md の受け入れ条件がそのままテストになる。
+//
+// **依存は disk → pathguard の一方向で、こちらは disk を一切知らない。** 検証が
+// 集計や削除の型（Target / CleanPlan）に触れない構造にしておくことで、「計画に
+// 載っているから通す」ような迂回を書けなくしてある。判定に要るのは基準ディレクトリと
+// 対象パスの 2 つだけである。
+package pathguard
 
 import (
 	"errors"
@@ -7,20 +19,31 @@ import (
 	"strings"
 )
 
-// allowedSubtrees は削除を許可するサブツリー。runner ディレクトリ直下のこの 2 つと
-// その配下だけを削除できる（docs/architecture/security.md「削除パスの検証を必須にする」）。
-// bin / externals / .runner などツールの動作に必要なものを巻き込まないためである。
-var allowedSubtrees = []string{"_work", "_diag"}
+// 削除を許可するサブツリーの名前。runner ディレクトリ直下のこの 2 つとその配下だけを
+// 削除できる。bin / externals / .runner などツールの動作に必要なものを巻き込まない
+// ためである。
+//
+// **公開しているのは、集計対象の絞り込み（internal/disk の Scan）が同じ名前を要る
+// ためである。** 写しをリテラルで持つと、許可サブツリーを変えたときに「集計には
+// 出るが検証で必ず落ちる行」が生まれる。
+const (
+	WorkDir = "_work"
+	DiagDir = "_diag"
+)
 
-// ValidatePath は target が base 配下の削除してよいパスかを検証する。
+// allowedSubtrees は削除を許可するサブツリー。
+var allowedSubtrees = []string{WorkDir, DiagDir}
+
+// Validate は target が base 配下の削除してよいパスかを検証する。
 //
 // root 権限で動くため、削除を行う関数はこの検証を通らない限り実行できない構造に
-// してある（PlanClean と Apply の両方から呼ぶ）。エラー文はどの条件で落ちたかが
-// 読み分けられるようにしてあり、利用者への表示と異常系テストの両方で使う。
+// してある（internal/disk の PlanClean と Apply の両方から呼ぶ）。エラー文はどの
+// 条件で落ちたかが読み分けられるようにしてあり、利用者への表示と異常系テストの
+// 両方で使う。
 //
 // 検証はシンボリックリンクを解決してから行う。解決しないと _work 内のリンク経由で
 // 基準ディレクトリの外へ抜けられる。逆に削除時（removeTree）はリンクを辿らない。
-func ValidatePath(base, target string) error {
+func Validate(base, target string) error {
 	if base == "" {
 		return errors.New("基準ディレクトリが空です")
 	}

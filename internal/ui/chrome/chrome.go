@@ -17,7 +17,7 @@ import (
 	"strings"
 
 	"github.com/ousiassllc/gsr-helper/internal/ui/atom"
-	"github.com/ousiassllc/gsr-helper/internal/ui/molecule"
+	"github.com/ousiassllc/gsr-helper/internal/ui/molecule/chromebar"
 	"github.com/ousiassllc/gsr-helper/internal/ui/token"
 )
 
@@ -33,7 +33,7 @@ type View struct {
 	Systemd  bool
 	HasToken bool
 	// Tabs はタブの並び。選択中かどうかは各要素の Active が持つ。
-	Tabs []molecule.TabView
+	Tabs []chromebar.TabView
 	// OrphanUnits と Warnings は状態行の左側に出す件数。
 	OrphanUnits int
 	Warnings    int
@@ -64,7 +64,7 @@ type View struct {
 // ユーザー名の取得は GitHub API を使う機能の担当である（molecule 側は認証済みで
 // ユーザー名が無い状態を「認証済み」と描く）。
 func Header(v View) string {
-	return molecule.CapsBar(molecule.CapsView{
+	return chromebar.CapsBar(chromebar.CapsView{
 		Host:       v.Host,
 		Root:       v.Root,
 		Systemd:    v.Systemd,
@@ -76,7 +76,7 @@ func Header(v View) string {
 
 // TabBar はタブ行を返す。
 func TabBar(v View) string {
-	return molecule.TabBar(v.Tabs, v.Width, v.Styles)
+	return chromebar.TabBar(v.Tabs, v.Width, v.Styles)
 }
 
 // Status は状態行を返す。
@@ -135,7 +135,7 @@ func doctorHint(key string) string {
 // Footer はフッタ 2 行を返す。
 //
 // キーヒントは page が可否と理由込みで報告したものを使う。?:ヘルプ は
-// molecule.KeyBar が必ず付けるため、ここでは足さない。
+// chromebar.KeyBar が必ず付けるため、ここでは足さない。
 func Footer(v View) string {
-	return molecule.KeyBar(v.Hints, v.Width, v.Styles)
+	return chromebar.KeyBar(v.Hints, v.Width, v.Styles)
 }

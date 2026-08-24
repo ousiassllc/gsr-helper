@@ -11,7 +11,7 @@ import (
 
 	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/runner/scope"
-	"github.com/ousiassllc/gsr-helper/internal/ui/molecule"
+	"github.com/ousiassllc/gsr-helper/internal/ui/molecule/chromebar"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/jobs"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
@@ -186,7 +186,7 @@ func TestFooterUsesSpecWordingPerKey(t *testing.T) {
 func TestFooterShowsEverySpecKeyAtWidth80(t *testing.T) {
 	_, c := newModel(t, busyRunner("build01-1", 1))
 
-	line := strings.Split(molecule.KeyBar(c.Footer, 80, token.NewStyles(true, false)), "\n")[0]
+	line := strings.Split(chromebar.KeyBar(c.Footer, 80, token.NewStyles(true, false)), "\n")[0]
 	for _, want := range []string{
 		"enter:runner の詳細", "d:ドレイン", "X:強制", "R:再起動", "l:ログ", "?:ヘルプ",
 	} {

@@ -1,106 +1,20 @@
-package config
+package configmodal
 
 import (
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/ousiassllc/gsr-helper/internal/config/apply"
-
-	"github.com/ousiassllc/gsr-helper/internal/config/edit"
 	"github.com/ousiassllc/gsr-helper/internal/ui/atom"
 	"github.com/ousiassllc/gsr-helper/internal/ui/keymap"
 	"github.com/ousiassllc/gsr-helper/internal/ui/organism"
 	"github.com/ousiassllc/gsr-helper/internal/ui/organism/dialog"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
-	"github.com/ousiassllc/gsr-helper/internal/ui/token"
 )
 
-// モーダルの種類。
-const (
-	formKind  page.ModalKind = "configform"
-	diffKind  page.ModalKind = "configdiff"
-	applyKind page.ModalKind = "configapply"
-)
-
-// formOpenMsg はフォームを開く指示。
-type formOpenMsg struct {
-	title  string
-	values *edit.Values
-	st     page.StateMsg
-}
-
-// formModal は設定編集のフォーム。dialog.Form を包むだけで判断は持たない。
-type formModal struct {
-	tab   int
-	form  dialog.Form
-	color bool
-}
-
-var _ tea.Model = formModal{}
-
-// newFormModal はフォームのモーダルを組み立てる。
-func newFormModal(st page.StateMsg) page.Modal {
-	color := st.Color
-	return page.Modal{
-		Model: formModal{tab: 0, form: dialog.NewForm(st.Styles, color), color: color},
-		Title: formTitle,
-		Hints: formHints,
-		// esc は dialog.Form が受ける。Overlay に閉じさせてはならない。
-		HandlesBack: func(tea.Model) bool { return true },
-	}
-}
-
-// Init は何も発行しない。
-func (m formModal) Init() tea.Cmd { return nil }
-
-// Update はフォームへ Msg を配り、完了・中断を page へ差し戻す。
-func (m formModal) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case page.AttachMsg:
-		m.tab = msg.Tab
-		return m, nil
-	case formOpenMsg:
-		m.color = msg.st.Color
-		m.form.SetTitle(msg.title)
-		cmd := m.form.SetForm(buildForm(msg.values, token.HuhTheme(msg.st.Styles, m.color)))
-		return m, page.WrapModal(m.tab, formKind, cmd)
-	case dialog.FormDoneMsg, dialog.FormAbortedMsg, dialog.FormDiscardMsg:
-		res := page.ResultMsg{Kind: formKind, Msg: msg}
-		return m, page.Do(m.tab, func() tea.Msg { return res })
-	case page.StateMsg:
-		m.color = msg.Color
-		m.form.Restyle(msg.Styles, m.color)
-		return m, nil
-	case page.SizeMsg:
-		m.form.SetSize(msg.W, msg.H)
-		return m, nil
-	default:
-		var cmd tea.Cmd
-		m.form, cmd = m.form.Update(msg)
-		return m, page.WrapModal(m.tab, formKind, cmd)
-	}
-}
-
-// View はフォームの中身を返す。
-func (m formModal) View() tea.View { return tea.NewView(m.form.View()) }
-
-// formTitle はモーダルの見出しを返す。
-func formTitle(model tea.Model) string {
-	m, ok := model.(formModal)
-	if !ok {
-		return ""
-	}
-	return m.form.Title()
-}
-
-// formHints はモーダルのフッタを返す。
-func formHints(model tea.Model) []atom.Hint {
-	m, ok := model.(formModal)
-	if !ok {
-		return nil
-	}
-	return m.form.Hints()
-}
+// 承認の 2 枚——差分の承認（FR-37 / FR-38）と反映方法の選択（FR-39）。
+// フォーム（configmodal.go）と分けているのは 1 ファイル 300 行の上限のためで、
+// どちらも「包んで決定を差し戻すだけ」という性格は同じである。
 
 // diffOpenMsg は差分の承認を開く指示。
 type diffOpenMsg struct {
@@ -115,8 +29,8 @@ type diffModal struct {
 
 var _ tea.Model = diffModal{}
 
-// newDiffModal は差分の承認のモーダルを組み立てる。
-func newDiffModal(st page.StateMsg) page.Modal {
+// NewDiff は差分の承認のモーダルを組み立てる。画面は page.Overlay.Register に渡す。
+func NewDiff(st page.StateMsg) page.Modal {
 	return page.Modal{
 		Model: diffModal{tab: 0, dlg: dialog.NewDiffApproval(st.Keys, st.Styles)},
 		Title: diffTitle,
@@ -140,7 +54,7 @@ func (m diffModal) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.dlg.SetInput(msg.input)
 		return m, nil
 	case dialog.DecidedMsg:
-		res := page.ResultMsg{Kind: diffKind, Msg: msg}
+		res := page.ResultMsg{Kind: DiffKind, Msg: msg}
 		return m, page.Do(m.tab, func() tea.Msg { return res })
 	case page.StateMsg:
 		m.dlg.Restyle(msg.Keys, msg.Styles)
@@ -151,7 +65,7 @@ func (m diffModal) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	default:
 		var cmd tea.Cmd
 		m.dlg, cmd = m.dlg.Update(msg)
-		return m, page.WrapModal(m.tab, diffKind, cmd)
+		return m, page.WrapModal(m.tab, DiffKind, cmd)
 	}
 }
 
@@ -191,8 +105,8 @@ type applyModal struct {
 
 var _ tea.Model = applyModal{}
 
-// newApplyModal は反映方法の選択のモーダルを組み立てる。
-func newApplyModal(st page.StateMsg) page.Modal {
+// NewApply は反映方法の選択のモーダルを組み立てる。画面は page.Overlay.Register に渡す。
+func NewApply(st page.StateMsg) page.Modal {
 	return page.Modal{
 		Model: applyModal{
 			tab: 0, list: organism.NewChoiceList(st.Keys.List, st.Styles), keys: st.Keys,
@@ -231,7 +145,7 @@ func (m applyModal) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.list, cmd = m.list.Update(msg)
 
-		return m, page.WrapModal(m.tab, applyKind, cmd)
+		return m, page.WrapModal(m.tab, ApplyKind, cmd)
 	case page.StateMsg:
 		m.keys = msg.Keys
 		m.list.Restyle(msg.Keys.List, msg.Styles)
@@ -243,13 +157,13 @@ func (m applyModal) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	default:
 		var cmd tea.Cmd
 		m.list, cmd = m.list.Update(msg)
-		return m, page.WrapModal(m.tab, applyKind, cmd)
+		return m, page.WrapModal(m.tab, ApplyKind, cmd)
 	}
 }
 
 // chose は選ばれた反映方法を page へ差し戻す Cmd を返す。
 func (m applyModal) chose(id string) tea.Cmd {
-	res := page.ResultMsg{Kind: applyKind, Msg: organism.ChosenMsg{ID: id, Key: ""}}
+	res := page.ResultMsg{Kind: ApplyKind, Msg: organism.ChosenMsg{ID: id, Key: ""}}
 	return page.Do(m.tab, func() tea.Msg { return res })
 }
 

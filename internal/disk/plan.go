@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+
+	"github.com/ousiassllc/gsr-helper/internal/disk/pathguard"
 )
 
 // pruneCommand は docker の未使用リソースを削除するコマンド。
@@ -19,7 +21,7 @@ var pruneCommand = []string{"docker", "system", "prune", "-f"}
 //
 // 保護された対象（Target.Protected が空でない）はパスの検証より先に弾く。ジョブ
 // 実行中の _work を消さないこと（FR-31）を表示層だけの約束にしないためであり、
-// ValidatePath は「許可サブツリー内か」しか見ないのでこの判定を肩代わりできない。
+// pathguard.Validate は「許可サブツリー内か」しか見ないのでこの判定を肩代わりできない。
 func PlanClean(targets []Target) (CleanPlan, error) {
 	if len(targets) == 0 {
 		return CleanPlan{}, errors.New("対象が選択されていません")
@@ -36,7 +38,7 @@ func PlanClean(targets []Target) (CleanPlan, error) {
 			plan.Docker = true
 			continue
 		}
-		if err := ValidatePath(t.Base, t.Path); err != nil {
+		if err := pathguard.Validate(t.Base, t.Path); err != nil {
 			return CleanPlan{}, fmt.Errorf("%s は削除できません: %w", t.Label, err)
 		}
 		plan.Paths = append(plan.Paths, t)

@@ -14,6 +14,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/ui/organism"
 	"github.com/ousiassllc/gsr-helper/internal/ui/organism/dialog"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/configmodal"
 )
 
 // selfID は対象の一覧に出す「本ツール自身の設定」の識別子。
@@ -189,7 +190,7 @@ func (m *Model) approve(c edit.Change) tea.Cmd {
 	m.pending, m.pendingSet = c, true
 	m.overlay.Close()
 
-	return m.overlay.Open(diffKind, diffOpenMsg{input: dialog.DiffApprovalInput{
+	return configmodal.OpenDiff(&m.overlay, dialog.DiffApprovalInput{
 		Path: c.Title(), Diff: c.DiffLines(), Backup: c.BackupPath(),
-	}})
+	})
 }

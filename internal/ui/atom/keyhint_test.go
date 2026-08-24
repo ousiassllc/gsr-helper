@@ -28,7 +28,7 @@ func TestKeyHintDisabledKeepsKey(t *testing.T) {
 //
 // 丸括弧で囲むと 1 つあたり 2 セル増え、幅 80 のフッタ 1 行目に screens.md が定める
 // 9 個のキーが収まらなくなる。色を使えない端末で有効・無効を読み分ける手がかりは
-// フッタ 2 行目（molecule.KeyBar）と操作リストの理由（molecule.ActionRow）が担う。
+// フッタ 2 行目（chromebar.KeyBar）と操作リストの理由（molecule.ActionRow）が担う。
 func TestKeyHintDisabledKeepsWidth(t *testing.T) {
 	enabled := Hint{Key: "x", Desc: "停止", Enabled: true}
 	disabled := Hint{Key: "x", Desc: "停止", Enabled: false, Reason: "root 権限が必要です"}

@@ -226,7 +226,7 @@ func TestJoinKeepsPartsThatExactlyFit(t *testing.T) {
 
 // 装飾済みの文字列を切っても ANSI 列を割らない。
 //
-// molecule.KeyBar は装飾済みのキーヒントを atom.Join に渡し、Join は幅が足りない
+// chromebar.KeyBar は装飾済みのキーヒントを atom.Join に渡し、Join は幅が足りない
 // 分を Truncate で中略する。CSI の途中で切ると端末が後続の出力を飲み込む。
 // 期待値を端末の色数に左右されないよう、エスケープを直接組んで渡す。
 func TestTruncateKeepsANSISequenceIntact(t *testing.T) {

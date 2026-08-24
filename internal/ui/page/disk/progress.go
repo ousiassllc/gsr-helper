@@ -25,18 +25,12 @@ func checkedUsage(rows []row) []disk.Usage {
 	return out
 }
 
-// progressInput は進捗表示へ送る中身を組み立てる。
+// progressInput は進捗表示へ送る中身を組み立てる。実行中の中身は Job が持つ。
 func (m Model) progressInput() pane.ProgressInput {
 	if m.clean == nil {
 		return pane.ProgressInput{Title: cleanview.ProgressTitle}
 	}
-	return pane.ProgressInput{
-		Title:  cleanview.ProgressTitle,
-		Rows:   m.clean.rows,
-		Done:   m.clean.done,
-		Total:  m.clean.total,
-		Report: m.clean.report,
-	}
+	return m.clean.Input()
 }
 
 // openProgress は進捗表示を開く。

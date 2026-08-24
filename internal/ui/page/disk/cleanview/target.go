@@ -55,7 +55,7 @@ func Targets(usages []disk.Usage) []disk.Target {
 // 「その時点」の値であり、確認ダイアログには時間制限が無い。承認を待つ間にジョブが
 // 始まった runner は Protected が空のままなので、PlanClean と Apply の双方の判定を
 // 素通りし、実行中ジョブの _work が root 権限で消える（FR-31 が守るはずのもの）。
-// ValidatePath は削除の直前に再検証されるのに busy 判定だけ据え置きでは、同じ種類の
+// pathguard.Validate は削除の直前に再検証されるのに busy 判定だけ据え置きでは、同じ種類の
 // 穴が 1 つ残る。共有状態は 3 秒ごとに更新されるので、承認の直前に引き直せる。
 //
 // **_diag は対象にしない。** security.md の「ジョブ実行中の操作をガードする」が

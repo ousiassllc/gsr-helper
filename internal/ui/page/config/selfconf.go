@@ -2,13 +2,13 @@ package config
 
 import (
 	tea "charm.land/bubbletea/v2"
-	"charm.land/huh/v2"
 
 	"github.com/ousiassllc/gsr-helper/internal/appconfig"
 	"github.com/ousiassllc/gsr-helper/internal/config"
 	"github.com/ousiassllc/gsr-helper/internal/config/edit"
 	"github.com/ousiassllc/gsr-helper/internal/ui/organism/dialog"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/configmodal"
 )
 
 // 自身の設定（FR-41〜FR-42）のフォーム。初回起動時（設定ファイルが無い）は
@@ -16,7 +16,8 @@ import (
 // 4 つ——走査ルート・ディスク閾値・ポーリング間隔・監査ログ出力先——である。
 //
 // 値の変換・正規化・検証は edit.SelfValues が持つ（tea にも huh にも依らない）。
-// ここに残すのは入力欄の組み立てと、承認から書き込みまでの画面の流れだけである。
+// 入力欄の組み立ては page/configmodal が持つ（Issue #104）。ここに残るのは、
+// 現在値の決め方と、承認から書き込みまでの画面の流れだけである。
 
 // selfTitle はフォームの見出し。初回かどうかで変える。
 const (
@@ -61,25 +62,7 @@ func (m *Model) openSelfForm() tea.Cmd {
 		title = selfTitleFirst
 	}
 
-	return m.overlay.Open(formKind, formOpenMsg{title: title, values: m.vals, st: m.st})
-}
-
-// selfFields は自身の設定の入力欄を返す。
-func selfFields(v *edit.Values) []huh.Field {
-	s := &v.Self
-	return []huh.Field{
-		huh.NewInput().Title("追加の走査ルート").
-			Description("カンマ区切りの絶対パス。空なら既定の場所だけを探します").
-			Value(&s.ScanRoots).Validate(edit.ValidateRoots),
-		huh.NewInput().Title("一覧の自動更新間隔（秒）").
-			Description("1〜3600").Value(&s.Refresh).Validate(edit.ValidateRefresh),
-		huh.NewInput().Title("ディスク使用率の警告閾値（%）").
-			Description("1〜99").Value(&s.Warn).Validate(edit.ValidatePercent),
-		huh.NewInput().Title("ディスク使用率の危険閾値（%）").
-			Description("1〜100。警告より大きくします").Value(&s.Critical).Validate(edit.ValidatePercent),
-		huh.NewInput().Title("監査ログの出力先").
-			Description("絶対パス").Value(&s.AuditLog).Validate(edit.ValidateAuditLog),
-	}
+	return configmodal.OpenForm(&m.overlay, title, m.vals, m.st)
 }
 
 // saveSelf は自身の設定の差分を出して承認を求める（FR-41 / FR-42）。
@@ -123,11 +106,11 @@ func (m *Model) saveSelf() tea.Cmd {
 	m.pendingSelf, m.pendingSet = next, true
 	m.overlay.Close()
 
-	return m.overlay.Open(diffKind, diffOpenMsg{input: dialog.DiffApprovalInput{
+	return configmodal.OpenDiff(&m.overlay, dialog.DiffApprovalInput{
 		Path:   m.st.Config.Path,
 		Diff:   edit.SplitDiff(config.Diff(before, after)),
 		Backup: "",
-	}})
+	})
 }
 
 // commitSelf は承認された自身の設定を書き込む。

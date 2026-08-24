@@ -9,6 +9,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/setup"
 	"github.com/ousiassllc/gsr-helper/internal/ui/organism/dialog"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/progressmodal"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/setupmodal"
 )
 
 // onFormResult は追加フォームの完了・中断を処理する。
@@ -26,7 +27,7 @@ func (m *Model) onFormResult(msg tea.Msg) tea.Cmd {
 		// 入力済みのまま esc を押した。破棄してよいかを確認する
 		// （atomic-design.md「Form と huh」）。**Form 自身は確認を出さない。**
 		// モーダルを重ねられるのは Overlay を持つ page だけである。
-		return m.overlay.Open(discardKind, confirmOpenMsg{input: discardInput()})
+		return setupmodal.OpenDiscard(&m.overlay)
 	default:
 		return nil
 	}

@@ -14,6 +14,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/runner/scope"
 	"github.com/ousiassllc/gsr-helper/internal/ui/organism/dialog"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/configmodal"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
 )
 
@@ -110,7 +111,7 @@ func openEnvForm(t *testing.T, m Model) Model {
 		}
 	}
 
-	m, _ = send(t, m, page.ResultMsg{Kind: formKind, Msg: dialog.FormDoneMsg{Form: nil}})
+	m, _ = send(t, m, page.ResultMsg{Kind: configmodal.FormKind, Msg: dialog.FormDoneMsg{Form: nil}})
 	if !m.overlay.Active() {
 		t.Fatal("差分の承認が開いていない")
 	}

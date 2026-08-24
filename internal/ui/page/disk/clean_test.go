@@ -172,7 +172,7 @@ func TestInvalidTargetDoesNotReachConfirm(t *testing.T) {
 	st, fake := baseState()
 	m := update(t, newModel(t, st), page.ActivateMsg{})
 
-	// 集計対象の体裁は持つが、実在しない（＝ ValidatePath を通らない）パスの行。
+	// 集計対象の体裁は持つが、実在しない（＝ pathguard.Validate を通らない）パスの行。
 	bad := fakeUsage("build01-1 / _work/gone", 100)
 	m = update(t, m, usageMsg{gen: m.gen, usage: bad, ok: true})
 	m, _ = send(t, m, press("j"))

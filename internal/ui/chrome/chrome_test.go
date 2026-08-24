@@ -9,7 +9,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/ousiassllc/gsr-helper/internal/ui/atom"
-	"github.com/ousiassllc/gsr-helper/internal/ui/molecule"
+	"github.com/ousiassllc/gsr-helper/internal/ui/molecule/chromebar"
 	"github.com/ousiassllc/gsr-helper/internal/ui/token"
 )
 
@@ -18,11 +18,11 @@ import (
 // 親 Model や page を組み立てないのは、chrome が受け取るのが表示用の値だけだから
 // である（ドメインの型を扱わない molecule 階層）。未実装のタブ 3〜7 を Enabled:
 // false にして、選択可・選択不可の 2 状態を再現する。
-func specTabs() []molecule.TabView {
+func specTabs() []chromebar.TabView {
 	titles := []string{"Runners", "Jobs", "Disk", "Logs", "Doctor", "Config", "Setup"}
-	tabs := make([]molecule.TabView, 0, len(titles))
+	tabs := make([]chromebar.TabView, 0, len(titles))
 	for i, title := range titles {
-		tabs = append(tabs, molecule.TabView{
+		tabs = append(tabs, chromebar.TabView{
 			Key:     strconv.Itoa(i + 1),
 			Title:   title,
 			Active:  i == 0,

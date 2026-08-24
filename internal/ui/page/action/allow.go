@@ -201,7 +201,7 @@ func is(a Def, ids ...ID) bool {
 //
 // 集合・並び・説明文は keymap.RunnerKeys.Footer（screens.md の共通レイアウトのフッタ）に
 // 従う。詳細画面の操作リスト（Actions）と別に持つのは、フッタが幅 80 に収まる 9 個に
-// 絞った短い表記を使うためである。幅に収まらない分を落とすのは molecule.KeyBar の役割。
+// 絞った短い表記を使うためである。幅に収まらない分を落とすのは chromebar.KeyBar の役割。
 func (s Set) Hints(r runner.Runner, caps appconfig.Caps, keys keymap.RunnerKeys) []atom.Hint {
 	footer := keys.Footer()
 	out := make([]atom.Hint, 0, len(footer))
