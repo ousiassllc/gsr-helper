@@ -36,6 +36,7 @@ graph TD
     Main --> Appconf
     Main --> Audit
     Main --> GH
+    Main --> Exec
 
     UIApp --> UIParts
 
@@ -64,8 +65,11 @@ graph TD
     Logs --> Runner
     Doctor --> Runner
     Doctor --> GH
+    Doctor --> Disk
     Config --> Runner
     Config --> GH
+    Config --> Svc
+    Config --> Setup
 
     Runner --> Exec
     Runner --> RScope
@@ -78,12 +82,20 @@ graph TD
     Disk --> Audit
     Logs --> Exec
     Doctor --> Exec
+    Doctor --> Appconf
+    Config --> Exec
+    Config --> RScope
+    Config --> Appconf
     GH --> Exec
     GH --> RScope
     GH --> Appconf
     Appconf --> Exec
     Exec --> Audit
 ```
+
+**UI 層の 2 ノードは粒度の要約である。** `UIApp` は親 Model（`internal/ui` 直下）と `ui/page` 以下に加えて、`ui/discovery` / `ui/workscan` / `ui/ghscope` / `ui/hostreq` / `ui/tabset` / `ui/chrome` / `ui/keymap` を畳んだものであり、`UIParts` は `ui/template` / `organism` / `molecule` / `atom` / `token` を束ねたものである。**畳んだパッケージがドメイン層を直に import する辺は、すべて `UIApp` 発の辺として上のグラフに描かれている**——`ui/tabset` → `runner` / `appconfig` / `exec`、`ui/workscan` → `disk` / `runner`、`ui/hostreq` → `doctor`、`ui/ghscope` → `gh` / `exec`、`ui/discovery` → `runner` / `exec` のいずれも辺がある。**「その依存は無い」と読まれる辺の欠落は本書のグラフには無い。**
+
+**本書が描かないのは UI パッケージ同士の依存だけである。** `organism` → `keymap` のような UI 層の内部の辺は [TUI コンポーネント設計](../ui/atomic-design.md#依存の方向)の依存グラフが持つ——同じ辺を 2 か所で維持すると片方だけが古くなるため、本書は層と層の間だけを描く。
 
 **UI 層が `setup` と `gh` を直に参照するのは値の型のためである。** 実行前プレビュー（FR-16）は `setup.Plan` をそのまま描くので `ui/page` 以下が `setup` を import し（本番ファイル 7 本）、短命トークンの預け先 `gh.Secrets` は起動時に `cmd` が 1 つ作って UI へ配るため `cmd` と `ui` の双方が `gh` を import する。**実行そのものを呼ぶのは `setup/job` だけである**——UI は `setup.Apply` を直接叩かない。
 
@@ -141,7 +153,7 @@ graph TD
 | 実行中の記録の書き込みに失敗した | 実行そのものは成功として扱い、失敗を集計する。TUI の終了後に `警告: 監査ログの記録に N 件失敗しました（最初の失敗: <原因>）` を標準エラー出力へ出す |
 | 終了時に監査ログを閉じられなかった | TUI の終了後に `警告: 監査ログのクローズに失敗しました: <原因>` を標準エラー出力へ出す。**捨てない。** 開けなかった場合と記録に失敗した場合は警告が出るのに閉じ損ないだけが見えないと、書けなかったレコードの存在に気付けない |
 
-**縮退した場合は「全外部コマンドの監査ログ記録」（[セキュリティ設計](../architecture/security.md)）が効いていない。** 記録が要件である運用では、この警告を起動の失敗として扱う運用手順を用意すること。TUI の実行中に標準エラー出力へ書かないのは、描画が壊れて画面が読めなくなるためである。
+**縮退した場合は「外部コマンドと、それに準ずる破壊的操作の監査ログ記録」（[セキュリティ設計](../architecture/security.md#監査ログ)）が効いていない。** 外部コマンドの記録だけでなく、`internal/disk` のファイル削除の記録も残らない。記録が要件である運用では、この警告を起動の失敗として扱う運用手順を用意すること。TUI の実行中に標準エラー出力へ書かないのは、描画が壊れて画面が読めなくなるためである。
 
 ### `internal/runner`
 
@@ -308,9 +320,9 @@ runner の追加・削除・バージョン更新。最も破壊的な操作を�
 
 `Apply` が取る `lg *audit.Logger` は、ファイル削除（`removeTree`）を監査ログへ記録するための入口である（下記「ファイル削除の監査ログ」、[`internal/audit`](#internalaudit)）。`internal/disk` がこれを持つのはドメイン層で唯一の例外で、他のドメイン実装は `audit.Logger` を直接呼ばない。
 
-**シンボリックリンクの扱いは「読む」と「消す」で分ける。** `WorkUsage` は `_work` 自体がリンクでも`filepath.EvalSymlinks` で辿る——`_work` を別ボリュームへ寄せた構成があり、辿らないと `filepath.WalkDir` がroot を `Lstat` で見てリンク 1 件ぶんを数え、**集計できていないのに 0 バイトという確定値**を一覧に出すためである（未集計は `-` に縮退させるのが本来の扱い）。`Scan` は集計対象が `_work` の**子**なのでリンクは経路の途中にあり、明示的に辿らなくても同じ実サイズが得られる（走査の root がリンクになるのは `WorkUsage` だけ）。一方 `Apply` の削除は辿らない。リンク先の実体を消さないための約束であり（[セキュリティ設計](../architecture/security.md#シンボリックリンクの扱い)）、読むだけの集計とは要件が違う。
+**シンボリックリンクの扱いは「読む」と「消す」で分ける。** `WorkUsage` は `_work` 自体がリンクでも`filepath.EvalSymlinks` で辿る——`_work` を別ボリュームへ寄せた構成があり、辿らないと `filepath.WalkDir` がroot を `Lstat` で見てリンク 1 件ぶんを数え、**集計できていないのに 0 バイトという確定値**を一覧に出すためである（未集計は `-` に縮退させるのが本来の扱い）。`Scan` は集計対象が `_work` の**子**なのでリンクは経路の途中にあり、明示的に辿らなくても同じ実サイズが得られる（走査の root がリンクになるのは `WorkUsage` だけ）。一方 `Apply` の削除は辿らない。リンク先の実体を消さないための約束であり（[セキュリティ設計](../architecture/security.md#1-削除パスの検証を必須にする)）、読むだけの集計とは要件が違う。
 
-**`internal/disk` は一度警告帯（2000 行超）に入り、Issue #101 で戻した。** 2181 行（エラー境界の 2200 まで 19 行）まで詰まっていたものを、削除パスの検証を `internal/disk/pathguard` へ切り出して **1927 行・残り 73 行・pass** にしてある。判断と理由は `docs/ui/atomic-design.md` の「UI 層の外のディレクトリ」に記録した（同書の「ディレクトリの行数」と同じ規範を `internal/` 側にも適用する）。
+**`internal/disk` は一度警告帯（2000 行超）に入り、Issue #101 で戻した。** 2181 行（エラー境界の 2200 まで 19 行）まで詰まっていたものを、削除パスの検証を `internal/disk/pathguard` へ切り出して 1927 行・残り 73 行・pass にした。**その後の回帰テストの追加で現在は 1980 行・残り 20 行である**（Issue #123）。判断と理由は `docs/ui/atomic-design.md` の「UI 層の外のディレクトリ」に記録した（同書の「行数の予算」と同じ規範を `internal/` 側にも適用する）。実測値の一次情報は同書の表であり、本書はここを重複して持たない。
 
 #### 分割したパッケージ
 
@@ -328,7 +340,7 @@ runner の追加・削除・バージョン更新。最も破壊的な操作を�
 
 **`docker system prune -f` の解放見込みは内訳の合計ではない。** 発行するのはこの 1 本だけで、`--volumes` が無いためボリュームは消えず、`-a` が無いため dangling 以外の未使用イメージも残る。したがって解放見込みには `PruneReclaimable` が返す種別（Containers / Build Cache）だけを載せ、イメージとボリュームの `Reclaimable` は内訳の表示（[FR-27](../requirements/functional.md)）に留める。
 
-**ファイル削除も監査ログに残る（Issue #71）。** ファイルの再帰削除（`removeTree`）は外部コマンドを起動しないため `Executor` を通らないが、`Apply` が呼ぶ `removeTarget`（1 対象の削除ごとに必ず通る 1 箇所）が `lg.Report` で記録する。`action` は docker と同じ `disk.clean`、`command` には実行したコマンドが無いため `["(削除)", <削除したパス>]` を載せる（`rm` のような実在するコマンド名にしないのは、実行していないコマンドを起動したと誤読させないため。[セキュリティ設計](../architecture/security.md#監査ログ)）。保護・検証で中止した対象も `exit_code: 1` と `error` 付きで記録し、「削除しなかった」事実を後から追えるようにする。この階層が発行する docker の 2 コマンドも**どちらも記録される**。`docker system df`（`Action: disk.df`）と `docker system prune -f`（`Action: disk.clean`）のいずれも `SkipAudit` を付けない。記録対象外にするのは再検出の `systemctl list-units` / `show` だけである（[外部インターフェース](../api/external-interfaces.md#systemd)）。
+**ファイル削除も監査ログに残る（Issue #71）。** ファイルの再帰削除（`removeTree`）は外部コマンドを起動しないため `Executor` を通らないが、`Apply` が呼ぶ `removeTarget`（1 対象の削除ごとに必ず通る 1 箇所）が `lg.Report` で記録する。`action` は docker と同じ `disk.clean`、`command` には実行したコマンドが無いため `["(削除)", <削除したパス>]` を載せる（`rm` のような実在するコマンド名にしないのは、実行していないコマンドを起動したと誤読させないため。[セキュリティ設計](../architecture/security.md#監査ログ)）。保護・検証で中止した対象も `exit_code: 1` と `error` 付きで記録し、「削除しなかった」事実を後から追えるようにする。この階層が発行する docker の 2 コマンドも**どちらも記録される**。`docker system df`（`Action: disk.df`）と `docker system prune -f`（`Action: disk.clean`）のいずれも `SkipAudit` を付けない。記録対象外にするのは、再検出（`internal/runner/systemd` の `Scan`）が発行する `systemctl list-units` / `systemctl show` と、ログ追従（`internal/logs` の `Journal`）が発行する `journalctl -u <unit> -n <N> --no-pager` の **2 種だけ**である（規則と根拠は[セキュリティ設計](../architecture/security.md#記録対象外とする読み取りコマンド)、発行するコマンドの形は[外部インターフェース](../api/external-interfaces.md#systemd)）。
 
 ### `internal/logs`
 
@@ -635,7 +647,7 @@ bubbletea の Model 群。**内部を Atomic Design で階層化する。** 部�
 | `ui/page` | page | タブ共通の `Msg`（`StateMsg` / `ChromeMsg` / `TabMsg` / `GlobalKeyMsg` / `AttachMsg` / `ModalMsg` / `ResultMsg` / `ActivateMsg` / `DeactivateMsg` / `ShutdownMsg`）、**タブをまたぐ移動の `Msg`**（`OpenTabMsg` と移動先の名前 `TabLogs` / `TabSetup`、用件の `ShowLogMsg` / `SetupRequestMsg`）、**親が配っている値をタブが書き換えたことの通知**（`ConfigSavedMsg` と発行用の `ConfigSaved`。Config タブが自身の設定を書き込めたときだけ発行し、親が `cfg` を差し替えて配り直す。**ここに置くのは、書き換える側（Config タブ）と配る側（親）の双方から見える場所がここしか無いため**で、`OpenTabMsg` と同じ理由である）、モーダルの中身が発行した `Cmd` を中身へ戻す包み（`WrapModal`）、モーダルの重なり（`Overlay`） |
 | `ui/page/action` | page | 操作の識別子（`action.ID`）と、可否・理由の判定（`Allow` / `Set`）。依存は `page/action` → `page` の一方向で、`page` からは参照しない |
 | `ui/page/<tab>` | page | タブ 1 枚（`tea.Model`）。organism を構成し、キー入力をドメイン層の `tea.Cmd` に変換する。Setup タブ（`ui/page/setup`）が呼ぶのは `internal/setup` と `internal/setup/job` で、GitHub API と tarball はその内側にある |
-| `ui/page/runnerdetail` | page | runner の詳細画面。Runners / Jobs が共用するモーダルで、タブではない。依存は `page/runnerdetail` → `page` の一方向 |
+| `ui/page/runnerdetail` | page | runner の詳細画面。Runners / Jobs が共用するモーダルで、タブではない。依存は `page/runnerdetail` → `page` / `page/action`（操作リストの組み立て）の一方向。**共有部品同士の参照はここが実例である**（[TUI コンポーネント設計](../ui/atomic-design.md#organism-の分割方針)が「共有部品同士の参照までは禁じていない」と定める向き。逆向きの `page/action` → `page/runnerdetail` は無い） |
 | `ui/page/runnerop` | page | runner に対するサービス制御の起点（対象の決定・確認ダイアログ・実行・結果の報告）。Runners / Jobs / 詳細画面が共用し、タブではない。依存は `page/runnerop` → `page` / `page/action` / `page/runnerdetail` / `organism/dialog` / `svc` の一方向 |
 | `ui/page/pagetest` | page | `page/<tab>` **と親 Model** が共用するテスト用の道具（共有状態・`Spy`・打鍵の組み立て・`Cmd` の展開と走査（`Msgs` / `ScanKey`）・長寿命の購読を模した `StreamPage`）。**テスト専用で本番からは import しない**（`TestNoProductionCodeImportsTestFixtures` が本番ファイルの import を読んで検査する） |
 | `ui/template` | template | 画面共通の枠（ヘッダ / タブ / 本体 / 状態行 / フッタ、モーダル、2 ペイン）。中身を知らない |
@@ -665,6 +677,7 @@ bubbletea の Model 群。**内部を Atomic Design で階層化する。** 部�
 | `ui/token` | token | 色・記号・幅。色は背景の明暗で解決し、色を使わない場合の縮退をここに閉じる。`huh.Theme` もここで組み立てる |
 
 - タブ間で共有する状態は親のみが持つ。これを実際に守らせているのは `page/pagetest/import_test.go` の `TestOnlyTabsetImportsTabs` で、`ui/page/<tab>` を import してよいのは `ui/tabset` だけであることを本番ファイルの import から検査する（Go が禁じるのは `page` → `page/<tab>` の循環だけで、タブ同士の参照は止まらない）。**検出（`runner.Discover`）を呼ぶのは親 Model だけで、page は呼ばない。** page は親から配られたスナップショット（`page.StateMsg`）を描画に使う。端末サイズも親が持ち、`template.BodySize` で算出した領域を配る。
+- **`page/` 直下のどれが共有部品でどれがタブかの正は `shared` である。** `page/pagetest/import_test.go` の `shared` マップに載らない `page/<名前>` をタブとして扱う。[TUI コンポーネント設計](../ui/atomic-design.md)はこの一覧を 3 箇所（「`page/` は 1 ディレクトリ 1 タブではない」の段落・ディレクトリ構成のツリー・実装状況の「実装済み」の行）に写しており、`TestSharedPackagesMatchDoc` / `TestDirectoryTreeMatchesShared` / `TestImplementedListCoversSharedPackages` の 3 本が `shared` との一致を検査する。**写しが 3 つあるのは読み手の入口が 3 つあるためで、正は 1 つ（`shared`）に固定してある。**
 - 一覧と確認ダイアログはそれぞれ `organism/table.Model` / `organism/dialog.Confirm` の 1 実装に統一する。個別のダイアログを追加しないことで「確認を経ない破壊的操作の経路を作らない」を構造として守る（`organism/dialog` で未実装なのは `DiffApproval` だけである。[TUI コンポーネント設計の実装状況](../ui/atomic-design.md#実装状況)）。
 - 操作の起点は複数あるが（一覧の直接キー / 詳細画面の操作リスト / Jobs タブ、[FR-45〜FR-47](../requirements/functional.md)）、いずれも同じ確認ダイアログを経る。選択肢を並べる UI は `organism.ChoiceList` の 1 実装に統一する。
 - **タブをまたぐ移動も親が担う。** Runners / Jobs の `l`（選択中 runner の直近ジョブの Worker ログを開く）は Logs タブへ移って対象を渡すが、タブ同士は互いを import しないため（上記の `TestOnlyTabsetImportsTabs`）、移動元は移動先の型もタブ番号も持てない。そこで移動元は `page.OpenTabMsg{Title: page.TabLogs, Msg: page.ShowLogMsg{...}}` を親へ投げ、親が `[]tabset.Tab` を**名前で**走査して移り、移動先へ用件を配る。この 3 つを `ui/page` に置くのは、**移動元と移動先の双方から見える場所がここしか無い**ためである（`ShowLogMsg` は Logs タブ固有の用件だが、同じ理由でここに置く）。名前は文字列で突き合わせるので、タブ名を変えると移動だけが静かに効かなくなる。`tabset` の `TestOpenTabTitlesMatchTabs` が `page.TabLogs` に対応する有効なタブの実在を検査してこれを防ぐ。一致するタブが無い・無効な場合、親は移動せず理由を状態行に出す（押しても何も起きないキーを作らないため）。
@@ -743,5 +756,12 @@ interface はこの 3 つに留める。ドメインごとの interface は、�
 | 1.34 | 2026-08-24 | `internal/ui` のサブパッケージ表に `ui/organism/table/tabletest` を追加し、テスト用フィクスチャの混入を止める検査の名前を `TestNoProductionCodeImportsPagetest` → `TestNoProductionCodeImportsTestFixtures` へ改めた（`pagetest` と `tabletest` の 2 つを見るようになったため） | Issue #65。`ui/organism/table` が行数上限を超えており、本体（`Model[T]`）を分割すると `section[T]` の export が要って「一覧の共通実装は 1 つ」を構造で守れなくなるため、テスト側のフィクスチャを一方向参照の別パッケージへ出して解消した。本表は「どのサブパッケージが何を持つか」を最初に引く場所であり、新設パッケージが載っていないと同じものをもう 1 つ作りかねない |
 | 1.35 | 2026-08-24 | PR #124（Issue #97〜#114）の切り出しを反映。`ValidatePath` の 4 箇所（API 表・許可サブツリーの散文・`PlanClean` / `Apply` の散文・テスト配置の表）を `pathguard.Validate` へ改め、`internal/disk` に「分割したパッケージ」表（`disk/pathguard`）を新設。`internal/setup` の表に `setup/setuptest` を追加。実測値を更新（`internal/disk` 2181 → 1927・残り 73・pass、`internal/runner` 1656 → 1704・残り 296）。`internal/ui` のサブパッケージ表で `ui/molecule` / `ui/chrome` の記述を chromebar 切り出し後の実態へ直し、`ui/molecule/chromebar` / `ui/page/diskclean` / `ui/page/configmodal` / `ui/page/setupmodal` の 4 行を追加 | 本書は「部品が有るか」「どこに置くか」を後続 Issue が最初に引く場所であり、切り出したパッケージが載っていないと同じものをもう 1 つ作りかねない。`ValidatePath` は `internal/disk` から `internal/disk/pathguard` へ移って名前も変わったため、API 表の記載のままでは存在しない関数を指す。行数は本書が「先に切り出し先を決めること」の判断材料として挙げているので、古い値は判断を誤らせる |
 | 1.36 | 2026-08-24 | `doctor/check` の行と、`Run(ctx, in)` が `Input` に何を渡すかを述べる箇条書きの両方に、`Input` が設定のディスク使用率の閾値（`DiskThresholds`）を運ぶことを追記 | `doctor/hostres` が独立の定数（80 / 90）で判定しており、設定の `disk_thresholds` を変えても Disk タブの要約行しか動かなかった。`Input` の持ち物を列挙する唯一の表からは、診断へ何が配られるのかが読み取れなかった（Issue #89）。本節は `Input` の中身を表と箇条書きの 2 か所で説明しており、表だけを直すと同じ文書が食い違って、先に読まれる箇条書きからは新しい項目に辿り着けない |
-| 1.37 | 2026-08-24 | `internal/ui` のサブパッケージ表の `ui/page` に、親が配っている値をタブが書き換えたことの通知（`ConfigSavedMsg` と発行用の `ConfigSaved`）を追加 | Issue #128。設定ファイルには書けているのに親 Model の `cfg` が起動時の 1 度きりしか代入されず、`disk_thresholds` を編集しても Disk タブの警告と doctor のリソース診断が再起動まで古い閾値で判定していた。解決に新設した `Msg` が本表に載っていないと、`page` 直下に何があるかを引く唯一の場所から漏れ、次に同種の問題（親が配る値をタブが書き換える）を踏んだ Issue が同じものをもう 1 つ作りかねない |
-| 1.38 | 2026-08-24 | `internal/ui` のサブパッケージ表の `ui`（`app.go`）の行に、親側の責務「`page.ConfigSavedMsg` を受けて `cfg` を差し替え、`distribute` で配り直す（どのタブが書き換えたかは知らない）」を追記。`ui/page` の行の `ConfigSavedMsg` に、**なぜ `page` に置くのか**（書き換える側と配る側の双方から見える場所がここしか無い。`OpenTabMsg` と同じ理由）を併記 | 1.37 が `Msg` を**出す側**（`ui/page`）だけを表へ足し、**受ける側**（親 Model）を落としていたため、同じ表の中で経路が片道にしか読めなかった。配置理由の欠落は 1.21 が `OpenTabMsg` について明示的に戒めたものと同種で、理由が本書に無いと次に同じ形（親が配る値をタブが書き換える）を実装する Issue が、タブ側や `ui` 直下へ `Msg` を置く形を選びかねない（PR #133 2 周目） |
+| 1.37 | 2026-08-24 | 「監査ログを開けない場合の縮退」の要約を「全外部コマンドの監査ログ記録」から「外部コマンドと、それに準ずる破壊的操作の監査ログ記録」へ改め、参照先を [セキュリティ設計](../architecture/security.md#監査ログ)のアンカーまで届かせた | 1.31 で `internal/disk` の節と `internal/audit` の節を Issue #71 の契約拡張に追随させたのに、縮退の段落だけが旧契約（外部コマンド限定）の要約のまま残っていた。同じ文書の中で本文と要約が食い違うと、要約だけを読んだ人はファイル削除が統制の対象外だと結論する（Issue #117） |
+| 1.38 | 2026-08-24 | `internal/disk` の「ファイル削除も監査ログに残る」段落の末尾で、記録対象外を再検出の `systemctl list-units` / `show` の 1 種としていた記述を、ログ追従の `journalctl -u <unit> -n <N>` を含む 2 種へ改め、参照先に[セキュリティ設計](../architecture/security.md#記録対象外とする読み取りコマンド)（規則の本体）を加えた | 実装で `SkipAudit: true` を立てているのは `internal/runner/systemd`（`Scan`）と `internal/logs`（`readJournal`）の 2 箇所である。Issue #9 でログ追従を実装した際に `security.md` / `external-interfaces.md` / `non-functional.md` は 2 種へ追随したが、本書のこの行だけが 1 種のまま取り残されていた。参照先も `external-interfaces.md#systemd` だけでは journalctl を含む規則に届かない（Issue #121） |
+| 1.39 | 2026-08-24 | `internal/disk` の行数の記述を現在の実測（1980 行・残り 20 行）へ更新し、参照する節名を `docs/ui/atomic-design.md`「ディレクトリの行数」から「行数の予算」へ改めた | Issue #123 の回帰テストで `internal/disk` が 1927 行から 1980 行へ増えた。行数は「先に切り出し先を決めること」の判断材料として本書が挙げているので、古い値は判断を誤らせる。節名は Issue #125 でファイル単位の予算を同じ節へ入れたのに伴って変わった（Issue #125） |
+| 1.40 | 2026-08-24 | 依存グラフの辺を `go list` の import と全件突き合わせ、欠けていた 8 本（`Doctor --> Appconf` / `Doctor --> Disk` / `Main --> Exec` / `Config --> Exec` / `Config --> Appconf` / `Config --> RScope` / `Config --> Svc` / `Config --> Setup`）を追加した。あわせて、UI 層の 2 ノードが粒度の要約であり `ui/keymap` などの UI 内部パッケージはノードではないこと・UI 層の内部の依存は [TUI コンポーネント設計](../ui/atomic-design.md#依存の方向)が持つことを、グラフの直後に明記した | doctor は `check.Caps` の時点から `appconfig` を import しており、Issue #89 で `hostres` にも広がって同じ文書の `doctor/check` の行と `Run(ctx, in)` の箇条書きの両方が `DiskThresholds`（appconfig の型）を名指すようになった。**グラフだけが「その依存は無い」と述べる状態**で、本書は 1.22 / 1.27 / 1.29 / 1.32 / 1.33 と繰り返し同種の欠落を defect として直してきた（辺の欠落は「その依存は存在しない」と読まれ、正当な import が § 依存の規則 違反と判定される）。1 本ずつ後追いするより一度洗う方が安いので、今回は全ノード対全ノードで突き合わせた。`Config` 発の 5 本はいずれも #89 以前から存在していた欠落である。UI 層の注記は、突き合わせで唯一残った差（`ui/organism` → `ui/keymap`）がノードの粒度の話であって欠落ではないことを、次に洗う人が再発見しなくて済むようにするためである（Issue #129） |
+| 1.41 | 2026-08-24 | 依存の規則の箇条書きに、`page/` 直下の共有部品の正が `page/pagetest/import_test.go` の `shared` であることと、[TUI コンポーネント設計](../ui/atomic-design.md)の写し 3 箇所を突き合わせる 3 本の検査（`TestSharedPackagesMatchDoc` / `TestDirectoryTreeMatchesShared` / `TestImplementedListCoversSharedPackages`）を追加した | 本書は既に `TestOnlyTabsetImportsTabs` / `TestNoProductionCodeImportsTestFixtures` / `TestOpenTabTitlesMatchTabs` を「規約ではなく検査で守っている」根拠として挙げているのに、共有部品の列挙を守る検査だけが載っていなかった。検査の一覧が実態と食い違うと、次に共有部品を足す Issue が「文書を直さなくても落ちない」と判断する（Issue #130） |
+| 1.42 | 2026-08-24 | `ui/page/runnerdetail` の行の依存関係を「`page/runnerdetail` → `page` の一方向」から実装（`page` / `page/action`）へ改め、共有部品同士の参照の実例であることと逆向きが無いことを明記した | `go list` で確認したとおり `page/runnerdetail` は `internal/ui/page` に加えて `internal/ui/page/action` も import している。同じ表の `ui/page/runnerop` の行は共有部品同士の参照まで正しく列挙しており、`runnerdetail` の行だけが不完全だった。[TUI コンポーネント設計](../ui/atomic-design.md)が「共有部品同士の参照までは禁じていない」と明記している以上、その実例が本書から読み取れないと、次に共有部品へ手を入れる Issue が正当な import を規則違反と判定する（依存の記述の欠落を「その依存は存在しない」と読む同じ失敗であり、改訂 1.40 が依存グラフについて直したのと同種である）（Issue #131） |
+| 1.43 | 2026-08-24 | シンボリックリンクの扱いの参照先を `../architecture/security.md#シンボリックリンクの扱い`（実在しない見出し）から、その記述を含む節の見出し `#1-削除パスの検証を必須にする` へ直した | 本 PR が変更した行ではなく、以前から残っていた既存のリンク切れであり、PR #134 の 2 周目レビューで検出したものである。`security.md` 側の「シンボリックリンクの扱い」は見出しではなく本文中の太字であり、アンカーとしては解決しないためリンク先ファイルの先頭へ着地する。本書のこの行は「`Apply` の削除はリンクを辿らない」という約束の根拠を `security.md` に置いているので、着地点が先頭になると根拠に辿り着けない。同じ節を指す正しいアンカーは本書の `pathguard.Validate` の段落が既に使っており、同じ文書の中で 2 つの書き方が混在していた |
+| 1.44 | 2026-08-24 | `internal/ui` のサブパッケージ表の `ui/page` に、親が配っている値をタブが書き換えたことの通知（`ConfigSavedMsg` と発行用の `ConfigSaved`）を追加 | Issue #128。設定ファイルには書けているのに親 Model の `cfg` が起動時の 1 度きりしか代入されず、`disk_thresholds` を編集しても Disk タブの警告と doctor のリソース診断が再起動まで古い閾値で判定していた。解決に新設した `Msg` が本表に載っていないと、`page` 直下に何があるかを引く唯一の場所から漏れ、次に同種の問題（親が配る値をタブが書き換える）を踏んだ Issue が同じものをもう 1 つ作りかねない |
+| 1.45 | 2026-08-24 | `internal/ui` のサブパッケージ表の `ui`（`app.go`）の行に、親側の責務「`page.ConfigSavedMsg` を受けて `cfg` を差し替え、`distribute` で配り直す（どのタブが書き換えたかは知らない）」を追記。`ui/page` の行の `ConfigSavedMsg` に、**なぜ `page` に置くのか**（書き換える側と配る側の双方から見える場所がここしか無い。`OpenTabMsg` と同じ理由）を併記 | 1.37 が `Msg` を**出す側**（`ui/page`）だけを表へ足し、**受ける側**（親 Model）を落としていたため、同じ表の中で経路が片道にしか読めなかった。配置理由の欠落は 1.21 が `OpenTabMsg` について明示的に戒めたものと同種で、理由が本書に無いと次に同じ形（親が配る値をタブが書き換える）を実装する Issue が、タブ側や `ui` 直下へ `Msg` を置く形を選びかねない（PR #133 2 周目） |
