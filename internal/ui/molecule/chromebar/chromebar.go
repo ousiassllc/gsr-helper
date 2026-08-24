@@ -7,7 +7,7 @@
 // 部品（ActionRow / FSSummaryLine / CommandBlock / LogLine / SummaryCounts /
 // ProgressRow）は、タブとダイアログが増えるたびに種類が増える。
 //
-// 依存は atom / token / lipgloss だけで、**molecule も molecule/listrow も参照
+// 依存は atom / token だけで（lipgloss を使うのは検証のみ）、**molecule も molecule/listrow も参照
 // しない。** 組み合わせるのは ui/chrome（3 本すべて）と ui/tabset（TabView を組む）の
 // 2 つである。同階層参照の禁止に例外を増やさないため、逆向き（molecule → chromebar）も
 // 作らない。
