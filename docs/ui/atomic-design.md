@@ -1271,7 +1271,7 @@ Setup タブは追加・削除・バージョン更新の 3 操作と、フォ�
 
 **残りは Issue #9 で 125 行から 27 行へ減り、Issue #8 でついに超過した。** タブをまたぐ移動（`page.OpenTabMsg`）は親でしか実現できず、`keys.go` の `openTab` とその検証（`route_test.go` の 3 本）が加わったためである。検証に使う道具のうち App の非公開な状態に触れないもの（受け取った `Msg` を型で数える `Delivered`）は `page/pagetest` へ出してある。**当時（Issue #8 の 2199 行）の結論は「次に `ui` 直下へ足す Issue は、まず既存のテストで `page/pagetest` へ出せるものを探すこと。超過した以上、テストを足す前に道具を出すこと」だった。** これは当時の記録であり、**現在の予算と次の Issue への指示は上の「6 周目の空け方」が持つ**（その手は 6 周目までに使い切っている）。
 
-**余裕は「重複削減」ではなく「道具を `page/pagetest` へ出す」で作る。** Issue #31 でキーの配送を検証する道具を足したとき `ui` 直下は 1967 行（残り 33 行）まで詰まったが、走査の道具（`ScanKey`）とその形の網羅テストを `page/pagetest` へ移して 1875 行（残り 125 行）に戻した。`page/pagetest` は現在 1744 行で余裕があり（残り 256 行）、**そこは元々「タブと親で共用する検証の道具」の置き場である**（`helper_test.go` 冒頭の方針）。
+**この周（Issue #31）は、余裕を「重複削減」ではなく「道具を `page/pagetest` へ出す」で作った。** Issue #31 でキーの配送を検証する道具を足したとき `ui` 直下は 1967 行（残り 33 行）まで詰まったが、走査の道具（`ScanKey`）とその形の網羅テストを `page/pagetest` へ移して 1875 行（残り 125 行）に戻した。`page/pagetest` は現在 1744 行で余裕があり（残り 256 行）、**そこは元々「タブと親で共用する検証の道具」の置き場である**（`helper_test.go` 冒頭の方針）。
 
 出せるものと出せないものの境目は「`App` の非公開な状態に触れるか」である。`ScanKey` は `page.ChromeMsg` / `page.GlobalKeyMsg` と `pagetest.Msgs` しか使わないので `App` の非公開な状態を 1 つも export せずに出せた。一方 `gate_test.go`（`a.chrome` / `next.active` / `after.inflight` / `tickMsg`）と `app_keys_test.go`（`a.tabs` / `a.active` / `a.chrome`）の**テスト本体**は非公開に触れる内部テストなので出せない。**これらを出そうとして export を増やすのは採らない**（`ui/organism/table` の本体を分割しない判断と、非公開の export を避ける点で理由を共有する）。**ただしテストが使う道具は別である**——Issue #77 は `press1` / `isQuit` / `blocked` を `page/pagetest` へ出した（どれも `tea.Model` の口と `page` の Msg しか使わない）。**この「まず道具を `page/pagetest` へ出せないかを見る」という指示も Issue #77 当時のものである**——6 周目までに出せる道具は尽きており、次の Issue への指示は上の「6 周目の空け方」に一本化してある。
 
