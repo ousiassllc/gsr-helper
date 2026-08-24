@@ -1244,7 +1244,7 @@ Disk タブは 1 ディレクトリに一覧・集計・クリーンアップ・
 
 **その後 Issue #127 の回帰テストで 1996 行（残り 4 行）まで詰まった。** 押し上げたのは inode だけが逼迫した行で `⚠ 警告閾値超過` が出ることを固定する検証で、doctor との判定の食い違いを閉じるためのものである（[画面仕様](screens.md#disk-タブ)）。**次にこのディレクトリへ 1 行でも足す Issue は、足す前に空けること。** 採れる手は本節冒頭の (3)——タブ側のテストの道具を `page/pagetest` へ出すこと——だが、そちらも残り 63 行なので、先に `page/disk/cleanview`（491 行・残り 1509 行）へ寄せられる純粋関数が無いかを見るほうが早い。
 
-**`ui/page/logs` の残りは 6 行しかない。** Logs タブ（Issue #9）は本文の組み立てと購読の 2 つを 1 つのタブに持つため、`page/<tab>` のなかで最も大きい。**次にこのディレクトリへ足す Issue は、まず道具を `page/pagetest` へ出すこと。** Issue #9 の 2 周目で回帰テストを 2 本足したときもそうして 120 行あまりを空けた（`Cmd` を回す道具 `RunCmd` / `ChromeOf` / `Pump` / `Drained` と、`_diag` のフィクスチャ `DiagRunner` / `WriteDiagLog`。`page/pagetest` が 824 行から 1003 行へ増えているのはこの移動ぶんである）。
+**`ui/page/logs` の残りは 6 行しかない。** Logs タブ（Issue #9）は本文の組み立てと購読の 2 つを 1 つのタブに持つため、`page/<tab>` のなかで最も大きい。**次にこのディレクトリへ足す Issue は、まず道具を `page/pagetest` へ出すこと。** Issue #9 の 2 周目で回帰テストを 2 本足したときもそうして 120 行あまりを空けた（`Cmd` を回す道具 `RunCmd` / `ChromeOf` / `Pump` / `Drained` と、`_diag` のフィクスチャ `DiagRunner` / `WriteDiagLog`。`page/pagetest` が 824 行から 1003 行へ増えているのはこの移動ぶんである）。**ただしその受け皿にも余裕は無い**——`page/pagetest` は 1937 行・残り 63 行なので、63 行を超える移動はそのままでは入らず、`page/pagetest` 側も同時に空けるか別の受け皿を選ぶ必要がある。
 
 **ただし同じ手が何度も使えるとは限らない。** 残っている道具は Logs タブに固有のもの（購読を張り直すたびに最新の `Model` を追う `track`、`_diag` を持つ共有状態の組み立て）だけであり、`page/pagetest` へ出すと他のタブが使わない道具が共有の置き場に溜まる。**その次に採るのはテストの重複削減であって、本文（`content.go` / `stream.go`）の分割ではない。** ファイルを分けても 1 ディレクトリの合計は 1 行も減らない（`ui/organism/table` の本体を分割しない判断と同じ理由）。
 
@@ -1300,7 +1300,7 @@ Setup タブは追加・削除・バージョン更新の 3 操作と、フォ�
 
 **残りは Issue #9 で 125 行から 27 行へ減り、Issue #8 でついに超過した。** タブをまたぐ移動（`page.OpenTabMsg`）は親でしか実現できず、`keys.go` の `openTab` とその検証（`route_test.go` の 3 本）が加わったためである。検証に使う道具のうち App の非公開な状態に触れないもの（受け取った `Msg` を型で数える `Delivered`）は `page/pagetest` へ出してある。**次に `ui` 直下へ足す Issue は、まず既存のテストで `page/pagetest` へ出せるものを探すこと。** 超過した以上、テストを足す前に道具を出すこと。
 
-**余裕は「重複削減」ではなく「道具を `page/pagetest` へ出す」で作る。** Issue #31 でキーの配送を検証する道具を足したとき `ui` 直下は 1967 行（残り 33 行）まで詰まったが、走査の道具（`ScanKey`）とその形の網羅テストを `page/pagetest` へ移して 1875 行（残り 125 行）に戻した。`page/pagetest` は現在 1744 行で余裕があり（残り 256 行）、**そこは元々「タブと親で共用する検証の道具」の置き場である**（`helper_test.go` 冒頭の方針）。
+**余裕は「重複削減」ではなく「道具を `page/pagetest` へ出す」で作る。** Issue #31 でキーの配送を検証する道具を足したとき `ui` 直下は 1967 行（残り 33 行）まで詰まったが、走査の道具（`ScanKey`）とその形の網羅テストを `page/pagetest` へ移して 1875 行（残り 125 行）に戻した。`page/pagetest` は現在 1937 行で、残りは 63 行しかない——**そこは元々「タブと親で共用する検証の道具」の置き場である**（`helper_test.go` 冒頭の方針）が、次に道具を出すときは `page/pagetest` 側も同時に空けなければ入らない。
 
 出せるものと出せないものの境目は「`App` の非公開な状態に触れるか」である。`ScanKey` は `page.ChromeMsg` / `page.GlobalKeyMsg` と `pagetest.Msgs` しか使わないので `App` の非公開な状態を 1 つも export せずに出せた。一方 `gate_test.go`（`a.chrome` / `next.active` / `after.inflight` / `tickMsg`）と `app_keys_test.go`（`a.tabs` / `a.active` / `a.chrome`）の**テスト本体**は非公開に触れる内部テストなので出せない。**これらを出そうとして export を増やすのは採らない**（`ui/organism/table` の本体を分割しない判断と、非公開の export を避ける点で理由を共有する）。**ただしテストが使う道具は別である**——Issue #77 は `press1` / `isQuit` / `blocked` を `page/pagetest` へ出した（どれも `tea.Model` の口と `page` の Msg しか使わない）。次に `ui` 直下へテストを足す Issue も、まず道具が `page/pagetest` へ出せないかを見ること。
 

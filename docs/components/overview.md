@@ -93,7 +93,9 @@ graph TD
     Exec --> Audit
 ```
 
-**UI 層の 2 ノードは粒度の要約である。** `UIApp` は親 Model と `ui/page` 以下、`UIParts` は `ui/template` / `organism` / `molecule` / `atom` / `token` を束ねたもので、`ui/keymap` / `ui/tabset` / `ui/chrome` のような UI 内部のパッケージはこのグラフのノードではない。**UI 層の内部の依存は [TUI コンポーネント設計](../ui/atomic-design.md#依存の規則)の依存グラフが持つ**——同じ辺を 2 か所で維持すると片方だけが古くなるため、本書は層と層の間だけを描く。
+**UI 層の 2 ノードは粒度の要約である。** `UIApp` は親 Model（`internal/ui` 直下）と `ui/page` 以下に加えて、`ui/discovery` / `ui/workscan` / `ui/ghscope` / `ui/hostreq` / `ui/tabset` / `ui/chrome` / `ui/keymap` を畳んだものであり、`UIParts` は `ui/template` / `organism` / `molecule` / `atom` / `token` を束ねたものである。**畳んだパッケージがドメイン層を直に import する辺は、すべて `UIApp` 発の辺として上のグラフに描かれている**——`ui/tabset` → `runner` / `appconfig` / `exec`、`ui/workscan` → `disk` / `runner`、`ui/hostreq` → `doctor`、`ui/ghscope` → `gh` / `exec`、`ui/discovery` → `runner` / `exec` のいずれも辺がある。**「その依存は無い」と読まれる辺の欠落は本書のグラフには無い。**
+
+**本書が描かないのは UI パッケージ同士の依存だけである。** `organism` → `keymap` のような UI 層の内部の辺は [TUI コンポーネント設計](../ui/atomic-design.md#依存の方向)の依存グラフが持つ——同じ辺を 2 か所で維持すると片方だけが古くなるため、本書は層と層の間だけを描く。
 
 **UI 層が `setup` と `gh` を直に参照するのは値の型のためである。** 実行前プレビュー（FR-16）は `setup.Plan` をそのまま描くので `ui/page` 以下が `setup` を import し（本番ファイル 7 本）、短命トークンの預け先 `gh.Secrets` は起動時に `cmd` が 1 つ作って UI へ配るため `cmd` と `ui` の双方が `gh` を import する。**実行そのものを呼ぶのは `setup/job` だけである**——UI は `setup.Apply` を直接叩かない。
 
@@ -151,7 +153,7 @@ graph TD
 | 実行中の記録の書き込みに失敗した | 実行そのものは成功として扱い、失敗を集計する。TUI の終了後に `警告: 監査ログの記録に N 件失敗しました（最初の失敗: <原因>）` を標準エラー出力へ出す |
 | 終了時に監査ログを閉じられなかった | TUI の終了後に `警告: 監査ログのクローズに失敗しました: <原因>` を標準エラー出力へ出す。**捨てない。** 開けなかった場合と記録に失敗した場合は警告が出るのに閉じ損ないだけが見えないと、書けなかったレコードの存在に気付けない |
 
-**縮退した場合は「外部コマンドと、それに準ずる破壊的操作の監査ログ記録」（[セキュリティ設計](../architecture/security.md#監査ログ)）が効いていない。** 外部コマンドの記録だけでなく、`internal/disk` のファイル削除の記録も残らない。 記録が要件である運用では、この警告を起動の失敗として扱う運用手順を用意すること。TUI の実行中に標準エラー出力へ書かないのは、描画が壊れて画面が読めなくなるためである。
+**縮退した場合は「外部コマンドと、それに準ずる破壊的操作の監査ログ記録」（[セキュリティ設計](../architecture/security.md#監査ログ)）が効いていない。** 外部コマンドの記録だけでなく、`internal/disk` のファイル削除の記録も残らない。記録が要件である運用では、この警告を起動の失敗として扱う運用手順を用意すること。TUI の実行中に標準エラー出力へ書かないのは、描画が壊れて画面が読めなくなるためである。
 
 ### `internal/runner`
 
@@ -338,7 +340,7 @@ runner の追加・削除・バージョン更新。最も破壊的な操作を�
 
 **`docker system prune -f` の解放見込みは内訳の合計ではない。** 発行するのはこの 1 本だけで、`--volumes` が無いためボリュームは消えず、`-a` が無いため dangling 以外の未使用イメージも残る。したがって解放見込みには `PruneReclaimable` が返す種別（Containers / Build Cache）だけを載せ、イメージとボリュームの `Reclaimable` は内訳の表示（[FR-27](../requirements/functional.md)）に留める。
 
-**ファイル削除も監査ログに残る（Issue #71）。** ファイルの再帰削除（`removeTree`）は外部コマンドを起動しないため `Executor` を通らないが、`Apply` が呼ぶ `removeTarget`（1 対象の削除ごとに必ず通る 1 箇所）が `lg.Report` で記録する。`action` は docker と同じ `disk.clean`、`command` には実行したコマンドが無いため `["(削除)", <削除したパス>]` を載せる（`rm` のような実在するコマンド名にしないのは、実行していないコマンドを起動したと誤読させないため。[セキュリティ設計](../architecture/security.md#監査ログ)）。保護・検証で中止した対象も `exit_code: 1` と `error` 付きで記録し、「削除しなかった」事実を後から追えるようにする。この階層が発行する docker の 2 コマンドも**どちらも記録される**。`docker system df`（`Action: disk.df`）と `docker system prune -f`（`Action: disk.clean`）のいずれも `SkipAudit` を付けない。記録対象外にするのは、再検出（`internal/runner/systemd` の `Scan`）が発行する `systemctl list-units` / `systemctl show` と、ログ追従（`internal/logs` の `Journal`）が発行する `journalctl -u <unit> -n <N>` の **2 種だけ**である（規則と根拠は[セキュリティ設計](../architecture/security.md#記録対象外とする読み取りコマンド)、発行するコマンドの形は[外部インターフェース](../api/external-interfaces.md#systemd)）。
+**ファイル削除も監査ログに残る（Issue #71）。** ファイルの再帰削除（`removeTree`）は外部コマンドを起動しないため `Executor` を通らないが、`Apply` が呼ぶ `removeTarget`（1 対象の削除ごとに必ず通る 1 箇所）が `lg.Report` で記録する。`action` は docker と同じ `disk.clean`、`command` には実行したコマンドが無いため `["(削除)", <削除したパス>]` を載せる（`rm` のような実在するコマンド名にしないのは、実行していないコマンドを起動したと誤読させないため。[セキュリティ設計](../architecture/security.md#監査ログ)）。保護・検証で中止した対象も `exit_code: 1` と `error` 付きで記録し、「削除しなかった」事実を後から追えるようにする。この階層が発行する docker の 2 コマンドも**どちらも記録される**。`docker system df`（`Action: disk.df`）と `docker system prune -f`（`Action: disk.clean`）のいずれも `SkipAudit` を付けない。記録対象外にするのは、再検出（`internal/runner/systemd` の `Scan`）が発行する `systemctl list-units` / `systemctl show` と、ログ追従（`internal/logs` の `Journal`）が発行する `journalctl -u <unit> -n <N> --no-pager` の **2 種だけ**である（規則と根拠は[セキュリティ設計](../architecture/security.md#記録対象外とする読み取りコマンド)、発行するコマンドの形は[外部インターフェース](../api/external-interfaces.md#systemd)）。
 
 ### `internal/logs`
 
@@ -645,7 +647,7 @@ bubbletea の Model 群。**内部を Atomic Design で階層化する。** 部�
 | `ui/page` | page | タブ共通の `Msg`（`StateMsg` / `ChromeMsg` / `TabMsg` / `GlobalKeyMsg` / `AttachMsg` / `ModalMsg` / `ResultMsg` / `ActivateMsg` / `DeactivateMsg` / `ShutdownMsg`）、**タブをまたぐ移動の `Msg`**（`OpenTabMsg` と移動先の名前 `TabLogs` / `TabSetup`、用件の `ShowLogMsg` / `SetupRequestMsg`）、モーダルの中身が発行した `Cmd` を中身へ戻す包み（`WrapModal`）、モーダルの重なり（`Overlay`） |
 | `ui/page/action` | page | 操作の識別子（`action.ID`）と、可否・理由の判定（`Allow` / `Set`）。依存は `page/action` → `page` の一方向で、`page` からは参照しない |
 | `ui/page/<tab>` | page | タブ 1 枚（`tea.Model`）。organism を構成し、キー入力をドメイン層の `tea.Cmd` に変換する。Setup タブ（`ui/page/setup`）が呼ぶのは `internal/setup` と `internal/setup/job` で、GitHub API と tarball はその内側にある |
-| `ui/page/runnerdetail` | page | runner の詳細画面。Runners / Jobs が共用するモーダルで、タブではない。依存は `page/runnerdetail` → `page` / `page/action`（操作リストの組み立て）の一方向。**共有部品同士の参照はここが実例である**（[TUI コンポーネント設計](../ui/atomic-design.md#依存の規則)が「共有部品同士の参照までは禁じていない」と定める向き。逆向きの `page/action` → `page/runnerdetail` は無い） |
+| `ui/page/runnerdetail` | page | runner の詳細画面。Runners / Jobs が共用するモーダルで、タブではない。依存は `page/runnerdetail` → `page` / `page/action`（操作リストの組み立て）の一方向。**共有部品同士の参照はここが実例である**（[TUI コンポーネント設計](../ui/atomic-design.md#organism-の分割方針)が「共有部品同士の参照までは禁じていない」と定める向き。逆向きの `page/action` → `page/runnerdetail` は無い） |
 | `ui/page/runnerop` | page | runner に対するサービス制御の起点（対象の決定・確認ダイアログ・実行・結果の報告）。Runners / Jobs / 詳細画面が共用し、タブではない。依存は `page/runnerop` → `page` / `page/action` / `page/runnerdetail` / `organism/dialog` / `svc` の一方向 |
 | `ui/page/pagetest` | page | `page/<tab>` **と親 Model** が共用するテスト用の道具（共有状態・`Spy`・打鍵の組み立て・`Cmd` の展開と走査（`Msgs` / `ScanKey`）・長寿命の購読を模した `StreamPage`）。**テスト専用で本番からは import しない**（`TestNoProductionCodeImportsTestFixtures` が本番ファイルの import を読んで検査する） |
 | `ui/template` | template | 画面共通の枠（ヘッダ / タブ / 本体 / 状態行 / フッタ、モーダル、2 ペイン）。中身を知らない |

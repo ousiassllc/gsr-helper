@@ -357,7 +357,7 @@ updates:
 
 この表は網羅ではない。設定やドキュメントに新しい取り決めを入れたときは、同じ場所にテストを足す。
 
-**この表が挙げるのは `internal/buildconfig` に置いたものだけである。** 同じ「ドキュメントと実装の一致をテストで守る」性格の検査は他のパッケージにもあり、**検査は検査対象の隣に置く**——`internal/ui/page/pagetest/import_test.go` の `TestSharedPackagesMatchDoc` / `TestDirectoryTreeMatchesShared` / `TestImplementedListCoversSharedPackages`（[TUI コンポーネント設計](../ui/atomic-design.md)の共有部品の列挙 3 箇所と `shared` マップの一致）や `TestNoProductionCodeImportsTestFixtures` / `TestOnlyTabsetImportsTabs`（依存の向き）がそれにあたる。`internal/buildconfig` へ集めるのは、**どのパッケージにも属さない取り決め**（`Makefile` / CI ワークフロー / `.linterly.yml` / 全文書に共通の改訂履歴の規則）だけである。パッケージ固有の不変条件をここへ寄せると、対象を触る Issue が検査の存在に気付けない。
+**この表が挙げるのは `internal/buildconfig` に置いたものだけである。** 同じ「ドキュメントと実装の一致をテストで守る」性格の検査は他のパッケージにもあり、**検査は検査対象の隣に置く**——`internal/ui/page/pagetest/doc_test.go` の `TestSharedPackagesMatchDoc` / `TestDirectoryTreeMatchesShared` / `TestImplementedListCoversSharedPackages`（[TUI コンポーネント設計](../ui/atomic-design.md)の共有部品の列挙 3 箇所と `shared` マップの一致）や、`internal/ui/page/pagetest/import_test.go` の `TestNoProductionCodeImportsTestFixtures` / `TestOnlyTabsetImportsTabs`（依存の向き）がそれにあたる。`internal/buildconfig` へ集めるのは、**どのパッケージにも属さない取り決め**（`Makefile` / CI ワークフロー / `.linterly.yml` / 全文書に共通の改訂履歴の規則）だけである。パッケージ固有の不変条件をここへ寄せると、対象を触る Issue が検査の存在に気付けない。
 
 ### self-hosted runner を使う前提
 
