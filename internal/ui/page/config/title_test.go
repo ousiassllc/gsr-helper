@@ -11,6 +11,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/configmodal"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest/cmdtest"
 )
 
 // 見出しの回帰テスト。**どの見出しをいつ出すか**だけを持つ。切れ目は行数では
@@ -30,7 +31,7 @@ func TestSelfConfigTitleStopsSayingFirstRunAfterSave(t *testing.T) {
 	m := New(tabIndex, st)
 	st.Config = page.ConfigDeps{Conf: appconfig.Default(), Path: t.TempDir() + "/config.yaml", FirstRun: true}
 	next, cmd := m.Update(st)
-	m = pagetest.Advance(next, cmd, 5).(Model)
+	m = cmdtest.Advance(next, cmd, 5).(Model)
 
 	if !contains(m, selfTitleFirst) {
 		t.Fatalf("初回設定ウィザードの見出しが %q でない: %s", selfTitleFirst, view(m))

@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"errors"
+	"testing"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -15,6 +16,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/ui/chrome"
 	"github.com/ousiassllc/gsr-helper/internal/ui/discovery"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest/cmdtest"
 )
 
 // 内部テスト（package ui）にしてある。タブのメタ情報・検出の状態・chrome が非公開で、
@@ -39,6 +41,20 @@ var (
 	takeHostReq  = pagetest.TakeHostReq[App]
 )
 
+// expand は Cmd の束を 1 段展開する。締め切り内に戻らなければテストを止める。
+//
+// **ここで止めるのが要点である。** 素で走らせていたころは戻らない Cmd を渡すと
+// パッケージごとハングし、失敗として読めなかった（Issue #145）。
+func expand(t *testing.T, cmd tea.Cmd) []tea.Cmd {
+	t.Helper()
+
+	cmds, err := cmdtest.Expand(cmd, cmdtest.CmdTimeout)
+	if err != nil {
+		t.Fatalf("Cmd の束を展開できない: %v", err)
+	}
+	return cmds
+}
+
 // newApp は親 Model を組み立てる。走査ルートを空にして検出の入力を最小にする。
 func newApp(ex exec.Executor) App {
 	a := New(appconfig.Default(), pagetest.Caps(), ex, Options{
@@ -50,10 +66,10 @@ func newApp(ex exec.Executor) App {
 	// **起動時の前提チェック（FR-44）は既定で走らせない。** 本物の項目は実ホストの
 	// sudo / docker / /etc/group を読むため、親 Model の検証が実行環境の構成で
 	// 揺れる。FR-44 そのものを見るテストは withHostChecks で差し替える。
-	a.hr.Checks = nil
+	a.bg.HostReq.Checks = nil
 	// **保有スコープも本物の GitHub へ出させない。** 束の Cmd をすべて実行する検証
 	// （applyChrome）があるため、塞がないと api.github.com を叩いて Budget ぶん止まる。
-	a.scopes.NewClient = func(context.Context) (*gh.Client, error) {
+	a.bg.Scopes.NewClient = func(context.Context) (*gh.Client, error) {
 		return nil, errors.New("テストでは GitHub へ出ない")
 	}
 	return a
@@ -76,7 +92,7 @@ func newAppWithRunner(ex exec.Executor) App {
 
 // withHostChecks は起動時の前提チェックを差し替えた App を返す。
 func withHostChecks(a App, checks ...doctor.Check) App {
-	a.hr.Checks = checks
+	a.bg.HostReq.Checks = checks
 	return a
 }
 

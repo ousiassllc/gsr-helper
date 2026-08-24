@@ -9,6 +9,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest/cmdtest"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/runners"
 	"github.com/ousiassllc/gsr-helper/internal/ui/token"
 )
@@ -40,7 +41,7 @@ func TestStateMsgEmitsOnlyChrome(t *testing.T) {
 	for range 3 {
 		var cmd tea.Cmd
 		m, cmd = m.Update(testState(80, 16))
-		msgs := pagetest.Msgs(cmd)
+		msgs := cmdtest.Msgs(cmd)
 		if len(msgs) != 1 {
 			t.Fatalf("発行された Msg の件数 = %d, want 1", len(msgs))
 		}

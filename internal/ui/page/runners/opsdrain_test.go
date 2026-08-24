@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest/cmdtest"
 )
 
 // ドレイン停止（FR-07）の検証を集める。
@@ -56,10 +57,10 @@ func TestDrainCancelIssuesNoStop(t *testing.T) {
 	// あとに待機の Cmd が終わる（svc.Drain は ctx のキャンセルで戻る）状況を作る。
 	next, drainCmd := m.Update(press("d"))
 	canceled, cmd := next.Update(press("esc"))
-	canceled = pagetest.Advance(canceled, cmd, pagetest.AdvanceRounds)
+	canceled = cmdtest.Advance(canceled, cmd, cmdtest.AdvanceRounds)
 
 	// 留めておいた待機の Cmd をここで走らせる。キャンセル済みなので停止しない。
-	pagetest.Msgs(drainCmd)
+	cmdtest.Msgs(drainCmd)
 
 	if got := issued(f); len(got) != 0 {
 		t.Errorf("キャンセルしたのにコマンドが発行された: %v", got)

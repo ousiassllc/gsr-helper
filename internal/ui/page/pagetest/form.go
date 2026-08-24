@@ -5,6 +5,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
+
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest/cmdtest"
 )
 
 // huh のフォームを載せた画面を打鍵で進める道具を集める。
@@ -42,7 +44,7 @@ func Backspace() tea.Msg { return tea.KeyPressMsg{Code: tea.KeyBackspace} }
 func Quick(m tea.Model, msgs ...tea.Msg) tea.Model {
 	for _, msg := range msgs {
 		next, cmd := m.Update(msg)
-		m = AdvanceQuick(next, cmd, AdvanceRounds, QuickTimeout)
+		m = cmdtest.AdvanceQuick(next, cmd, cmdtest.AdvanceRounds, QuickTimeout)
 	}
 	return m
 }

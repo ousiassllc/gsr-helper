@@ -17,7 +17,7 @@ import (
 // openSelected はカーソル位置の項目の編集を始める。
 func (m *Model) openSelected() tea.Cmd {
 	it, ok := m.list.Selected()
-	if !ok || !it.enabled {
+	if !ok || !it.Enabled {
 		return nil
 	}
 	// 処理中は新しい編集を始めさせない。始められると approve が承認待ちの
@@ -29,11 +29,11 @@ func (m *Model) openSelected() tea.Cmd {
 		return nil
 	}
 
-	switch it.kind {
+	switch it.Kind {
 	case edit.KindLabels, edit.KindGroup:
-		return m.fetchFor(it.kind)
+		return m.fetchFor(it.Kind)
 	case edit.KindEnv, edit.KindPath, edit.KindDropIn, edit.KindCopy:
-		return m.openForm(it.kind)
+		return m.openForm(it.Kind)
 	case edit.KindReregister:
 		m.notice = "変更には再登録が必要です（Setup タブで削除して追加し直してください）"
 		return nil

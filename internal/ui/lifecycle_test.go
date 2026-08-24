@@ -8,6 +8,7 @@ import (
 
 	"github.com/ousiassllc/gsr-helper/internal/exec"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest/cmdtest"
 )
 
 // page の寿命の通知（Issue #41）を検証する。裏へ回ったこと・前面に戻ったこと・
@@ -73,7 +74,7 @@ func TestQuitRunsPageCleanupBeforeQuit(t *testing.T) {
 		t.Fatalf("終了の Cmd の Msg = %s, want tea.sequenceMsg（tea.Sequence で束ねる）", got)
 	}
 
-	steps, ok := pagetest.Cmds(msg)
+	steps, ok := cmdtest.Cmds(msg)
 	if !ok || len(steps) < 2 {
 		t.Fatalf("終了の Cmd = %d 本, want 後始末と終了の 2 本以上", len(steps))
 	}
@@ -86,7 +87,7 @@ func TestQuitRunsPageCleanupBeforeQuit(t *testing.T) {
 
 	// 終了より前の Cmd を流すと、全タブの後始末が実行される。
 	for _, c := range steps[:len(steps)-1] {
-		pagetest.RunAll(c)
+		cmdtest.RunAll(c)
 	}
 	// 裏のタブにも通知は届く（畳み損ねた処理をここで確実に閉じられる）。
 	for i, p := range pages {

@@ -14,6 +14,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/configmodal"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest/cmdtest"
 )
 
 // 承認は 1 度しか受けないこと（y の連打で 2 回書き込まない）。
@@ -37,8 +38,8 @@ func TestApprovalIsAcceptedOnce(t *testing.T) {
 	// 2 回目の決定（連打・貼り付け）は捨てる。
 	_, again := send(t, m, page.ResultMsg{Kind: configmodal.DiffKind, Msg: dialog.DecidedMsg{Confirmed: true}})
 	// 目当てが無いことを見る筋なので、待ち時間切れでは代用できない（Issue #140）。
-	if _, err := doneOf(again); !errors.Is(err, pagetest.ErrNotFound) {
-		t.Errorf("2 回目の決定の結果 = %v, want %v（同じ承認で 2 回書き込んだ）", err, pagetest.ErrNotFound)
+	if _, err := doneOf(again); !errors.Is(err, cmdtest.ErrNotFound) {
+		t.Errorf("2 回目の決定の結果 = %v, want %v（同じ承認で 2 回書き込んだ）", err, cmdtest.ErrNotFound)
 	}
 	if bak, err := readFile(r.Dir + "/.env.bak"); err != nil || bak != before {
 		t.Errorf("バックアップ = %q, %v, want 元の内容 %q", bak, err, before)
@@ -122,7 +123,7 @@ func TestUnchangedLabelsAreNotWritten(t *testing.T) {
 		kind: edit.KindLabels, dir: r.Dir,
 		labels: []string{"self-hosted", "Linux", "X64", "gpu"}, groups: nil, err: nil,
 	})
-	pagetest.RunAll(cmd)
+	cmdtest.RunAll(cmd)
 
 	if m.vals.Labels != "gpu" {
 		t.Fatalf("フォームの初期値 = %q, want gpu（予約ラベルは除く）", m.vals.Labels)
@@ -146,13 +147,13 @@ func TestApplyModalBackChoosesNone(t *testing.T) {
 	m = openEnvForm(t, m)
 	m, _ = send(t, m, page.ResultMsg{Kind: configmodal.DiffKind, Msg: dialog.DecidedMsg{Confirmed: true}})
 	m, cmd := send(t, m, doneMsg{text: "書き込みました", err: nil})
-	m = pagetest.Advance(m, cmd, 4).(Model)
+	m = cmdtest.Advance(m, cmd, 4).(Model)
 
 	if !m.overlay.Active() {
 		t.Fatal("反映方法の選択が開いていない")
 	}
 	m, cmd = send(t, m, pagetest.Press("esc"))
-	m = pagetest.Advance(m, cmd, 4).(Model)
+	m = cmdtest.Advance(m, cmd, 4).(Model)
 
 	if m.overlay.Active() {
 		t.Errorf("esc で閉じていない:\n%s", view(m))
@@ -178,7 +179,7 @@ func TestFilteringSwallowsGlobalKeys(t *testing.T) {
 	}
 
 	_, cmd := send(t, m, pagetest.Press("q"))
-	for _, msg := range pagetest.Msgs(cmd) {
+	for _, msg := range cmdtest.Msgs(cmd) {
 		if _, ok := msg.(page.GlobalKeyMsg); ok {
 			t.Error("絞り込み中の打鍵が親へ差し戻された")
 		}
@@ -240,7 +241,7 @@ func TestDiffEscapeClearsPending(t *testing.T) {
 	}
 
 	m, cmd := send(t, m, pagetest.Press("esc"))
-	m = pagetest.Advance(m, cmd, 4).(Model)
+	m = cmdtest.Advance(m, cmd, 4).(Model)
 
 	if m.pendingSet {
 		t.Error("esc で閉じたのに承認待ちの変更が残っている")

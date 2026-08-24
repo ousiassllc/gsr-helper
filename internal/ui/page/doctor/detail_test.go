@@ -9,6 +9,7 @@ import (
 	dom "github.com/ousiassllc/gsr-helper/internal/doctor"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest/cmdtest"
 )
 
 // 詳細画面（FR-33）と、そこからの個別再実行（FR-34）を検証する。
@@ -40,7 +41,7 @@ func detailModal(t *testing.T, r dom.CheckResult) modal {
 func recheckOf(t *testing.T, cmd tea.Cmd) (RecheckMsg, bool) {
 	t.Helper()
 
-	for _, msg := range pagetest.Msgs(cmd) {
+	for _, msg := range cmdtest.Msgs(cmd) {
 		tab, ok := msg.(page.TabMsg)
 		if !ok {
 			continue

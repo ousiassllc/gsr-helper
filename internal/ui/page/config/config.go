@@ -26,6 +26,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/ui/organism"
 	"github.com/ousiassllc/gsr-helper/internal/ui/organism/table"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/config/itemview"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/configmodal"
 	"github.com/ousiassllc/gsr-helper/internal/ui/token"
 )
@@ -50,7 +51,7 @@ type Model struct {
 	initCmd tea.Cmd
 
 	ld   edit.Loader
-	list table.Model[item]
+	list table.Model[itemview.Item]
 	// picker は対象の runner を選ぶ一覧。対象が決まるまで本文に出す。
 	picker organism.ChoiceList
 	// vals はフォームの入力先。huh がポインタで束縛するため実体を持ち続ける。
@@ -126,16 +127,16 @@ func New(tab int, st page.StateMsg) Model {
 //
 // 区画を 3 つに分けるのは、画面仕様のモックが「編集できる項目」「再登録が要る
 // 項目」「複製」を区切り線で分けているためである。
-func newList(st page.StateMsg) table.Model[item] {
-	sec := func(title string, selectable bool) table.SectionInput[item] {
-		return table.SectionInput[item]{
-			Title: title, Columns: settingColumns(), Rules: token.ColumnRules{},
-			Render: func(in table.RowInput[item]) []string {
-				return listrow.SettingRow(in.Item.view, in.Cols, in.Styles)
+func newList(st page.StateMsg) table.Model[itemview.Item] {
+	sec := func(title string, selectable bool) table.SectionInput[itemview.Item] {
+		return table.SectionInput[itemview.Item]{
+			Title: title, Columns: itemview.Columns(), Rules: token.ColumnRules{},
+			Render: func(in table.RowInput[itemview.Item]) []string {
+				return listrow.SettingRow(in.Item.View, in.Cols, in.Styles)
 			},
-			ID:         func(it item) string { return it.view.Item },
-			Match:      matches,
-			Disabled:   disabledReason,
+			ID:         func(it itemview.Item) string { return it.View.Item },
+			Match:      itemview.Matches,
+			Disabled:   itemview.DisabledReason,
 			Selectable: selectable,
 		}
 	}
@@ -227,9 +228,9 @@ func (m *Model) refresh(policy organism.CursorPolicy) {
 	}
 
 	s := edit.Summarize(m.target, m.ld)
-	m.list.SetItems(secMain, mainItems(s))
-	m.list.SetItems(secReregister, reregisterItems())
-	m.list.SetItems(secCopy, copyItems(len(m.others()) > 0))
+	m.list.SetItems(itemview.SecMain, itemview.MainItems(s))
+	m.list.SetItems(itemview.SecReregister, itemview.ReregisterItems())
+	m.list.SetItems(itemview.SecCopy, itemview.CopyItems(len(m.others()) > 0))
 }
 
 // View はモーダルがあればそれを、無ければ本文を描く。
@@ -244,14 +245,3 @@ func (m Model) View() tea.View {
 	head := m.st.Styles.Header.Render(m.target.Name() + " の設定")
 	return tea.NewView(head + "\n\n" + m.list.View())
 }
-
-// matches は絞り込みの一致判定。項目名と現在値のどちらかに含まれれば残す。
-func matches(it item, q string) bool {
-	return containsFold(it.view.Item, q) || containsFold(it.view.Value, q)
-}
-
-// disabledReason は行を選択できない理由を返す。
-//
-// 理由は行の備考欄（SettingView.Note）が既に持っているため、ここでは空文字を
-// 返して二重に出さない。返すのは可否だけである。
-func disabledReason(it item) (string, bool) { return "", !it.enabled }

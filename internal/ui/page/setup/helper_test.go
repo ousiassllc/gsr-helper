@@ -9,6 +9,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest/cmdtest"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/setup"
 )
 
@@ -29,7 +30,7 @@ func newModel(t *testing.T, st page.StateMsg) tea.Model {
 	t.Helper()
 
 	next, cmd := setup.New(0, st).Update(st)
-	return pagetest.Advance(next, cmd, pagetest.AdvanceRounds)
+	return cmdtest.Advance(next, cmd, cmdtest.AdvanceRounds)
 }
 
 // view は現在の描画を返す。

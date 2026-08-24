@@ -19,6 +19,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/setup/job"
 	"github.com/ousiassllc/gsr-helper/internal/setup/tarball"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest/cmdtest"
 )
 
 // WideBody はコマンド全文が 1 行に収まる本体の幅。既定の 100 桁では切り詰められる。
@@ -199,7 +200,7 @@ func FakeOf(st page.StateMsg) (*exec.Fake, bool) {
 // Msg を配る必要がある。表示を変えない tea.WindowSizeMsg を使う。
 func ChromeAfter(m tea.Model) (page.ChromeMsg, bool) {
 	_, cmd := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
-	return ChromeOf(cmd)
+	return cmdtest.ChromeOf(cmd)
 }
 
 // RemoveRequest は runner の削除を一覧側から依頼する Msg を返す。

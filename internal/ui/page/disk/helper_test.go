@@ -12,6 +12,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest/cmdtest"
 )
 
 // 検証は内部テスト（package disk）で行う。集計の Msg（usageMsg）と実行中の状態
@@ -140,7 +141,7 @@ func update(t *testing.T, m Model, msg tea.Msg) Model {
 func pump(t *testing.T, m Model, cmd tea.Cmd) Model {
 	t.Helper()
 
-	for _, msg := range pagetest.Msgs(cmd) {
+	for _, msg := range cmdtest.Msgs(cmd) {
 		tm, ok := msg.(page.TabMsg)
 		if !ok {
 			continue

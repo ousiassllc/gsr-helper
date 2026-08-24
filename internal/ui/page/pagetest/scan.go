@@ -4,6 +4,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest/cmdtest"
 )
 
 // ScanKey は打鍵の結果の束を辿り、最初の ChromeMsg と page が差し戻したキーを返す。
@@ -39,7 +40,7 @@ func ScanKey(cmd tea.Cmd) (page.ChromeMsg, page.GlobalKeyMsg, bool) {
 		global    page.GlobalKeyMsg
 		hasGlobal bool
 	)
-	for _, msg := range Msgs(cmd) {
+	for _, msg := range cmdtest.Msgs(cmd) {
 		switch m := msg.(type) {
 		case page.ChromeMsg:
 			if !hasChrome {

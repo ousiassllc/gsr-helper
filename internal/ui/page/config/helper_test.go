@@ -15,6 +15,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/configmodal"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest/cmdtest"
 )
 
 // tabIndex は Config タブの番号（[6]）。
@@ -79,7 +80,7 @@ func contains(m Model, s string) bool { return strings.Contains(view(m), s) }
 func chromeOf(t *testing.T, cmd tea.Cmd) page.ChromeMsg {
 	t.Helper()
 
-	got, ok := pagetest.ChromeOf(cmd)
+	got, ok := cmdtest.ChromeOf(cmd)
 	if !ok {
 		t.Fatal("ChromeMsg が発行されていない")
 	}
@@ -133,7 +134,7 @@ func fileAsDir(t *testing.T) string {
 // doneOf と違って TabMsg を剥がさない。宛先は発行元のタブではなく親であり、
 // page.Do で包まないことがこの Msg の要件だからである（page.ConfigSaved の doc）。
 func savedOf(cmd tea.Cmd) (page.ConfigSavedMsg, error) {
-	msg, err := pagetest.FindMsg(cmd, pagetest.CmdTimeout, func(m tea.Msg) bool {
+	msg, err := cmdtest.FindMsg(cmd, cmdtest.CmdTimeout, func(m tea.Msg) bool {
 		_, is := m.(page.ConfigSavedMsg)
 		return is
 	})
@@ -148,7 +149,7 @@ func savedOf(cmd tea.Cmd) (page.ConfigSavedMsg, error) {
 // 束（tea.Batch）で返るのは chrome の更新と処理本体が同時に流れるためで、
 // 本体だけを取り出して結果を見る。
 func doneOf(cmd tea.Cmd) (doneMsg, error) {
-	msg, err := pagetest.FindMsg(cmd, pagetest.CmdTimeout, func(m tea.Msg) bool {
+	msg, err := cmdtest.FindMsg(cmd, cmdtest.CmdTimeout, func(m tea.Msg) bool {
 		if tab, wrapped := m.(page.TabMsg); wrapped {
 			m = tab.Msg
 		}

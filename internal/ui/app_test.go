@@ -15,7 +15,6 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/ui/discovery"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
-	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
 	"github.com/ousiassllc/gsr-helper/internal/ui/template"
 )
 
@@ -24,7 +23,7 @@ import (
 // 検出は Init から直に発行しない（実行中の本数を親が数えられないため。Init の doc）。
 func TestInitEmitsBackgroundColorAndFirstTick(t *testing.T) {
 	fake := exec.NewFake()
-	cmds := pagetest.Expand(newApp(fake).Init())
+	cmds := expand(t, newApp(fake).Init())
 	if len(cmds) != 2 {
 		t.Fatalf("Init が発行した Cmd の本数 = %d, want 2", len(cmds))
 	}
@@ -53,7 +52,7 @@ func TestInitEmitsBackgroundColorAndFirstTick(t *testing.T) {
 func TestFirstTickRunsDiscover(t *testing.T) {
 	fake := exec.NewFake()
 	a, cmd := update(newApp(fake), discovery.TickMsg{})
-	cmds := pagetest.Expand(cmd)
+	cmds := expand(t, cmd)
 	if len(cmds) != 2 {
 		t.Fatalf("TickMsg が発行した Cmd の本数 = %d, want 2（検出 + 次の Tick）", len(cmds))
 	}

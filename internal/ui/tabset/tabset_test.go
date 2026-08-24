@@ -12,6 +12,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/ui/keymap"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest/cmdtest"
 	"github.com/ousiassllc/gsr-helper/internal/ui/token"
 )
 
@@ -59,8 +60,17 @@ func testState() page.StateMsg {
 }
 
 // chromeTab は Cmd に含まれる ChromeMsg が名乗るタブ番号を返す。
-func chromeTab(cmd tea.Cmd) (int, bool) {
-	for _, c := range pagetest.Expand(cmd) {
+//
+// 束の展開は締め切り付きで行う。戻らない Cmd を渡したときにハングではなく
+// 失敗になるのが要点である（Issue #145）。
+func chromeTab(t *testing.T, cmd tea.Cmd) (int, bool) {
+	t.Helper()
+
+	cmds, err := cmdtest.Expand(cmd, cmdtest.CmdTimeout)
+	if err != nil {
+		t.Fatalf("Cmd の束を展開できない: %v", err)
+	}
+	for _, c := range cmds {
 		if c == nil {
 			continue
 		}
@@ -201,7 +211,7 @@ func TestTabIndexMatchesPageTabNumber(t *testing.T) {
 			continue
 		}
 		_, cmd := tabs[i].Model.Update(st)
-		got, ok := chromeTab(cmd)
+		got, ok := chromeTab(t, cmd)
 		if !ok {
 			t.Errorf("%d 番目のタブ（%s）が ChromeMsg を返さない", i, tabs[i].Title)
 			continue

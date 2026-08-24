@@ -85,7 +85,7 @@ func (m *Model) openSelected() tea.Cmd {
 	if !ok {
 		return nil
 	}
-	return m.open(target{runner: cur.runner, file: cur.file, journal: false})
+	return m.open(target{runner: cur.Runner, file: cur.File, journal: false})
 }
 
 // toggleJournal は本文の表示元をログファイルと `journalctl` の間で切り替える（FR-26）。

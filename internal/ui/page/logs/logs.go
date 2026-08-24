@@ -20,6 +20,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/ui/organism/pane"
 	"github.com/ousiassllc/gsr-helper/internal/ui/organism/table"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/logs/filerow"
 )
 
 // focus はキーを受けるペイン。
@@ -37,7 +38,7 @@ type Model struct {
 	tab int
 	st  page.StateMsg
 
-	tbl     table.Model[row]
+	tbl     table.Model[filerow.Row]
 	body    pane.Log
 	overlay page.Overlay
 
@@ -82,7 +83,7 @@ func New(tab int, st page.StateMsg) Model {
 	return Model{
 		tab:       tab,
 		st:        st,
-		tbl:       newTable(st.Keys, st.Styles),
+		tbl:       filerow.NewTable(st.Keys, st.Styles),
 		body:      pane.NewLog(st.Styles),
 		overlay:   overlay,
 		focus:     focusList,

@@ -17,6 +17,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/action"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest/cmdtest"
 )
 
 // 制御部の部品（対象の選び方・結果の文・確認の中身）を単体で固定する。
@@ -231,7 +232,7 @@ func TestNoTargetText(t *testing.T) {
 // 回るので画面は生きて見えるが、**無制限に待つドレイン停止（FR-07）で唯一の進捗指標
 // である経過時間が 0 のまま止まる**（PR #70 CRITICAL C1）。
 //
-// 束の展開は wrap の責務なので、平坦化には pagetest.Msgs（Batch と Sequence を
+// 束の展開は wrap の責務なので、平坦化には cmdtest.Msgs（Batch と Sequence を
 // 区別せず再帰的に辿る＝ランタイムと同じ規則）を使い、wrap 自身の判定には頼らない。
 func TestWrapExpandsStopwatchSequence(t *testing.T) {
 	const tab = 2
@@ -241,7 +242,7 @@ func TestWrapExpandsStopwatchSequence(t *testing.T) {
 	_, cmd := m.Update(drainOpenMsg{runner: busy("build01-1"), label: ""})
 
 	var started, spun bool
-	for _, msg := range pagetest.Msgs(cmd) {
+	for _, msg := range cmdtest.Msgs(cmd) {
 		inner, ok := modalMsg(t, tab, msg)
 		if !ok {
 			continue

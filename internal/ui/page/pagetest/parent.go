@@ -8,6 +8,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/ui/discovery"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest/cmdtest"
 	"github.com/ousiassllc/gsr-helper/internal/ui/workscan"
 )
 
@@ -75,11 +76,11 @@ func Press1[M tea.Model](m M, k string) (M, page.ChromeMsg, tea.Cmd) {
 // ApplyChrome は Cmd に含まれる ChromeMsg を親へ渡した Model を返す。
 //
 // フッタは page が ChromeMsg で報告したものを親が描くため、フッタの表示を検証するには
-// page → 親の 1 往復が要る。**入れ子の tea.Batch まで辿る**（ChromeMsgs ではなく Msgs
-// を使うのはこのためである）。親は共有状態の配布と、起動後に 1 度だけ走る取得を 1 つの
-// Batch にまとめて返すので、1 段だけ展開すると配布ぶんが Batch のまま残る。
+// page → 親の 1 往復が要る。**入れ子の tea.Batch まで辿る**（1 段だけ展開する Expand
+// ではなく Msgs を使うのはこのためである）。親は共有状態の配布と、起動後に 1 度だけ走る
+// 取得を 1 つの Batch にまとめて返すので、1 段だけ展開すると配布ぶんが Batch のまま残る。
 func ApplyChrome[M tea.Model](m M, cmd tea.Cmd) M {
-	for _, msg := range Msgs(cmd) {
+	for _, msg := range cmdtest.Msgs(cmd) {
 		c, ok := msg.(page.ChromeMsg)
 		if !ok {
 			continue
@@ -101,7 +102,7 @@ func IsQuit(cmd tea.Cmd) bool {
 	if _, ok := msg.(tea.QuitMsg); ok {
 		return true
 	}
-	seq, ok := Cmds(msg)
+	seq, ok := cmdtest.Cmds(msg)
 	if !ok {
 		return false
 	}
@@ -130,7 +131,7 @@ func Blocked() map[string]func(s *Spy) {
 
 // OpenTabOf は Cmd の結果から page.OpenTabMsg を取り出す。無ければ ok が偽。
 func OpenTabOf(cmd tea.Cmd) (page.OpenTabMsg, bool) {
-	for _, msg := range Msgs(cmd) {
+	for _, msg := range cmdtest.Msgs(cmd) {
 		if open, ok := msg.(page.OpenTabMsg); ok {
 			return open, true
 		}
@@ -153,14 +154,15 @@ func Discovered[M tea.Model](m M, err error) (M, tea.Cmd) {
 }
 
 // TakeHostReq は Cmd の束から起動時の前提チェック（FR-44）の結果を取り込む。
-// 束に含まれていなければ ok が偽。
-func TakeHostReq[M tea.Model](m M, cmd tea.Cmd) (M, bool) {
-	msg, ok := HostReqOf(cmd)
-	if !ok {
-		return m, false
+// 束に含まれていなければ ErrNotFound、束の展開が待ち時間内に戻らなければ
+// ErrCmdTimeout を返す（HostReqOf の返しをそのまま渡す）。
+func TakeHostReq[M tea.Model](m M, cmd tea.Cmd) (M, error) {
+	msg, err := cmdtest.HostReqOf(cmd)
+	if err != nil {
+		return m, err
 	}
 	m, _ = Update(m, msg)
-	return m, true
+	return m, nil
 }
 
 // WorkScanStarts は検出成功を n 周期分流し、その間に発行された _work 集計の回数を返す。
@@ -171,7 +173,7 @@ func WorkScanStarts[M tea.Model](m M, dir string, n int) int {
 	for seq := 1; seq <= n; seq++ {
 		var cmd tea.Cmd
 		m, cmd = Update(m, discovery.Msg{Seq: seq, Result: res, Err: nil})
-		for _, msg := range Msgs(cmd) {
+		for _, msg := range cmdtest.Msgs(cmd) {
 			if _, ok := msg.(workscan.Msg); ok {
 				starts++
 			}
