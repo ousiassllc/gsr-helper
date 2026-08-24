@@ -44,6 +44,9 @@ formatters:
         - standard
         - default
         - prefix(github.com/ousiassllc/gsr-helper)
+      # sections の記載順をそのまま適用する。false（既定）だと gci は
+      # 記載順を無視して内蔵の既定順で並べるため、記載順が実効にならない。
+      custom-order: true
 
 issues:
   # 抑制やエラーを棚卸しできるよう、同種の指摘を打ち切らない

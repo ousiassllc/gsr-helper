@@ -14,7 +14,7 @@
 | タスクランナー | Makefile |
 | CI | GitHub Actions（self-hosted runner） |
 | Lint | golangci-lint + `go vet` |
-| Format | gofmt（標準） |
+| Format | gofmt（標準） + gci（import のグループ分け）。どちらも golangci-lint の `formatters` として動く |
 | 行数管理 | Linterly |
 | Git Hooks | Lefthook |
 | 開発ツールの管理 | `go.mod` の tool ディレクティブ |
@@ -469,6 +469,9 @@ formatters:
         - standard
         - default
         - prefix(github.com/ousiassllc/gsr-helper)
+      # sections の記載順をそのまま適用する。false（既定）だと gci は
+      # 記載順を無視して内蔵の既定順で並べるため、記載順が実効にならない。
+      custom-order: true
 
 issues:
   # 抑制やエラーを棚卸しできるよう、同種の指摘を打ち切らない
@@ -487,7 +490,10 @@ issues:
 | `nolintlint` | `//nolint` 自体の検査。抑制方針（行単位・理由必須・リンター名必須）を機械的に強制し、不要になった抑制の除去漏れも検出する |
 | `depguard` | import できるモジュールパスの制限。Charm の v1 系（`github.com/charmbracelet/*`）を禁止する |
 
-`formatters` に `gofmt` を入れることで、`golangci-lint run` でも整形漏れを検出できる。`make fmt-check` と役割が重なるが、どちらか一方だけを実行しても検出できる状態にしておく。**`gci` は `gofmt` が見ない import のグループ分けを担う**（[Format](#format) を参照）。
+`formatters` には `gofmt` と `gci` を入れる。**両者は検出ゲートの数が違うので、まとめて説明しない。**
+
+- **`gofmt` は二重化されている。** `formatters` に入れることで `golangci-lint run` でも整形漏れを検出できる。`make fmt-check`（`gofmt -l`）と役割が重なるが、どちらか一方だけを実行しても検出できる状態にしておく。
+- **`gci` は二重化されていない。** `gci` は `gofmt` が見ない import のグループ分けを担う（[Format](#format) を参照）が、`make fmt-check` は `gofmt -l` しか実行しないため **gci 違反を検出するのは `make lint` だけ**である。
 
 `nolintlint` は 3 つの設定をすべて有効にする。
 
@@ -545,10 +551,16 @@ issues:
 
 **整形は `gofmt` と `gci` の 2 つで行う。** `gofmt` が Go 標準の整形を、`gci` が import のグループ分けを受け持つ。どちらも `golangci-lint` の `formatters` として動くので、追加の依存もエディタ設定の追従も要らない。
 
-| 用途 | コマンド |
-|------|---------|
-| 整形する | `make fmt` |
-| 整形漏れを検出する | `make fmt-check` |
+**コマンドごとに扱う整形器が違う。** `make fmt` / `make fmt-check` は `gofmt` だけを見るので、gci 違反はこの 2 つでは直せず検出もできない。
+
+| 用途 | コマンド | gofmt | gci |
+|------|---------|-------|-----|
+| 整形する | `make fmt`（= `go fmt ./...`） | 適用する | **適用しない** |
+| 整形漏れを検出する | `make fmt-check`（= `gofmt -l`） | 検出する | **検出しない** |
+| gci も含めて整形する | `go tool golangci-lint fmt` | 適用する | 適用する |
+| 整形漏れを含めて lint する | `make lint`（= `golangci-lint run`） | 検出する | 検出する |
+
+**`make check` が `File is not properly formatted (gci)` で落ちたら `go tool golangci-lint fmt` を実行する。** これが gci 違反を自動修正する唯一の手段であり、`make fmt` を何度実行しても直らない（実測: import を誤グループにしたファイルに対し `make fmt` は無変化・`make fmt-check` は exit 0 で、`make lint` だけが落ちる）。差分だけ見たい場合は `go tool golangci-lint fmt --diff` を使う。
 
 `gofmt -l` は未整形ファイルを列挙するだけで終了コードが 0 のままなので、`fmt-check` では出力が空であることを検証している。
 
@@ -562,11 +574,17 @@ issues:
 
 **import は標準ライブラリ / 外部モジュール / 自前パッケージの 3 グループに空行で分ける。** これを `golangci-lint` の `formatters` の `gci` で機械的に固定し、セクションを `standard` / `default` / `prefix(github.com/ousiassllc/gsr-helper)` の順に指定する。
 
-**`gofmt` ではこの規約を検出できない。** `gofmt` はグループ**内**を並べ替えるだけでグループ分け自体には手を入れないため、自前パッケージが標準ライブラリのグループに紛れ込んでいても `make fmt-check` も `make lint` も緑のまま通る。実際に `internal/ui/app_test.go` / `internal/ui/page/pagetest/diag.go` / `internal/gh/errors.go` / `internal/ui/chrome_test.go` の 4 ファイルでこの形が入り込み、`internal/doctor/hostres/hostres.go` では自前パッケージが 2 グループに割れていた（Issue #119）。規約を「書いておくもの」のままにすると同じ書き方が静かに広がる。
+**`custom-order: true` を必ず併記する。** 既定（`false`）だと `gci` は `sections` の記載順を無視し、内蔵の既定順（standard → default → prefix）で並べる（実測）。今の記載順はたまたま既定順と一致するので挙動は変わらないが、`custom-order` が無いままだと**記載順を並べ替えても効かない**——上の順序の指定も `TestGolangciEnablesGci` の順序アサーションも実効にするための設定である。
+
+**`gofmt` ではこの規約を検出できない。** `gofmt` はグループ**内**を並べ替えるだけでグループ分け自体には手を入れない。そのため `gci` を入れる**前**は、自前パッケージが標準ライブラリのグループに紛れ込んでいても `make fmt-check` も `make lint` も緑のまま通っていた。実際に `internal/ui/app_test.go` / `internal/ui/page/pagetest/diag.go` / `internal/gh/errors.go` / `internal/ui/chrome_test.go` の 4 ファイルでこの形が入り込み、`internal/doctor/hostres/hostres.go` では自前パッケージが 2 グループに割れていた（Issue #119）。規約を「書いておくもの」のままにすると同じ書き方が静かに広がる。
+
+**`gci` を入れた現在は `make lint` が検出して落ちる。** ただし検出するのは `make lint` だけで、`make fmt-check` は今も `gofmt -l` しか実行しないため緑のまま通る（[Format](#format) のコマンド表を参照）。復旧は `go tool golangci-lint fmt` で行う。
 
 **`gci` を入れた判断の根拠は波及の小ささである。** 有効化にあたりリポジトリ全体の再整形が要るなら 2 ファイルの手直しで済ませる選択もあったが、`golangci-lint fmt --diff` で実測したところ差分は上記 5 ファイルだけだった。しかもうち 3 ファイルは Issue が挙げていない未発見の違反であり、道具を入れなければ気付けなかった。
 
 `gci` の指摘が実際に出ることは `internal/buildconfig` の `TestGolangciLintRejectsMisgroupedImports` が、設定そのものは `TestGolangciEnablesGci` が守る。前者は本リポジトリと同じモジュールパスの一時モジュールを作って `golangci-lint run` を実行する（`prefix` セクションに当てるため）。
+
+**後者の判定は `File is not properly formatted (gci)` という gci の実出力そのもので行う。** 単に `gci` を含むかで見ると `golangci-lint` や `.golangci.yml` にも部分一致し、設定を読めなかった場合（`can't load config: ... /.golangci.yml`）や多重起動で弾かれた場合（`Error: parallel golangci-lint is running`）に、**gci がフィクスチャを一度も評価していないのにテストが通る**（どちらも非 0 終了なので、直前の「lint が失敗したこと」の確認も抜けてしまう）。
 
 ## Linterly
 

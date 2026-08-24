@@ -18,7 +18,8 @@ type nolintlintSettings struct {
 }
 
 type gciSettings struct {
-	Sections []string `yaml:"sections"`
+	Sections    []string `yaml:"sections"`
+	CustomOrder *bool    `yaml:"custom-order"`
 }
 
 type golangciConfig struct {
@@ -187,6 +188,11 @@ func TestGolangciEnablesGci(t *testing.T) {
 	if got := cfg.Formatters.Settings.Gci.Sections; !slices.Equal(got, want) {
 		t.Errorf("gci.sections が %v（期待: %v）", got, want)
 	}
+	// custom-order が無いと gci は sections の記載順を無視して内蔵の既定順で
+	// 並べる（実測）。上の順序アサーションを実効にするために必須である。
+	if got := cfg.Formatters.Settings.Gci.CustomOrder; got == nil || !*got {
+		t.Errorf("gci.custom-order が true になっていない: %v", got)
+	}
 }
 
 // gci が実際に「自前パッケージが標準ライブラリのグループに混ざっている」を落とすことを、
@@ -229,7 +235,13 @@ func Upper() string { return strings.ToUpper(sub.Name()) }
 	if err == nil {
 		t.Fatalf("自前パッケージが標準ライブラリのグループに混ざっているのに lint が成功した\n出力:\n%s", out)
 	}
-	if !strings.Contains(string(out), "gci") {
+	// 部分一致で "gci" を探すと golangci-lint 自身の名前や
+	// ".golangci.yml" にも当たり、設定を読めなかった場合や
+	// 多重起動で弾かれた場合（どちらも非 0 終了）に gci が
+	// フィクスチャを一度も評価していないのに通ってしまう。
+	// gci の実出力そのもので判定する。
+	const gciFinding = "File is not properly formatted (gci)"
+	if !strings.Contains(string(out), gciFinding) {
 		t.Errorf("gci の指摘が出ていない\n出力:\n%s", out)
 	}
 }
