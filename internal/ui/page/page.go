@@ -163,9 +163,11 @@ type ScopeState struct {
 // 本ツール自身の設定（FR-41〜FR-42）を扱うために要るもので、runner 側の設定
 // （.env / .path / drop-in）は検出結果（Result）から引けるためここには無い。
 //
-// いずれも cmd が起動時に決め、UI 側で環境や設定を読み直さない（SetupDeps と
+// Path と FirstRun は cmd が起動時に決め、UI 側で環境や設定を読み直さない（SetupDeps と
 // 同じ方針）。**設定ファイルのパスを UI 側で決め直さない**のは、配置先の決定が
 // appconfig/confpath の責務であり、SUDO_USER の扱いを 2 か所に分けないためである。
+// **Conf だけは起動時の値に固定されない**——Config タブが書き込めた設定を
+// ConfigSavedMsg で親へ返し、親が差し替えて配り直す（Issue #128）。
 type ConfigDeps struct {
 	// Conf は読み込み済みの自身の設定。ウィザードの初期値に使う。
 	Conf appconfig.Config
