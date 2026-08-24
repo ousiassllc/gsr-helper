@@ -46,14 +46,21 @@ const AdvanceRounds = 8
 // 動きそのものの検証は organism/dialog のテストが持つ。
 //
 // ChromeMsg と GlobalKeyMsg も配らない。どちらも親が解釈するもので、タブへは戻らない。
+//
+// **戻らない Cmd は CmdTimeout で諦める**（Msgs）。素で走らせていたころはそこで
+// 止まり、壊れ方が失敗ではなくハングになった（Issue #150）。諦めた本数は見ない
+// ——rounds で打ち切る時点でこの道具は「配れるだけ配る」ものであり、ここへ渡す
+// Cmd はいずれも速やかに戻る前提だからである（戻らない Cmd を含む往復は
+// AdvanceQuick を使うこと）。
 func Advance(m tea.Model, cmd tea.Cmd, rounds int) tea.Model {
 	for range rounds {
 		if cmd == nil {
 			return m
 		}
 
+		msgs, _ := Msgs(cmd, CmdTimeout)
 		next := make([]tea.Cmd, 0, 4)
-		for _, msg := range Msgs(cmd) {
+		for _, msg := range msgs {
 			inner, ok := deliverable(msg)
 			if !ok {
 				continue
@@ -77,14 +84,18 @@ func Advance(m tea.Model, cmd tea.Cmd, rounds int) tea.Model {
 //
 // timeout は「配りたい Cmd が確実に間に合い、点滅は間に合わない」長さにすること。
 // ドメイン層の呼び出しを含む往復では、その処理時間を見込んだ値を渡す。
+//
+// **Msgs の待ち時間切れは捨てる。** ここでは諦めることそのものが目的なので、
+// 諦めた本数は異常の合図にならない。
 func AdvanceQuick(m tea.Model, cmd tea.Cmd, rounds int, timeout time.Duration) tea.Model {
 	for range rounds {
 		if cmd == nil {
 			return m
 		}
 
+		msgs, _ := Msgs(cmd, timeout)
 		next := make([]tea.Cmd, 0, 4)
-		for _, msg := range msgsWithin(cmd, timeout) {
+		for _, msg := range msgs {
 			inner, ok := deliverable(msg)
 			if !ok {
 				continue
@@ -96,24 +107,6 @@ func AdvanceQuick(m tea.Model, cmd tea.Cmd, rounds int, timeout time.Duration) t
 		cmd = tea.Batch(next...)
 	}
 	return m
-}
-
-// msgsWithin は Msgs と同じ平坦化を、1 本あたり timeout で諦めながら行う。
-func msgsWithin(cmd tea.Cmd, timeout time.Duration) []tea.Msg {
-	msg, err := RunCmd(cmd, timeout)
-	if err != nil {
-		return nil
-	}
-	inner, isBundle := Cmds(msg)
-	if !isBundle {
-		return []tea.Msg{msg}
-	}
-
-	out := make([]tea.Msg, 0, len(inner))
-	for _, c := range inner {
-		out = append(out, msgsWithin(c, timeout)...)
-	}
-	return out
 }
 
 // deliverable は Msg をタブへ配り直すかを返す。配る場合は包みを外した中身を返す。

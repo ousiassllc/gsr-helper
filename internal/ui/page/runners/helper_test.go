@@ -114,9 +114,9 @@ func send(t *testing.T, m tea.Model, keys ...string) (tea.Model, page.ChromeMsg)
 func chrome(t *testing.T, cmd tea.Cmd) page.ChromeMsg {
 	t.Helper()
 
-	c, ok := cmdtest.ChromeOf(cmd)
-	if !ok {
-		t.Fatal("ChromeMsg が発行されていない")
+	c, err := cmdtest.ChromeOf(cmd, cmdtest.CmdTimeout)
+	if err != nil {
+		t.Fatalf("ChromeMsg を取り出せない: %v", err)
 	}
 	return c
 }

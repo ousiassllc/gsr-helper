@@ -34,7 +34,6 @@ var (
 	sendKey      = pagetest.SendKey[App]
 	press1       = pagetest.Press1[App]
 	applyChrome  = pagetest.ApplyChrome[App]
-	isQuit       = pagetest.IsQuit
 	blocked      = pagetest.Blocked
 	sampleRunner = pagetest.SampleRunner
 	discovered   = pagetest.Discovered[App]
@@ -53,6 +52,23 @@ func expand(t *testing.T, cmd tea.Cmd) []tea.Cmd {
 		t.Fatalf("Cmd の束を展開できない: %v", err)
 	}
 	return cmds
+}
+
+// isQuit は Cmd が終了を指示しているかを返す。締め切り内に戻らない Cmd があれば
+// テストを止める。
+//
+// **ここで止めるのが要点である。** 素で走らせていたころは後始末の Cmd で止まり、
+// 壊れ方が失敗ではなくハングだった（expand と同じ。Issue #150）。判定を偽に丸めると
+// 「q が終了に繋がっていない」という実際には無い退行を疑うことになる。
+func isQuit(t *testing.T, cmd tea.Cmd) bool {
+	t.Helper()
+
+	quit, err := pagetest.IsQuit(cmd, cmdtest.CmdTimeout)
+	if err != nil {
+		t.Fatalf("終了を判定できない: %v", err)
+	}
+
+	return quit
 }
 
 // newApp は親 Model を組み立てる。走査ルートを空にして検出の入力を最小にする。

@@ -87,7 +87,9 @@ func TestQuitRunsPageCleanupBeforeQuit(t *testing.T) {
 
 	// 終了より前の Cmd を流すと、全タブの後始末が実行される。
 	for _, c := range steps[:len(steps)-1] {
-		cmdtest.RunAll(c)
+		if err := cmdtest.RunAll(c, cmdtest.CmdTimeout); err != nil {
+			t.Fatalf("後始末の Cmd を流せない: %v", err)
+		}
 	}
 	// 裏のタブにも通知は届く（畳み損ねた処理をここで確実に閉じられる）。
 	for i, p := range pages {

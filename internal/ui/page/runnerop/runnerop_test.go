@@ -242,7 +242,7 @@ func TestWrapExpandsStopwatchSequence(t *testing.T) {
 	_, cmd := m.Update(drainOpenMsg{runner: busy("build01-1"), label: ""})
 
 	var started, spun bool
-	for _, msg := range cmdtest.Msgs(cmd) {
+	for _, msg := range cmdtest.MustMsgs(cmd, cmdtest.CmdTimeout) {
 		inner, ok := modalMsg(t, tab, msg)
 		if !ok {
 			continue

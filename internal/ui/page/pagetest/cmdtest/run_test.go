@@ -7,6 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/pagetest/cmdtest"
 )
 
@@ -150,6 +151,53 @@ func TestExpandUnwrapsBundles(t *testing.T) {
 				if got, is := cmds[0]().(marker); !is || got.n != 1 {
 					t.Errorf("返った Cmd の Msg = %#v, want marker{n: 1}", cmds[0]())
 				}
+			}
+		})
+	}
+}
+
+// 戻らない Cmd を含む束でも ChromeOf が戻り、「無い」と「戻らない」を分けて
+// 返すこと（Issue #150）。
+//
+// 素で走らせていたころは束の途中で止まり、壊れ方が失敗ではなくハングだった。
+// 待ち時間切れを ErrNotFound に丸めると、呼び出し側は「page が状態行を発行して
+// いない」という実際には無い欠落を疑うことになる（Issue #140 と同じ取り違え）。
+func TestChromeOfTellsTimeoutApartFromMissingChrome(t *testing.T) {
+	t.Parallel()
+
+	chrome := func() tea.Msg { return page.ChromeMsg{Status: "見つかった"} }
+
+	for _, tt := range []struct {
+		name string
+		cmd  tea.Cmd
+		want error
+	}{
+		{
+			name: "ChromeMsg が本当に無ければ見つからない",
+			cmd:  func() tea.Msg { return marker{} },
+			want: cmdtest.ErrNotFound,
+		},
+		{name: "戻らない Cmd だけなら待ち時間切れ", cmd: blocked(), want: cmdtest.ErrCmdTimeout},
+		{
+			name: "戻らない Cmd の後ろにあっても見つける",
+			cmd:  tea.Batch(blocked(), chrome),
+			want: nil,
+		},
+		{
+			name: "入れ子の束の中にあっても見つける",
+			cmd:  tea.Batch(tea.Batch(blocked(), tea.Batch(chrome))),
+			want: nil,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := cmdtest.ChromeOf(tt.cmd, 10*time.Millisecond)
+			if !errors.Is(err, tt.want) {
+				t.Fatalf("err = %v, want %v", err, tt.want)
+			}
+			if tt.want == nil && got.Status != "見つかった" {
+				t.Errorf("ChromeMsg.Status = %q, want 見つかった", got.Status)
 			}
 		})
 	}

@@ -7,7 +7,6 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/ousiassllc/gsr-helper/internal/ui/hostreq"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 )
 
@@ -15,14 +14,14 @@ import (
 //
 // cmd.go が「Cmd の束をどう展開するか」を持つのに対し、こちらは「実行して待つ」側で
 // ある。分けているのは、束の展開が Msg の形を見るだけの操作なのに対し、こちらは
-// 戻らない Cmd（長寿命の購読の待ち受け）を諦める判断を含むためである。
+// 戻らない Cmd（長寿命の購読の待ち受け）を諦める判断を含むためである。走らせた結果
+// から目当ての 1 件を拾う側は find.go にある（そちらの doc）。
 //
-// **諦める判断は RunCmd に集める。** cmd.go の Expand と HostReqOf は Cmd をここへ
-// 通す——締め切りの掛かっていない実行が 1 本でも残っていると、戻らない Cmd を渡した
-// テストが失敗ではなくハングになる（Issue #145）。**まだ素で実行する道具が残っている**
-// ——cmd.go の RunAll / Msgs、この下の ChromeOf、parent.go の IsQuit である。どれも
-// 戻らない Cmd を渡さないことが呼び出し側の前提であり、締め切りを通す作業は Issue #150
-// が引き取っている。
+// **諦める判断は RunCmd に集める。** このパッケージが Cmd を走らせる道具は例外なく
+// RunCmd を通す——締め切りの掛かっていない実行が 1 本でも残っていると、戻らない Cmd を
+// 渡したテストが失敗ではなくハングになり、CI では `go test` の既定のタイムアウト
+// （10 分）ぶんの原因の分からない停止に見える（Issue #145 / #150）。素で実行して
+// いた RunAll / Msgs / ChromeOf と pagetest の IsQuit は Issue #150 で通し終えた。
 //
 // **`testing` を import しない。** このパッケージは通常のパッケージなので（pagetest.go の
 // doc）、import するとテスト用のフラグが本番のバイナリ側の依存に現れる。合否の判定は
@@ -73,75 +72,6 @@ func RunCmd(cmd tea.Cmd, timeout time.Duration) (tea.Msg, error) {
 	case <-time.After(timeout):
 		return nil, ErrCmdTimeout
 	}
-}
-
-// ChromeOf は Cmd の束に含まれる最初の ChromeMsg を返す。
-//
-// **束が入れ子になっていても辿る。** 以前は 1 段だけ展開して「ChromeMsg が奥から
-// 出てくることは無い」としていたが、これは成り立たない——page が自分の ChromeMsg と
-// 部品の返した Cmd をまとめて tea.Batch へ渡すと、内側の Batch がもう 1 段深くなる
-// （絞り込みを始める `/` がその形になる。Issue #107）。
-//
-// **見つかった時点で打ち切る。** 束をすべて実行するわけではないので、絞り込みの
-// カーソル点滅のような待つ Cmd は踏まない。page は ChromeMsg を束の先頭に置いており、
-// 先頭で見つかればそれ以降は 1 つも実行しない。
-func ChromeOf(cmd tea.Cmd) (page.ChromeMsg, bool) {
-	if cmd == nil {
-		return page.ChromeMsg{}, false
-	}
-
-	msg := cmd()
-	if c, ok := msg.(page.ChromeMsg); ok {
-		return c, true
-	}
-	inner, ok := Cmds(msg)
-	if !ok {
-		return page.ChromeMsg{}, false
-	}
-	for _, c := range inner {
-		if v, found := ChromeOf(c); found {
-			return v, true
-		}
-	}
-	return page.ChromeMsg{}, false
-}
-
-// HostReqOf は Cmd の束に含まれる最初の起動時前提チェックの結果を返す。
-// 束に無ければ ErrNotFound、束の展開が待ち時間内に戻らなければ ErrCmdTimeout を返す。
-//
-// ChromeOf と同じく 1 段だけ展開して探す。この結果を運ぶのは page.ChromeMsg では
-// なく素の Msg であり（ヘッダと状態行の「ホスト前提 N 件」はタブの状態行とは別の
-// 値である）、親 Model と Doctor タブの両方がこの経路を検証する。
-//
-// **「無い」と「戻らない」を分けて返す。** 1 つの偽で返していると、待ち時間切れを
-// 呼び出し側が「件数が親へ届いていない」と読み、実際には無い配送の欠落を疑う失敗
-// メッセージが出る（FindMsg と同じ理由。Issue #140 / #145）。
-//
-// **束の先頭も中身も締め切りを通す。** 先頭だけに掛けても、戻らない Cmd が束の
-// 2 本目以降に混じればそこで止まる（Issue #145）。1 本諦めても残りは辿る。
-func HostReqOf(cmd tea.Cmd) (hostreq.Msg, error) {
-	cmds, err := Expand(cmd, CmdTimeout)
-	if err != nil {
-		return hostreq.Msg{}, err
-	}
-	gaveUp := 0
-	for _, c := range cmds {
-		msg, err := RunCmd(c, CmdTimeout)
-		if err != nil {
-			if errors.Is(err, ErrCmdTimeout) {
-				gaveUp++
-			}
-
-			continue
-		}
-		if v, ok := msg.(hostreq.Msg); ok {
-			return v, nil
-		}
-	}
-	if gaveUp > 0 {
-		return hostreq.Msg{}, fmt.Errorf("%w（%d 本が %s 以内に戻らなかった）", ErrCmdTimeout, gaveUp, CmdTimeout)
-	}
-	return hostreq.Msg{}, ErrNotFound
 }
 
 // bundle は束を幅優先で辿るキュー。Pump と FindMsg が共有する。
@@ -256,37 +186,4 @@ func Drained[T any](ch <-chan T, timeout time.Duration) bool {
 			return false
 		}
 	}
-}
-
-// ErrNotFound は束を最後まで辿っても want を満たす Msg が無かったことを表す。
-//
-// ErrCmdTimeout と分けているのは、**呼び出し側の読み方が正反対だから**である
-// ——こちらは Msg を出す側の判断（差分が無いなど）を、待ち時間切れは機械の
-// 混み具合を疑う合図になる（Issue #140）。
-var ErrNotFound = errors.New("目当ての Msg が束に無い")
-
-// FindMsg は束の Cmd を順に走らせ、want を満たす最初の Msg を返す。
-//
-// **待ち時間切れで打ち切らない。** 束には戻らない Cmd が混じりうるので、1 本
-// 諦めても残りを辿る。目当てが最後まで見つからなかったときだけ、諦めた本数が
-// あれば ErrCmdTimeout を、無ければ ErrNotFound を返す——「見つからなかった」の
-// 理由をここで確定させないと、呼び出し側の失敗メッセージが取り違える。
-//
-// **戻らない Cmd を含む束には向かない。** 目当てが無いときは束を実行しきるので、
-// 購読を持つタブでは諦めるだけで timeout ぶん掛かる。そちらは Pump を使うこと。
-func FindMsg(cmd tea.Cmd, timeout time.Duration, want func(tea.Msg) bool) (tea.Msg, error) {
-	b := newBundle(cmd, timeout)
-	for {
-		msg, ok := b.next()
-		if !ok {
-			break
-		}
-		if want(msg) {
-			return msg, nil
-		}
-	}
-	if b.gaveUp > 0 {
-		return nil, fmt.Errorf("%w（%d 本が %s 以内に戻らなかった）", ErrCmdTimeout, b.gaveUp, timeout)
-	}
-	return nil, ErrNotFound
 }

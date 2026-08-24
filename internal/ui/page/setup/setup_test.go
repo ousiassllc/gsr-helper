@@ -140,7 +140,7 @@ func TestEscapeReturnsToRunners(t *testing.T) {
 
 	_, cmd := m.Update(pagetest.Press("esc"))
 
-	if !slices.ContainsFunc(cmdtest.Msgs(cmd), func(msg tea.Msg) bool {
+	if !slices.ContainsFunc(cmdtest.MustMsgs(cmd, cmdtest.CmdTimeout), func(msg tea.Msg) bool {
 		open, ok := msg.(page.OpenTabMsg)
 		return ok && open.Title == page.TabRunners
 	}) {
