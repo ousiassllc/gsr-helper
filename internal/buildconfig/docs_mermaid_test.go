@@ -18,10 +18,39 @@ var (
 	mermaidSubgraph = regexp.MustCompile(`^\s*subgraph\s+(\w+)`)
 	mermaidEnd      = regexp.MustCompile(`^\s*end\s*$`)
 	mermaidNodeDecl = regexp.MustCompile(`^\s*(\w+)\[`)
-	// mermaidArrow は矢印記法を行中から広く拾う。mermaidEdge が拾えない形の辺
-	// （ラベル付き・点線など）を黙って捨てないための検出用。
-	mermaidArrow = regexp.MustCompile(`--+>|-\.-+>|==+>`)
+	mermaidComment  = regexp.MustCompile(`^\s*%%`)
+	// mermaidArrow は mermaid のリンク記法（実線 --/---、点線 -.-、太線 ==、不可視 ~~~、
+	// 終端 >/x/o/無し）を行中から広く拾う。mermaidEdge が拾えない形の辺を黙って捨てない
+	// ための検出用なので、mermaidEdge 側は厳密なままにしておく。実線を `--` 以上に限るのは
+	// cmd/gsr-helper のような 1 個のハイフンを辺と取り違えないため。
+	mermaidArrow = regexp.MustCompile(`--+[->xo]|-\.+-+[>xo]?|==+[=>xo]|~~~`)
 )
+
+// cutAtLineStart は lead で始まる行を 1 つだけ探し、その直後から末尾までを返す。
+//
+// 部分文字列の最初の一致へ無条件にアンカーしない。本書は改訂履歴に本文を逐語引用する
+// 慣行があるので解析対象が静かにずれ、また同じ段落が 2 つある状態（先頭が正で 2 つ目の
+// 実物が古い、という危険な向き）も見逃す。page/pagetest/doc_test.go の countAtLineStart が
+// Issue #96 で塞いだのと同じ欠陥なので、0 個でも 2 個以上でも落とす。
+func cutAtLineStart(t *testing.T, text, lead string) string {
+	t.Helper()
+
+	n := 0
+	for _, line := range strings.Split(text, "\n") {
+		if strings.HasPrefix(line, lead) {
+			n++
+		}
+	}
+	switch {
+	case n == 0:
+		t.Fatalf("%s に %q で始まる行が無い（書き出しを変えたならこの検査の側も直すこと）",
+			componentOverviewPath, lead)
+	case n > 1:
+		t.Fatalf("%s に %q で始まる行が %d 個ある（1 つに統合すること）", componentOverviewPath, lead, n)
+	}
+	_, tail, _ := strings.Cut("\n"+text, "\n"+lead)
+	return tail
+}
 
 // graphEdge は mermaid の 1 本の辺。
 type graphEdge struct{ from, to string }
@@ -44,15 +73,12 @@ func readComponentOverview(t *testing.T) string {
 	return string(body)
 }
 
-// dependencyMermaid は「## 依存関係」直後の mermaid フェンスの中身を返す。
+// dependencyMermaid は行頭の見出し「## 依存関係」の直後の mermaid フェンスの中身を返す。
 func dependencyMermaid(t *testing.T) string {
 	t.Helper()
 
-	_, tail, ok := strings.Cut(readComponentOverview(t), "## 依存関係")
-	if !ok {
-		t.Fatalf("%s に「## 依存関係」の節が無い", componentOverviewPath)
-	}
-	_, tail, ok = strings.Cut(tail, "```mermaid\n")
+	tail := cutAtLineStart(t, readComponentOverview(t), "## 依存関係")
+	_, tail, ok := strings.Cut(tail, "```mermaid\n")
 	if !ok {
 		t.Fatalf("%s の「## 依存関係」の後に mermaid フェンスが無い", componentOverviewPath)
 	}
@@ -74,6 +100,8 @@ func parseDepGraph(t *testing.T) depGraph {
 	var open []string
 	for _, line := range strings.Split(dependencyMermaid(t), "\n") {
 		switch {
+		case mermaidComment.MatchString(line):
+			// mermaid のコメント行。矢印を書いても辺ではないので矢印ガードより先に飛ばす。
 		case mermaidSubgraph.MatchString(line):
 			id := mermaidSubgraph.FindStringSubmatch(line)[1]
 			if g.subgraph[id] == nil {
@@ -88,15 +116,18 @@ func parseDepGraph(t *testing.T) depGraph {
 		case mermaidEdge.MatchString(line):
 			m := mermaidEdge.FindStringSubmatch(line)
 			g.edges[graphEdge{from: m[1], to: m[2]}] = true
+		case mermaidArrow.MatchString(line):
+			// 矢印なのにここまで来た＝この形の辺に mermaidEdge が対応していない。
+			// 黙って捨てると図にある辺を「グラフに無い」と実態と逆の理由で落とす。
+			// **ノード宣言より先に見る。** `UIApp[ui] --> Logs` のように矢印の左辺で
+			// ノードを宣言する記法が mermaidNodeDecl に消費されると、辺が捨てられた
+			// うえこのガードにも届かない。
+			t.Fatalf("mermaid のこの形の辺に対応していない（mermaidEdge が拾えない）: %q", line)
 		case mermaidNodeDecl.MatchString(line):
 			id := mermaidNodeDecl.FindStringSubmatch(line)[1]
 			for _, sg := range open {
 				g.subgraph[sg][id] = true
 			}
-		case mermaidArrow.MatchString(line):
-			// 矢印なのにここまで来た＝この形の辺に mermaidEdge が対応していない。
-			// 黙って捨てると図にある辺を「グラフに無い」と実態と逆の理由で落とす。
-			t.Fatalf("mermaid のこの形の辺に対応していない（mermaidEdge が拾えない）: %q", line)
 		}
 	}
 	if len(open) != 0 {

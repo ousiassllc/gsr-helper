@@ -40,13 +40,11 @@ func TestCollapsedUINodesMatchDoc(t *testing.T) {
 }
 
 // collapsedNodeProse は散文が挙げている UIApp / UIParts の畳んだパッケージ名を返す。
+// 段落は行頭に 1 つでなければならない（理由は cutAtLineStart を見よ）。
 func collapsedNodeProse(t *testing.T) (app, parts []string) {
 	t.Helper()
 
-	_, tail, ok := strings.Cut(readComponentOverview(t), collapsedNodeLead)
-	if !ok {
-		t.Fatalf("%s に「畳んだノード」の段落（%s）が無い", componentOverviewPath, collapsedNodeLead)
-	}
+	tail := cutAtLineStart(t, readComponentOverview(t), collapsedNodeLead)
 	appHalf, partsHalf, ok := strings.Cut(tail, "`UIParts` は ")
 	if !ok {
 		t.Fatalf("%s の段落を `UIParts` の宣言で 2 つに割れない", componentOverviewPath)

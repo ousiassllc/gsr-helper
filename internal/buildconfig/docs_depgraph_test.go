@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"maps"
 	"os/exec"
 	"slices"
 	"strings"
@@ -31,9 +32,10 @@ type graphNodeRule struct {
 // 既存のどのプレフィックスにも当たらない新設パッケージ（新しい最上位のツリー）は、
 // ここへ足すまで TestEveryPackageIsMappedToGraphNode が落ちる。
 // 一方、既存プレフィックス配下のサブパッケージは最長プレフィックス一致（nodeForPackage）
-// で親ノードへ黙って畳まれる。これは意図した設計で、internal/runner/procs のような
-// サブパッケージが層の図に辺を増やさないのはこのため。RScope / SetupJob のように独自
-// ノードを与えたい場合だけ、自分でここへ規則を足す判断が要る。
+// で親ノードへ畳まれる。**畳み込みが消すのは同一ノード内部の辺だけである**——サブ
+// パッケージでも層をまたいで import すれば、親ノード発の辺として図に要求される
+// （Doctor --> Disk を生んでいる唯一の import 元は internal/doctor/hostres である）。
+// ここへ規則を足す判断が要るのは、RScope / SetupJob のように独自ノードを与えたいときだけ。
 // グラフに描かないと決めた場合は空ノード "" を理由付きで書く。
 var graphNodeRules = []graphNodeRule{
 	{"cmd/gsr-helper", "Main"},
@@ -87,6 +89,21 @@ func nodeForPackage(rel string) (node string, ok bool) {
 		return "", false
 	}
 	return graphNodeRules[best].node, true
+}
+
+// uiLayerNodes はノード ID から「そのノードへ畳む規則がすべて internal/ui 配下か」への
+// 対応を返す。UI 層の一覧を graphNodeRules から導くことで、図と検査で同じ一覧を
+// 2 か所に持たずに済む（UIApp / UIParts は満たし、Runner のような層外は満たさない）。
+func uiLayerNodes() map[string]bool {
+	inUI := map[string]bool{}
+	for _, r := range graphNodeRules {
+		if r.node == "" {
+			continue // グラフの対象外
+		}
+		seen, ok := inUI[r.node]
+		inUI[r.node] = strings.HasPrefix(r.prefix+"/", "internal/ui/") && (!ok || seen)
+	}
+	return inUI
 }
 
 // relPackage は import パスからモジュールの接頭辞を落とす。モジュール外のパスは
@@ -213,8 +230,9 @@ func TestEveryPackageIsMappedToGraphNode(t *testing.T) {
 // 同種の欠落は改訂 1.22 / 1.27 / 1.29 / 1.32 / 1.33 / 1.40 で 6 度再発しており、
 // 機械的に検知するためこの検査を置く（Issue #151）。
 //
-// UI 層のノード同士の辺だけは対象外にする。本書は「本書が描かないのは UI パッケージ
-// 同士の依存だけである」と宣言しており、`organism` → `keymap` のような辺は
+// UI 層のノード同士の辺だけは対象外にする。本書は「**本書が描かないのは UI パッケージ
+// 同士の依存である**——ただし粒度の要約である 2 ノードの間の 1 本（`UIApp --> UIParts`）
+// だけは例外」と宣言しており、`organism` → `keymap` のような辺は
 // docs/ui/atomic-design.md の依存グラフが持つ。どのノードが UI 層かは mermaid の
 // subgraph UI から読み取る（ここにノード名をベタ書きすると図と二重管理になる）。
 func TestDependencyGraphDrawsEveryCrossLayerImport(t *testing.T) {
@@ -224,6 +242,15 @@ func TestDependencyGraphDrawsEveryCrossLayerImport(t *testing.T) {
 	// UI 層を取り違えるとすべての辺が除外されて検査が空振りする。
 	if len(ui) == 0 {
 		t.Fatal("mermaid グラフに subgraph UI のノードが無い（UI 層内部の辺を除外できない）")
+	}
+	// 全損だけでなく**部分的な広がり**も見る。subgraph UI にノードを 1 つ移すだけで
+	// そのノードとの辺がまとめて除外され、層をまたぐ辺が無検査になるため。
+	inUI := uiLayerNodes()
+	for _, n := range slices.Sorted(maps.Keys(ui)) { // 報告の順序を決定的にする
+		if !inUI[n] {
+			t.Fatalf("subgraph UI に UI 層でないノード %s がある"+
+				"（UI 層内部の辺の除外範囲が黙って広がり、層をまたぐ辺が無検査になる）", n)
+		}
 	}
 
 	edges := implEdges(t)
