@@ -63,6 +63,16 @@ func TestCISetupGoDisablesCache(t *testing.T) {
 }
 
 // concurrency は他ワークフローと衝突せず、main への push をキャンセルしない。
+//
+// group にワークフロー名が入っていないと、別のワークフローの run が同じ group へ入って互いを
+// キャンセルし合う。cancel-in-progress を pull_request に限らないと、**main への連続した push で
+// 中間コミットの CI 結果が 1 つも残らない**——後から「どのコミットで壊れたか」を run から辿れなく
+// なり、二分探索の足場が消える。
+//
+// concurrency は self-hosted runner の稼働台数の割り当てとキャンセル挙動に直結するため、
+// 台数を空けようとして cancel-in-progress を広げる変更は自然に出てくる（この副作用と見直しの
+// 経緯は docs/environment/setup.md の改訂 1.6 と Issue #16）。**どちらの誤りも CI は緑になる**
+// ——run が消えることと run が失敗することは別だからである。
 func TestCIConcurrencyIsScopedAndKeepsPushRuns(t *testing.T) {
 	got := loadCIWorkflow(t).Concurrency
 
@@ -90,6 +100,15 @@ func TestCILintJobValidatesLefthookConfig(t *testing.T) {
 }
 
 // SHA ピン留めした版へ追従するため、Dependabot の github-actions を有効にする。
+//
+// TestCIActionsArePinnedToCommitSHA がアクションをフルコミット SHA に固定しているが、
+// **SHA は自分では動かない**。追従する仕組みが無いと、ピン留めの意味は「再現する」から
+// 「古いまま凍る」へ静かに変わり、脆弱性修正の入った版が出ても誰も気付かない。
+//
+// つまりこの 2 つは対で 1 つの取り決めであり、**片方だけが落ちる形になっている**——
+// dependabot.yml から github-actions のエントリを外しても、ピン留め側の検査を含め CI は
+// すべて緑のままである。ここで落とさないと、気付くのはピン留めした版に問題が見つかった
+// ときになる。
 func TestDependabotWatchesGitHubActions(t *testing.T) {
 	raw, err := os.ReadFile(filepath.Join(buildconfigtest.RepoRoot(t), ".github", "dependabot.yml"))
 	if err != nil {
