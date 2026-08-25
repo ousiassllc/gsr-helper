@@ -698,17 +698,18 @@ bubbletea の Model 群。**内部を Atomic Design で階層化する。** 部�
 
 ### `internal/buildconfig`
 
-ビルド設定ファイル（`Makefile` / `.github/workflows/ci.yml` / `.golangci.yml` / `.linterly.yml` / `lefthook.yml` / `.github/dependabot.yml`）と `docs/` 配下の Markdown はどちらもコンパイル対象ではないため、取り決めを破ってもコンパイルエラーにも通常のテストの失敗にもならない。その不変条件を守る回帰テストを置く（[開発環境](../environment/setup.md#設定ファイルの不変条件をテストで守る)が守っている不変条件の一覧を持つ）。上の「依存関係」の 4 本（`docs_mermaid_test.go` / `docs_deppkg_test.go` / `docs_depgraph_test.go` / `docs_depnodes_test.go`）もこのツリーにある。**検査を置く 2 つ（`buildconfig` 直下と `docscheck`）は実行時のコードを持たない**——`doc.go` のほかはすべて `_test.go` である。**共有ヘルパの `buildconfigtest` だけは通常のパッケージで、本番からも import できてしまう**（下記「分割したパッケージ」）。**層の図には載らない**——`graphNodeRules` はこのツリーを空ノードへ畳み、グラフの対象外であることを明示している。
+ビルド設定ファイル（`Makefile` / `.github/workflows/ci.yml` / `.golangci.yml` / `.linterly.yml` / `lefthook.yml` / `.github/dependabot.yml`）と `docs/` 配下の Markdown はどちらもコンパイル対象ではないため、取り決めを破ってもコンパイルエラーにも通常のテストの失敗にもならない。その不変条件を守る回帰テストを置く（[開発環境](../environment/setup.md#設定ファイルの不変条件をテストで守る)が守っている不変条件の一覧を持つ）。上の「依存関係」の 4 本（`docs_mermaid_test.go` / `docs_deppkg_test.go` / `docs_depgraph_test.go` / `docs_depnodes_test.go`）もこのツリーにある。**検査を置く 3 つ（`buildconfig` 直下・`docscheck`・`docscheck/linebudget`）は実行時のコードを持たない**——`doc.go` のほかはすべて `_test.go` である。**共有ヘルパの `buildconfigtest` だけは通常のパッケージで、本番からも import できてしまう**（下記「分割したパッケージ」）。**層の図には載らない**——`graphNodeRules` はこのツリーを空ノードへ畳み、グラフの対象外であることを明示している。
 
 #### 分割したパッケージ
 
-1 ディレクトリ 2000 行（テスト込み）の上限に対する分散と、責務の切り分けを兼ねる（Issue #161。判断は [TUI コンポーネント設計](../ui/atomic-design.md#行数の予算) の「`internal/buildconfig` を 2 つに分けた判断」）。依存は **`buildconfig` → `buildconfigtest` ← `docscheck`** で、`buildconfig` と `docscheck` の間に参照は無い（分けられたのは共有していた識別子が **`repoRoot`** 1 つだけだったためである。`RepoRoot` は `buildconfigtest` へ出して export した後の名前で、[TUI コンポーネント設計](../ui/atomic-design.md#行数の予算)の「`internal/buildconfig` を 2 つに分けた判断」は分割前の `repoRoot` を挙げている）。
+1 ディレクトリ 2000 行（テスト込み）の上限に対する分散と、責務の切り分けを兼ねる（Issue #161 と Issue #171。判断は [TUI コンポーネント設計](../ui/atomic-design.md#行数の予算) の「`internal/buildconfig` を 2 つに分けた判断」と「`docscheck` から行数の予算の検査を分けた判断」）。依存は **`buildconfig` / `docscheck` / `docscheck/linebudget` → `buildconfigtest`** の一方向で、検査を置く 3 つの間に参照は無い（分けられたのは共有していた識別子が **`repoRoot`** 1 つだけだったためである。`RepoRoot` は `buildconfigtest` へ出して export した後の名前で、[TUI コンポーネント設計](../ui/atomic-design.md#行数の予算)の「`internal/buildconfig` を 2 つに分けた判断」は分割前の `repoRoot` を挙げている）。
 
 | パッケージ | 置くもの |
 |-----------|---------|
 | `buildconfig` | **ビルド設定ファイル**の不変条件。一時ディレクトリに最小のモジュールを作って `make` を実際に走らせるもの（`makefile_fmt_test.go` / `makefile_test_target_test.go`）と、CI ワークフロー・lint 設定・Git Hooks 設定・依存更新設定（`.github/dependabot.yml`）を読んで内容を検証するもの（`ci_workflow_test.go` / `ci_hardening_test.go` / `golangci_test.go` / `linterly_test.go` / `lefthook_test.go` / `depguard_test.go`）。この 2 つが共有する道具は `helper_test.go` にある（`writeFiles` / `newModule` / `runMake` / `goEnv`） |
-| `buildconfig/docscheck` | **ドキュメント**（`docs/` 配下の Markdown）の不変条件。仕様書のコードブロックと設定ファイルの実体の一致（`docs_sync_test.go`）、改訂履歴の版番号の重複・逆順（`docs_revision_test.go`）、`//nolint` 棚卸しの表とツリーの一致（`docs_nolint_test.go`）、依存グラフと実装の import の突き合わせ（`docs_mermaid_test.go` / `docs_deppkg_test.go` / `docs_depgraph_test.go` / `docs_depnodes_test.go`）。**新しい検査の置き場所は検査の対象で決まる**——落ちたときに直すのがドキュメントならこちらである |
-| `buildconfig/buildconfigtest` | 上の 2 つが共有する道具（`RepoRoot`。テストの実行ディレクトリから遡って `go.mod` を持つリポジトリルートを返す）。`_test.go` ではなく通常のパッケージなのは **`_test.go` の中のヘルパはパッケージをまたげない**ためで（Issue #161）、**テスト専用で本番からは import しない**（`page/pagetest/import_test.go` の `fixtures` へ登録済み。`TestNoProductionCodeImportsTestFixtures` が検査する）。先例は `ui/page/pagetest` / `ui/organism/table/tabletest` / `setup/setuptest`。**置いてよいのは両方が使う道具だけである**——片方しか使わないものを寄せると、分けた意味（増え方の違う 2 つを別々に育てる）が消える |
+| `buildconfig/docscheck` | **ドキュメント**（`docs/` 配下の Markdown）の不変条件。仕様書のコードブロックと設定ファイルの実体の一致（`docs_sync_test.go`）、改訂履歴の版番号の重複・逆順（`docs_revision_test.go`）、`//nolint` 棚卸しの表とツリーの一致（`docs_nolint_test.go`）、依存グラフと実装の import の突き合わせ（`docs_mermaid_test.go` / `docs_deppkg_test.go` / `docs_depgraph_test.go` / `docs_depnodes_test.go`）、不変条件テスト一覧表と実装の一致（`docs_invarianttable_test.go` / `docs_invarianttabledesc_test.go`）。**新しい検査の置き場所は検査の対象で決まる**——落ちたときに直すのがドキュメントならこちらである |
+| `buildconfig/docscheck/linebudget` | **行数の予算**の不変条件。[TUI コンポーネント設計](../ui/atomic-design.md#行数の予算)の行数表と `go tool linterly check --format json` の実測の一致（`docs_linebudget_test.go`）と、対象文書の散文が行数の実測値を数値でも合計の式でも持たないこと（`docs_linebudgetdoc_test.go` / `docs_linebudgetprose_test.go` / `docs_linebudgetsum_test.go`）。**`docscheck` から分けたのは増え方が違い互いに依存も無いためで**（Issue #171）、共有していたのは表から読んだ数値を変換するヘルパ 1 つだけだった |
+| `buildconfig/buildconfigtest` | 上の 3 つが共有する道具（リポジトリルートの解決 `RepoRoot`——テストの実行ディレクトリから遡って `go.mod` を持つリポジトリルートを返す——と、表から読んだ数値文字列を `int` にする `Atoi`）。`_test.go` ではなく通常のパッケージなのは **`_test.go` の中のヘルパはパッケージをまたげない**ためで（Issue #161）、**テスト専用で本番からは import しない**（`page/pagetest/import_test.go` の `fixtures` へ登録済み。`TestNoProductionCodeImportsTestFixtures` が検査する）。先例は `ui/page/pagetest` / `ui/organism/table/tabletest` / `setup/setuptest`。**置いてよいのは複数が使う道具だけである**——1 つしか使わないものを寄せると、分けた意味（増え方の違うものを別々に育てる）が消える |
 
 ## 主要な interface 一覧
 
@@ -803,6 +804,7 @@ interface はこの 3 つに留める。ドメインごとの interface は、�
 | 1.57 | 2026-08-25 | PR #173 のレビュー指摘（minor）を反映し、**本書が持っていた最後の検査の除外を無くした。** (1) `internal/disk` の節から当時の値（警告帯へ入ったときの行数・エラー境界までの残り・`pathguard` を切り出した直後の値）を落とし、[TUI コンポーネント設計](../ui/atomic-design.md#行数の予算)の「`internal/disk` から `pathguard` を切り出した判断（Issue #101）」への参照へ寄せた。これにより `docs_linebudgetdoc_test.go` の本書ぶんの除外一覧が空になり、**節まるごと（API 責務表と全段落）が検査の対象へ戻った**。(2) `internal/runner` の段落の「**余裕が乏しい**」という現在形の語形の主張を落とし、「機能を足すときは先に行数表で余裕を確かめ、そのうえで切り出し先を決めること」という指示へ改めた | (1) 除外の一覧に載せてよいのは同書の規約では**過去の値だけを持つ節**で、かつ**一覧は小さいほどよい**と定められている。`### internal/disk` はその条件を満たしていないのに節まるごとを外しており、**当時の値が同書に既にある以上、参照へ寄せれば除外そのものが要らなくなる**。除外の中にある範囲は規約でしか守れないので、要らない除外を残すのは無検査の面積を無償で広げることにあたる。(2) は同書が「**数値を伴わない語形の主張**は書かず参照へ寄せよ」と定めた形そのもので、実測値を落とした際に語形へ言い換えてしまっていた。予算の逼迫は書いた後に進むので、状態を断定すると次の Issue が古い断定を読む |
 | 1.58 | 2026-08-25 | PR #173 の 2 周目レビュー指摘（major 1 件）を反映。`internal/disk` の段落に残っていた「その後 Issue #123 の回帰テストの追加で**ふたたび詰まった**」を落とし、**Issue #123 で回帰テストを足した事実だけを残して現在の値は行数表への参照へ寄せた**。これは数値を伴わない現在形の断定であり、[TUI コンポーネント設計](../ui/atomic-design.md#行数の実測値は表だけが持つ)の規約 (c) が「検査が構造的に見ない範囲」と明記して「現在の状態を語りたくなったら、数値でも語形でも行数表を見よと参照へ寄せること」と定めているものにあたる。**欠陥の質は、同じ改訂 1.57 が隣の `internal/runner` の段落からは同じ理由で「余裕が乏しい」を落としていたのに、この段落だけ残した点にある**——同一コミット内で規約の適用が不揃いだった。 |
 | 1.59 | 2026-08-25 | Issue #170 を反映。長大な改訂履歴の欄 3 版ぶんを `## 改訂履歴` の下の「改訂の詳細」節へ小節として出し、表には要約 1 文と参照だけを残した。本文は 1 文字も落としていない | 表のセルは改行を持てず、欄が伸びると 1 文字の修正でも行まるごとが差分に出る。方針と上限は[開発環境セットアップ](../environment/setup.md#改訂履歴の欄は要約と参照に留める)にある |
+| 1.60 | 2026-08-25 | PR #176 のレビュー指摘（major 8 件）のうち本書に掛かる 2 点を反映。(1) 「分割したパッケージ」の表に **`buildconfig/docscheck/linebudget` の行を足し**、依存を **`buildconfig` / `docscheck` / `docscheck/linebudget` → `buildconfigtest`** の一方向へ書き直した。あわせて `buildconfigtest` の行に `Atoi` を足し、「置いてよいのは**両方**が使う道具だけ」を「**複数**が使う道具だけ」へ、[`internal/buildconfig`](#internalbuildconfig) の「検査を置く 2 つ」を「3 つ」へそろえた。`docscheck` の行には Issue #174 が足した不変条件テスト一覧表の検査も書き添えた。(2) 改訂 1.51 の欄を「改訂の詳細」へ移した際に強調の開始 `**` が単独行として取り残され、`**` が literal で描画されて (1) の項目の太字が効いていなかったのを、語を変えずに直した | (1) **この表は検査が守っていないので黙って古くなる**——Issue #171 が 4 つ目のパッケージを作ったのに表は 3 つのままで、依存の向きも 2 者を前提にしたままだった。パッケージ表は「新しい検査をどこへ置くか」を最初に引く場所なので、載っていないパッケージは存在しないものとして扱われる。(2) は Issue #170 の移設で入った描画の欠陥で、移した 33 小節のうち壊れていたのはここだけである（残る 32 小節も同じ形が無いことを確認した） |
 
 ### 改訂の詳細
 
@@ -826,9 +828,7 @@ PR #153 の 2 周目レビュー（3 観点とも変異注入で実測）を反�
 
 **変更理由**
 
-**
-
-- (1) は 1 周目の critical と同型の再発であり、危険側の誤りである。** 「サブパッケージは黙って畳まれる」とだけ読むと、次の Issue は**既存プレフィックス配下に新設したサブパッケージが層をまたいで import してもグラフは触らなくてよい**と判断する。
+- **(1) は 1 周目の critical と同型の再発であり、危険側の誤りである。** 「サブパッケージは黙って畳まれる」とだけ読むと、次の Issue は**既存プレフィックス配下に新設したサブパッケージが層をまたいで import してもグラフは触らなくてよい**と判断する。
   実際には辺が要求されて検査が落ちるので、読み手は落ちた理由を本書から説明できない——本書が「検査が止める範囲」の 4 つ目を落としていたためである。**同種の辺の欠落は改訂 1.22 / 1.27 / 1.29 / 1.32 / 1.33 / 1.40 で 6 度再発しており、検査を置いた理由そのものである。**
 - (2) を書かないと、読み手は個別列挙まで機械が保証していると信じて人手の棚卸しをやめるが、**そこは実際には無検査**なので、内訳が古くなっても誰も気付かない。
 - (3) の 1 段落のずれは、指された段落に列挙が無いため「どの列挙と一致するのか」を読み手が特定できない。

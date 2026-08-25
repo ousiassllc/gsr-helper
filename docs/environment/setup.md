@@ -351,13 +351,13 @@ updates:
 | 守っている不変条件 | 破ったときに落ちるテスト |
 |---|---|
 | `.github/workflows/ci.yml` の self-hosted runner を使うジョブは、必ず `needs: guard` でゲートジョブに依存する。`if:` による skip では required status check に対して success 扱いになり、マージを機械的に止められない。 | `TestCISelfHostedJobsDependOnGuard` |
-| `.github/workflows/ci.yml` の `guard` は許可リスト形である（`push` と同一リポジトリの`pull_request` 以外は失敗する）。判定値は `EVENT_NAME` / `HEAD_REPO` / `BASE_REPO` の env 経由で渡り、ゲートの `run:` に `${{` を直書きしない（head リポジトリ名を通した式インジェクションの余地を残さないため）。許可していないトリガーを `on:` に足したときに既定が「実行しない」側へ倒れる必要がある。 | `TestCIGuardScriptAllowsOnlySameRepositoryEvents` |
-| `guard` ジョブ自身は GitHub ホストランナーで動く。ゲートを self-hosted 上で走らせると、fork のPR がゲート自身をホスト上で実行できてしまい、ゲートを置く意味が無い。 | `TestCIGuardJobDoesNotUseSelfHostedRunner` |
+| `.github/workflows/ci.yml` の `guard` は許可リスト形である（`push` と同一リポジトリの `pull_request` 以外は失敗する）。判定値は `EVENT_NAME` / `HEAD_REPO` / `BASE_REPO` の env 経由で渡り、ゲートの `run:` に `${{` を直書きしない（head リポジトリ名を通した式インジェクションの余地を残さないため）。許可していないトリガーを `on:` に足したときに既定が「実行しない」側へ倒れる必要がある。 | `TestCIGuardScriptAllowsOnlySameRepositoryEvents` |
+| `guard` ジョブ自身は GitHub ホストランナーで動く。ゲートを self-hosted 上で走らせると、fork の PR がゲート自身をホスト上で実行できてしまい、ゲートを置く意味が無い。 | `TestCIGuardJobDoesNotUseSelfHostedRunner` |
 | どのワークフローも `pull_request_target` を使わない。fork の PR に対してベースリポジトリ側の権限でワークフローが動き、fork ガードの意味が失われる。 | `TestWorkflowsDoNotUsePullRequestTarget` |
-| `.github/workflows/ci.yml` のアクションはフルコミット SHA でピン留めされている。可変タグはタグの移動やアカウント侵害で別のコードに差し替わり、self-hosted runner ではその被害が root相当まで増幅する。 | `TestCIActionsArePinnedToCommitSHA` |
-| `.github/workflows/ci.yml` の全ジョブに `timeout-minutes` がある。ハングしたジョブが runner をGitHub 既定の 6 時間まで占有すると、オンラインの runner が 1 台のとき CI 全体が止まる。 | `TestCIJobsHaveTimeout` |
+| `.github/workflows/ci.yml` のアクションはフルコミット SHA でピン留めされている。可変タグはタグの移動やアカウント侵害で別のコードに差し替わり、self-hosted runner ではその被害が root 相当まで増幅する。 | `TestCIActionsArePinnedToCommitSHA` |
+| `.github/workflows/ci.yml` の全ジョブに `timeout-minutes` がある。ハングしたジョブが runner を GitHub 既定の 6 時間まで占有すると、オンラインの runner が 1 台のとき CI 全体が止まる。 | `TestCIJobsHaveTimeout` |
 | `.github/workflows/ci.yml` の `actions/checkout` が認証情報を作業ディレクトリへ残さない。self-hosted runner は作業ディレクトリを再利用し、キャンセル時は post-job cleanup が完走しない。 | `TestCICheckoutDoesNotPersistCredentials` |
-| `.github/workflows/ci.yml` の `actions/setup-go` のキャッシュは無効である。self-hosted runnerではモジュール・ビルドキャッシュがホストに残るため、tar での保存と展開はやり直しの重複でしかない。 | `TestCISetupGoDisablesCache` |
+| `.github/workflows/ci.yml` の `actions/setup-go` のキャッシュは無効である。self-hosted runner ではモジュール・ビルドキャッシュがホストに残るため、tar での保存と展開はやり直しの重複でしかない。 | `TestCISetupGoDisablesCache` |
 | `.github/workflows/ci.yml` の `concurrency` が他ワークフローと衝突せず、`main` への push の run をキャンセルしない。 | `TestCIConcurrencyIsScopedAndKeepsPushRuns` |
 | SHA ピン留めした版へ追従するため、Dependabot の github-actions を有効にする。 | `TestDependabotWatchesGitHubActions` |
 | make fmt-check は入れ子の git worktree（.claude/worktrees/ 配下）を対象にしない。リポジトリルート自体が Go パッケージになっても、対象がディレクトリではなくファイル単位で解決されるため gofmt がファイルシステムを再帰しない。 | `TestFmtCheckSkipsNestedWorktree` |
@@ -368,36 +368,36 @@ updates:
 | go list が失敗したとき make fmt-check は失敗する。終了ステータスを捨てて検査ゲートが静かに通ることがあってはならない。 | `TestFmtCheckFailsWhenGoListFails` |
 | 対象ファイルが 0 件のとき make fmt-check はハングせず失敗する。gofmt を引数なしで起動すると標準入力を読んで待ち続けるため、明示的に検出して終了する必要がある。 | `TestFmtCheckFailsWhenNoGoFiles` |
 | make test は競合検出付きで実行する。CI とローカルの唯一のテスト経路であり、-race が外れると並行処理の退行が緑のまま通過する。 | `TestMakeTestDetectsDataRace` |
-| 抑制には理由コメントとリンター名が必須で、不要になった抑制も検出される。nolintlint を`require-explanation` / `require-specific` / `allow-unused: false` の 3 つすべて有効で使う。 | `TestGolangciEnablesNolintlint` |
+| 抑制には理由コメントとリンター名が必須で、不要になった抑制も検出される。nolintlint を `require-explanation` / `require-specific` / `allow-unused: false` の 3 つすべて有効で使う。 | `TestGolangciEnablesNolintlint` |
 | 抑制の 3 つの取り決め（リンター名の明示・理由コメント・不要になった抑制）を破った `//nolint` が、リポジトリの `.golangci.yml` で実際に落ちる。 | `TestGolangciLintRejectsSloppyNolint` |
 | import は標準ライブラリ / 外部モジュール / 自前パッケージの 3 グループに固定される。gci をこの順のセクションで使い、`custom-order: true` も検査する——これが無いと gci は記載順を無視して内蔵の既定順で並べ、順序の取り決めが実効にならない。 | `TestGolangciEnablesGci` |
 | 自前パッケージが標準ライブラリのグループに混ざった import が、リポジトリの `.golangci.yml` で実際に落ちる。gofmt はグループ内を並べ替えるだけなので `make fmt-check` では検出できない。 | `TestGolangciLintRejectsMisgroupedImports` |
 | Charm は `charm.land/<name>/v2` に揃え、`github.com/charmbracelet` 系のパスを depguard で理由付きで禁止する。禁止していないと、推移依存として go.mod に残る v1 を誤って import できてしまう。 | `TestGolangciDeniesCharmV1Paths` |
 | 禁止した Charm v1 のパスを import したコードが、リポジトリの `.golangci.yml` で実際に落ちる（設定に deny ルールが書いてあることと、それが効くことは別である）。 | `TestGolangciLintRejectsCharmV1Import` |
 | golangci-lint が同種の指摘を打ち切らない（`max-issues-per-linter` と `max-same-issues` のどちらも `0` = 無制限を明示する）。既定の 50 / 3 のままだと、抑制やエラーの棚卸しで件数を数え上げられない。 | `TestGolangciDoesNotTruncateIssues` |
-| 行数上限は linterly の既定値のまま使う（上限に当たったら数値を上げるのではなく分割する）。あわせて `count_mode: all` と `warning_threshold` が存在することも見る——`rules:` が空になると`rules section is required` で exit 2 になるため、既定値と同じ値でも消せない。 | `TestLinterlyKeepsDefaultLineLimits` |
+| 行数上限は linterly の既定値のまま使う（上限に当たったら数値を上げるのではなく分割する）。あわせて `count_mode: all` と `warning_threshold` が存在することも見る——`rules:` が空になると `rules section is required` で exit 2 になるため、既定値と同じ値でも消せない。 | `TestLinterlyKeepsDefaultLineLimits` |
 | 更新チェックは無効にする。既定は true で、実行のたびに GitHub Releases への外向き HTTP が出る（self-hosted runner の不要な egress と CI ログへの混入）。 | `TestLinterlyDisablesUpdateCheck` |
-| `lefthook.yml` の構文退行を CI でも機械検知する。`make check` の `test` も`TestLefthookConfigIsValid` を通して同じ `go tool lefthook validate` を走らせており、CI の step はそれと重ねて掛ける二重化である。 | `TestCILintJobValidatesLefthookConfig` |
+| `lefthook.yml` の構文退行を CI でも機械検知する。`make check` の `test` も `TestLefthookConfigIsValid` を通して同じ `go tool lefthook validate` を走らせており、CI の step はそれと重ねて掛ける二重化である。 | `TestCILintJobValidatesLefthookConfig` |
 | lefthook.yml は go.mod でピン留めしたバージョンの lefthook が受け付ける形でなければならない。 | `TestLefthookConfigIsValid` |
 | hook 実行時のバージョンは go.mod に固定する。指定が無いと hook スクリプトの探索順で PATH 上の lefthook が go tool lefthook より先に選ばれる。 | `TestLefthookPinsVersionToGoTool` |
 | pre-commit の lint は HEAD からの差分だけを対象にする。作業ツリー全体を無条件に検査すると、コミット済みの既存指摘 1 件で以後のコミットが落ち続ける。 | `TestLefthookPreCommitLintIsScopedToDiff` |
-| pre-commit は `parallel: false` で同時実行を止め、実行順を `priority` で固定する。`parallel: false` は同時実行を止めるだけで順序を決めず、priority が未指定だと commands のキー名の比較に依存する。`fmt` → `lint` → `linterly` の順序も検査する（fmt が整形した結果をlint が読むため）。 | `TestLefthookPreCommitOrderIsPinnedByPriority` |
+| pre-commit は `parallel: false` で同時実行を止め、実行順を `priority` で固定する。`parallel: false` は同時実行を止めるだけで順序を決めず、priority が未指定だと commands のキー名の比較に依存する。`fmt` → `lint` → `linterly` の順序も検査する（fmt が整形した結果を lint が読むため）。 | `TestLefthookPreCommitOrderIsPinnedByPriority` |
 | 対象を絞れない・絞る必要のないコマンドは make ターゲットを経由し、コマンド列の二重管理を作らない。逆にスコープが必要なコマンドは make を経由しない。 | `TestLefthookRoutesUnscopedCommandsThroughMake` |
 | 仕様書のコードブロックと設定ファイルの実体は一致していなければならない。片方だけを直すと、仕様書を読んで再現した環境が実体と食い違う。 | `TestSetupDocEmbedsConfigFilesVerbatim` |
 | `docs/` 配下の改訂履歴を持つ全文書について、版番号が重複せず昇順でなければならない。 | `TestDocRevisionHistoryVersionsUniqueAndAscending` |
 | `docs/` 配下の改訂履歴を持つ全文書について、表の 1 行が上限（1500 文字）に収まらなければならない。表のセルは改行を持てないので、欄が伸びると 1 文字の修正でも行まるごとが差分に出る。**検査は言い回しを一切見ず、文字数だけを見る**（方針は下記「改訂履歴の欄は要約と参照に留める」）。 | `TestDocRevisionHistoryRowsFitInBudget` |
-| 実装にある層をまたぐ直接 import は、すべて依存グラフに辺として描かれていなければならない。図の UI 内部の辺は散文が例外として名指しする `UIApp --> UIParts` の 1 本だけで、`subgraph UI` にUI 層でないノードが混ざらないことも見る。 | `TestDependencyGraphDrawsEveryCrossLayerImport` |
+| 実装にある層をまたぐ直接 import は、すべて依存グラフに辺として描かれていなければならない。図の UI 内部の辺は散文が例外として名指しする `UIApp --> UIParts` の 1 本だけで、`subgraph UI` に UI 層でないノードが混ざらないことも見る。 | `TestDependencyGraphDrawsEveryCrossLayerImport` |
 | 依存グラフの辺は、すべて実装の直接 import に裏付けられていなければならない。 | `TestDependencyGraphHasNoStaleEdge` |
 | モジュールの全パッケージが、依存グラフのノード対応表のいずれかのプレフィックスに一致しなければならない。最長プレフィックス一致なので、既存のどれにも当たらない新しい最上位ツリーだけが落ちる。 | `TestEveryPackageIsMappedToGraphNode` |
 | 畳んだノード（`UIApp` / `UIParts`）の散文の列挙が、実装の `internal/ui` 直下のパッケージと一致しなければならない。 | `TestCollapsedUINodesMatchDoc` |
 | 行数の予算の 2 つの表が `go tool linterly check` の実測と一致していなければならない（行数・残り・判定と、行数の多い順の並び）。 | `TestLineBudgetTablesMatchLinterly` |
-| `budgetProseDocs` が挙げる 2 文書の散文は、行数の実測値を数値で持ってはならない（`残り N` と`N 行` が現れない）。免除と除外の詳細は docs/ui/atomic-design.md の「行数の実測値は表だけが持つ」が持つ。 | `TestLineBudgetProseHasNoMeasuredNumbers` |
+| `budgetProseDocs` が挙げる 2 文書の散文は、行数の実測値を数値で持ってはならない（`残り N` と `N 行` が現れない）。免除と除外の詳細は docs/ui/atomic-design.md の「行数の実測値は表だけが持つ」が持つ。 | `TestLineBudgetProseHasNoMeasuredNumbers` |
 | 同じ 2 文書の散文は、行数の合計を式で書いてはならない（数が演算子で 2 つ以上連なった形）。拾う形と除外の詳細は docs/ui/atomic-design.md の「行数の実測値は表だけが持つ」が持つ。 | `TestLineBudgetProseHasNoSumExpressions` |
 | 合計の式の検出は、行数の式だけを拾い、行数以外の算術（すべて 2 以下の式・ISO 形式の日付・数の間に語を挟んだ列幅の見積もり）を拾わない。検出の両方向を固定する単体テストである。 | `TestProseMeasuredSumMatchesOnlyLineTotals` |
 | 仕様書の nolint 棚卸しは、現在のツリーの実態と一致していなければならない。 | `TestSetupDocNolintInventoryMatchesTree` |
 | `//nolint` の棚卸しの突き合わせが数えるのは実際の抑制ディレクティブだけで、散文の言及や文字列リテラルは数えない。 | `TestCountNolintInTreeIgnoresDocCommentsAndStringLiterals` |
-| この表が挙げるテストの集合と、`internal/buildconfig` 直下および `internal/buildconfig/docscheck` のテスト関数の集合が一致する（表に無い検査と、実装に無い表の行の両方向）。テスト名は**右カラムからだけ**読むので、説明カラムでの言及は「表に載っている」と数えない。`internal/buildconfig` 配下を**深さを問わず**辿り、範囲外のディレクトリがテストを持ったら落ちる。 | `TestSetupDocInvariantTableListsEveryTest` |
-| この表の各行の説明が、その行が挙げるテストの doc コメントの要約段落（最初の空行まで）と一致する。不変条件を述べるのは doc コメントだけとし、表はその写しに徹する——ずれたときに直すのは表の側である。 | `TestSetupDocInvariantTableDescriptionsMatchDocComments` |
+| この表が挙げるテストの集合と、`internal/buildconfig` 直下・`internal/buildconfig/docscheck`・`internal/buildconfig/docscheck/linebudget` のテスト関数の集合が一致する（表に無い検査と、実装に無い表の行の両方向）。テスト名は**右カラムからだけ**読むので、説明カラムでの言及は「表に載っている」と数えない。`internal/buildconfig` 配下を**深さを問わず**辿り、範囲外のディレクトリがテストを持ったら落ちる。 | `TestSetupDocInvariantTableListsEveryTest` |
+| この表の各行の説明が、その行が挙げるテストの doc コメントの要約段落（最初の空行まで）と ASCII 空白の有無を除いて一致する。不変条件を述べるのは doc コメントだけとし、表はその写しに徹する——ずれたときに直すのは表の側である。 | `TestSetupDocInvariantTableDescriptionsMatchDocComments` |
 
 **説明カラムはテストの doc コメントの写しである。** 1 行が挙げるのは 1 検査で、左カラムはその doc コメントの**要約段落**（最初の空行まで）と 1 文字違わず一致する。`TestSetupDocInvariantTableDescriptionsMatchDocComments` が突き合わせ、ずれたら**直すのは表の側である**。理由の詳細（破られたときに何が起きるか）は要約段落より後ろにあり、表には持たせない。
 
@@ -843,6 +843,7 @@ pre-push:
 | 1.42 | 2026-08-25 | Issue #170 を反映。「改訂履歴の欄は要約と参照に留める」を新設し、改訂履歴の書き方について採る方針（長大な欄は「改訂の詳細」節の小節へ出し、表には要約と参照だけを残す）と上限（1 行 1500 文字）、および Issue #170 が挙げた残る 2 案を採らなかった理由を記録した。不変条件テストの一覧表へ `TestDocRevisionHistoryRowsFitInBudget` の行を足し、本書自身の長大な欄 2 版ぶんを小節へ出した | 表のセルは改行を持てないため、欄が伸びると 1 文字の修正でもその行がまるごと差分に出る。検査は**上限を超える行が無いこと**だけを見る形にした——「書きすぎた欄」を文言のパターンで拾う手が収束しないことは、行数の散文の検査が 2 周かけて確かめている |
 | 1.43 | 2026-08-25 | Issue #174 を反映。不変条件テスト一覧表を **1 行 1 検査**にし（2 つのテストを挙げていた 6 行を分けた）、説明カラムを各テストの doc コメントの**要約段落**（最初の空行まで）の写しに揃えた。`TestSetupDocInvariantTableDescriptionsMatchDocComments` が一致を突き合わせる。採った案と、弱い照合の案を採らなかった理由を表の直後の 3 段落に記録した。あわせて doc コメント側の陳腐化を直した——nolintlint の要約が設定にも検査にも無い「行単位」を挙げ、実際に検査している `allow-unused: false` を落としていた（PR #173 が表の側だけを直していた）ほか、`TestGolangciDoesNotTruncateIssues` の既定値が `50 / 3` の逆順だった | 集合の一致だけでは各行の説明の陳腐化を止められず、PR #173 のレビューが 2 周で計 10 行ぶんの食い違いを見つけていた。**表が網羅であると宣言して一次情報になった以上、説明の過大申告は危険側である**。写しを 1 つに減らせば照合は完全一致でよく、言い回しを列挙して収束しない検査を組み立てずに済む |
 | 1.44 | 2026-08-25 | Issue #171 を反映。行数の予算の検査を `internal/buildconfig/docscheck/linebudget` へ分けたことに合わせ、検査の置き場の規約を 3 ディレクトリ（＋共有ヘルパの `buildconfigtest`）へ更新し、不変条件テスト一覧表の範囲の記述もそろえた | 置き場の規約が古いと、次に検査を足す Issue が対象と合わないディレクトリを選ぶ。範囲の記述は `TestSetupDocInvariantTableListsEveryTest` が見る範囲そのものなので、実装と食い違わせられない |
+| 1.45 | 2026-08-25 | PR #176 のレビュー指摘（major 8 件）のうち本書に掛かるぶんを反映。(1) 不変条件テスト一覧表の `TestSetupDocInvariantTableListsEveryTest` の行が範囲を `internal/buildconfig` 直下と `docscheck` の **2 つ**としていたのを、実装どおり `docscheck/linebudget` を含む **3 つ**へ直した（写し元である doc コメントの側を直し、表を作り直した）。(2) doc コメントの折り返しを 1 行に詰める規則が **英数字と日本語が隣り合う折り返しで空白を落としていた**ため、表の説明 2 行に `root相当まで` / `self-hosted runnerではモジュール` が入っていたのを直した | (1) は表が「網羅である」と宣言して読み手の一次情報になっている以上、範囲の過小申告は危険側である——`docscheck/linebudget` の 4 本は表に載っているのに、同じ表の行が「範囲は 2 つ」と述べており、本節 :414 / :416 の記述とも食い違っていた。(2) は**写しを 1 つに減らす**という本節の方針そのものの穴で、doc コメントの折り返し位置という体裁の選択が文書の本文を黙って書き換えていた。突き合わせを ASCII 空白に対して盲目にし、詰めるときに空白を足さない形へ変えたので、この経路は塞がった（検査の振る舞い自体の記録は [TUI コンポーネント設計](../ui/atomic-design.md#改訂履歴)の改訂 1.109 が持つ） |
 
 **版番号は表への追加順ではなく、その変更が入った時点で採番している。** 1.22 の日付が直前の 1.21 より古いのはこのためである。1.22 の行はもともと重複した `1.8` として記録されており（`feat/#1` の取り込み時に 2 つの `1.8` を両方残したまま解消した）、重複を解消する際に、既に使われている 1.9〜1.21 と衝突しない番号として 1.22 を割り当てた。既存行の版番号を繰り下げないのは、他の行の変更理由が版番号で参照している箇所（1.12 / 1.13）まで書き換えることになるためである。
 

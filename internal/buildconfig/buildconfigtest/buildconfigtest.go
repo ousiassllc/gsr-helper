@@ -1,16 +1,17 @@
 // Package buildconfigtest は buildconfig の検査群が共有する道具を置く。
 //
-// `internal/buildconfig`（ビルド設定の検査）と `internal/buildconfig/docscheck`
-// （ドキュメントの検査）は、増え方が違い互いに依存も無いためディレクトリを分けた
-// （Issue #161。判断は atomic-design.md の「`internal/buildconfig` を 2 つに分けた判断」）。
-// 分けると _test.go の中のヘルパは共有できなくなるので、両方から import できる
-// 通常のパッケージをここに置く。**同じ形の先例は `page/pagetest` /
+// `internal/buildconfig`（ビルド設定の検査）・`internal/buildconfig/docscheck`
+// （ドキュメントの検査）・`internal/buildconfig/docscheck/linebudget`（行数の予算の検査）は、
+// 増え方が違い互いに依存も無いためディレクトリを分けた（Issue #161 と Issue #171。判断は
+// atomic-design.md の「`internal/buildconfig` を 2 つに分けた判断」と「`docscheck` から
+// 行数の予算の検査を分けた判断」）。分けると _test.go の中のヘルパは共有できなくなるので、
+// **3 者のどれからも import できる**通常のパッケージをここに置く。**同じ形の先例は `page/pagetest` /
 // `organism/table/tabletest` / `setup/setuptest` である**（本番から import できて
 // しまう代償も同じなので、`page/pagetest/import_test.go` の `fixtures` へ登録して
 // 検査の網に入れてある）。
 //
-// 置くのは**両方が使う道具だけ**にすること。片方しか使わない道具をここへ寄せると、
-// 分けた意味（増え方の違う 2 つを別々に育てる）が消え、このディレクトリが 3 つ目の
+// 置くのは**複数が使う道具だけ**にすること。1 つしか使わない道具をここへ寄せると、
+// 分けた意味（増え方の違うものを別々に育てる）が消え、このディレクトリがもう 1 つの
 // 逼迫する置き場になる。
 package buildconfigtest
 

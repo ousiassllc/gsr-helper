@@ -71,8 +71,9 @@ func golangciLintBinary(t *testing.T) string {
 	return strings.TrimSpace(string(out))
 }
 
-// 抑制には理由コメントとリンター名が必須で、不要になった抑制も検出される。nolintlint を
-// `require-explanation` / `require-specific` / `allow-unused: false` の 3 つすべて有効で使う。
+// 抑制には理由コメントとリンター名が必須で、不要になった抑制も検出
+// される。nolintlint を `require-explanation` / `require-specific` / `allow-unused: false` の 3 つ
+// すべて有効で使う。
 func TestGolangciEnablesNolintlint(t *testing.T) {
 	cfg := loadGolangciConfig(t)
 
@@ -203,8 +204,7 @@ func TestGolangciEnablesGci(t *testing.T) {
 // 自前パッケージが標準ライブラリのグループに混ざった import が、リポジトリの `.golangci.yml` で
 // 実際に落ちる。gofmt はグループ内を並べ替えるだけなので `make fmt-check` では検出できない。
 //
-// gofmt はグループ内を並べ替えるだけでグループ分けは直さないため、この形は gofmt でも
-// `make fmt-check` でも検出できない（Issue #119）。フィクスチャの import はアルファベット順に
+// この死角は Issue #119 で実際に踏んでいる。フィクスチャの import はアルファベット順に
 // 並んでいるので、指摘が出るとすれば gci だけである。
 func TestGolangciLintRejectsMisgroupedImports(t *testing.T) {
 	bin := golangciLintBinary(t)

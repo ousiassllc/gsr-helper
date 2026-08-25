@@ -99,10 +99,10 @@ func TestLefthookRoutesUnscopedCommandsThroughMake(t *testing.T) {
 	}
 }
 
-// pre-commit は `parallel: false` で同時実行を止め、実行順を `priority` で固定する。
-// `parallel: false` は同時実行を止めるだけで順序を決めず、priority が未指定だと commands の
-// キー名の比較に依存する。`fmt` → `lint` → `linterly` の順序も検査する（fmt が整形した結果を
-// lint が読むため）。
+// pre-commit は `parallel: false` で同時実行を止め、実行順を `priority` で
+// 固定する。`parallel: false` は同時実行を止めるだけで順序を決めず、priority が
+// 未指定だと commands のキー名の比較に依存する。`fmt` → `lint` → `linterly` の順序も
+// 検査する（fmt が整形した結果を lint が読むため）。
 func TestLefthookPreCommitOrderIsPinnedByPriority(t *testing.T) {
 	pre := loadLefthookConfig(t).PreCommit
 

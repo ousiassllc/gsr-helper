@@ -48,8 +48,8 @@ func TestLinterlyDisablesUpdateCheck(t *testing.T) {
 }
 
 // 行数上限は linterly の既定値のまま使う（上限に当たったら数値を上げるのではなく分割する）。
-// あわせて `count_mode: all` と `warning_threshold` が存在することも見る——`rules:` が空になると
-// `rules section is required` で exit 2 になるため、既定値と同じ値でも消せない。
+// あわせて `count_mode: all` と `warning_threshold` が存在することも見る——`rules:` が
+// 空になると `rules section is required` で exit 2 になるため、既定値と同じ値でも消せない。
 func TestLinterlyKeepsDefaultLineLimits(t *testing.T) {
 	cfg := loadLinterlyConfig(t)
 

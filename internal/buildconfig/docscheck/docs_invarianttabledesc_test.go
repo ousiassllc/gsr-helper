@@ -6,15 +6,21 @@ import (
 	"go/token"
 	"strings"
 	"testing"
-	"unicode"
-	"unicode/utf8"
 
 	"github.com/ousiassllc/gsr-helper/internal/buildconfig/buildconfigtest"
 )
 
-// この表の各行の説明が、その行が挙げるテストの doc コメントの要約段落（最初の空行まで）と
-// 一致する。不変条件を述べるのは doc コメントだけとし、表はその写しに徹する——ずれたときに
-// 直すのは表の側である。
+// この表の各行の説明が、その行が挙げるテストの doc コメントの要約段落
+// （最初の空行まで）と ASCII 空白の有無を除いて一致する。不変条件を述べるのは doc コメントだけとし、
+// 表はその写しに徹する——ずれたときに直すのは表の側である。
+//
+// **空白を見ないのは、この検査が見張るのが言い回しと意味のずれだからである。** doc コメントは
+// 日本語を桁で折り返すので、どこで改行するかは書き手がそのとき選ぶ。空白まで一致を求めると、
+// **折り返し位置を変えただけで文書の本文が黙って書き換わる**——実際、以前の「折り返しの前後が
+// どちらも英数字のときだけ空白を挟む」規則は、英語の語が日本語と隣り合って折り返されたときに
+// 空白を落とし、`root相当まで` / `self-hosted runnerではモジュール` を setup.md へ書き込んでいた
+// （PR #176 のレビュー）。空白に対して盲目にすれば、Go 側の改行の都合が文書の文字列を書き換える
+// 経路そのものが無くなる。空白の入れ方は文書の側の体裁の問題として、文書が持つ。
 //
 // TestSetupDocInvariantTableListsEveryTest が機械的に守っているのは**テスト名の集合だけ**で、
 // 各行が述べる「守っている不変条件」そのものは検査の外にあった。PR #173 のレビューは、その説明が
@@ -50,7 +56,7 @@ func TestSetupDocInvariantTableDescriptionsMatchDocComments(t *testing.T) {
 			t.Errorf("%s に doc コメントが無い（何を守る検査かを要約段落に書くこと）", name)
 			continue
 		}
-		if row.desc != summary {
+		if withoutSpaces(row.desc) != withoutSpaces(summary) {
 			t.Errorf("setup.md:%d: %s の行の説明が doc コメントの要約段落と一致しない。"+
 				"直すのは表の側である\n  表:       %s\n  コメント: %s", row.line, name, row.desc, summary)
 		}
@@ -64,9 +70,10 @@ func TestSetupDocInvariantTableDescriptionsMatchDocComments(t *testing.T) {
 // 同じ 2 文を持っていた。理由の詳細（破られたときに何が起きるか）は空行より後ろにあり、
 // 表には持たせない。
 //
-// doc コメントは日本語を桁で折り返すので、改行は詰めて 1 行に戻す。**ただし折り返しの
-// 前後がどちらも英数字のときだけ空白を挟む**——`persist-credentials` のような識別子が
-// 行をまたいだときに、詰めると語が繋がってしまうためである。
+// doc コメントは日本語を桁で折り返すので、改行は詰めて 1 行に戻す。**詰めるときに空白は
+// 一切足さない**——足すかどうかを文字種から当てる規則は、当てそこねたぶんだけ文書の本文を
+// 書き換えてしまう。要約段落の折り返しは日本語どうしの切れ目に置く決まりにしてあり、
+// 突き合わせも空白を見ないので、詰めた結果が文書とずれても本文が壊れることはない。
 func invariantTestDocSummaries(t *testing.T, root string) map[string]string {
 	t.Helper()
 
@@ -85,34 +92,24 @@ func invariantTestDocSummaries(t *testing.T, root string) map[string]string {
 			summaries[fn.Name.Name] = docSummary(fn.Doc)
 		}
 	}
+	if len(summaries) == 0 {
+		t.Fatalf("%v から doc コメントを 1 件も読み取れなかった（検査の置き場が変わった可能性がある）",
+			invariantTableDirs)
+	}
 	return summaries
 }
 
 // docSummary は doc コメントの要約段落を 1 行に詰めて返す。コメントが無ければ空文字を返す。
+// 詰めるときに空白は足さない。
 func docSummary(doc *ast.CommentGroup) string {
 	if doc == nil {
 		return ""
 	}
 	para, _, _ := strings.Cut(doc.Text(), "\n\n")
-	var b strings.Builder
-	for _, line := range strings.Split(strings.TrimSpace(para), "\n") {
-		if b.Len() > 0 && isASCIIWordBoundary(b.String(), line) {
-			b.WriteString(" ")
-		}
-		b.WriteString(line)
-	}
-	return b.String()
+	return strings.Join(strings.Split(strings.TrimSpace(para), "\n"), "")
 }
 
-// isASCIIWordBoundary は詰めた行の末尾と次の行の先頭がどちらも英数字かどうかを返す。
-func isASCIIWordBoundary(joined, next string) bool {
-	if next == "" {
-		return false
-	}
-	prev, _ := utf8.DecodeLastRuneInString(joined)
-	head, _ := utf8.DecodeRuneInString(next)
-	isWord := func(r rune) bool {
-		return r < utf8.RuneSelf && (unicode.IsLetter(r) || unicode.IsDigit(r))
-	}
-	return isWord(prev) && isWord(head)
+// withoutSpaces は ASCII 空白（U+0020）をすべて取り除く。突き合わせの前に両側へ掛ける。
+func withoutSpaces(s string) string {
+	return strings.ReplaceAll(s, " ", "")
 }
