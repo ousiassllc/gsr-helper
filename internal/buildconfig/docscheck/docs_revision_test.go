@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -100,7 +99,7 @@ func checkRevisionVersions(t *testing.T, name, table string) {
 	seen := map[string]bool{}
 	prevMajor, prevMinor := -1, -1
 	for _, m := range revisionRow.FindAllStringSubmatch(table, -1) {
-		major, minor := atoi(t, m[1]), atoi(t, m[2])
+		major, minor := buildconfigtest.Atoi(t, m[1]), buildconfigtest.Atoi(t, m[2])
 		v := m[1] + "." + m[2]
 		if seen[v] {
 			t.Errorf("%s: 改訂履歴に版 %s の行が複数ある", name, v)
@@ -112,13 +111,4 @@ func checkRevisionVersions(t *testing.T, name, table string) {
 		}
 		prevMajor, prevMinor = major, minor
 	}
-}
-
-func atoi(t *testing.T, s string) int {
-	t.Helper()
-	n, err := strconv.Atoi(s)
-	if err != nil {
-		t.Fatalf("版番号 %q を数値にできない: %v", s, err)
-	}
-	return n
 }

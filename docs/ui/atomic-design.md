@@ -1181,7 +1181,6 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 
 | ディレクトリ | 行数 | 残り | 判定 |
 |------------|------|------|------|
-| `internal/buildconfig/docscheck` | 2158 | -158 | warn |
 | `internal/setup/tarball` | 1999 | 1 | pass |
 | `internal/logs` | 1998 | 2 | pass |
 | `internal/gh` | 1996 | 4 | pass |
@@ -1191,6 +1190,7 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 | `internal/exec/command` | 1853 | 147 | pass |
 | `internal/runner` | 1704 | 296 | pass |
 | `internal/doctor/jobreq` | 1495 | 505 | pass |
+| `internal/buildconfig/docscheck` | 1441 | 559 | pass |
 | `internal/audit` | 1393 | 607 | pass |
 | `internal/doctor/hostres` | 1383 | 617 | pass |
 | `internal/appconfig` | 1381 | 619 | pass |
@@ -1203,6 +1203,7 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 | `internal/doctor/check` | 807 | 1193 | pass |
 | `internal/appconfig/confpath` | 782 | 1218 | pass |
 | `internal/setup/job` | 781 | 1219 | pass |
+| `internal/buildconfig/docscheck/linebudget` | 728 | 1272 | pass |
 | `internal/config/fileio` | 708 | 1292 | pass |
 | `internal/doctor` | 681 | 1319 | pass |
 | `internal/config/envfile` | 641 | 1359 | pass |
@@ -1219,11 +1220,11 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 | `internal/disk/pathguard` | 288 | 1712 | pass |
 | `internal/setup/setuptest` | 178 | 1822 | pass |
 | `internal/runner/scope` | 165 | 1835 | pass |
-| `internal/buildconfig/buildconfigtest` | 44 | 1956 | pass |
+| `internal/buildconfig/buildconfigtest` | 61 | 1939 | pass |
 
 **残りが 1 桁のディレクトリがどれかは、上下 2 つの行数表の `残り` 列が示す。** 数をここへ写さないのは、写しが増えるほど古くなる場所が増えるからである。**残りが 1 桁のディレクトリへ 1 行でも足す Issue は、足す前に空けること。** 残りが 1 桁でも警告帯に入っていなければ `make check` は通るが、**通ることと余裕があることは違う。**
 
-**警告帯に入っているディレクトリがあるかどうかも、同じ表の `判定` 列（`warn`）が示す。** 直近で警告帯へ入ったディレクトリと、そこから出した Issue の判断は下記に節がある——`internal/buildconfig`（Issue #161。「`internal/buildconfig` を 2 つに分けた判断」）、`ui/page`（Issue #155 で入り Issue #159 が出した。「`ui/page` を警告帯へ入れた判断」「Issue #159 の空け方」）、`ui/page/pagetest` / `ui/page/config` / `ui/page/logs`（Issue #147。「Issue #147 の空け方」）、`ui` 直下（Issue #139 / #148。「9 周目の空け方」「10 周目の空け方」）。**`ui/page/runners` は Issue #155 の時点で残りを使い切っていた**のを Issue #159 が空け直した（同じ節。その前に Issue #150 が `cmdtest` の締め切りへの追従で `page/config` と `page/runners` の両方を押し上げていた）。
+**警告帯に入っているディレクトリがあるかどうかも、同じ表の `判定` 列（`warn`）が示す。** 直近で警告帯へ入ったディレクトリと、そこから出した Issue の判断は下記に節がある——`internal/buildconfig`（Issue #161。「`internal/buildconfig` を 2 つに分けた判断」）、`internal/buildconfig/docscheck`（Issue #171。「`docscheck` から行数の予算の検査を分けた判断」）、`ui/page`（Issue #155 で入り Issue #159 が出した。「`ui/page` を警告帯へ入れた判断」「Issue #159 の空け方」）、`ui/page/pagetest` / `ui/page/config` / `ui/page/logs`（Issue #147。「Issue #147 の空け方」）、`ui` 直下（Issue #139 / #148。「9 周目の空け方」「10 周目の空け方」）。**`ui/page/runners` は Issue #155 の時点で残りを使い切っていた**のを Issue #159 が空け直した（同じ節。その前に Issue #150 が `cmdtest` の締め切りへの追従で `page/config` と `page/runners` の両方を押し上げていた）。
 
 ##### `internal/disk` から `pathguard` を切り出した判断（Issue #101）
 
@@ -1360,6 +1361,21 @@ Issue #155 が残した 2 つ——当時の `ui/page` 2003 行（残り -3 行�
 **1 ファイル 300 行の側はほとんど動いていない。** 分割の前後で最大は変わらず、ビルド設定側が `golangci_test.go`、ドキュメント側が `docs_deppkg_test.go` で、どちらも数行の増加にとどまり警告帯 301〜330 行の外である（その後 Issue #164 が足した検査——`docs_linebudget_test.go` と `docs_linebudgetprose_test.go`——がドキュメント側の最大を更新している。**ファイル単位の実測は `go tool linterly check` の出力を見よ**）。移した `docs_nolint_test.go` は分割当時 **183 行**で、どちらの側でも首位にならなかった。
 
 **次に `internal/buildconfig` へテストを足す Issue へ。** 3 つの残りは上記「行数の予算」の行数表を見よ。**行数表の残りを超える追加が要るなら足す前に空けること。** **足す先は対象で選ぶこと**——設定ファイルの不変条件は `buildconfig`、ドキュメントの不変条件は `docscheck` である。`buildconfigtest` へ置いてよいのは**両方が使う道具だけ**で、片方しか使わないものをここへ寄せると分けた意味（増え方の違う 2 つを別々に育てる）が消え、3 つ目の逼迫する置き場になる。
+
+##### `docscheck` から行数の予算の検査を分けた判断（Issue #171）
+
+着手時点では 2158 行（残り -158 行・warn）だった。上限値は緩めず、4 つの手のうち **(4) テスト側（検査そのもの）をパッケージ境界で別ディレクトリへ分ける**を採り、行数の予算の検査を `internal/buildconfig/docscheck/linebudget` へ出した（**当時 727 行・残り 1273 行**）。残った `docscheck`（**当時 1441 行・残り 559 行**）が持つのは依存グラフ・`//nolint` 棚卸し・改訂履歴・設定ファイルの埋め込み・不変条件テスト一覧表の 5 種類である。
+
+**境界は実測で引けた。** 分ける前の 14 ファイルのうち、行数の予算の 4 ファイル（`docs_linebudget_test.go` / `docs_linebudgetdoc_test.go` / `docs_linebudgetprose_test.go` / `docs_linebudgetsum_test.go`）が他のファイルと共有していた識別子は**表から読んだ数値を `int` にするヘルパ 1 つだけ**で、逆向き（他のファイルがこの 4 つの中の識別子を使う）は 1 つも無かった。**(1) 本番の一部を切り出す手は当たらない**——このディレクトリは実行時のコードを 1 行も持たないためである。
+
+**共有ヘルパは写さず (3) と組み合わせて出した。** 改訂履歴の版番号を読む検査も同じヘルパを使うので、`internal/buildconfig/buildconfigtest` へ `Atoi` として出した（`RepoRoot` に続く 2 つ目である。**当時 61 行**）。**写して 2 つにすると片方だけが直る。** `buildconfigtest` の doc コメントが「置くのは複数が使う道具だけ」と定めているのは、片方しか使わない道具を寄せるとこのディレクトリ自身が逼迫する置き場になるからで、`Atoi` は 3 つのうち 2 つが使うので条件を満たす。
+
+**分けたのが行数の予算の側なのは、そこが最も速く伸びているからである。** Issue #164 / #167 / #169 が続けて検査を足しており、この 4 ファイルだけで分ける前の 3 分の 1 を占めていた。依存グラフの 4 ファイルも同じくらいの大きさで自己完結しているが、そちらは Issue #151 以降ほとんど動いていない。**空きは伸びる側へ渡すほうが利く**——どちらを出しても残る側の残りはほぼ同じだが、出した側に渡る 1273 行を使うのは行数の予算の検査だからである。
+
+**分けても合計は増える。** 分けた当時は 2158 行が 1441 + 727 = **2168 行**（+10）になった。増えたのは新設した `linebudget/doc.go` の doc コメントと package 宣言・import で、`buildconfigtest` へ出したヘルパはあちらで doc コメントを得たぶん数行増えている。
+
+**次に検査を足す Issue へ。** 残りは上記「行数の予算」の行数表を見よ。行数の予算に関わる検査は `docscheck/linebudget` へ、それ以外のドキュメントの検査は `docscheck` へ足すこと（[開発環境セットアップ](../environment/setup.md#設定ファイルの不変条件をテストで守る)の「新しい検査を足すときは対象に合わせて前の 3 つのどれかを選ぶこと」）。**足したら同じ変更で不変条件テスト一覧表にも行を足す**——`TestSetupDocInvariantTableListsEveryTest` が集合の一致を、`TestSetupDocInvariantTableDescriptionsMatchDocComments` が説明と doc コメントの一致を機械的に見る。
+
 
 ##### Issue #140 / #141 / #142 の判断——警告帯へ入れて回帰テストを足した
 
@@ -1737,6 +1753,7 @@ Issue #31 で `table_test.go` の空振りしていたテスト（`View() != ""`
 | 1.105 | 2026-08-25 | Issue #170 を反映。改訂履歴の長大な欄を `## 改訂履歴` の下の「改訂の詳細」節へ `#### 改訂 N.M` の小節として出し、表には要約 1 文とその小節への参照だけを残した（本書は 27 版ぶん）。**移したのは格納の形だけで、本文は 1 文字も落としていない**——列挙の `(1)` `(a)` はマーカーごと箇条書きへ移してあるので、欄の中の相互参照（「(5) は…」）もそのまま辿れる。上限（1 行 1500 文字）と方針、および採らなかった 2 案の理由は[開発環境セットアップ](../environment/setup.md#改訂履歴の欄は要約と参照に留める)の「改訂履歴の欄は要約と参照に留める」に記録した。あわせて 2 つの行数表を実測へ更新した（`internal/buildconfig/docscheck` が本 Issue の検査 1 本で警告帯に入ったため。空け方は Issue #171 が決める） | 表のセルは改行を持てないため、欄が伸びると 1 文字の修正でもその行がまるごと変更行として差分に出る。版を足すたびに長大な行が積まれるので、放っておくと編集とレビューのコストは伸びる一方である。詳細を PR へ委ねる案を採らなかったのは、**改訂履歴が「過去の値」の置き場として本書自身に名指しされている**（上記「過去の値は実測へ寄せない」）ためで、当時の実測値と経緯がリポジトリの外へ出ると Issue #164 / #167 / #169 が辿った一次情報の経路が切れる |
 | 1.106 | 2026-08-25 | Issue #172 を反映。`internal/buildconfig` の検査 5 本（`TestFmtCheckDetectsUnformatted` / `TestLefthookConfigIsValid` / `TestCIConcurrencyIsScopedAndKeepsPushRuns` / `TestDependabotWatchesGitHubActions` / `TestGolangciLintRejectsCharmV1Import`）の doc コメントに、その不変条件が要る理由を書いた。増えた行数を「行数の予算」の非 UI の表へ反映した（`internal/buildconfig`） | doc コメントは検査の対象ではなく行数だけが動くため、表と実測がずれる。行数の実測値は表だけが持つので、ここでは数を書かず上記「行数の予算」の行数表を見よ |
 | 1.107 | 2026-08-25 | Issue #174 を反映。不変条件テスト一覧表の説明をテストの doc コメントの写しに寄せた変更で `internal/buildconfig` と `internal/buildconfig/docscheck` の行数が動いたため、「行数の予算」の非 UI の表を実測へ更新した。あわせて `docs_invarianttable_test.go` が 1 ファイル 300 行の ERROR 帯（331 行以上）へ入ったので、新しい検査とその道具を `docs_invarianttabledesc_test.go` へ分けた | 行数の実測値は表だけが持つので、ここでは数を書かず上記「行数の予算」の行数表を見よ。`docscheck` の空け方の判断は Issue #171 が決める |
+| 1.108 | 2026-08-25 | Issue #171 を反映。`internal/buildconfig/docscheck` の空け方として **4 つの手のうち (4)（テスト側をパッケージ境界で別ディレクトリへ分ける）**を採り、行数の予算の検査 4 ファイルを `internal/buildconfig/docscheck/linebudget` へ出した。共有していたヘルパ 1 つは (3) と組み合わせて `buildconfigtest` へ `Atoi` として出した。判断と理由（境界を実測で引いた根拠、伸びている側へ空きを渡す理由、分けても合計が増えること）を「`docscheck` から行数の予算の検査を分けた判断（Issue #171）」の節に記録し、警告帯の節の列挙と 2 つの行数表を実測へ更新した | 検査を足すことが規約で強制されている以上このディレクトリは伸び続ける。「行数の予算」は警告帯へ入る前に空け方を決めて判断を節に残すことを求めており、その判断を検査を足す Issue の差分に混ぜると PR の意図が読めなくなる |
 
 ### 改訂の詳細
 

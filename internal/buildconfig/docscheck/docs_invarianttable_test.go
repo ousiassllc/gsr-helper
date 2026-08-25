@@ -25,16 +25,17 @@ const invariantTableHeader = "| 守っている不変条件 | 破ったときに
 // invariantTableRootDir は検査を置くディレクトリの親（リポジトリルートからの相対）。
 const invariantTableRootDir = "internal/buildconfig"
 
-// invariantTableDirs は一覧表が範囲とする 2 ディレクトリ（リポジトリルートからの相対）。
+// invariantTableDirs は一覧表が範囲とする 3 ディレクトリ（リポジトリルートからの相対）。
 //
-// setup.md の「**この表が挙げるのは `internal/buildconfig` とその `docscheck` に置いた
-// ものだけである。**」で始まる段落がこの 2 つを定めている。`buildconfigtest` は両者が
+// setup.md の「**この表が挙げるのは `internal/buildconfig` と、その `docscheck` および
+// `docscheck/linebudget` に置いたものだけである。**」で始まる段落がこの 3 つを定めている。`buildconfigtest` は 3 つが
 // 共有する道具（`RepoRoot`）の置き場であって検査ではないので、表にも載らないし、ここにも
 // 挙げない。**この一覧が実態から遅れたことは invariantTestFiles が知らせる**——`docscheck`
 // 自体が Issue #161 の分割で生まれており、再分割は現実に起こりうる。
 var invariantTableDirs = []string{
 	filepath.FromSlash(invariantTableRootDir),
 	filepath.Join(filepath.FromSlash(invariantTableRootDir), "docscheck"),
+	filepath.Join(filepath.FromSlash(invariantTableRootDir), "docscheck", "linebudget"),
 }
 
 // invariantTableTestName は表のセルに現れるバッククォートで囲んだテスト名。
@@ -107,8 +108,9 @@ func invariantTestFiles(t *testing.T, root string) []string {
 			}
 			if !slices.Contains(invariantTableDirs, dir) {
 				t.Fatalf("%s がテストを持っているが invariantTableDirs に無い"+
-					"——一覧表の範囲（setup.md の「**この表が挙げるのは `internal/buildconfig` と"+
-					"その `docscheck` に置いたものだけである。**」で始まる段落）と検査の範囲がずれた。"+
+					"——一覧表の範囲（setup.md の「**この表が挙げるのは `internal/buildconfig` と、"+
+					"その `docscheck` および `docscheck/linebudget` に置いたものだけである。**」で始まる段落）と"+
+					"検査の範囲がずれた。"+
 					"このディレクトリを invariantTableDirs へ足して表にも行を足すか、"+
 					"setup.md の範囲の記述を直すこと", dir)
 			}

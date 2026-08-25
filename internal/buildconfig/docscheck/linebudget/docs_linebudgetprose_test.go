@@ -1,4 +1,4 @@
-package docscheck
+package linebudget
 
 import (
 	"regexp"
@@ -91,6 +91,7 @@ var budgetProseExcluded = []string{
 	"##### Issue #159 の空け方——`ui/page` を警告帯から出し、`ui/page/runners` に余裕を作った",
 	"##### `internal/buildconfig` を警告帯へ入れた判断（PR #153 の 2 周目レビュー）",
 	"##### `internal/buildconfig` を 2 つに分けた判断（Issue #161）",
+	"##### `docscheck` から行数の予算の検査を分けた判断（Issue #171）",
 	"##### Issue #140 / #141 / #142 の判断——警告帯へ入れて回帰テストを足した",
 	"##### Issue #147 の空け方——警告帯の 3 つを全部出した",
 	"#### `ui/page/disk` を `page/diskclean` へ分けた判断（Issue #13 / 実施は Issue #102）",

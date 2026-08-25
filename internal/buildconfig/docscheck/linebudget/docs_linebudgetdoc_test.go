@@ -1,4 +1,4 @@
-package docscheck
+package linebudget
 
 import (
 	"os"

@@ -17,6 +17,7 @@ package buildconfigtest
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 )
 
@@ -41,4 +42,20 @@ func RepoRoot(t *testing.T) string {
 		}
 		dir = parent
 	}
+}
+
+// Atoi は表から読んだ数値文字列を int にする。変換できなければテストを落とす。
+//
+// 表（改訂履歴の版番号・行数表の行数と残り）を正規表現で拾う検査が共有する。
+// 拾えた時点で数字だけであることは正規表現が保証しているので、ここで失敗するのは
+// 正規表現と呼び出し側が食い違ったときであり、黙って 0 として扱うと検査が緑のまま
+// 意味を失う。
+func Atoi(t *testing.T, s string) int {
+	t.Helper()
+
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		t.Fatalf("数値にできない文字列 %q: %v", s, err)
+	}
+	return n
 }

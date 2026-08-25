@@ -1,4 +1,4 @@
-package docscheck
+package linebudget
 
 import (
 	"encoding/json"
@@ -119,8 +119,8 @@ func parseBudgetRows(t *testing.T, section string) []budgetRow {
 	for _, m := range budgetDocRow.FindAllStringSubmatch(section, -1) {
 		rows = append(rows, budgetRow{
 			dir:       m[1],
-			lines:     atoi(t, m[2]),
-			remaining: atoi(t, m[3]),
+			lines:     buildconfigtest.Atoi(t, m[2]),
+			remaining: buildconfigtest.Atoi(t, m[3]),
 			verdict:   m[4],
 		})
 	}
