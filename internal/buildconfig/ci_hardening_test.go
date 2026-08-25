@@ -16,8 +16,8 @@ import (
 // commitSHA はアクションの参照がフルコミット SHA であることの判定に使う。
 var commitSHA = regexp.MustCompile(`^[0-9a-f]{40}$`)
 
-// ハングしたジョブが runner を GitHub 既定の 6 時間まで占有しないようにする。
-// オンラインの runner が 1 台のとき、1 ジョブのハングが CI 全体を止める。
+// `.github/workflows/ci.yml` の全ジョブに `timeout-minutes` がある。ハングしたジョブが runner を
+// GitHub 既定の 6 時間まで占有すると、オンラインの runner が 1 台のとき CI 全体が止まる。
 func TestCIJobsHaveTimeout(t *testing.T) {
 	for name, job := range loadCIWorkflow(t).Jobs {
 		if job.TimeoutMinutes == nil {
@@ -30,8 +30,9 @@ func TestCIJobsHaveTimeout(t *testing.T) {
 	}
 }
 
-// アクションはフルコミット SHA で固定する。可変タグはタグの移動やアカウント侵害で
-// 別のコードに差し替わり、self-hosted runner ではその被害が root 相当まで増幅する。
+// `.github/workflows/ci.yml` のアクションはフルコミット SHA でピン留めされている。可変タグは
+// タグの移動やアカウント侵害で別のコードに差し替わり、self-hosted runner ではその被害が root
+// 相当まで増幅する。
 func TestCIActionsArePinnedToCommitSHA(t *testing.T) {
 	pinned := 0
 	forEachStep(t, func(job, _ string, step ciStep) {
@@ -50,19 +51,20 @@ func TestCIActionsArePinnedToCommitSHA(t *testing.T) {
 	}
 }
 
-// checkout が git config に残す認証情報を持ち越さない。self-hosted runner は
-// 作業ディレクトリを再利用し、キャンセル時は post-job cleanup が完走しない。
+// `.github/workflows/ci.yml` の `actions/checkout` が認証情報を作業ディレクトリへ残さない。
+// self-hosted runner は作業ディレクトリを再利用し、キャンセル時は post-job cleanup が完走しない。
 func TestCICheckoutDoesNotPersistCredentials(t *testing.T) {
 	assertWithValue(t, "actions/checkout", "persist-credentials", false)
 }
 
-// setup-go のキャッシュは無効にする。self-hosted runner ではモジュール・ビルド
-// キャッシュがホストに残るため、tar での保存と展開はやり直しの重複でしかない。
+// `.github/workflows/ci.yml` の `actions/setup-go` のキャッシュは無効である。self-hosted runner
+// ではモジュール・ビルドキャッシュがホストに残るため、tar での保存と展開はやり直しの重複でしかない。
 func TestCISetupGoDisablesCache(t *testing.T) {
 	assertWithValue(t, "actions/setup-go", "cache", false)
 }
 
-// concurrency は他ワークフローと衝突せず、main への push をキャンセルしない。
+// `.github/workflows/ci.yml` の `concurrency` が他ワークフローと衝突せず、`main` への push の run を
+// キャンセルしない。
 //
 // group にワークフロー名が入っていないと、別のワークフローの run が同じ group へ入って互いを
 // キャンセルし合う。cancel-in-progress を pull_request に限らないと、**main への連続した push で
@@ -85,7 +87,9 @@ func TestCIConcurrencyIsScopedAndKeepsPushRuns(t *testing.T) {
 	}
 }
 
-// lefthook.yml の構文退行を CI でも機械検知する。
+// `lefthook.yml` の構文退行を CI でも機械検知する。`make check` の `test` も
+// `TestLefthookConfigIsValid` を通して同じ `go tool lefthook validate` を走らせており、CI の step は
+// それと重ねて掛ける二重化である。
 func TestCILintJobValidatesLefthookConfig(t *testing.T) {
 	job, ok := loadCIWorkflow(t).Jobs["lint"]
 	if !ok {

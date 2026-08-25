@@ -71,8 +71,8 @@ func golangciLintBinary(t *testing.T) string {
 	return strings.TrimSpace(string(out))
 }
 
-// 抑制方針（行単位・理由必須・リンター名必須）を機械的に強制するため、
-// nolintlint を 3 つの設定すべて有効で使う。
+// 抑制には理由コメントとリンター名が必須で、不要になった抑制も検出される。nolintlint を
+// `require-explanation` / `require-specific` / `allow-unused: false` の 3 つすべて有効で使う。
 func TestGolangciEnablesNolintlint(t *testing.T) {
 	cfg := loadGolangciConfig(t)
 
@@ -86,8 +86,9 @@ func TestGolangciEnablesNolintlint(t *testing.T) {
 	}
 }
 
-// 同種の指摘を打ち切らない。既定（3 / 50）のままだと抑制やエラーの棚卸しで
-// 件数を数え上げられない。
+// golangci-lint が同種の指摘を打ち切らない（`max-issues-per-linter` と `max-same-issues` の
+// どちらも `0` = 無制限を明示する）。既定の 50 / 3 のままだと、抑制やエラーの棚卸しで件数を
+// 数え上げられない。
 func TestGolangciDoesNotTruncateIssues(t *testing.T) {
 	cfg := loadGolangciConfig(t)
 
@@ -108,7 +109,8 @@ func TestGolangciDoesNotTruncateIssues(t *testing.T) {
 	}
 }
 
-// nolintlint が実際に雑な抑制を落とすことを、リポジトリの設定で確認する。
+// 抑制の 3 つの取り決め（リンター名の明示・理由コメント・不要になった抑制）を破った `//nolint` が、
+// リポジトリの `.golangci.yml` で実際に落ちる。
 func TestGolangciLintRejectsSloppyNolint(t *testing.T) {
 	bin := golangciLintBinary(t)
 	config := filepath.Join(buildconfigtest.RepoRoot(t), ".golangci.yml")
@@ -178,8 +180,9 @@ func Clean() { //nolint:errcheck // 理由: 抑制対象が無い
 	}
 }
 
-// import を標準ライブラリ / 外部モジュール / 自前パッケージの 3 グループに固定するため、
-// gci をこの順のセクションで使う。
+// import は標準ライブラリ / 外部モジュール / 自前パッケージの 3 グループに固定される。gci を
+// この順のセクションで使い、`custom-order: true` も検査する——これが無いと gci は記載順を無視して
+// 内蔵の既定順で並べ、順序の取り決めが実効にならない。
 func TestGolangciEnablesGci(t *testing.T) {
 	cfg := loadGolangciConfig(t)
 
@@ -197,8 +200,8 @@ func TestGolangciEnablesGci(t *testing.T) {
 	}
 }
 
-// gci が実際に「自前パッケージが標準ライブラリのグループに混ざっている」を落とすことを、
-// リポジトリの設定で確認する。
+// 自前パッケージが標準ライブラリのグループに混ざった import が、リポジトリの `.golangci.yml` で
+// 実際に落ちる。gofmt はグループ内を並べ替えるだけなので `make fmt-check` では検出できない。
 //
 // gofmt はグループ内を並べ替えるだけでグループ分けは直さないため、この形は gofmt でも
 // `make fmt-check` でも検出できない（Issue #119）。フィクスチャの import はアルファベット順に

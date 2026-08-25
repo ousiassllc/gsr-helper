@@ -114,7 +114,9 @@ type proseLine struct {
 	text string
 }
 
-// 散文は行数の実測値を数値で持ってはならない。
+// `budgetProseDocs` が挙げる 2 文書の散文は、行数の実測値を数値で持ってはならない（`残り N` と
+// `N 行` が現れない）。免除と除外の詳細は docs/ui/atomic-design.md の「行数の実測値は表だけが
+// 持つ」が持つ。
 //
 // 実測値は本書の 3 か所（2 つの行数表・散文・改訂履歴）へ手で写されており、表だけを
 // 実測へ合わせても散文は古い数を現在形で語り続ける（Issue #164）。以前はこれを
@@ -123,7 +125,7 @@ type proseLine struct {
 // ことになった。そこで**言い回しを一切見ず、数値が無いことだけを見る**形に変えた。
 // 現在の行数を数で持ってよいのは行数表だけで、散文は表を参照する。
 //
-// 除外は文書ごとの明示の一覧（budgetProseDoc.excluded）と、行数表・コードブロック・
+// 除外は文書ごとの明示の一覧（budgetProseDoc.excluded＝過去の値を記録する節）と、行数表・コードブロック・
 // 改訂履歴である。対象は budgetProseDocs に登録した文書すべてである。
 func TestLineBudgetProseHasNoMeasuredNumbers(t *testing.T) {
 	for _, doc := range budgetProseDocs {
