@@ -352,10 +352,32 @@ updates:
 |---|---|
 | self-hosted ジョブは必ず `needs: guard` を持つ | `TestCISelfHostedJobsDependOnGuard` |
 | `guard` は許可リスト形（`push` と同一リポジトリの `pull_request` 以外は失敗する） | `TestCIGuardScriptAllowsOnlySameRepositoryEvents` |
+| `guard` ジョブ自身は GitHub ホストランナーで動く（ゲートを self-hosted 上で走らせると、fork の PR がゲート自身をホスト上で実行できてしまい、ゲートを置く意味が無い） | `TestCIGuardJobDoesNotUseSelfHostedRunner` |
+| どのワークフローも `pull_request_target` を使わない（fork の PR に対してベースリポジトリ側の権限でワークフローが動き、fork ガードの意味が失われる） | `TestWorkflowsDoNotUsePullRequestTarget` |
 | アクションはフルコミット SHA でピン留めされている | `TestCIActionsArePinnedToCommitSHA` |
 | 全ジョブに `timeout-minutes` がある | `TestCIJobsHaveTimeout` |
+| `actions/checkout` が認証情報を作業ディレクトリへ残さない（self-hosted runner は作業ディレクトリを再利用し、キャンセル時は post-job cleanup が完走しない） | `TestCICheckoutDoesNotPersistCredentials` |
+| `actions/setup-go` のキャッシュは無効である（モジュール・ビルドキャッシュはホストに残るため、tar での保存と展開はやり直しの重複でしかない） | `TestCISetupGoDisablesCache` |
+| `concurrency` が他ワークフローと衝突せず、`main` への push の run をキャンセルしない | `TestCIConcurrencyIsScopedAndKeepsPushRuns` |
+| SHA でピン留めしたアクションの更新に追従できるよう、Dependabot が `github-actions` を監視する | `TestDependabotWatchesGitHubActions` |
 | `make fmt-check` が入れ子 worktree と `testdata/` を対象にしない | `TestFmtCheckSkipsNestedWorktree` / `TestFmtCheckSkipsTestdata` |
+| ビルドタグで除外されたファイルも `make fmt` と `make fmt-check` の双方が対象にする（片方だけが対象にすると、整形しても検査が落ち続ける状態になる） | `TestFmtAndFmtCheckCoverBuildTaggedFiles` |
+| `make fmt-check` がモジュール内の未整形ファイルを検出する | `TestFmtCheckDetectsUnformatted` |
+| `make fmt-check` は PATH 上の gofmt ではなく `$(GO) env GOROOT` 由来の gofmt を使う（PATH に常に成功する gofmt を置いても検査結果は変わらない） | `TestFmtCheckUsesGorootGofmt` |
+| `make fmt-check` は前提が崩れたとき黙って通らない——`go list` が失敗したら終了ステータスを捨てずに落ち、対象ファイルが 0 件なら標準入力待ちでハングせず落ちる | `TestFmtCheckFailsWhenGoListFails` / `TestFmtCheckFailsWhenNoGoFiles` |
 | `make test` が競合を検出する | `TestMakeTestDetectsDataRace` |
+| 抑制は行単位・理由必須・リンター名必須で、雑な `//nolint` は設定でそう定めているだけでなく実際に落ちる | `TestGolangciEnablesNolintlint` / `TestGolangciLintRejectsSloppyNolint` |
+| import は標準ライブラリ / 外部モジュール / 自前パッケージの 3 グループに固定され、混ざったものは実際に落ちる（gofmt はグループ内を並べ替えるだけなので `make fmt-check` では検出できない） | `TestGolangciEnablesGci` / `TestGolangciLintRejectsMisgroupedImports` |
+| Charm は `charm.land/<name>/v2` に揃え、推移依存として go.mod に残る v1 系のパスの import は実際に落ちる | `TestGolangciDeniesCharmV1Paths` / `TestGolangciLintRejectsCharmV1Import` |
+| golangci-lint が同種の指摘を打ち切らない（既定の 3 / 50 のままだと抑制やエラーの棚卸しで件数を数え上げられない） | `TestGolangciDoesNotTruncateIssues` |
+| 行数上限は linterly の既定値のまま使う（上限に当たったら数値を上げるのではなく分割する） | `TestLinterlyKeepsDefaultLineLimits` |
+| linterly の更新チェックは無効である（既定は有効で、実行のたびに GitHub Releases への外向き HTTP が出る） | `TestLinterlyDisablesUpdateCheck` |
+| `lefthook.yml` の構文退行を CI でも機械検知する（フック設定はテスト対象のコードではないので `make check` ではなく CI の step に置く） | `TestCILintJobValidatesLefthookConfig` |
+| `lefthook.yml` は go.mod でピン留めした版の lefthook が受け付ける形である | `TestLefthookConfigIsValid` |
+| フックが使う lefthook の版は go.mod に固定される（指定が無いと PATH 上の lefthook が `go tool lefthook` より先に選ばれる） | `TestLefthookPinsVersionToGoTool` |
+| pre-commit の lint は HEAD からの差分だけを対象にする（作業ツリー全体を無条件に検査すると、コミット済みの既存指摘 1 件で以後のコミットが落ち続ける） | `TestLefthookPreCommitLintIsScopedToDiff` |
+| pre-commit の実行順は `priority` で固定する（`parallel: false` は同時実行を止めるだけで順序を決めず、未指定だと commands のキー名の比較に依存する） | `TestLefthookPreCommitOrderIsPinnedByPriority` |
+| 対象を絞れない・絞る必要のないコマンドは make ターゲットを経由し、コマンド列を Makefile とフックで二重管理しない（逆にスコープが必要なコマンドは make を経由しない） | `TestLefthookRoutesUnscopedCommandsThroughMake` |
 | 仕様書のコードブロックが設定ファイルの実体と一致する | `TestSetupDocEmbedsConfigFilesVerbatim` |
 | ドキュメントの改訂履歴の版番号が重複せず昇順である | `TestDocRevisionHistoryVersionsUniqueAndAscending` |
 | 依存グラフの辺と実装の層をまたぐ import が一致する（欠落・陳腐化の両方向） | `TestDependencyGraphDrawsEveryCrossLayerImport` / `TestDependencyGraphHasNoStaleEdge` |
@@ -365,9 +387,11 @@ updates:
 | **2 文書**（[TUI コンポーネント設計](../ui/atomic-design.md#行数の実測値は表だけが持つ)と[コンポーネント設計](../components/overview.md)）の散文が行数の実測値を数値で持たない（`残り N` と `N 行` が現れない。見ないのは `1 行` と `2 行` だけ。除外は行数表・コードブロック・改訂履歴・過去の値を記録する節の明示の一覧で、**一覧は文書ごとに持つ**——除外は文書の構造に結びついており、混ぜると片方にしか無い見出しが消えたことを検査が知らせられなくなる。`.linterly.yml` の上限と警告帯の境界である 300 / 330 / 2000 / 2200 だけは書いてよい） | `TestLineBudgetProseHasNoMeasuredNumbers` |
 | 同じ 2 文書の散文が行数の合計を `A + B = C` の式で持たない（式に 3 桁以上の数が 1 つでも含まれていれば実測値と見なす。行数の合計は 1 ディレクトリ 2000 行の桁になるので必ず 3 桁以上で、2 桁以下だけで閉じた式は行数ではない算術である。対象と除外は上の行と同じ） | `TestLineBudgetProseHasNoSumExpressions` |
 | 合計の式の検出が行数の式だけを拾い、列幅の見積もりのような行数以外の算術を拾わない（検出の両方向を固定する単体テスト） | `TestProseMeasuredSumMatchesOnlyLineTotals` |
+| `//nolint` の棚卸しの表が現在のツリーの実態と一致する（ファイルの移動・分割や抑制の除去に追随しそこねると、存在しないファイルの存在しない抑制を挙げ続ける） | `TestSetupDocNolintInventoryMatchesTree` |
 | `//nolint` の棚卸しの突き合わせが数えるのは実際の抑制ディレクティブだけで、散文の言及や文字列リテラルの `//nolint` は数えない | `TestCountNolintInTreeIgnoresDocCommentsAndStringLiterals` |
+| この表が挙げるテストの集合と、`internal/buildconfig` 直下および `internal/buildconfig/docscheck` のテスト関数の集合が一致する（表に無い検査と、実装に無い表の行の両方向） | `TestSetupDocInvariantTableListsEveryTest` |
 
-この表は網羅ではない。設定やドキュメントに新しい取り決めを入れたときは、同じ場所にテストを足す。
+**この表は網羅である**——`internal/buildconfig` 直下と `internal/buildconfig/docscheck` にあるテスト関数の集合と、この表が挙げるテストの集合は一致する（範囲を定めるのは次の段落で、検査もそれと同じ 2 ディレクトリだけを見る。両者が共有する道具の置き場である `buildconfigtest` は検査を持たないので含めない）。設定やドキュメントに新しい取り決めを入れてテストを足したら、**同じ変更でこの表にも行を足す**こと。それを人の注意に任せず、`TestSetupDocInvariantTableListsEveryTest` が集合の一致を機械的に見る——表に無い検査（足して書き忘れた）と、実装に無い表の行（消した・改名したのに残った）の両方向を報告する。**手で写した一覧は黙って古くなる**というのは Issue #164 / #167 / #169 が行数の実測値の写しに対して繰り返し確かめた事実であり、この表自身が「同じ場所にテストを足す」と定めていながら実在する検査のうち 27 本を取りこぼしていた（Issue #166）のが、その実例である。
 
 **この表が挙げるのは `internal/buildconfig` とその `docscheck` に置いたものだけである。** 同じ「ドキュメントと実装の一致をテストで守る」性格の検査は他のパッケージにもあり、**検査は検査対象の隣に置く**——`internal/ui/page/pagetest/doc_test.go` の `TestSharedPackagesMatchDoc` / `TestDirectoryTreeMatchesShared` / `TestImplementedListCoversSharedPackages`（[TUI コンポーネント設計](../ui/atomic-design.md)の共有部品の列挙 3 箇所と `shared` マップの一致）や、`internal/ui/page/pagetest/import_test.go` の `TestNoProductionCodeImportsTestFixtures` / `TestOnlyTabsetImportsTabs`（依存の向き）がそれにあたる。`internal/buildconfig` へ集めるのは、**どのパッケージにも属さない取り決め**（`Makefile` / CI ワークフロー / `.linterly.yml` / 全文書に共通の改訂履歴の規則）と、**モジュール全体に跨っていて置ける隣が存在しない取り決め**（[コンポーネント設計](../components/overview.md)の依存グラフ）である。後者は「検査は検査対象の隣に置く」の例外ではなく、**隣が存在しないことの帰結である**——依存グラフはパッケージ間の関係そのものを定めるものなので、どれか 1 つのパッケージの隣に置くと、そのパッケージだけの取り決めに見えてしまう。先例として挙げた `internal/ui/page/pagetest/doc_test.go` との違いはここにある——**あちらは `internal/ui/page` という明確な持ち主がいる**ので隣に置けるが、依存グラフには持ち主にあたるパッケージが無い。この 2 つに当てはまらないもの——すなわちパッケージ固有の不変条件——をここへ寄せると、対象を触る Issue が検査の存在に気付けない。
 
@@ -787,5 +811,6 @@ pre-push:
 | 1.36 | 2026-08-25 | PR #168 のレビュー指摘（major 6 件）のうち本書に掛かる 1 点を反映。不変条件テスト一覧表の `TestLineBudgetProseHasNoMeasuredNumbers` の説明を、拾う行数の床が **2 桁以上の `N 行`** から **`N` が 3 以上の `N 行`** へ下がったことに合わせて直し、**見ないのは `1 行` と `2 行` だけ**である旨を明記した。除外（行数表・コードブロック・改訂履歴・過去の値を記録する節の明示の一覧）と、散文に数値で書いてよい 300 / 330 / 2000 / 2200 の 4 つは変わらない | **2 桁の床は今日いちばん逼迫している帯をまるごと素通りさせていた。** 行数予算の残りは逼迫したディレクトリほど小さく、残りが最小のディレクトリはいずれも 1 桁である——そこへ「移せるのは N 行まで」「あと N 行しか無い」と書くと、Issue #164 が実害として名指しした形が**最も危険な帯でだけ無検査**になる。本節は「設定やドキュメントに新しい取り決めを入れたときは、同じ場所にテストを足す」と定めて一覧表への記載を求めており、**表の説明が実装と食い違うと次に検査を触る Issue が表のほうを信じる**（改訂 1.34 / 1.35 が同じ理由で説明を書き直したのと同型で、1.35 で直した床が本 PR の変更でまた古くなった）。検査の振る舞い自体の記録は [TUI コンポーネント設計](../ui/atomic-design.md#改訂履歴)の改訂 1.99 が持つ |
 | 1.37 | 2026-08-25 | Issue #167（散文の行数の「合計の式」が行数の検査の網から外れている）を反映し、不変条件テスト一覧表へ新設の 2 本を登録した。(1) `TestLineBudgetProseHasNoSumExpressions`——[TUI コンポーネント設計](../ui/atomic-design.md#行数の実測値は表だけが持つ)の散文が行数の合計を `A + B = C` の式で持たないことを見る（式に 3 桁以上の数が 1 つでも含まれていれば実測値と見なす。除外は `TestLineBudgetProseHasNoMeasuredNumbers` と同じ）。(2) `TestProseMeasuredSumMatchesOnlyLineTotals`——合計の式の検出が行数の式だけを拾い、列幅の見積もりのような行数以外の算術を拾わないことを両方向で固定する単体テスト。どちらも `internal/buildconfig/docscheck`（既存の `docs_linebudgetprose_test.go` が 1 ファイル 300 行の上限に近かったので `docs_linebudgetsum_test.go` へ分けた）。既存の `TestLineBudgetProseHasNoMeasuredNumbers` の行は変えていない | **合計の式は各項が裸の数なので、既存の `N 行` を拾う検査では右辺しか見えていなかった。** `A + B + C = D 行` は 1 文で 4 つの実測値を主張するのに左辺の 3 項は助数詞を持たず、右辺が `行` を伴わない書き方になれば 4 項ともまるごと素通りする。本節は「設定やドキュメントに新しい取り決めを入れたときは、同じ場所にテストを足す」と定めて一覧表への記載を求めており（改訂 1.28 / 1.32 が同じ理由で表へ足した）、**表に無い検査は次に検査を触る Issue から見えない**。検査の振る舞い自体の記録は [TUI コンポーネント設計](../ui/atomic-design.md#改訂履歴)の改訂 1.100 が持つ |
 | 1.38 | 2026-08-25 | Issue #169（`components/overview.md` の行数の実測値が PR #168 の検査の対象外で無検査のまま残っている）を反映。不変条件テスト一覧表の `TestLineBudgetProseHasNoMeasuredNumbers` と `TestLineBudgetProseHasNoSumExpressions` の 2 行の説明を、**対象が 1 文書から 2 文書へ広がった**こと（[TUI コンポーネント設計](../ui/atomic-design.md#行数の実測値は表だけが持つ)と[コンポーネント設計](../components/overview.md)）と、**過去の値を記録する節の除外の一覧は文書ごとに持つ**ことがわかる書き方へ直した。拾う形（`残り N` / `N 行` / `A + B = C`）と、散文に数値で書いてよい 300 / 330 / 2000 / 2200 の 4 つは変わらない | **検査の corpus が 1 ファイルだったので、同じ形の写しが隣の文書で無検査のまま残っていた。** `overview.md` の `internal/runner` 系の使用量は同書の改訂 1.19 / 1.39 で**2 度陳腐化して人手で追随した記録がある**——Issue #164 が実害として名指しした「散文が古い予算を現在形で語り続ける」状態が、検査の外で現に 2 度起きていた。本節は「設定やドキュメントに新しい取り決めを入れたときは、同じ場所にテストを足す」と定めて一覧表への記載を求めており、**表の説明が実装と食い違うと次に検査を触る Issue が表のほうを信じる**（改訂 1.34 / 1.35 / 1.36 / 1.37 が同じ理由で説明を書き直した前例がある）。とりわけ**対象文書がどれかは表からしか分からない**ので、1 文書のままの説明を残すと `overview.md` を直しに来た Issue は検査の外だと読む。検査の振る舞い自体の記録は [TUI コンポーネント設計](../ui/atomic-design.md#改訂履歴)の改訂 1.101 が持つ |
+| 1.39 | 2026-08-25 | Issue #166（不変条件テスト一覧表に既存のテストが載っていない）を反映。(1) **一覧表へ 27 本を追加し、網羅にした**——CI の堅牢化（checkout の認証情報・setup-go のキャッシュ・concurrency・Dependabot・fork ガードを迂回する `pull_request_target` とゲート自身の runner）、`make fmt-check` の対象と失敗の仕方、`.golangci.yml`（nolintlint / gci / depguard は「設定がそうなっている」と「実際に落ちる」の 2 本ずつなので 1 行にまとめた）、`.linterly.yml`、`lefthook.yml`（妥当性・版の固定・差分スコープ・実行順・make 経由）、`//nolint` 棚卸しの突き合わせ。(2) 表の直後の「この表は網羅ではない」を**網羅である**旨へ書き換え、新しい検査は同じ変更で表へ足すこと、その追随を人手ではなく検査が見ることを明記した。(3) 集合の一致を見る `TestSetupDocInvariantTableListsEveryTest` を新設し（`internal/buildconfig/docscheck/docs_invarianttable_test.go`）、自身も表へ登録した。表の範囲を定める段落（`internal/buildconfig` とその `docscheck` に置いたものだけ）はそのまま残してあり、検査もそれと同じ 2 ディレクトリだけを見る | **この表自身が「同じ場所にテストを足す」と定めていながら、実在する検査のうち 27 本を取りこぼしていた。** **手で写した一覧は黙って古くなる**——同じ形を Issue #164 / #167 / #169 が行数の実測値の写しに対して繰り返し確かめており、この表はその実例をもう一つ増やしていた。表に無い検査は次に対象を触る Issue から見えないので、「新しい取り決めにはテストを足す」という本節の定めそのものが、表を頼りに検査の有無を判断する読み手のところで空回りする。突き合わせを**両方向**にしたのは、表に無い実装（足して書き忘れた）だけでなく、実装に無い表の行（消した・改名したのに残った）も腐るためである——後者は `TestSetupDocNolintInventoryMatchesTree` が `internal/runner` の分割で実際に踏んだ形（Issue #44）である。検査の行数の記録は [TUI コンポーネント設計](../ui/atomic-design.md#改訂履歴)の改訂 1.102 が持つ |
 
 **版番号は表への追加順ではなく、その変更が入った時点で採番している。** 1.22 の日付が直前の 1.21 より古いのはこのためである。1.22 の行はもともと重複した `1.8` として記録されており（`feat/#1` の取り込み時に 2 つの `1.8` を両方残したまま解消した）、重複を解消する際に、既に使われている 1.9〜1.21 と衝突しない番号として 1.22 を割り当てた。既存行の版番号を繰り下げないのは、他の行の変更理由が版番号で参照している箇所（1.12 / 1.13）まで書き換えることになるためである。
