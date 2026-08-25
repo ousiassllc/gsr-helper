@@ -2,7 +2,6 @@ package docscheck
 
 import (
 	"regexp"
-	"slices"
 	"strconv"
 	"testing"
 )
@@ -20,9 +19,14 @@ var (
 	// **`-` だけは前後の空白を必須にする。** 空白なしを許すと ISO 形式の日付
 	// （`2026-08-25`）が式として拾われ、改訂履歴の外にある日付までが偽陽性になる。
 	// 空白の有無で閉じるのも記号の形の話であって、言い回しの列挙ではない。
+	//
+	// 空白の文字クラス `[\s　]` には**全角空白（U+3000）**も入れる。Go の `\s` は
+	// 半角の空白類しか含まないので、全角で区切った式（`1216　+　1334`）が素通りしていた。
+	// とくに全角マイナスは全角空白を伴って書かれるほうが自然で、半角空白だけを要求すると
+	// 演算子の全角を認めた意味が薄れる。**空白文字も閉じた集合である。**
 	// `=` の後ろの `\**` は、本書が右辺を bold で囲む形（`= **2196 行**`）で書くため。
 	proseMeasuredSum = regexp.MustCompile(
-		`\d+(?:(?:\s*[+＋]\s*|\s+[-−]\s+)\d+)+(?:\s*[=＝]\s*\**\s*\d+)?`)
+		`\d+(?:(?:[\s　]*[+＋][\s　]*|[\s　]+[-−][\s　]+)\d+)+(?:[\s　]*[=＝][\s　]*\**[\s　]*\d+)?`)
 	// proseSumNumber は式に含まれる数を数える。値で切る判定にだけ使う。
 	proseSumNumber = regexp.MustCompile(`\d+`)
 )
@@ -32,11 +36,11 @@ var (
 // **床は proseMeasuredLines とそろえてある**——あちらが `N 行` を拾うのは `N` が 3 以上の
 // ときなので（見ないのは `0 行` / `1 行` / `2 行` の 3 つだけ）、式の側だけを 3 桁で切ると
 // 同じスイートの中で床が食い違う。ファイル単位や小さいディレクトリの行数は 2 桁になりうる
-// （`internal/buildconfig/buildconfigtest` は 2 桁である）ので、3 桁の床では
-// `内訳は 44 + 30 = 74 である` がまるごと素通りしていた。**値で切るのは言い回しの列挙では
-// ない。** ただし床をここまで下げると行数ではない算術（列幅の見積もり）も実測値の側に入る。
-// 正規表現で除こうとすると言い回しの列挙に戻るので、**除外は budgetProseDoc.sumExcluded の
-// 明示の見出し一覧**で持つ。
+// ので、3 桁の床では `内訳は 44 + 30 = 74 である` がまるごと素通りしていた。**値で切るのは
+// 言い回しの列挙ではない。** ただし床をここまで下げると行数ではない算術（列幅の見積もり）も
+// 式の形に当たる。正規表現で除き分けようとすると言い回しの列挙に戻るので、**直すのは文書の
+// 側である**——数の間に語を挟んで書けば（`行頭 6 + 列幅合計 66 + 列間 3 = 75 セル`）式には
+// ならない。除外の仕組みを持つより、検査の外へ出す節を増やさずに済む。
 const budgetProseSumFloor = 3
 
 // proseSumIsMeasured は式が行数の実測値を主張しているかどうかを返す。
@@ -62,13 +66,13 @@ func proseSumIsMeasured(expr string) bool {
 // **式を落として行数表への参照へ一本化する側**である——評価しても表と散文の一致が
 // 守られるだけで、**写しそのものは残る**からである。
 //
-// 対象は TestLineBudgetProseHasNoMeasuredNumbers と同じ budgetProseDocs で、除外は
-// **doc.excluded ∪ doc.sumExcluded**（行数表・コードブロック・改訂履歴に加えて、過去の値を
-// 記録する節と、行数と無関係な算術の節）である。過去の値を記録する節では分割の前後で
-// 合計がどう動いたかを式で書いてよい——その Issue に紐づく事実だからである。
+// 対象も除外も TestLineBudgetProseHasNoMeasuredNumbers と同じである（budgetProseDocs と
+// doc.excluded。行数表・コードブロック・改訂履歴・過去の値を記録する節）。**合計の式のための
+// 除外は持たない**——過去の値を記録する節では分割の前後で合計がどう動いたかを式で書いてよく、
+// それ以外の算術は文書側の書き方で式の形を外せるからである。
 func TestLineBudgetProseHasNoSumExpressions(t *testing.T) {
 	for _, doc := range budgetProseDocs {
-		for _, line := range budgetProseLines(t, doc.forSumCheck()) {
+		for _, line := range budgetProseLines(t, doc) {
 			for _, expr := range proseMeasuredSum.FindAllString(line.text, -1) {
 				if !proseSumIsMeasured(expr) {
 					continue
@@ -85,8 +89,8 @@ func TestLineBudgetProseHasNoSumExpressions(t *testing.T) {
 //
 // **両方向を固定するために単体で持つ。** 拾えなくなれば Issue #167 の実害（4 項ぶんの
 // 実測値が素通りし、散文が古い合計を現在形で語り続ける）がそのまま戻る。逆に拾いすぎれば、
-// 本書が正当に書く算術を通すために sumExcluded へ節を足すことになる——**一覧は小さいほど
-// よい**というのが本書の規約なので、偽陽性は除外一覧を膨らませる形で規約を崩す。
+// 本書が正当に書く算術（列幅の見積もり）が偽陽性になり、それを通すために検査の外へ節を出す
+// ことになる——**除外は小さいほどよい**というのが本書の規約なので、偽陽性は規約を崩す。
 func TestProseMeasuredSumMatchesOnlyLineTotals(t *testing.T) {
 	measured := []string{
 		// Issue #167 が挙げた原文。
@@ -103,6 +107,9 @@ func TestProseMeasuredSumMatchesOnlyLineTotals(t *testing.T) {
 		"合計は 1216 ＋ 1334 ＋ 44 ＝ 2594 である。",
 		// 差の形。空白を伴う `-` は式の演算子である。
 		"内訳は 2000 - 1906 = 94 である。",
+		// 全角空白で区切った式。半角の `\s` だけを見ていた頃は素通りしていた。
+		"合計は 1216　＋　1334　＝　2550 である。",
+		"内訳は 2000　−　1906　＝　94 である。",
 	}
 	for _, text := range measured {
 		expr := proseMeasuredSum.FindString(text)
@@ -120,20 +127,14 @@ func TestProseMeasuredSumMatchesOnlyLineTotals(t *testing.T) {
 		"チェックボックスは 1 + 1 = 2 セルである",
 		// ISO 形式の日付。`-` の前後に空白を要求しているので式として拾わない。
 		"改訂 1.99 は 2026-08-25 に入った",
+		// 数の間に語を挟んだ算術。本書が列幅の見積もりをこの形で書くので、合計の式の
+		// 検査は除外を 1 つも持たずに済んでいる（`6 + 66 + 3` と書くと式として拾われる）。
+		"`LogColumns()` は判定上も行頭 6 + 列幅合計 66 + 列間 3 = 75 セルで 80 に収まる",
 	}
 	for _, text := range notMeasured {
 		expr := proseMeasuredSum.FindString(text)
 		if expr != "" && proseSumIsMeasured(expr) {
 			t.Errorf("行数ではない算術を実測値として拾っている（%q）: %s", expr, text)
 		}
-	}
-
-	// **列幅の見積もり（`6 + 66 + 3 = 75 セル`）は床では落ちない**——66 も 75 も 3 以上で、
-	// 床を proseMeasuredLines とそろえた以上そうなる。式の形で除き分けようとすると
-	// 言い回しの列挙に戻るので、**除外は sumExcluded の明示の見出し一覧が持つ**。ここでは
-	// その節が一覧に載っていることを固定する（節が消えれば skipExcludedSections が落ちる）。
-	if !slices.Contains(budgetProseSumExcluded, budgetProseWidthSection) {
-		t.Errorf("atomic-design.md の sumExcluded に %q が無い（列幅の見積もりが偽陽性になる）",
-			budgetProseWidthSection)
 	}
 }

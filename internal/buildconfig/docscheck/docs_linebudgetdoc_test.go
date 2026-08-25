@@ -3,7 +3,6 @@ package docscheck
 import (
 	"os"
 	"path/filepath"
-	"slices"
 	"testing"
 
 	"github.com/ousiassllc/gsr-helper/internal/buildconfig/buildconfigtest"
@@ -27,15 +26,6 @@ type budgetProseDoc struct {
 	name     string   // エラーメッセージに出す名前
 	tables   int      // 本文が持つ行数表の数（0 は表を持たない文書）
 	excluded []string // 過去の値を記録する節の見出し（明示の一覧）
-	// sumExcluded は**合計の式の検査にだけ**効く除外である。行数と無関係な算術
-	// （列幅の見積もり）を持つ節がここに入る。`N 行` の側は無関係なので外さない。
-	sumExcluded []string
-}
-
-// forSumCheck は合計の式の検査で使う除外（excluded ∪ sumExcluded）を持つ複製を返す。
-func (d budgetProseDoc) forSumCheck() budgetProseDoc {
-	d.excluded = append(slices.Clone(d.excluded), d.sumExcluded...)
-	return d
 }
 
 // budgetProseDocs は検査の対象文書である。
@@ -46,11 +36,10 @@ func (d budgetProseDoc) forSumCheck() budgetProseDoc {
 // 読んでいなかったためそこを見ていなかった（Issue #169）。
 var budgetProseDocs = []budgetProseDoc{
 	{
-		rel:         []string{"docs", "ui", "atomic-design.md"},
-		name:        "atomic-design.md",
-		tables:      2,
-		excluded:    budgetProseExcluded,
-		sumExcluded: budgetProseSumExcluded,
+		rel:      []string{"docs", "ui", "atomic-design.md"},
+		name:     "atomic-design.md",
+		tables:   2,
+		excluded: budgetProseExcluded,
 	},
 	{
 		// **`overview.md` は除外を 1 つも持たない。** 唯一あった「### `internal/disk`」は
@@ -62,20 +51,6 @@ var budgetProseDocs = []budgetProseDoc{
 		name:   "components/overview.md",
 		tables: 0,
 	},
-}
-
-// budgetProseWidthSection は `docs/ui/atomic-design.md` の列幅を論じる節の見出しである。
-const budgetProseWidthSection = "### 幅"
-
-// budgetProseSumExcluded は `docs/ui/atomic-design.md` で**合計の式の検査からだけ**
-// 外す節の見出しである。
-//
-// **載せるのは行数と無関係な算術を持つ節だけで、一覧は最小に保つ。** 実装後に全文を
-// 走査して偽陽性を全件列挙した結果、該当したのはこの 1 つだけだった——端末 80 桁に
-// 収まるかどうかをセル数の算術（`6 + 66 + 3 = 75 セル`）で論じる節である。行数の
-// 実測値の検査（`N 行` / `残り N`）はこの節にも掛かったままである。
-var budgetProseSumExcluded = []string{
-	budgetProseWidthSection,
 }
 
 // read は対象文書の本文を返す。

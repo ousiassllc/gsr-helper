@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"io/fs"
 	"maps"
 	"os"
 	"path/filepath"
@@ -27,11 +28,10 @@ const invariantTableRootDir = "internal/buildconfig"
 // invariantTableDirs は一覧表が範囲とする 2 ディレクトリ（リポジトリルートからの相対）。
 //
 // setup.md の「**この表が挙げるのは `internal/buildconfig` とその `docscheck` に置いた
-// ものだけである。**」で始まる段落がこの 2 つを定めている。サブディレクトリは辿らない
-// ——`internal/buildconfig/buildconfigtest` は両者が共有する道具（`RepoRoot`）の置き場で
-// あって検査ではないので、表にも載らないし、ここでも数えない。**この一覧が実態から
-// 遅れたことは assertInvariantTableDirsCoverTree が知らせる**——`docscheck` 自体が
-// Issue #161 の分割で生まれており、再分割は現実に起こりうる。
+// ものだけである。**」で始まる段落がこの 2 つを定めている。`buildconfigtest` は両者が
+// 共有する道具（`RepoRoot`）の置き場であって検査ではないので、表にも載らないし、ここにも
+// 挙げない。**この一覧が実態から遅れたことは invariantTestFiles が知らせる**——`docscheck`
+// 自体が Issue #161 の分割で生まれており、再分割は現実に起こりうる。
 var invariantTableDirs = []string{
 	filepath.FromSlash(invariantTableRootDir),
 	filepath.Join(filepath.FromSlash(invariantTableRootDir), "docscheck"),
@@ -56,12 +56,9 @@ var invariantTableTestName = regexp.MustCompile("`(Test[A-Za-z0-9_]*)`")
 // 対象を `internal/buildconfig` 直下と `internal/buildconfig/docscheck` の 2 つに限る根拠は
 // setup.md の「**この表が挙げるのは `internal/buildconfig` とその `docscheck` に置いた
 // ものだけである。**」で始まる段落にある。この段落が表の範囲を定めているからこそ、集合の
-// 一致という形で機械的に検査できる。**その範囲自体のずれは assertInvariantTableDirsCoverTree
-// が見る。**
+// 一致という形で機械的に検査できる。**その範囲自体のずれは invariantTestFiles が見る。**
 func TestSetupDocInvariantTableListsEveryTest(t *testing.T) {
 	root := buildconfigtest.RepoRoot(t)
-
-	assertInvariantTableDirsCoverTree(t, root)
 
 	impl := invariantTestFuncs(t, root)
 	doc := invariantTableEntries(t, root)
@@ -78,47 +75,53 @@ func TestSetupDocInvariantTableListsEveryTest(t *testing.T) {
 	}
 }
 
-// assertInvariantTableDirsCoverTree は、invariantTableDirs に無いディレクトリが
-// テストを持っていないことを確かめる。
+// invariantTestFiles は invariantTableRootDir 配下の `_test.go` を**深さを問わず**集め、
+// 置き場が invariantTableDirs に無ければ落とす。
 //
 // **一覧が直書きだけだと、範囲の外に検査が生まれても表も検査も黙る。** 3 つ目の検査
 // ディレクトリ（`internal/buildconfig/newcheck`）を作ってテストを置いても緑のままで、
 // `buildconfigtest` へテストを置いた場合も同じだった——setup.md が「buildconfigtest は
 // 検査を持たない」と現在形で述べている前提そのものが無検査だったということである。
-func assertInvariantTableDirsCoverTree(t *testing.T, root string) {
+//
+// **深さを問わないのは、この検査の動機がまさに子ディレクトリへの分割だからである。**
+// 直下を 1 段だけ読んでいた頃は `docscheck/sub` も `newcheck/sub` も素通りしており、
+// `docscheck` 自身が Issue #161 で親から分かれて生まれた先例のとおり、次の分割も
+// 子ディレクトリの形で来る。動機の形そのものが死角に落ちていた。
+func invariantTestFiles(t *testing.T, root string) []string {
 	t.Helper()
 
 	base := filepath.FromSlash(invariantTableRootDir)
-	for _, entry := range readDirOrFatal(t, filepath.Join(root, base)) {
-		dir := filepath.Join(base, entry.Name())
-		if !entry.IsDir() || slices.Contains(invariantTableDirs, dir) {
-			continue
-		}
-		for _, sub := range readDirOrFatal(t, filepath.Join(root, dir)) {
-			if sub.IsDir() || !strings.HasSuffix(sub.Name(), "_test.go") {
-				continue
+	var paths []string
+	walkErr := filepath.WalkDir(filepath.Join(root, base),
+		func(path string, entry fs.DirEntry, err error) error {
+			// 走査エラーを左端に置く（そのとき entry は nil でありうる）。
+			if err != nil || entry.IsDir() || !strings.HasSuffix(entry.Name(), "_test.go") {
+				return err
 			}
-			t.Fatalf("%s がテストを持っているが invariantTableDirs に無い"+
-				"——一覧表の範囲（setup.md の「**この表が挙げるのは `internal/buildconfig` と"+
-				"その `docscheck` に置いたものだけである。**」で始まる段落）と検査の範囲がずれた。"+
-				"このディレクトリを invariantTableDirs へ足して表にも行を足すか、"+
-				"setup.md の範囲の記述を直すこと", dir)
-		}
+			dir, err := filepath.Rel(root, filepath.Dir(path))
+			if err != nil {
+				return err
+			}
+			if !slices.Contains(invariantTableDirs, dir) {
+				t.Fatalf("%s がテストを持っているが invariantTableDirs に無い"+
+					"——一覧表の範囲（setup.md の「**この表が挙げるのは `internal/buildconfig` と"+
+					"その `docscheck` に置いたものだけである。**」で始まる段落）と検査の範囲がずれた。"+
+					"このディレクトリを invariantTableDirs へ足して表にも行を足すか、"+
+					"setup.md の範囲の記述を直すこと", dir)
+			}
+			paths = append(paths, path)
+			return nil
+		})
+	if walkErr != nil {
+		t.Fatalf("%s を辿れない: %v", base, walkErr)
 	}
+	return paths
 }
 
-// readDirOrFatal はディレクトリを読み、読めなければ落とす。
-func readDirOrFatal(t *testing.T, dir string) []os.DirEntry {
-	t.Helper()
-
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		t.Fatalf("%s を読めない: %v", dir, err)
-	}
-	return entries
-}
-
-// invariantTestFuncs は invariantTableDirs のテスト関数の名前を集める。
+// invariantTestFuncs は invariantTestFiles が集めたファイルのテスト関数名を集める。
+//
+// **集める側も深さを問わない**——範囲の検査だけを深くしても、集める集合が 1 段のままでは
+// 一致の検査が噛み合わない。どちらも invariantTestFiles の 1 回の走査から取る。
 //
 // 集めるのは**最上位の関数宣言のうち、名前が Test で始まり、レシーバを持たず、引数が
 // `*testing.T` 1 つのもの**である。`grep '^func Test'` ではなく go/parser で走査するのは、
@@ -130,21 +133,14 @@ func invariantTestFuncs(t *testing.T, root string) map[string]bool {
 
 	fset := token.NewFileSet()
 	names := make(map[string]bool)
-	for _, dir := range invariantTableDirs {
-		for _, entry := range readDirOrFatal(t, filepath.Join(root, dir)) {
-			// サブディレクトリへは降りない（表の範囲は 2 ディレクトリの直下だけ）。
-			if entry.IsDir() || !strings.HasSuffix(entry.Name(), "_test.go") {
-				continue
-			}
-			path := filepath.Join(root, dir, entry.Name())
-			file, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
-			if err != nil {
-				t.Fatalf("Go ソースとして解析できない（%s）: %v", path, err)
-			}
-			for _, decl := range file.Decls {
-				if fn, ok := decl.(*ast.FuncDecl); ok && isTestFuncDecl(fn) {
-					names[fn.Name.Name] = true
-				}
+	for _, path := range invariantTestFiles(t, root) {
+		file, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
+		if err != nil {
+			t.Fatalf("Go ソースとして解析できない（%s）: %v", path, err)
+		}
+		for _, decl := range file.Decls {
+			if fn, ok := decl.(*ast.FuncDecl); ok && isTestFuncDecl(fn) {
+				names[fn.Name.Name] = true
 			}
 		}
 	}
