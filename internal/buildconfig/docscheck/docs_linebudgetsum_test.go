@@ -59,18 +59,21 @@ func proseSumIsMeasured(expr string) bool {
 // 確かめる）へ広げる側ではなく、**式を落として行数表への参照へ一本化する側**である。
 // 評価しても表と散文の一致が守られるだけで、**写しそのものは残る**からである。
 //
-// 除外は TestLineBudgetProseHasNoMeasuredNumbers と同じもの（budgetProseLines が
-// 行数表・コードブロック・改訂履歴・budgetProseExcluded の節を落とす）を使う。
-// 過去の値を記録する節は除外の中にあるので、そこでは分割の前後で合計がどう動いたかを
-// 式で書いてよい——その Issue に紐づく事実だからである。
+// 対象と除外は TestLineBudgetProseHasNoMeasuredNumbers と同じもの（budgetProseDocs の
+// 各文書について budgetProseLines が行数表・コードブロック・改訂履歴・文書ごとの
+// 除外一覧の節を落とす）を使う。過去の値を記録する節は除外の中にあるので、そこでは
+// 分割の前後で合計がどう動いたかを式で書いてよい——その Issue に紐づく事実だからである。
 func TestLineBudgetProseHasNoSumExpressions(t *testing.T) {
-	for _, line := range budgetProseLines(t) {
-		for _, expr := range proseMeasuredSum.FindAllString(line.text, -1) {
-			if !proseSumIsMeasured(expr) {
-				continue
+	for _, doc := range budgetProseDocs {
+		for _, line := range budgetProseLines(t, doc) {
+			for _, expr := range proseMeasuredSum.FindAllString(line.text, -1) {
+				if !proseSumIsMeasured(expr) {
+					continue
+				}
+				t.Errorf("%s:%d: 散文が行数の合計を式で書いている（%q）"+
+					"——現在の値は行数表だけが持つ。散文は表を参照すること: %s",
+					doc.name, line.no, expr, line.text)
 			}
-			t.Errorf("atomic-design.md:%d: 散文が行数の合計を式で書いている（%q）"+
-				"——現在の値は行数表だけが持つ。散文は表を参照すること: %s", line.no, expr, line.text)
 		}
 	}
 }

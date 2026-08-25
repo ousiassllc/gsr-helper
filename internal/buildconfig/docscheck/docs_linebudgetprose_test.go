@@ -47,7 +47,11 @@ var budgetProseUnits = map[string]bool{
 	"桁": true, "件": true, "つ": true, "本": true, "枚": true, "箇所": true,
 }
 
-// budgetProseExcluded は検査から外す節の見出しである（見出し行そのままの綴り）。
+// budgetProseExcluded は `docs/ui/atomic-design.md` で検査から外す節の見出しである
+// （見出し行そのままの綴り）。
+//
+// **一覧は文書ごとに持つ**——この一覧は本書専用で、他の対象文書の一覧は
+// budgetProseDocs の各 excluded にある（理由は budgetProseDoc の doc コメント）。
 //
 // **挙げてあるのはどれも当時の値を記録する節である。** ただし確かめてあるのは
 // **この検査が拾う形（`N 行` と `残り N`）が残っていないこと**だけである——一覧から
@@ -117,36 +121,41 @@ type proseLine struct {
 // ことになった。そこで**言い回しを一切見ず、数値が無いことだけを見る**形に変えた。
 // 現在の行数を数で持ってよいのは行数表だけで、散文は表を参照する。
 //
-// 除外は budgetProseExcluded の明示の一覧と、行数表・コードブロック・改訂履歴である。
+// 除外は文書ごとの明示の一覧（budgetProseDoc.excluded）と、行数表・コードブロック・
+// 改訂履歴である。対象は budgetProseDocs に登録した文書すべてである。
 func TestLineBudgetProseHasNoMeasuredNumbers(t *testing.T) {
-	for _, line := range budgetProseLines(t) {
-		for _, m := range proseMeasuredRemainder.FindAllStringSubmatch(line.text, -1) {
-			if budgetProseUnits[m[2]] {
-				continue
+	for _, doc := range budgetProseDocs {
+		for _, line := range budgetProseLines(t, doc) {
+			for _, m := range proseMeasuredRemainder.FindAllStringSubmatch(line.text, -1) {
+				if budgetProseUnits[m[2]] {
+					continue
+				}
+				t.Errorf("%s:%d: 散文が残りを数で書いている（%q）"+
+					"——現在の値は行数表だけが持つ。散文は表を参照すること: %s",
+					doc.name, line.no, m[0], line.text)
 			}
-			t.Errorf("atomic-design.md:%d: 散文が残りを数で書いている（%q）"+
-				"——現在の値は行数表だけが持つ。散文は表を参照すること: %s", line.no, m[0], line.text)
-		}
-		for _, m := range proseMeasuredLines.FindAllStringSubmatch(line.text, -1) {
-			if budgetProseRuleConstants[m[1]] {
-				continue
+			for _, m := range proseMeasuredLines.FindAllStringSubmatch(line.text, -1) {
+				if budgetProseRuleConstants[m[1]] {
+					continue
+				}
+				t.Errorf("%s:%d: 散文が行数を数で書いている（%q）"+
+					"——現在の値は行数表だけが持つ。散文は表を参照すること: %s",
+					doc.name, line.no, m[0], line.text)
 			}
-			t.Errorf("atomic-design.md:%d: 散文が行数を数で書いている（%q）"+
-				"——現在の値は行数表だけが持つ。散文は表を参照すること: %s", line.no, m[0], line.text)
 		}
 	}
 }
 
-// budgetProseLines は除外を落とした後の散文を、行番号付きで返す。
-func budgetProseLines(t *testing.T) []proseLine {
+// budgetProseLines は doc から除外を落とした後の散文を、行番号付きで返す。
+func budgetProseLines(t *testing.T, doc budgetProseDoc) []proseLine {
 	t.Helper()
 
-	lines := strings.Split(readAtomicDesign(t), "\n")
-	code := fencedCodeLines(t, lines)
+	lines := strings.Split(doc.read(t), "\n")
+	code := fencedCodeLines(t, doc, lines)
 	skip := append([]bool(nil), code...)
-	skipBudgetTables(t, lines, code, skip)
-	skipRevisionHistory(t, lines, code, skip)
-	skipExcludedSections(t, lines, code, skip)
+	skipBudgetTables(t, doc, lines, code, skip)
+	skipRevisionHistory(t, doc, lines, code, skip)
+	skipExcludedSections(t, doc, lines, code, skip)
 
 	prose := make([]proseLine, 0, len(lines))
 	for i, line := range lines {
@@ -157,18 +166,18 @@ func budgetProseLines(t *testing.T) []proseLine {
 	}
 	// 除外の広がりすぎで検査対象が消えたまま緑になるのを防ぐ。
 	if len(prose) == 0 {
-		t.Fatal("除外を落とすと散文が 1 行も残らない（除外が広すぎる）")
+		t.Fatalf("%s は除外を落とすと散文が 1 行も残らない（除外が広すぎる）", doc.name)
 	}
 	return prose
 }
 
 // fencedCodeLines は ``` で囲まれた範囲（囲みの行を含む）に印を付ける。
 //
-// 閉じ忘れは `t.Fatal` する。囲みが 1 つ足りないと、そこから本書の末尾までが黙って
+// 閉じ忘れは `t.Fatal` する。囲みが 1 つ足りないと、そこから文書の末尾までが黙って
 // 検査対象から消え、**検査は何も見ないまま緑になる**——他の 4 つの保証（行数表が
-// 2 つある / `## 改訂履歴` がある / 一覧の見出しがある / 散文が残る）と同じく、
-// 除外が現実と食い違ったことを声を上げて知らせる。
-func fencedCodeLines(t *testing.T, lines []string) []bool {
+// 期待した数だけある / `## 改訂履歴` がある / 一覧の見出しがある / 散文が残る）と
+// 同じく、除外が現実と食い違ったことを声を上げて知らせる。
+func fencedCodeLines(t *testing.T, doc budgetProseDoc, lines []string) []bool {
 	t.Helper()
 
 	code := make([]bool, len(lines))
@@ -182,17 +191,19 @@ func fencedCodeLines(t *testing.T, lines []string) []bool {
 		code[i] = inCode
 	}
 	if inCode {
-		t.Fatal("atomic-design.md のコードブロックが閉じていない（``` の数が奇数）" +
-			"——閉じ忘れた先が黙って検査対象から外れる")
+		t.Fatalf("%s のコードブロックが閉じていない（``` の数が奇数）"+
+			"——閉じ忘れた先が黙って検査対象から外れる", doc.name)
 	}
 	return code
 }
 
-// skipBudgetTables は 2 つの行数表を外す。表は TestLineBudgetTablesMatchLinterly が
+// skipBudgetTables は行数表を外す。表は TestLineBudgetTablesMatchLinterly が
 // 実測と突き合わせており、そこだけが現在の行数を数で持ってよい場所である。
 //
 // 位置は行番号ではなく表の見出し行で引く（parseBudgetTables と同じ引き方）。
-func skipBudgetTables(t *testing.T, lines []string, code, skip []bool) {
+// 期待する数は文書ごとに違う（budgetProseDoc.tables）ので、一致しなければ落とす——
+// 表を持たない文書（tables が 0）で表が現れた場合も同じく落ちる。
+func skipBudgetTables(t *testing.T, doc budgetProseDoc, lines []string, code, skip []bool) {
 	t.Helper()
 
 	var tables int
@@ -206,8 +217,8 @@ func skipBudgetTables(t *testing.T, lines []string, code, skip []bool) {
 		}
 	}
 	// 表の見出しが変わって除外が効かなくなった／表が消えたことを声を上げて知らせる。
-	if tables != 2 {
-		t.Fatalf("行数表が %d 個しか見つからない（UI 層と UI 層の外の 2 つのはず）", tables)
+	if tables != doc.tables {
+		t.Fatalf("%s の行数表が %d 個見つかった（%d 個のはず）", doc.name, tables, doc.tables)
 	}
 }
 
@@ -215,7 +226,7 @@ func skipBudgetTables(t *testing.T, lines []string, code, skip []bool) {
 //
 // 見出しは**行頭でだけ**効かせる。字下げや文中の引用で切ると、そこから先が
 // まるごと検査から外れる（改訂 1.96 の 2 周目レビューが踏んだ欠陥である）。
-func skipRevisionHistory(t *testing.T, lines []string, code, skip []bool) {
+func skipRevisionHistory(t *testing.T, doc budgetProseDoc, lines []string, code, skip []bool) {
 	t.Helper()
 
 	for i, line := range lines {
@@ -227,18 +238,18 @@ func skipRevisionHistory(t *testing.T, lines []string, code, skip []bool) {
 		}
 		return
 	}
-	t.Fatalf("atomic-design.md に行頭の %q が無い", budgetRevisionHead)
+	t.Fatalf("%s に行頭の %q が無い", doc.name, budgetRevisionHead)
 }
 
-// skipExcludedSections は budgetProseExcluded に挙げた見出しの節だけを外す。
+// skipExcludedSections は doc.excluded に挙げた見出しの節だけを外す。
 //
 // 打ち切りは**深さを見ない**——次の見出しが現れたらそこで止める。入れ子の小節を
-// 外したいときは、その小節も budgetProseExcluded へ書くこと（budgetProseExcluded の
+// 外したいときは、その小節も同じ一覧へ書くこと（budgetProseExcluded の
 // 「除外は入れ子では広がらない」を参照）。
-func skipExcludedSections(t *testing.T, lines []string, code, skip []bool) {
+func skipExcludedSections(t *testing.T, doc budgetProseDoc, lines []string, code, skip []bool) {
 	t.Helper()
 
-	for _, head := range budgetProseExcluded {
+	for _, head := range doc.excluded {
 		start := -1
 		for i, line := range lines {
 			if !code[i] && line == head {
@@ -248,7 +259,7 @@ func skipExcludedSections(t *testing.T, lines []string, code, skip []bool) {
 		}
 		// 見出しの改名で除外が黙って外れる（あるいは効かなくなる）のを防ぐ。
 		if start < 0 {
-			t.Fatalf("除外に挙げた見出し %q が atomic-design.md に無い", head)
+			t.Fatalf("除外に挙げた見出し %q が %s に無い", head, doc.name)
 		}
 		for i := start; i < len(lines); i++ {
 			if i > start && !code[i] && isHeading(lines[i]) {
