@@ -18,9 +18,6 @@ const (
 	budgetNonUIHeading = "#### UI 層の外のディレクトリ"
 	budgetTableHeader  = "| ディレクトリ | 行数 | 残り | 判定 |"
 	budgetRevisionHead = "## 改訂履歴"
-	// budgetDirLimit は 1 ディレクトリの上限（`.linterly.yml` の既定値）。
-	// 散文が「N 行・残り M 行」と書くとき N + M はこの値でなければならない。
-	budgetDirLimit = 2000
 )
 
 // budgetDocRow は行数表の 1 行。例: | `ui/page/disk` | 1997 | 3 | pass |
