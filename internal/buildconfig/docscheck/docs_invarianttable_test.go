@@ -25,22 +25,29 @@ const invariantTableHeader = "| 守っている不変条件 | 破ったときに
 // invariantTableRootDir は検査を置くディレクトリの親（リポジトリルートからの相対）。
 const invariantTableRootDir = "internal/buildconfig"
 
-// invariantTableDirs は一覧表が範囲とする 2 ディレクトリ（リポジトリルートからの相対）。
+// invariantTableDirs は一覧表が範囲とする 3 ディレクトリ（リポジトリルートからの相対）。
 //
-// setup.md の「**この表が挙げるのは `internal/buildconfig` とその `docscheck` に置いた
-// ものだけである。**」で始まる段落がこの 2 つを定めている。`buildconfigtest` は両者が
-// 共有する道具（`RepoRoot`）の置き場であって検査ではないので、表にも載らないし、ここにも
-// 挙げない。**この一覧が実態から遅れたことは invariantTestFiles が知らせる**——`docscheck`
+// setup.md の「**この表が挙げるのは `internal/buildconfig` と、その `docscheck` および
+// `docscheck/linebudget` に置いたものだけである。**」で始まる段落がこの 3 つを定めている。
+// `buildconfigtest` は 3 つが使う道具（3 つとも使うリポジトリルートの解決 `RepoRoot` と、
+// 3 つのうち 2 つが使う表から読んだ数値の変換 `Atoi`）の置き場であって検査ではないので、
+// 表にも載らないし、ここにも挙げない。
+// **この一覧が実態から遅れたことは invariantTestFiles が知らせる**——`docscheck`
 // 自体が Issue #161 の分割で生まれており、再分割は現実に起こりうる。
 var invariantTableDirs = []string{
 	filepath.FromSlash(invariantTableRootDir),
 	filepath.Join(filepath.FromSlash(invariantTableRootDir), "docscheck"),
+	filepath.Join(filepath.FromSlash(invariantTableRootDir), "docscheck", "linebudget"),
 }
 
 // invariantTableTestName は表のセルに現れるバッククォートで囲んだテスト名。
 var invariantTableTestName = regexp.MustCompile("`(Test[A-Za-z0-9_]*)`")
 
-// setup.md の不変条件テスト一覧表は、実装にあるテストの集合と一致していなければならない。
+// この表が挙げるテストの集合と、`internal/buildconfig` 直下・`internal/buildconfig/docscheck`・
+// `internal/buildconfig/docscheck/linebudget` のテスト関数の集合が一致する（表に無い検査と、
+// 実装に無い表の行の両方向）。テスト名は**右カラムからだけ**読むので、説明カラムでの言及は
+// 「表に載っている」と数えない。`internal/buildconfig` 配下を**深さを問わず**辿り、
+// 範囲外のディレクトリがテストを持ったら落ちる。
 //
 // この表は「設定やドキュメントに新しい取り決めを入れたときは、同じ場所にテストを足す」と
 // 自ら定めて一覧への記載を求めていながら、実在する検査のうち 27 本を取りこぼしていた
@@ -53,10 +60,12 @@ var invariantTableTestName = regexp.MustCompile("`(Test[A-Za-z0-9_]*)`")
 // TestSetupDocNolintInventoryMatchesTree が `internal/runner` の分割で実際に踏んだ形
 // （仕様書が存在しないファイルの存在しない抑制を挙げたまま残った。Issue #44）である。
 //
-// 対象を `internal/buildconfig` 直下と `internal/buildconfig/docscheck` の 2 つに限る根拠は
-// setup.md の「**この表が挙げるのは `internal/buildconfig` とその `docscheck` に置いた
-// ものだけである。**」で始まる段落にある。この段落が表の範囲を定めているからこそ、集合の
-// 一致という形で機械的に検査できる。**その範囲自体のずれは invariantTestFiles が見る。**
+// 対象を `internal/buildconfig` 直下・`internal/buildconfig/docscheck`・
+// `internal/buildconfig/docscheck/linebudget` の 3 つに限る根拠は setup.md の
+// 「**この表が挙げるのは `internal/buildconfig` と、その `docscheck` および
+// `docscheck/linebudget` に置いたものだけである。**」で始まる段落にある。この段落が表の範囲を
+// 定めているからこそ、集合の一致という形で機械的に検査できる。**その範囲自体のずれは
+// invariantTestFiles が見る。**
 func TestSetupDocInvariantTableListsEveryTest(t *testing.T) {
 	root := buildconfigtest.RepoRoot(t)
 
@@ -104,8 +113,9 @@ func invariantTestFiles(t *testing.T, root string) []string {
 			}
 			if !slices.Contains(invariantTableDirs, dir) {
 				t.Fatalf("%s がテストを持っているが invariantTableDirs に無い"+
-					"——一覧表の範囲（setup.md の「**この表が挙げるのは `internal/buildconfig` と"+
-					"その `docscheck` に置いたものだけである。**」で始まる段落）と検査の範囲がずれた。"+
+					"——一覧表の範囲（setup.md の「**この表が挙げるのは `internal/buildconfig` と、"+
+					"その `docscheck` および `docscheck/linebudget` に置いたものだけである。**」で始まる段落）と"+
+					"検査の範囲がずれた。"+
 					"このディレクトリを invariantTableDirs へ足して表にも行を足すか、"+
 					"setup.md の範囲の記述を直すこと", dir)
 			}
@@ -173,8 +183,31 @@ func isTestFuncDecl(fn *ast.FuncDecl) bool {
 	return ok && pkg.Name == "testing" && sel.Sel.Name == "T"
 }
 
+// invariantTableRow は一覧表の 1 行を解いたもの。line は setup.md の行番号（1 始まり）。
+type invariantTableRow struct {
+	line  int
+	desc  string
+	tests []string
+}
+
 // invariantTableEntries は setup.md の一覧表が挙げるテスト名を集める。
 func invariantTableEntries(t *testing.T, root string) map[string]bool {
+	t.Helper()
+
+	names := make(map[string]bool)
+	for _, row := range invariantTableRows(t, root) {
+		for _, name := range row.tests {
+			names[name] = true
+		}
+	}
+	if len(names) == 0 {
+		t.Fatal("setup.md の一覧表から 1 件もテスト名を読み取れなかった（表の形が変わった可能性がある）")
+	}
+	return names
+}
+
+// invariantTableRows は setup.md の一覧表を行のまま返す。
+func invariantTableRows(t *testing.T, root string) []invariantTableRow {
 	t.Helper()
 
 	body, err := os.ReadFile(filepath.Join(root, "docs", "environment", "setup.md"))
@@ -194,7 +227,7 @@ func invariantTableEntries(t *testing.T, root string) map[string]bool {
 		t.Fatalf("setup.md に一覧表の見出し行 %q が無い（表の形が変わった可能性がある）", invariantTableHeader)
 	}
 
-	names := make(map[string]bool)
+	var rows []invariantTableRow
 	for i, line := range lines[start+1:] {
 		trimmed := strings.TrimSpace(line)
 		if !strings.HasPrefix(trimmed, "|") {
@@ -210,14 +243,21 @@ func invariantTableEntries(t *testing.T, root string) map[string]bool {
 			t.Fatalf("setup.md:%d: 一覧表の行のセルが %d 個ある（2 個のはず）: %s",
 				start+2+i, len(cells), trimmed)
 		}
-		for _, m := range invariantTableTestName.FindAllStringSubmatch(cells[1], -1) {
-			names[m[1]] = true
+		desc := strings.TrimSpace(cells[0])
+		// 見出しの下の区切り行（`|---|---|`）は表の一部ではないので落とす。
+		if strings.Trim(desc, "-: ") == "" {
+			continue
 		}
+		row := invariantTableRow{line: start + 2 + i, desc: desc}
+		for _, m := range invariantTableTestName.FindAllStringSubmatch(cells[1], -1) {
+			row.tests = append(row.tests, m[1])
+		}
+		rows = append(rows, row)
 	}
-	if len(names) == 0 {
-		t.Fatal("setup.md の一覧表から 1 件もテスト名を読み取れなかった（表の形が変わった可能性がある）")
+	if len(rows) == 0 {
+		t.Fatal("setup.md の一覧表から 1 行も読み取れなかった（表の形が変わった可能性がある）")
 	}
-	return names
+	return rows
 }
 
 // isGoTestName は名前が `go test` にとってのテスト関数名かどうかを返す。

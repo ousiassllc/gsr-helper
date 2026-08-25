@@ -1,4 +1,4 @@
-package docscheck
+package linebudget
 
 import (
 	"regexp"
@@ -57,7 +57,8 @@ func proseSumIsMeasured(expr string) bool {
 	return false
 }
 
-// 散文は行数の合計を式で書いてはならない。
+// 同じ 2 文書の散文は、行数の合計を式で書いてはならない（数が演算子で 2 つ以上連なった形）。
+// 拾う形と除外の詳細は docs/ui/atomic-design.md の「行数の実測値は表だけが持つ」が持つ。
 //
 // `A + B + C = D 行` は 1 文で 4 つの実測値を主張するので、写しが 1 か所ではなく
 // 4 か所増える。にもかかわらず TestLineBudgetProseHasNoMeasuredNumbers が拾えるのは
@@ -85,7 +86,8 @@ func TestLineBudgetProseHasNoSumExpressions(t *testing.T) {
 	}
 }
 
-// 合計の式の検出は、行数の式だけを拾い、行数以外の算術は拾わない。
+// 合計の式の検出は、行数の式だけを拾い、行数以外の算術（すべて 2 以下の式・ISO 形式の日付・
+// 数の間に語を挟んだ列幅の見積もり）を拾わない。検出の両方向を固定する単体テストである。
 //
 // **両方向を固定するために単体で持つ。** 拾えなくなれば Issue #167 の実害（4 項ぶんの
 // 実測値が素通りし、散文が古い合計を現在形で語り続ける）がそのまま戻る。逆に拾いすぎれば、

@@ -1,4 +1,4 @@
-package docscheck
+package linebudget
 
 import (
 	"encoding/json"
@@ -43,7 +43,8 @@ type linterlyReport struct {
 	} `json:"results"`
 }
 
-// 行数表は `go tool linterly check` の実測と一致していなければならない。
+// 行数の予算の 2 つの表が `go tool linterly check` の実測と一致していなければならない（行数・
+// 残り・判定と、行数の多い順の並び）。
 //
 // 同じ実測値が本書の 3 か所（2 つの行数表・散文・改訂履歴）に手で写されているのに、
 // これまでどのテストも「書かれた数」と「実際に数えた行数」を突き合わせていなかった。
@@ -118,8 +119,8 @@ func parseBudgetRows(t *testing.T, section string) []budgetRow {
 	for _, m := range budgetDocRow.FindAllStringSubmatch(section, -1) {
 		rows = append(rows, budgetRow{
 			dir:       m[1],
-			lines:     atoi(t, m[2]),
-			remaining: atoi(t, m[3]),
+			lines:     buildconfigtest.Atoi(t, m[2]),
+			remaining: buildconfigtest.Atoi(t, m[3]),
 			verdict:   m[4],
 		})
 	}

@@ -73,12 +73,13 @@ var graphNodeRules = []graphNodeRule{
 	{"internal/audit", "Audit"},
 	{"internal/appconfig", "Appconf"},
 
-	// buildconfig 配下はビルド設定とドキュメントの回帰テスト、およびその 2 つが共有する
+	// buildconfig 配下はビルド設定とドキュメントの回帰テスト、およびそれらが共有する
 	// 道具だけを置くツリーで、本書の層の図に載る実行時の依存ではない。グラフの対象外で
 	// あることを空ノードで明示する（表から漏れたのか対象外なのかを区別するため）。
 	// この 1 規則が最長プレフィックス一致で覆うのは internal/buildconfig（ビルド設定の
 	// 検査）・internal/buildconfig/docscheck（ドキュメントの検査）・
-	// internal/buildconfig/buildconfigtest（両方が使う道具）の 3 パッケージである。
+	// internal/buildconfig/docscheck/linebudget（行数の予算の検査。Issue #171）・
+	// internal/buildconfig/buildconfigtest（複数が使う道具）の 4 パッケージである。
 	{"internal/buildconfig", ""},
 }
 

@@ -86,8 +86,8 @@ func isSelfHosted(runsOn yamlStrings) bool {
 	return slices.Contains(runsOn, "self-hosted")
 }
 
-// ゲートジョブは self-hosted runner では動かさない。fork PR がゲート自身を
-// self-hosted 上で実行できてしまっては、ゲートを置く意味が無い。
+// `guard` ジョブ自身は GitHub ホストランナーで動く。ゲートを self-hosted 上で
+// 走らせると、fork の PR がゲート自身をホスト上で実行できてしまい、ゲートを置く意味が無い。
 func TestCIGuardJobDoesNotUseSelfHostedRunner(t *testing.T) {
 	wf := loadCIWorkflow(t)
 
@@ -103,8 +103,9 @@ func TestCIGuardJobDoesNotUseSelfHostedRunner(t *testing.T) {
 	}
 }
 
-// self-hosted runner を使うジョブは必ずゲートジョブに依存する。`if:` による skip では
-// required status check に対して success 扱いになり、マージを機械的に止められない。
+// `.github/workflows/ci.yml` の self-hosted runner を使うジョブは、必ず `needs: guard` で
+// ゲートジョブに依存する。`if:` による skip では required status check に対して success 扱いに
+// なり、マージを機械的に止められない。
 func TestCISelfHostedJobsDependOnGuard(t *testing.T) {
 	wf := loadCIWorkflow(t)
 
@@ -123,7 +124,10 @@ func TestCISelfHostedJobsDependOnGuard(t *testing.T) {
 	}
 }
 
-// ゲートの判定ロジックを実際に実行して、許可リスト形であることを確かめる。
+// `.github/workflows/ci.yml` の `guard` は許可リスト形である（`push` と
+// 同一リポジトリの `pull_request` 以外は失敗する）。
+// 判定値は `EVENT_NAME` / `HEAD_REPO` / `BASE_REPO` の env 経由で渡り、ゲートの `run:` に `${{` を
+// 直書きしない（head リポジトリ名を通した式インジェクションの余地を残さないため）。
 // 許可していないトリガーを `on:` に足したときに既定が「実行しない」側へ倒れる必要がある。
 func TestCIGuardScriptAllowsOnlySameRepositoryEvents(t *testing.T) {
 	script, env := guardScript(t)
@@ -188,8 +192,8 @@ func guardScript(t *testing.T) (string, map[string]string) {
 	return "", nil
 }
 
-// pull_request_target は使わない。fork の PR に対してベースリポジトリ側の権限で
-// ワークフローが動くため、fork ガードの意味が失われる。
+// どのワークフローも `pull_request_target` を使わない。fork の PR に対してベースリポジトリ側の
+// 権限でワークフローが動き、fork ガードの意味が失われる。
 func TestWorkflowsDoNotUsePullRequestTarget(t *testing.T) {
 	entries, err := os.ReadDir(workflowsDir(t))
 	if err != nil {

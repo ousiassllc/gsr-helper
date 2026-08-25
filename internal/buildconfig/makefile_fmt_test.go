@@ -45,6 +45,15 @@ func TestFmtCheckSkipsTestdata(t *testing.T) {
 }
 
 // make fmt-check はモジュール内の未整形ファイルを検出する。
+//
+// fmt-check に掛かる他の検査は「何を対象にするか」を確かめるものである——入れ子 worktree と
+// testdata/ を外す、ビルドタグで除外されたファイルも見る、PATH ではなく GOROOT 由来の gofmt を
+// 使う、前提が崩れたら黙って通らない。**そもそも未整形を落とせるか**を見ているのはこの 1 本だけで、
+// 除外の条件を書き換えて対象がまるごと消えても、範囲側の検査はすべて緑のままになる。
+//
+// 検出しない fmt-check は CI でも pre-commit でも常に成功するので、壊れたことに気付く経路が
+// 他に無い。未整形のまま入ったコードは、次に誰かが make fmt を掛けた差分に無関係な整形として
+// 混ざり込む。
 func TestFmtCheckDetectsUnformatted(t *testing.T) {
 	dir := newModule(t, map[string]string{"root.go": unformattedGo})
 

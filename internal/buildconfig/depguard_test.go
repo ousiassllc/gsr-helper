@@ -64,8 +64,9 @@ func Width(s string) int { return lipgloss.Width(s) }
 `,
 }
 
-// Charm は charm.land/<name>/v2 に揃える。v1 系のパスを禁止していないと、
-// golangci-lint の推移依存として go.mod に残る v1 を誤って import できてしまう。
+// Charm は `charm.land/<name>/v2` に揃え、`github.com/charmbracelet` 系のパスを depguard で
+// 理由付きで禁止する。禁止していないと、推移依存として go.mod に残る v1 を誤って import できて
+// しまう。
 func TestGolangciDeniesCharmV1Paths(t *testing.T) {
 	raw, err := os.ReadFile(filepath.Join(buildconfigtest.RepoRoot(t), ".golangci.yml"))
 	if err != nil {
@@ -89,7 +90,20 @@ func TestGolangciDeniesCharmV1Paths(t *testing.T) {
 	}
 }
 
-// 設定だけでなく、実際に禁止パスの import が落ちることを確認する。
+// 禁止した Charm v1 のパスを import したコードが、リポジトリの `.golangci.yml` で実際に落ちる
+// （設定に deny ルールが書いてあることと、それが効くことは別である）。
+//
+// 直前の TestGolangciDeniesCharmV1Paths は .golangci.yml に deny ルールが**書いてある**ことしか
+// 見ない。書いてあっても効かない形は複数ある——depguard が linters の有効一覧から外れる、
+// ルールの files スコープが対象を外す、prefix が実際の import パスを覆わない。
+//
+// **禁止しているパスは推移依存として go.mod に残っているので、import は解決してコンパイルも通る**
+// （github.com/charmbracelet/lipgloss v1 が現に indirect で入っている）。止めているのは linter
+// だけであり、効かなくなれば v1 と v2 の Charm が同じバイナリに同居する。版をまたいで型は
+// 共有されないので、食い違いが出るのはコンパイル時ではなく描画時である。
+// 設定の存在と実効性を対で見るのは同ディレクトリの nolintlint と gci でも同じ形で、
+// TestGolangciEnablesNolintlint / TestGolangciLintRejectsSloppyNolint、
+// TestGolangciEnablesGci / TestGolangciLintRejectsMisgroupedImports がそれにあたる。
 func TestGolangciLintRejectsCharmV1Import(t *testing.T) {
 	dir := newModule(t, charmStubModule)
 

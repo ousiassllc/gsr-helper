@@ -99,8 +99,10 @@ func TestLefthookRoutesUnscopedCommandsThroughMake(t *testing.T) {
 	}
 }
 
-// 実行順は priority で固定する。parallel: false は同時実行を止めるだけで順序を
-// 決めないため、未指定だと commands のキー名の比較に依存してしまう。
+// pre-commit は `parallel: false` で同時実行を止め、実行順を `priority` で
+// 固定する。`parallel: false` は同時実行を止めるだけで順序を決めず、priority が
+// 未指定だと commands のキー名の比較に依存する。`fmt` → `lint` → `linterly` の順序も
+// 検査する（fmt が整形した結果を lint が読むため）。
 func TestLefthookPreCommitOrderIsPinnedByPriority(t *testing.T) {
 	pre := loadLefthookConfig(t).PreCommit
 
@@ -125,6 +127,16 @@ func TestLefthookPreCommitOrderIsPinnedByPriority(t *testing.T) {
 }
 
 // lefthook.yml は go.mod でピン留めしたバージョンの lefthook が受け付ける形でなければならない。
+//
+// 同じファイルの他の検査は lefthook.yml を自前の struct へ読み込んで見るので、**struct が
+// 知らないキーの誤りは 1 つも落とせない**——キー名の綴り違いも、ピン留めした版が受け付けなく
+// なったスキーマも素通りする。設定を lefthook 自身に読ませているのはここだけであり、go.mod の
+// 版を上げたときにスキーマが変わったことも同じ経路で分かる。
+//
+// 壊れた lefthook.yml はフックの実行そのものを止めるため、気付くのは commit / push を
+// 試した各開発者の手元になる。CI の lint ジョブも同じ validate を走らせる（その step の存在は
+// TestCILintJobValidatesLefthookConfig が守る）が、こちらは make test の一部なので
+// pre-push で、すなわち CI へ出す前に落ちる。
 func TestLefthookConfigIsValid(t *testing.T) {
 	cmd := exec.Command("go", "tool", "lefthook", "validate")
 	cmd.Dir = buildconfigtest.RepoRoot(t)
