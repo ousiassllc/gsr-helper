@@ -4,10 +4,11 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
+	"slices"
 	"strings"
 	"testing"
 	"unicode"
@@ -20,19 +21,23 @@ import (
 // 一覧表の見出し行。この行から最初の非 `|` 行までを表とみなす。
 const invariantTableHeader = "| 守っている不変条件 | 破ったときに落ちるテスト |"
 
+// invariantTableRootDir は検査を置くディレクトリの親（リポジトリルートからの相対）。
+const invariantTableRootDir = "internal/buildconfig"
+
 // invariantTableDirs は一覧表が範囲とする 2 ディレクトリ（リポジトリルートからの相対）。
 //
 // setup.md の「**この表が挙げるのは `internal/buildconfig` とその `docscheck` に置いた
 // ものだけである。**」で始まる段落がこの 2 つを定めている。サブディレクトリは辿らない
 // ——`internal/buildconfig/buildconfigtest` は両者が共有する道具（`RepoRoot`）の置き場で
-// あって検査ではないので、表にも載らないし、ここでも数えない。
+// あって検査ではないので、表にも載らないし、ここでも数えない。**この一覧が実態から
+// 遅れたことは assertInvariantTableDirsCoverTree が知らせる**——`docscheck` 自体が
+// Issue #161 の分割で生まれており、再分割は現実に起こりうる。
 var invariantTableDirs = []string{
-	filepath.Join("internal", "buildconfig"),
-	filepath.Join("internal", "buildconfig", "docscheck"),
+	filepath.FromSlash(invariantTableRootDir),
+	filepath.Join(filepath.FromSlash(invariantTableRootDir), "docscheck"),
 }
 
 // invariantTableTestName は表のセルに現れるバッククォートで囲んだテスト名。
-// 区切り行（`|---|---|`）にはバッククォートが無いので自然に読み飛ばされる。
 var invariantTableTestName = regexp.MustCompile("`(Test[A-Za-z0-9_]*)`")
 
 // setup.md の不変条件テスト一覧表は、実装にあるテストの集合と一致していなければならない。
@@ -50,24 +55,67 @@ var invariantTableTestName = regexp.MustCompile("`(Test[A-Za-z0-9_]*)`")
 //
 // 対象を `internal/buildconfig` 直下と `internal/buildconfig/docscheck` の 2 つに限る根拠は
 // setup.md の「**この表が挙げるのは `internal/buildconfig` とその `docscheck` に置いた
-// ものだけである。**」で始まる段落にある。この段落が表の範囲を定めているからこそ、
-// 集合の一致という形で機械的に検査できる。
+// ものだけである。**」で始まる段落にある。この段落が表の範囲を定めているからこそ、集合の
+// 一致という形で機械的に検査できる。**その範囲自体のずれは assertInvariantTableDirsCoverTree
+// が見る。**
 func TestSetupDocInvariantTableListsEveryTest(t *testing.T) {
 	root := buildconfigtest.RepoRoot(t)
+
+	assertInvariantTableDirsCoverTree(t, root)
 
 	impl := invariantTestFuncs(t, root)
 	doc := invariantTableEntries(t, root)
 
-	for _, name := range sortedTestNames(impl) {
+	for _, name := range slices.Sorted(maps.Keys(impl)) {
 		if !doc[name] {
 			t.Errorf("%s が setup.md の不変条件テスト一覧表に無い（何を守る検査かを 1 行で書いて表へ行を足すこと）", name)
 		}
 	}
-	for _, name := range sortedTestNames(doc) {
+	for _, name := range slices.Sorted(maps.Keys(doc)) {
 		if !impl[name] {
 			t.Errorf("setup.md の不変条件テスト一覧表が %s を挙げているが、そのテストは実装に無い（除去・改名に追随できていない。表から行を落とすか、新しい名前へ直すこと）", name)
 		}
 	}
+}
+
+// assertInvariantTableDirsCoverTree は、invariantTableDirs に無いディレクトリが
+// テストを持っていないことを確かめる。
+//
+// **一覧が直書きだけだと、範囲の外に検査が生まれても表も検査も黙る。** 3 つ目の検査
+// ディレクトリ（`internal/buildconfig/newcheck`）を作ってテストを置いても緑のままで、
+// `buildconfigtest` へテストを置いた場合も同じだった——setup.md が「buildconfigtest は
+// 検査を持たない」と現在形で述べている前提そのものが無検査だったということである。
+func assertInvariantTableDirsCoverTree(t *testing.T, root string) {
+	t.Helper()
+
+	base := filepath.FromSlash(invariantTableRootDir)
+	for _, entry := range readDirOrFatal(t, filepath.Join(root, base)) {
+		dir := filepath.Join(base, entry.Name())
+		if !entry.IsDir() || slices.Contains(invariantTableDirs, dir) {
+			continue
+		}
+		for _, sub := range readDirOrFatal(t, filepath.Join(root, dir)) {
+			if sub.IsDir() || !strings.HasSuffix(sub.Name(), "_test.go") {
+				continue
+			}
+			t.Fatalf("%s がテストを持っているが invariantTableDirs に無い"+
+				"——一覧表の範囲（setup.md の「**この表が挙げるのは `internal/buildconfig` と"+
+				"その `docscheck` に置いたものだけである。**」で始まる段落）と検査の範囲がずれた。"+
+				"このディレクトリを invariantTableDirs へ足して表にも行を足すか、"+
+				"setup.md の範囲の記述を直すこと", dir)
+		}
+	}
+}
+
+// readDirOrFatal はディレクトリを読み、読めなければ落とす。
+func readDirOrFatal(t *testing.T, dir string) []os.DirEntry {
+	t.Helper()
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("%s を読めない: %v", dir, err)
+	}
+	return entries
 }
 
 // invariantTestFuncs は invariantTableDirs のテスト関数の名前を集める。
@@ -83,11 +131,7 @@ func invariantTestFuncs(t *testing.T, root string) map[string]bool {
 	fset := token.NewFileSet()
 	names := make(map[string]bool)
 	for _, dir := range invariantTableDirs {
-		entries, err := os.ReadDir(filepath.Join(root, dir))
-		if err != nil {
-			t.Fatalf("%s を読めない: %v", dir, err)
-		}
-		for _, entry := range entries {
+		for _, entry := range readDirOrFatal(t, filepath.Join(root, dir)) {
 			// サブディレクトリへは降りない（表の範囲は 2 ディレクトリの直下だけ）。
 			if entry.IsDir() || !strings.HasSuffix(entry.Name(), "_test.go") {
 				continue
@@ -155,26 +199,28 @@ func invariantTableEntries(t *testing.T, root string) map[string]bool {
 	}
 
 	names := make(map[string]bool)
-	for _, line := range lines[start+1:] {
-		if !strings.HasPrefix(strings.TrimSpace(line), "|") {
+	for i, line := range lines[start+1:] {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, "|") {
 			break
 		}
-		for _, m := range invariantTableTestName.FindAllStringSubmatch(line, -1) {
+		// **テスト名は右カラム（「破ったときに落ちるテスト」）だけから読む。** 行全体に
+		// 掛けていた頃は、左カラム（説明）でテスト名に言及しただけで「表に載っている」と
+		// 数えた——ある行を丸ごと消してその名前を別の行の説明カラムへ書き足すだけで、
+		// 検査が緑のまま通ることを実測している。区切り行（`|---|---|`）は 2 セルに割れ、
+		// バッククォートを持たないので自然に読み飛ばされる。
+		cells := strings.Split(strings.TrimSuffix(strings.TrimPrefix(trimmed, "|"), "|"), "|")
+		if len(cells) != 2 {
+			t.Fatalf("setup.md:%d: 一覧表の行のセルが %d 個ある（2 個のはず）: %s",
+				start+2+i, len(cells), trimmed)
+		}
+		for _, m := range invariantTableTestName.FindAllStringSubmatch(cells[1], -1) {
 			names[m[1]] = true
 		}
 	}
 	if len(names) == 0 {
 		t.Fatal("setup.md の一覧表から 1 件もテスト名を読み取れなかった（表の形が変わった可能性がある）")
 	}
-	return names
-}
-
-func sortedTestNames(m map[string]bool) []string {
-	names := make([]string, 0, len(m))
-	for name := range m {
-		names = append(names, name)
-	}
-	sort.Strings(names)
 	return names
 }
 

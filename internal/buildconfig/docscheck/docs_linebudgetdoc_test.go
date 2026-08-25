@@ -3,6 +3,7 @@ package docscheck
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/ousiassllc/gsr-helper/internal/buildconfig/buildconfigtest"
@@ -12,7 +13,7 @@ import (
 //
 // **除外の一覧を文書ごとに持つのは、除外が文書の構造に結びついているからである。**
 // `atomic-design.md` は行数表を 2 つ持ち、過去の値を記録する節を 20 以上抱えるが、
-// `overview.md` は行数表を持たず、記録の節は 1 つだけである。一覧を 1 つに混ぜると、
+// `overview.md` は行数表を持たず、除外も 1 つも持たない。一覧を 1 つに混ぜると、
 // **片方にしか無い見出しが消えたことを検査が知らせられなくなる**——
 // skipExcludedSections は一覧に挙げた見出しが本文に無いと `t.Fatal` するので、
 // 混ぜた一覧では「もう一方の文書にある見出し」を毎回取り逃がすことになり、
@@ -26,6 +27,15 @@ type budgetProseDoc struct {
 	name     string   // エラーメッセージに出す名前
 	tables   int      // 本文が持つ行数表の数（0 は表を持たない文書）
 	excluded []string // 過去の値を記録する節の見出し（明示の一覧）
+	// sumExcluded は**合計の式の検査にだけ**効く除外である。行数と無関係な算術
+	// （列幅の見積もり）を持つ節がここに入る。`N 行` の側は無関係なので外さない。
+	sumExcluded []string
+}
+
+// forSumCheck は合計の式の検査で使う除外（excluded ∪ sumExcluded）を持つ複製を返す。
+func (d budgetProseDoc) forSumCheck() budgetProseDoc {
+	d.excluded = append(slices.Clone(d.excluded), d.sumExcluded...)
+	return d
 }
 
 // budgetProseDocs は検査の対象文書である。
@@ -36,29 +46,36 @@ type budgetProseDoc struct {
 // 読んでいなかったためそこを見ていなかった（Issue #169）。
 var budgetProseDocs = []budgetProseDoc{
 	{
-		rel:      []string{"docs", "ui", "atomic-design.md"},
-		name:     "atomic-design.md",
-		tables:   2,
-		excluded: budgetProseExcluded,
+		rel:         []string{"docs", "ui", "atomic-design.md"},
+		name:        "atomic-design.md",
+		tables:      2,
+		excluded:    budgetProseExcluded,
+		sumExcluded: budgetProseSumExcluded,
 	},
 	{
-		rel:      []string{"docs", "components", "overview.md"},
-		name:     "components/overview.md",
-		tables:   0,
-		excluded: overviewProseExcluded,
+		// **`overview.md` は除外を 1 つも持たない。** 唯一あった「### `internal/disk`」は
+		// 節まるごと（API 責務表と全段落）を外しながら「載せてよいのは過去の値だけを持つ
+		// 節」という規約を満たしていなかった。当時の値は `atomic-design.md` の
+		// 「`internal/disk` から `pathguard` を切り出した判断（Issue #101）」が持つので、
+		// `overview.md` 側は数値を落として同節への参照へ寄せた。
+		rel:    []string{"docs", "components", "overview.md"},
+		name:   "components/overview.md",
+		tables: 0,
 	},
 }
 
-// overviewProseExcluded は `docs/components/overview.md` で検査から外す節の見出しである
-// （見出し行そのままの綴り）。
+// budgetProseWidthSection は `docs/ui/atomic-design.md` の列幅を論じる節の見出しである。
+const budgetProseWidthSection = "### 幅"
+
+// budgetProseSumExcluded は `docs/ui/atomic-design.md` で**合計の式の検査からだけ**
+// 外す節の見出しである。
 //
-// この 1 件だけなのは、`internal/disk` の節が **Issue #101 当時の値**——警告帯
-// （2000 行超）へ入り、`disk/pathguard` を切り出して戻した経緯——を記録しているからである。
-// その Issue に紐づく過去の事実なので、現在の実測へ寄せると議論の根拠そのものが消える。
-// **同じ節が持っていた現在形の実測値のほうは `atomic-design.md` の行数表への参照へ寄せた**
-// ので、除外の中に残るのは当時の値だけである（Issue #169）。
-var overviewProseExcluded = []string{
-	"### `internal/disk`",
+// **載せるのは行数と無関係な算術を持つ節だけで、一覧は最小に保つ。** 実装後に全文を
+// 走査して偽陽性を全件列挙した結果、該当したのはこの 1 つだけだった——端末 80 桁に
+// 収まるかどうかをセル数の算術（`6 + 66 + 3 = 75 セル`）で論じる節である。行数の
+// 実測値の検査（`N 行` / `残り N`）はこの節にも掛かったままである。
+var budgetProseSumExcluded = []string{
+	budgetProseWidthSection,
 }
 
 // read は対象文書の本文を返す。
