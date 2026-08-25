@@ -8,5 +8,8 @@
 // ドキュメント（docs/ 配下の Markdown）の不変条件は、同じ性格の検査でありながら
 // 増え方が違い互いに依存も無いため、サブディレクトリの docscheck へ分けてある
 // （Issue #161。判断は docs/ui/atomic-design.md の「`internal/buildconfig` を 2 つに
-// 分けた判断」）。両方が使う道具は buildconfigtest にある。
+// 分けた判断」）。そのうち行数の予算の検査だけは、伸びが速く自己完結していたので
+// さらに docscheck/linebudget へ分けてある（Issue #171。判断は同じ文書の
+// 「`docscheck` から行数の予算の検査を分けた判断」）。この 3 つのうち複数が使う道具
+// だけを buildconfigtest に置く。
 package buildconfig

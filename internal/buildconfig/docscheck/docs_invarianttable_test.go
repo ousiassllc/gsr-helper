@@ -29,8 +29,10 @@ const invariantTableRootDir = "internal/buildconfig"
 //
 // setup.md の「**この表が挙げるのは `internal/buildconfig` と、その `docscheck` および
 // `docscheck/linebudget` に置いたものだけである。**」で始まる段落がこの 3 つを定めている。
-// `buildconfigtest` は 3 つが共有する道具（リポジトリルートの解決 `RepoRoot` と表から読んだ
-// 数値の変換 `Atoi`）の置き場であって検査ではないので、表にも載らないし、ここにも挙げない。**この一覧が実態から遅れたことは invariantTestFiles が知らせる**——`docscheck`
+// `buildconfigtest` は 3 つが使う道具（3 つとも使うリポジトリルートの解決 `RepoRoot` と、
+// 3 つのうち 2 つが使う表から読んだ数値の変換 `Atoi`）の置き場であって検査ではないので、
+// 表にも載らないし、ここにも挙げない。
+// **この一覧が実態から遅れたことは invariantTestFiles が知らせる**——`docscheck`
 // 自体が Issue #161 の分割で生まれており、再分割は現実に起こりうる。
 var invariantTableDirs = []string{
 	filepath.FromSlash(invariantTableRootDir),
