@@ -1188,7 +1188,7 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 | `internal/setup` | 1970 | 30 | pass |
 | `internal/exec/command` | 1912 | 88 | pass |
 | `internal/config/edit` | 1904 | 96 | pass |
-| `internal/runner` | 1774 | 226 | pass |
+| `internal/runner` | 1824 | 176 | pass |
 | `internal/buildconfig/docscheck` | 1497 | 503 | pass |
 | `internal/doctor/jobreq` | 1495 | 505 | pass |
 | `internal/buildconfig` | 1441 | 559 | pass |
@@ -1807,6 +1807,7 @@ Issue #31 で `table_test.go` の空振りしていたテスト（`View() != ""`
 | 1.126 | 2026-09-04 | 3 周目レビューの major 4 件のうち本書に掛かるぶんを反映。(1) 「`internal/config/edit` の入力の検証の検査を `validcheck` へ分けた判断（Issue #184）」節が挙げる `Validate*` の置き場所を実測へ直した（`ValidateLine` / `ValidateHook` / `ValidateLabelInput` は **`summary.go`**、`ValidateRoots` / `ValidateRefresh` / `ValidatePercent` / `ValidateAuditLog` は `self.go`。**`values.go` に `Validate*` は 1 本も無い**）。**「両側に散っているので (1) は採れなかった」という論証そのものは変えていない。** (2) 「行数の予算」の非 UI の表を実測へ更新した（`internal/exec/command` 1909 → **1912 行**・残り 88・pass。並びは変わらない） | (1) `ValidateRoots` は `self.go` にあり、旧記述は境界の**逆側**へ置いていた（`values.go` 系とした 4 本のうち 3 本は `summary.go` である）。散り方は実測でも成立する（`summary.go` 3 本・`self.go` 4 本）ので結論は変わらないが、**この列挙は「両側に散っている」という論証の判断材料そのもの**で、誤ると根拠が崩れる。しかも本節は `docs_linebudgetprose_test.go` の除外一覧に載っており**以後どの自動検査も見ない**。(2) `internal/exec/command` のテストのコメントを書き直したぶん行数が動いた——**改訂 1.125 の (2) が足したコメントが「抜粋より小さくなると末尾が二重に落ちる」と向きを逆に書いていた**（`limit.Buffer` も `limit.Head` も末尾を残すので、落ちるのはどちらの段でも先頭である）ので、`limit.Head` が `len(s) <= n` で素通りし `limit.Prefix` の印の付かない短い抜粋になる形へ直した。併せて `wrap_test.go` の分割の理由も「ファイル側が警告帯に入った」から「まとめていれば ERROR 帯に当たっていた」へ直した（`confirmmodal_test.go` は一度も 300 行を超えていない。改訂 1.123 と同じ主張になる） |
 | 1.127 | 2026-09-04 | 「行数の予算」の非 UI の表の `internal/runner` を実測へ更新した（1704 → **1778 行**・残り 222・pass） | `attach` の `UnitName` 索引を `indexByUnitName` へ切り出し、同じユニット名を名乗るディレクトリが複数ある場合の回帰テストを足したため。行数は「先に切り出し先を決めること」の判断材料として本節が挙げているので、古い値は判断を誤らせる |
 | 1.128 | 2026-09-04 | 「行数の予算」の非 UI の表を実測へ更新した（`internal/runner` 1778 → **1774 行**・残り 226、`internal/runner/systemd` 552 → **596 行**・残り 1404、`internal/doctor/hostcfg` 1184 → **1182 行**・残り 818。いずれも pass） | `"not-found"` の定数と「ユニットの実体があるか」の述語を `internal/runner/systemd` へ集約し、`internal/runner` と `internal/doctor/hostcfg` から写しを落としたため。行数は「先に切り出し先を決めること」の判断材料として本節が挙げているので、古い値は判断を誤らせる |
+| 1.129 | 2026-09-04 | 「行数の予算」の非 UI の表の `internal/runner` を実測へ更新した（1774 → **1824 行**・残り 176・pass） | `Runner` / `Result` のコピー時の共有についての注意書きと、周期ごとに新しい実体を返すことを固定する回帰テスト（`TestDiscoverReturnsFreshInstancesEachCycle`）を足したため。行数は「先に切り出し先を決めること」の判断材料として本節が挙げているので、古い値は判断を誤らせる |
 
 ### 改訂の詳細
 
