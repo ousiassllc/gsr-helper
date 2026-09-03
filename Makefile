@@ -9,7 +9,9 @@ INSTALL_BIN := gsr
 
 # インストール先。go install と同じ流儀で、GOBIN があればそこ、無ければ GOPATH/bin を使う。
 # 絶対パスを直に書かず、sudo の要る場所も既定にしない。make install INSTALL_DIR=... で変えられる。
-INSTALL_DIR ?= $(or $(shell $(GO) env GOBIN),$(shell $(GO) env GOPATH)/bin)
+# GOPATH が空のときは /bin へ落とさず空のままにする（$(shell ...)/bin と書くと裸の /bin に
+# なり、sudo の要る場所が既定になったうえ install / uninstall の空チェックが死ぬ）。
+INSTALL_DIR ?= $(or $(shell $(GO) env GOBIN),$(patsubst %,%/bin,$(shell $(GO) env GOPATH)))
 
 # run に渡す引数。make run ARGS="--root /path/to/actions-runner" のように使う。
 ARGS ?=

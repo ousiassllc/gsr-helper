@@ -1191,11 +1191,11 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 | `internal/runner` | 1704 | 296 | pass |
 | `internal/buildconfig/docscheck` | 1497 | 503 | pass |
 | `internal/doctor/jobreq` | 1495 | 505 | pass |
+| `internal/buildconfig` | 1403 | 597 | pass |
 | `internal/audit` | 1393 | 607 | pass |
 | `internal/doctor/hostres` | 1383 | 617 | pass |
 | `internal/appconfig` | 1381 | 619 | pass |
 | `internal/svc` | 1353 | 647 | pass |
-| `internal/buildconfig` | 1351 | 649 | pass |
 | `internal/doctor/hostcfg` | 1184 | 816 | pass |
 | `cmd/gsr-helper` | 1077 | 923 | pass |
 | `internal/doctor/authz` | 822 | 1178 | pass |
@@ -1760,6 +1760,7 @@ Issue #31 で `table_test.go` の空振りしていたテスト（`View() != ""`
 | 1.112 | 2026-09-03 | Issue #181 を反映。「行数の予算」の非 UI の表の `internal/exec/command` を実測へ更新した（1853 → **1981 行**・残り 19・pass。監査レコードの `error` の切り詰め（`truncateTail` / `dropPartialRuneAtEnd`）の回帰テスト 1 ファイルを足したぶん）。行数が `internal/disk` を上回ったので、行数の多い順の並びを保つため行を 3 つ上へ移した。**分割はしていない** | 表は `TestLineBudgetTablesMatchLinterly` が `go tool linterly check --format json` の実測と行数・残り・判定・並びを突き合わせるので、テストを足した時点で表を直さないと `make check` が落ちる。分割しなかったのは足したぶんが上限（2000 行）の内側に収まり警告帯へ入らないためである——本節が分割の是非の判断と理由を残すよう求めているのは警告帯に入るディレクトリへ足すときであり、`internal/exec/command` はまだそこに無い（残りは同じ表の `残り` 列が示す）（Issue #181） |
 | 1.113 | 2026-09-03 | Issue #182 を反映。`internal/ui/page/configmodal` へ入力欄と検証の配線の回帰テストを、`internal/config/edit` へ huh の `Validate` から呼ぶ 4 本の入口（`ValidateLine` / `ValidateHook` / `ValidateLabelInput` / `ValidateRoots`）の単体テストを足したぶん、「行数の予算」の 2 つの表の当該行を実測へ更新した（`ui/page/configmodal` は行数が `ui/page/action` と `ui/template` の間へ、`internal/config/edit` は `internal/gh` と `internal/exec/command` の間へ上がったので、**行数の多い順の並びを保つため行を移した**）。どちらも警告帯（上限の 2000 行超）には入っていない | `configmodal` は「どのフィールドをどの検証に繋ぐか」の判断を持ちながらテストが 1 本も無く、**`.env` の hook のキーだけを強く見る配線（`form.go` の `if k.Hook`）が反転しても消えても `make check` は緑のままだった**。hook の値は runner がジョブごとにシェルで実行するため、[セキュリティ設計](../architecture/security.md)が他のキーより強く見ると定めている箇所である。行数表は実測しか書かない決まりで、`TestLineBudgetTablesMatchLinterly` が行数・残り・判定に加えて並びも見るため、テストを足したら表を更新して行を移す必要がある |
 | 1.114 | 2026-09-03 | 「行数の予算」の非 UI の表の `internal/buildconfig` を実測へ更新した（1287 → **1351 行**・残り 649・pass。並びは `internal/svc` と `internal/doctor/hostcfg` の間で変わらない） | `make install` / `make uninstall` の回帰テスト（`makefile_install_test.go`）を同ディレクトリへ足したぶん行数が動いた。表は実測と `TestLineBudgetTablesMatchLinterly` が突き合わせるので、実装だけを足すと落ちる |
+| 1.115 | 2026-09-03 | 「行数の予算」の非 UI の表の `internal/buildconfig` を実測へ更新した（1351 → **1403 行**・残り 597・pass。並びは `internal/doctor/jobreq` と `internal/audit` の間へ上がる） | `make install` の既定のインストール先（`INSTALL_DIR`）の回帰テストを 2 本、`makefile_install_test.go` へ足したぶん行数が動いた。表は実測と `TestLineBudgetTablesMatchLinterly` が突き合わせるので、検査だけを足すと落ちる |
 
 ### 改訂の詳細
 
