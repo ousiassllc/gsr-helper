@@ -11,6 +11,7 @@ import (
 // attach などの純粋関数は正規化済みの入力を受け取るので、実在しないパスを渡してよい。
 const (
 	d1 = "/opt/actions-runner-1"
+	d2 = "/opt/actions-runner-2"
 	u1 = "actions.runner.myorg.host-1.service"
 	u2 = "actions.runner.myorg.host-2.service"
 )

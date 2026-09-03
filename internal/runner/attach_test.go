@@ -70,6 +70,37 @@ func TestAttachPrefersUnitNameOverWorkingDir(t *testing.T) {
 	}
 }
 
+// ディレクトリを複製して .service が残った場合のように、同じユニット名を名乗る
+// runner ディレクトリが 2 つあっても、.service の先着で紐付け先を決めないこと。
+// 決めてしまうと外れた側は Svc == nil になり、systemd 管理なのに run.sh 直起動として
+// 表示される（indexByUnitName）。紐付けは WorkingDirectory に委ね、重複自体は
+// 警告として出す。
+func TestAttachDuplicateUnitNameFallsBackToWorkingDir(t *testing.T) {
+	// d1 / d2 の .service がどちらも u1 を指し、u1 の実体は d2 で動いている。
+	runners := []Runner{rn(d1, u1), rn(d2, u1)}
+	orphans, warns := attach(runners, nil, []SvcState{sv(u1, d2)}, true)
+
+	if runners[0].Svc != nil {
+		t.Errorf("d1.Svc = %+v, want nil（.service の重複は紐付けの根拠にしない）", runners[0].Svc)
+	}
+	if runners[1].Svc == nil || runners[1].Svc.Unit != u1 {
+		t.Errorf("d2.Svc = %+v, want %q（WorkingDirectory 一致）", runners[1].Svc, u1)
+	}
+	// ディレクトリは見つかっているので孤児ではない。
+	if len(orphans) != 0 {
+		t.Errorf("孤児 = %q, want 0 件", unitNames(orphans))
+	}
+	if len(warns) != 1 {
+		t.Fatalf("警告 = %v, want 1 件", warns)
+	}
+	// どちらのディレクトリが重複したのかを警告から辿れること。
+	for _, want := range []string{d1, d2, u1} {
+		if !strings.Contains(warns[0].Error(), want) {
+			t.Errorf("警告 %q に %q が含まれていない", warns[0], want)
+		}
+	}
+}
+
 // 同じ runner を指すユニットが 2 件あっても 2 件目を孤児として誤報告せず、
 // 黙って落とさずに警告として出すこと。
 func TestAttachDuplicateUnitIsNotOrphan(t *testing.T) {

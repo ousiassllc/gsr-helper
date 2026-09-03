@@ -25,12 +25,9 @@ func attach(runners []Runner, running []procs.Process, units []systemd.State,
 	unitsListed bool,
 ) ([]systemd.State, []error) {
 	byDir := make(map[string]*Runner, len(runners))
-	byUnit := make(map[string]*Runner, len(runners))
+	byUnit, warns := indexByUnitName(runners)
 	for i := range runners {
 		byDir[runners[i].Dir] = &runners[i]
-		if u := runners[i].UnitName; u != "" {
-			byUnit[u] = &runners[i]
-		}
 	}
 
 	for _, p := range running {
@@ -49,7 +46,8 @@ func attach(runners []Runner, running []procs.Process, units []systemd.State,
 		}
 	}
 
-	orphans, warns := attachUnits(byUnit, byDir, units)
+	orphans, unitWarns := attachUnits(byUnit, byDir, units)
+	warns = append(warns, unitWarns...)
 
 	for i := range runners {
 		// Worker の順序は /proc の読み取り順（辞書順なので "10" < "9"）に依存する。
@@ -59,6 +57,50 @@ func attach(runners []Runner, running []procs.Process, units []systemd.State,
 		runners[i].Managed = managedBy(runners[i], unitsListed)
 	}
 	return orphans, warns
+}
+
+// indexByUnitName は UnitName（`.service` ファイル）から runner を引く索引を組み立て、
+// 同じユニット名を名乗る runner ディレクトリが複数あった場合の警告を返す。
+//
+// **重複したユニット名は索引から落とす。** 1 つのユニットが 2 つのディレクトリで
+// 動くことはないので、どちらかは古い `.service` の残骸である。どちらが残骸かは
+// `.service` の側からは決められないため、先着でも後着でも当たり外れが半々になる。
+// 索引から落とせば、そのユニットは第二の照合キーである WorkingDirectory で
+// 紐付く（attachUnits の第二パス）。WorkingDirectory は systemd 自身がそのユニットで
+// 使うディレクトリとして持っている値なので、`.service` の重複より確かである。
+//
+// ディレクトリごと複製して runner を増やすとこの状態になる。`.runner` は
+// `config.sh` の再登録で書き換わるが、`.service` は `svc.sh install` を実行するまで
+// 複製元のユニット名のまま残る。
+func indexByUnitName(runners []Runner) (map[string]*Runner, []error) {
+	byUnit := make(map[string]*Runner, len(runners))
+	var warns []error
+	dup := map[string]bool{}
+	for i := range runners {
+		u := runners[i].UnitName
+		if u == "" {
+			continue
+		}
+		if first, ok := byUnit[u]; ok {
+			// 黙って上書きすると、負けた側の runner はユニットが無いものとして
+			// 扱われ（Svc == nil）、systemd 管理なのに run.sh 直起動と表示される。
+			// WorkingDirectory 経由の重複（attachUnits）と同じ「重複した・古い
+			// ユニットファイル」の異常なので、同じように警告として出す。
+			dup[u] = true
+			warns = append(warns, fmt.Errorf(
+				"%s: .service に記録されたユニット名 %s が runner ディレクトリ %s と"+
+					"重複しています。どちらのディレクトリのユニットかを .service からは"+
+					"決められないため、WorkingDirectory で紐付けます。ディレクトリを"+
+					"複製した際に .service が残っている可能性があります",
+				runners[i].Dir, u, first.Dir))
+			continue
+		}
+		byUnit[u] = &runners[i]
+	}
+	for u := range dup {
+		delete(byUnit, u)
+	}
+	return byUnit, warns
 }
 
 // attachListener は Listener を紐付ける。再起動の途中などで複数見えた場合は
