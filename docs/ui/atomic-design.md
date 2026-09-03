@@ -1184,10 +1184,10 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 | `internal/setup/tarball` | 1999 | 1 | pass |
 | `internal/logs` | 1998 | 2 | pass |
 | `internal/gh` | 1996 | 4 | pass |
-| `internal/exec/command` | 1989 | 11 | pass |
 | `internal/disk` | 1980 | 20 | pass |
 | `internal/setup` | 1970 | 30 | pass |
 | `internal/config/edit` | 1904 | 96 | pass |
+| `internal/exec/command` | 1888 | 112 | pass |
 | `internal/runner` | 1704 | 296 | pass |
 | `internal/buildconfig/docscheck` | 1497 | 503 | pass |
 | `internal/doctor/jobreq` | 1495 | 505 | pass |
@@ -1203,7 +1203,7 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 | `internal/doctor/check` | 807 | 1193 | pass |
 | `internal/appconfig/confpath` | 782 | 1218 | pass |
 | `internal/setup/job` | 781 | 1219 | pass |
-| `internal/buildconfig/docscheck/linebudget` | 731 | 1269 | pass |
+| `internal/buildconfig/docscheck/linebudget` | 732 | 1268 | pass |
 | `internal/config/fileio` | 708 | 1292 | pass |
 | `internal/doctor` | 681 | 1319 | pass |
 | `internal/config/envfile` | 641 | 1359 | pass |
@@ -1218,6 +1218,7 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 | `internal/gh/ghtoken` | 418 | 1582 | pass |
 | `internal/config/apply` | 354 | 1646 | pass |
 | `internal/disk/pathguard` | 288 | 1712 | pass |
+| `internal/exec/command/limit` | 285 | 1715 | pass |
 | `internal/setup/setuptest` | 178 | 1822 | pass |
 | `internal/runner/scope` | 165 | 1835 | pass |
 | `internal/config/edit/validcheck` | 114 | 1886 | pass |
@@ -1267,6 +1268,23 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 **(1) は採れなかった。** 本番で切れる境界は `self.go`（自身の設定）と残り（runner の設定）だが、`Validate*` は両方に散っており（`ValidateLine` / `ValidateHook` / `ValidateLabelInput` / `ValidateRoots` は `values.go` 系、`ValidatePercent` / `ValidateRefresh` / `ValidateAuditLog` は `self.go`）、検証だけを本番から切り出すと `edit` が自分の入口を持たなくなる。**本番の公開面はそのままにして検査だけを分ける**のが (4) の利点で、ここではそれがそのまま当たる。
 
 結果は Issue #184 当時で `internal/config/edit` が 1904 行（残り 96 行）、`internal/config/edit/validcheck` が 114 行である。**現在の値は上記「行数の予算」の行数表を見よ。**
+
+##### `internal/exec/command` から切り詰めの道具を `limit` へ切り出した判断（Issue #183）
+
+着手時点では 1989 行（残り 11 行）で、警告帯には入っていなかったが**回帰テスト 1 フィクスチャぶんの余裕も無かった**。Issue #183 は `truncateHead` 側の断片落とし（`dropPartialRuneAtStart`）が 1 度も実行されていないことを直す Issue で、多バイト文字を素材にしたテストを足す必要がある。4 つの手のうち **(1) 本番の一部をパッケージ境界で切り出す**を採り、`limit.go` と切り詰めの検査を `internal/exec/command/limit` へ出した。
+
+**(3) と (4) はどちらも採れなかった。** `internal/exec/command` のテストは 11 ファイルすべてが内部テスト（`package command`）で、`truncateHead` / `dropPartialRuneAtStart` / `limitedBuffer` / `recordedError` といった非公開に触る。フィクスチャを `commandtest` へ出すと `command`（テスト）→ `commandtest` → `command` の循環が起きる（`internal/disk` が (3) を採れなかったのとまったく同じ事情である）。検査そのものを別ディレクトリへ分ける (4) も、外部パッケージからは非公開の道具が見えないので**非公開を大量に export することになり**、それは `ui/organism/table` で退けた手である。(2) テストの重複削減で削れるのは十数行で、必要な量に届かない。
+
+**境界を選んだ理由は 2 つある。**
+
+1. **増え方が違う。** `command` の側は実行の仕組み（プロセスグループ・タイムアウト・監査レコードの欄・秘密値のマスク）が増えれば伸びるが、切り詰めが増えるのは**どちらの端を残し、断片をどう落とし、印をどう付けるか**が変わったときだけである。
+2. **依存の向きを強制できる。** `limit` は `command` を一切 import せず、`Command` / `ExitError` / 監査レコードを知らない。渡されるのは文字列とバイト数の 2 つだけなので、「監査に載せるときだけ印を省く」ような迂回を書けない。
+
+**上限の値は出さずに `command` へ残した。** どこに何バイトの上限を置くかは呼び出し側の方針であって切り詰めの仕組みではないので、3 つの定数（監査レコード・抜粋・取り込み）は `command/limits.go` が持つ。**外へ出したのは収める仕組みであって、収める義務ではない**——`recordedError` が `limit.Tail` を、`ExitError.Stderr` が `limit.Head` を必ず通る構造は変えていない。export したのは `Tail` / `Head` / `Prefix` / `Suffix` / `Buffer` の 5 つで、断片を落とす 2 つ（`dropPartialRuneAtEnd` / `dropPartialRuneAtStart`）は新しいパッケージの中で非公開のままである。
+
+**併せて素材の欠陥を直した。** 移した検査のうち `Head` 側には単体テストが 1 本も無く、`stderrflood` が吐くのは ASCII だけだったので、末尾をどこで切っても多バイト文字の途中に当たらなかった。ヘルパプロセスの埋め草を差し替えられるようにして、抜粋の切り位置が必ず文字の途中に当たる素材で 1 本見ている。**素材が経路を通していることは陽性対照で縛った**——断片を落としたぶんだけ抜粋は上限より短くなるので、ちょうど上限なら素材が経路を外れたと分かる。
+
+結果は Issue #183 当時で `internal/exec/command` が 1888 行（残り 112 行）、`internal/exec/command/limit` が 285 行である。**現在の値は上記「行数の予算」の行数表を見よ。**
 
 #### ファイルの行数
 
@@ -1779,6 +1797,7 @@ Issue #31 で `table_test.go` の空振りしていたテスト（`View() != ""`
 | 1.116 | 2026-09-03 | 「行数の予算」の非 UI の表を実測へ更新した（`internal/buildconfig` 1403 → **1439 行**・残り 561・pass、`internal/exec/command` 1981 → **1980 行**・残り 20・pass。どちらも並びは変わらない——`internal/exec/command` は `internal/disk` と 1980 行で並ぶが、判定は行数の多い順であって同数の行は前後どちらでもよい） | 2 周目レビューの major 2 件（テストが約束を果たしていない形）を直したぶん行数が動いた。`internal/buildconfig` は `make install` のインストール先が `GOPATH/bin` へ落ちる分岐を踏む検査を足したぶん増え、`internal/exec/command` は監査レコードの `error` を長さの上界ではなく完全一致で見る形に置き換えたぶん減った（このとき縛れたのは「切り位置が `maxRecordedErrorBytes` と一致すること」だけで、入力と期待値の両方をその定数から導いていたため**上限の値そのものは未拘束のままだった**——改訂 1.117 で 4096 をリテラルで縛って補った）。表は実測と `TestLineBudgetTablesMatchLinterly` が突き合わせるので、検査を足しても縮めても表を直さないと `make check` が落ちる |
 | 1.117 | 2026-09-03 | 3 周目レビューの critical 1 件・major 2 件を差分内のテストだけで直した。(1) `internal/buildconfig` の `TestMakeInstallFailsWhenInstallDirIsUnresolvable` の環境へ `GOENV=off` を足した。(2) `internal/exec/command` の `TestRecordedErrorCapsAtMaxRecordedErrorBytes` へ `maxRecordedErrorBytes` が仕様の 4096 と一致することの検査を足し、上を過大申告していた改訂 1.116 の文言を実態へ直した。(3) `internal/ui/page/configmodal` の `TestHookEnvFieldsAcceptExecutablePath` へ「絶対パスだが実在しない値を弾くこと」の検査を足した。併せて「行数の予算」の表を実測へ更新した（`internal/exec/command` 1980 → **1989 行**・残り 11・pass、`internal/buildconfig` 1439 → **1441 行**・残り 559・pass、`ui/page/configmodal` 669 → **677 行**・残り 1323・pass。いずれも並びは変わらない） | (1) `go env` は空の環境変数を無視して env ファイル側の値を返すので、`go env -w GOPATH=...` を書いた環境（Nix・CI イメージ・direnv 等）では GOPATH が空にならず、5 件の主張が落ちるだけでなく `make install` / `make uninstall` が**開発者の `$GOPATH/bin/gsr` を上書きして削除していた**（センチネルを置いて実証済み）。(2) 入力と期待値の両方を `maxRecordedErrorBytes` から導いていたためアサーションが定数値の変化に対して不変で、`docs/architecture/data-model.md`・`docs/architecture/security.md`・`docs/components/overview.md` が定める 4096 を黙って縮める退行を止める検査が 1 本も無かった（実測でも 64 へ改変して緑のまま通った）。(3) hook 欄の配線を `edit.ValidateHook` から `edit.ValidateRoots` へ差し替えても両パッケージが緑のままで、`docs/architecture/security.md` が定める「存在する・実行可能」の半分を配線側で縛れていなかった |
 | 1.118 | 2026-09-03 | Issue #184 を反映。`internal/config/edit` の入力の検証の検査（`TestFormValidators` と `TestSelfValidators`）をテスト専用パッケージ `internal/config/edit/validcheck` へ分け、4 つの手のうち (4) を採った判断と (3) を組み合わせなかった理由を「`internal/config/edit` の入力の検証の検査を `validcheck` へ分けた判断（Issue #184）」として記録した。「行数の予算」の非 UI の表を実測へ更新した（`internal/config/edit` 1995 → **1904 行**・残り 96・pass、`internal/config/edit/validcheck` を **114 行**・残り 1886・pass として追加。並びは `internal/setup` と `internal/runner` の間） | `internal/config/edit` は残りが 5 行で、次にこのディレクトリへ 1 行でも足す Issue が同節の「残りが 1 桁のディレクトリへ 1 行でも足す Issue は、足す前に空けること」に当たる状態だった。足してから空けるのでは、その Issue のスコープに本節の判断が紛れ込む |
+| 1.119 | 2026-09-03 | Issue #183 を反映。`internal/exec/command` から切り詰めの道具（`truncateTail` / `truncateHead` / 断片落としの 2 つ / `limitedBuffer`）を `internal/exec/command/limit` へ切り出し（`Tail` / `Head` / `Prefix` / `Suffix` / `Buffer` を export、上限の 3 定数は `command/limits.go` に残す）、4 つの手のうち (1) を採った判断と (2)(3)(4) を採れなかった理由を「`internal/exec/command` から切り詰めの道具を `limit` へ切り出した判断（Issue #183）」として記録した。「行数の予算」の非 UI の表を実測へ更新した（`internal/exec/command` 1989 → **1888 行**・残り 112・pass、`internal/exec/command/limit` を **285 行**・残り 1715・pass として追加。並びは `internal/runner` の後ろへ下がり、`limit` は `internal/disk/pathguard` と `internal/setup/setuptest` の間） | `dropPartialRuneAtStart` が断片を落とす行は 1 度も実行されていなかった（素材の `stderrflood` が ASCII しか吐かないため、末尾 4 KiB をどこで切っても多バイト文字の途中に当たらない）。回帰テストを足すには先に行数を空ける必要があり、内部テストしか無いこのディレクトリでは (3)(4) がどちらも循環か非公開の大量 export になるため、本番の境界で切るしかなかった |
 
 ### 改訂の詳細
 

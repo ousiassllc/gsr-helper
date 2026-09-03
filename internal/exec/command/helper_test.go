@@ -25,6 +25,7 @@ const (
 	helperModeEnv    = "GSR_HELPER_TEST_MODE"
 	helperEchoEnv    = "GSR_HELPER_TEST_ECHO_ENV"
 	helperStderrKiB  = "GSR_HELPER_TEST_STDERR_KIB"
+	helperStderrFill = "GSR_HELPER_TEST_STDERR_FILL"
 )
 
 // helperCommand はテストバイナリ自身をヘルパープロセスとして起動する
@@ -75,9 +76,20 @@ func TestHelperProcess(t *testing.T) {
 	case "stderrflood":
 		// 指定された KiB ぶんの標準エラー出力を吐き、最後に印を置く。上限が効いて
 		// いないと、この出力がそのまま監査ログの 1 行と ExitError に載る。
+		//
+		// 1 行の埋め草は既定で ASCII の "E" だが helperStderrFill で差し替えられる。
+		// ASCII だけを流すと抜粋の切り位置が文字の途中に当たらず、断片を落とす
+		// 経路（limit の dropPartialRuneAtStart）が 1 度も通らない（Issue #183）。
 		kib, _ := strconv.Atoi(os.Getenv(helperStderrKiB))
+		fill := os.Getenv(helperStderrFill)
+		if fill == "" {
+			fill = "E"
+		}
+		// 1 行のバイト数は埋め草に依らず 1023 に揃える（取り込み上限の検証が
+		// 行数から総バイト数を導いているため）。
+		line := strings.Repeat(fill, 1023/len(fill))
 		for range kib {
-			fmt.Fprintln(os.Stderr, strings.Repeat("E", 1023))
+			fmt.Fprintln(os.Stderr, line)
 		}
 		fmt.Fprint(os.Stderr, stderrFloodTail)
 	default:

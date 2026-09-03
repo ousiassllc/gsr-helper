@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 
+	"github.com/ousiassllc/gsr-helper/internal/exec/command/limit"
 	"github.com/ousiassllc/gsr-helper/internal/exec/mask"
 )
 
@@ -58,5 +59,5 @@ func recordedError(err error, secrets []string) string {
 	if errors.As(err, &exitErr) {
 		msg = exitErr.Summary()
 	}
-	return truncateTail(mask.String(msg, secrets), maxRecordedErrorBytes)
+	return limit.Tail(mask.String(msg, secrets), maxRecordedErrorBytes)
 }
