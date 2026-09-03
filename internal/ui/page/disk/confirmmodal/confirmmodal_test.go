@@ -66,7 +66,7 @@ func modelOf(t *testing.T, o page.Overlay) tea.Model {
 // **2 段で辿るのが要点である。** 決定は「打鍵 → dialog が決定の Cmd を返す →
 // モーダルが自分宛に包む → 配り直されて初めてモーダルが決定として受ける」という
 // 往復を通る。1 段目を省いて dialog.DecidedMsg を直に流すと、包み（タブ番号と
-// 種類）が壊れていても緑になる（modal.wrap の doc）。
+// 種類）が壊れていても緑になる（page.WrapModal の doc）。
 func decideVia(t *testing.T, o *page.Overlay, k string) (page.ResultMsg, bool) {
 	t.Helper()
 
