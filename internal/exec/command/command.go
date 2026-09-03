@@ -20,6 +20,7 @@ import (
 
 	"github.com/ousiassllc/gsr-helper/internal/audit"
 	"github.com/ousiassllc/gsr-helper/internal/exec"
+	"github.com/ousiassllc/gsr-helper/internal/exec/command/limit"
 	"github.com/ousiassllc/gsr-helper/internal/exec/mask"
 )
 
@@ -196,7 +197,7 @@ func (c *Command) execute(ctx context.Context, o exec.Options, name string, args
 	// 取り込み量に上限を置くのは標準エラー出力だけ。標準出力は呼び出し側が解析する
 	// （systemctl show / list-units）ため、切ると解析が黙って壊れる。
 	var stdout bytes.Buffer
-	stderr := &limitedBuffer{limit: maxStderrCaptureBytes}
+	stderr := limit.NewBuffer(maxStderrCaptureBytes)
 	// シェルを経由せず実行ファイルと引数配列を直接渡すため、メタ文字によるコマンド
 	// 注入は成立しない。- で始まる値によるオプションインジェクション対策は
 	// 入力検証（internal/setup）の責務。
@@ -241,7 +242,7 @@ func (c *Command) execute(ctx context.Context, o exec.Options, name string, args
 			Args: mask.Args(args, secrets...),
 			Code: res.ExitCode,
 			// 画面に出す抜粋は末尾だけ残す。原因は最後の数行に出るためである。
-			Stderr: truncateHead(mask.String(stderr.String(), secrets), maxStderrExcerptBytes),
+			Stderr: limit.Head(mask.String(stderr.String(), secrets), maxStderrExcerptBytes),
 			Err:    runErr,
 		}
 	default:

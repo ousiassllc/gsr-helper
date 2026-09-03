@@ -93,25 +93,16 @@ func (m modal) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.dlg.SetSize(msg.W, msg.H)
 		return m, nil
 	default:
+		// ダイアログが発行した Cmd の結果は、包まないと「そのとき選択中のタブの
+		// 最上位のモーダル」へ配られる（page.WrapModal の doc）。包む相手が
+		// ダイアログ自身の発行した Cmd に限られることも同じ doc が述べている。
+		// **自前の包みを持たないのは、束（tea.Batch / tea.Sequence）を展開する
+		// 経路を写し損なうためである**——写しは束をそのまま page.ModalMsg に
+		// 入れてしまい、誰も実行しない中身が届くだけになる（Issue #190）。
 		var cmd tea.Cmd
 		m.dlg, cmd = m.dlg.Update(msg)
-		return m, m.wrap(cmd)
+		return m, page.WrapModal(m.tab, Kind, cmd)
 	}
-}
-
-// wrap はダイアログが発行した Cmd の結果を、このダイアログへ戻るように包む。
-//
-// 包まないと結果は「そのとき選択中のタブの最上位のモーダル」へ配られる
-// （page.AttachMsg / page.ModalMsg の doc）。dialog.Confirm が返す唯一の Cmd は
-// y / n / esc / enter の決定（dialog.DecidedMsg）であり、上の case が受ける前提で
-// ある。**包む相手はダイアログが自分で発行した Cmd に限る。**
-func (m modal) wrap(cmd tea.Cmd) tea.Cmd {
-	if cmd == nil {
-		return nil
-	}
-	return page.Do(m.tab, func() tea.Msg {
-		return page.ModalMsg{Kind: Kind, Msg: cmd()}
-	})
 }
 
 // View は対象・影響・コマンド・補足・問いを返す。見出しは枠が描く。

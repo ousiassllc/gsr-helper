@@ -6,6 +6,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
+	"github.com/ousiassllc/gsr-helper/internal/exec/command/limit"
 	"github.com/ousiassllc/gsr-helper/internal/exec/mask"
 )
 
@@ -19,65 +20,6 @@ const (
 	// 切り詰めをマスクより先に行うと、この断片が監査ログへそのまま載る。
 	recordedSecretHead = "gsr-secret-SSSSSSSSS"
 )
-
-func TestTruncateTailMarksOnlyWhenCutting(t *testing.T) {
-	// 印を必ず残すのは、短いメッセージと「切られた長いメッセージ」を読み手が
-	// 区別できるようにするためである（limit.go の elisionSuffix の理由）。
-	tests := []struct {
-		name string
-		s    string
-		n    int
-		want string
-	}{
-		{"上限より短い", "abc", 8, "abc"},
-		{"上限と同じ", "abcdefgh", 8, "abcdefgh"},
-		{"上限を 1 バイト超える", "abcdefghi", 8, "abcdefgh" + elisionSuffix},
-		{"上限が 0", "abc", 0, elisionSuffix},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := truncateTail(tt.s, tt.n); got != tt.want {
-				t.Errorf("truncateTail(%q, %d) = %q, want %q", tt.s, tt.n, got, tt.want)
-			}
-		})
-	}
-
-	// 切っていないのに印が付くと、読み手は続きがあると誤解する。
-	if got := truncateTail("だめでした: 権限がありません", maxRecordedErrorBytes); strings.Contains(got, elisionSuffix) {
-		t.Errorf("上限以下なのに省略の印が付いている: %q", got)
-	}
-}
-
-func TestTruncateTailNeverLeavesBrokenUTF8(t *testing.T) {
-	// バイト数で切ると多バイト文字の途中で切れる。壊れた文字を JSON に載せないため、
-	// 末尾に残った不完全な断片は落としてから印を付ける（dropPartialRuneAtEnd）。
-	const runes = 8
-	s := strings.Repeat(recordedMultiByte, runes)
-	size := len(recordedMultiByte)
-
-	for n := range len(s) + 1 {
-		got := truncateTail(s, n)
-		if !utf8.ValidString(got) {
-			t.Errorf("truncateTail(_, %d) が壊れた UTF-8 を残した: %q", n, got)
-			continue
-		}
-		if strings.ContainsRune(got, utf8.RuneError) {
-			t.Errorf("truncateTail(_, %d) に置換文字が混じった: %q", n, got)
-		}
-		if n >= len(s) {
-			if got != s {
-				t.Errorf("truncateTail(_, %d) = %q, want 素通り", n, got)
-			}
-			continue
-		}
-		// 切った場合は「上限に収まる最大の文字数」だけが残る。断片を落とす処理が
-		// 無いと、ここが 1〜2 バイト多い壊れた文字列になる。
-		want := strings.Repeat(recordedMultiByte, n/size) + elisionSuffix
-		if got != want {
-			t.Errorf("truncateTail(_, %d) = %q, want %q", n, got, want)
-		}
-	}
-}
 
 func TestRecordedErrorCapsAtMaxRecordedErrorBytes(t *testing.T) {
 	// 監査ログは 1 レコード 1 行の JSONL なので、上限を置かないと 1 回の失敗が
@@ -96,8 +38,8 @@ func TestRecordedErrorCapsAtMaxRecordedErrorBytes(t *testing.T) {
 
 	got := recordedError(errors.New(long), nil)
 
-	// 切り位置が上限と一致すること（truncateTail の切り位置の退行を落とす）。
-	if want := long[:documentedLimit] + elisionSuffix; got != want {
+	// 切り位置が上限と一致すること（limit.Tail の切り位置の退行を落とす）。
+	if want := long[:documentedLimit] + limit.Suffix; got != want {
 		t.Errorf("recordedError = %d バイト, want %d（上限で切って印を付けた形）", len(got), len(want))
 	}
 
@@ -108,7 +50,7 @@ func TestRecordedErrorCapsAtMaxRecordedErrorBytes(t *testing.T) {
 	if !utf8.ValidString(jpGot) {
 		t.Error("監査レコードの error に壊れた UTF-8 が載った")
 	}
-	if !strings.HasSuffix(jpGot, elisionSuffix) {
+	if !strings.HasSuffix(jpGot, limit.Suffix) {
 		t.Error("日本語のエラー文で省略の印が付いていない")
 	}
 }
@@ -130,7 +72,7 @@ func TestRecordedErrorMasksBeforeTruncating(t *testing.T) {
 	if !strings.Contains(got, mask.Placeholder) {
 		t.Error("マスクが効いていない（置換の跡が無い）")
 	}
-	if !strings.HasSuffix(got, elisionSuffix) {
+	if !strings.HasSuffix(got, limit.Suffix) {
 		t.Error("上限を超えたのに省略の印が付いていない")
 	}
 }
