@@ -67,7 +67,7 @@ func (m *Model) run(op action.ID, targets []runner.Runner) tea.Cmd {
 		return nil
 	}
 
-	ex := m.st.Exec
+	ex := m.st.Deps.Exec
 	return page.Do(m.tab, func() tea.Msg {
 		results := make([]Result, 0, len(targets))
 		for _, r := range targets {

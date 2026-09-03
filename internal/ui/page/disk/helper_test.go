@@ -57,7 +57,7 @@ func baseState() (page.StateMsg, *exec.Fake) {
 	st := pagetest.State(80, 16)
 	st.Caps.Docker = false
 	fake := exec.NewFake()
-	st.Exec = fake
+	st.Deps.Exec = fake
 	return st, fake
 }
 

@@ -33,7 +33,7 @@ func opsState(rs ...runner.Runner) (page.StateMsg, *exec.Fake) {
 	}
 	st := pagetest.State(80, 20, rs...)
 	f := exec.NewFake()
-	st.Exec = f
+	st.Deps.Exec = f
 	return st, f
 }
 

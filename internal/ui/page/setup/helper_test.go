@@ -42,7 +42,7 @@ func fakeOf(t *testing.T, st page.StateMsg) *exec.Fake {
 
 	f, ok := pagetest.FakeOf(st)
 	if !ok {
-		t.Fatalf("Exec の型 = %T, want *exec.Fake", st.Exec)
+		t.Fatalf("Exec の型 = %T, want *exec.Fake", st.Deps.Exec)
 	}
 	return f
 }

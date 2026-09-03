@@ -24,8 +24,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/ousiassllc/gsr-helper/internal/appconfig"
-	"github.com/ousiassllc/gsr-helper/internal/audit"
-	"github.com/ousiassllc/gsr-helper/internal/exec"
 	"github.com/ousiassllc/gsr-helper/internal/gh"
 	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/setup/job"
@@ -51,27 +49,9 @@ type StateMsg struct {
 	Caps   appconfig.Caps
 	Styles token.Styles
 	Keys   keymap.Set
-	// Exec は外部プロセス実行の唯一の経路。page がドメイン層を tea.Cmd で呼ぶときに使う。
-	//
-	// 共有状態に載せるのは、ドメイン層を呼べるのが page 階層だけ（atomic-design.md の
-	// 依存の規則）であり、その page に Executor を渡す道が他に無いためである。載せないと
-	// タブを足す Issue ごとにこの構造体と親 Model の 2 箇所を直すことになる。
-	//
-	// **systemctl が無い環境でも nil にはしない。** 検出（discover.go）は Executor を
-	// nil にして systemd の参照を落とす縮退を持つが、それは runner.Discover の契約で
-	// あってこの層の約束ではない。page は systemctl を使えるかを Caps.Systemd で判断し、
-	// nil 判定を各タブに書かせない。
-	//
-	// 監査記録の失敗は Executor 自身が通知先（command.WithAuditErrorFunc）へ渡し、
-	// cmd 側が TUI の終了後にまとめて出す。**UI から stderr へ書かない**（描画が壊れる）ため、
-	// 監査エラーの受け皿を page へ配る必要はない。
-	Exec exec.Executor
-	// ScanProcs は稼働プロセスの走査を差し替える口（svc.Drainer.Scan と同じ形。nil なら
-	// svc が procs.Scan で /proc を読む）。**テストをホストのプロセス表から切り離すための
-	// 継ぎ目である**（SetupDeps.NewClient / Fetch と同じ役目。既定は pagetest.ScanOf が
-	// 入れる。理由は Issue #155 とそちらの doc）。runner.Process は procs.Process の別名。
-	ScanProcs func() ([]runner.Process, error)
-	Dark      bool
+	// Deps は page がドメイン層を呼ぶための道具（deps.go）。
+	Deps Deps
+	Dark bool
 	// Color は色を使うか。NO_COLOR / --no-color / 非 TTY を cmd が 1 つの値に
 	// まとめたもので、UI 側で環境を読み直さない。Styles には畳み込み済みだが、
 	// huh のテーマを組み立てるには真偽値そのものが要る（token.HuhTheme）。
@@ -85,12 +65,6 @@ type StateMsg struct {
 	// Config は Config タブが要る起動時の決定事項。Setup と同じ理由で 1 つに
 	// まとめてある。
 	Config ConfigDeps
-	// Audit は破壊的操作の記録先。外部コマンドを伴わない削除（internal/disk の
-	// ファイル削除など）を記録するために page 階層まで配る（Issue #71）。
-	//
-	// nil / audit.Discard() は no-op で、監査ログを開けない場合の縮退はそのまま
-	// 働く。UI から直接書き込む経路は無く、渡すだけで済む点は Exec と同じである。
-	Audit *audit.Logger
 	// Disk はディスク関連の共有状態（閾値と _work 使用量）。Issue #72 / #73。
 	Disk DiskState
 	// Scopes はトークンの保有スコープ。操作の可否の判定に使う。Issue #79。

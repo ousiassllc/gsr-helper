@@ -732,17 +732,25 @@ type StateMsg struct {
     Caps   appconfig.Caps  // 能力判定
     Styles token.Styles    // 解決済みの配色
     Keys   keymap.Set      // キー定義
-    Exec   exec.Executor   // 外部プロセス実行の唯一の経路
+    Deps   Deps            // ドメイン層を呼ぶための道具（下記）
     Dark   bool
     BodyW  int // template.BodySize で本体領域に換算済み
     BodyH  int
     Err    error // 直近の検出エラー
 }
+
+type Deps struct {
+    Exec      exec.Executor                     // 外部プロセス実行の唯一の経路
+    ScanProcs func() ([]runner.Process, error)  // 稼働プロセスの走査の差し替え口
+    Audit     *audit.Logger                     // 破壊的操作の記録先
+}
 ```
 
 親 Model は**有効で `Model` を持つ全タブへ**これを配る（選択中のタブに限らない）。裏のタブが古い配色や古い検出結果を持ったまま前面に出ることを防ぐためである。したがって page は「配られた最新のスナップショットを保持して描画に使う」形になる。
 
-`Exec` は **`systemctl` が無い環境でも `nil` にしない。** 検出（`discover.go`）が `Executor` を `nil` にして systemd の参照を落とす縮退は `runner.Discover` の契約であってこの層の約束ではない。page は systemctl を使えるかを `Caps.Systemd` で判断し、`nil` 判定を各タブに書かせない。
+**道具は `Deps` にまとめて、描画に使う値と分ける。** 変わる理由が違うためである——`Result` / `Styles` / `BodyW` は 3 秒ごとの再検出や端末サイズの変更で入れ替わる「今どうなっているか」の写しであり、`Deps` の 3 つは起動時に 1 度決まってプロセスが終わるまで変わらない配線である。平らに並べると、描画に使う値の間に配線が挟まり、どちらの性格の値なのかが名前からしか読めない。**タブ 1 枚だけが使う道具は `Deps` に置かない**——`SetupDeps` / `ConfigDeps` として別に分けてあり、`Deps` に置くのは複数のタブが使うものに限る。
+
+`Deps.Exec` は **`systemctl` が無い環境でも `nil` にしない。** 検出（`discover.go`）が `Executor` を `nil` にして systemd の参照を落とす縮退は `runner.Discover` の契約であってこの層の約束ではない。page は systemctl を使えるかを `Caps.Systemd` で判断し、`nil` 判定を各タブに書かせない。
 
 監査記録の失敗を受け取る口は page に配らない。`Executor` 自身が `cmd/gsr-helper` 側の通知先へ渡す。**UI から標準エラー出力へ書いてはならない**（描画が壊れる）。
 
@@ -1113,10 +1121,10 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 | `ui/page/disk` | 1997 | 3 | pass |
 | `ui/organism/dialog` | 1994 | 6 | pass |
 | `ui/page/config` | 1992 | 8 | pass |
+| `ui/page` | 1970 | 30 | pass |
 | `ui/organism/table` | 1969 | 31 | pass |
-| `ui/page` | 1955 | 45 | pass |
-| `ui` | 1944 | 56 | pass |
-| `ui/page/pagetest` | 1935 | 65 | pass |
+| `ui` | 1943 | 57 | pass |
+| `ui/page/pagetest` | 1937 | 63 | pass |
 | `ui/page/logs` | 1927 | 73 | pass |
 | `ui/page/runners` | 1923 | 77 | pass |
 | `ui/page/setup` | 1890 | 110 | pass |
@@ -1808,6 +1816,7 @@ Issue #31 で `table_test.go` の空振りしていたテスト（`View() != ""`
 | 1.127 | 2026-09-04 | 「行数の予算」の非 UI の表の `internal/runner` を実測へ更新した（1704 → **1778 行**・残り 222・pass） | `attach` の `UnitName` 索引を `indexByUnitName` へ切り出し、同じユニット名を名乗るディレクトリが複数ある場合の回帰テストを足したため。行数は「先に切り出し先を決めること」の判断材料として本節が挙げているので、古い値は判断を誤らせる |
 | 1.128 | 2026-09-04 | 「行数の予算」の非 UI の表を実測へ更新した（`internal/runner` 1778 → **1774 行**・残り 226、`internal/runner/systemd` 552 → **596 行**・残り 1404、`internal/doctor/hostcfg` 1184 → **1182 行**・残り 818。いずれも pass） | `"not-found"` の定数と「ユニットの実体があるか」の述語を `internal/runner/systemd` へ集約し、`internal/runner` と `internal/doctor/hostcfg` から写しを落としたため。行数は「先に切り出し先を決めること」の判断材料として本節が挙げているので、古い値は判断を誤らせる |
 | 1.129 | 2026-09-04 | 「行数の予算」の非 UI の表の `internal/runner` を実測へ更新した（1774 → **1824 行**・残り 176・pass） | `Runner` / `Result` のコピー時の共有についての注意書きと、周期ごとに新しい実体を返すことを固定する回帰テスト（`TestDiscoverReturnsFreshInstancesEachCycle`）を足したため。行数は「先に切り出し先を決めること」の判断材料として本節が挙げているので、古い値は判断を誤らせる |
+| 1.130 | 2026-09-04 | 「共有状態は `page.StateMsg` で受け取る」の構造体を実装に合わせ、`Exec` / `ScanProcs` / `Audit` を `page.Deps` へまとめた形へ更新した。道具と描画に使う値を分ける理由（変わる理由が違う）と、タブ 1 枚ぶんの道具は `Deps` に置かないこと（`SetupDeps` / `ConfigDeps`）を本文に追記した。「行数の予算」の UI の表を実測へ更新した（`ui/page` 1955 → **1970 行**・残り 30、`ui` 1944 → **1943 行**・残り 57、`ui/page/pagetest` 1935 → **1937 行**・残り 63。いずれも pass。`ui/page` は行数の多い順で `ui/organism/table` の前へ上がる） | `StateMsg` は 16 フィールドまで育ち、**起動時に 1 度決まる配線（`Exec` / `ScanProcs` / `Audit`）が、3 秒ごとに入れ替わる描画用の値の間に平らに挟まっていた。** どちらの性格の値かが名前からしか読めず、タブが増えるたびに同じ形で伸びる。`SetupDeps` / `ConfigDeps` が既に「タブ 1 枚のためにフィールドを増やさない」という理由で分かれているのに、複数のタブが使う道具だけがまとめられていなかった。**`Deps` の doc は 4 行に詰め、詳しい理由は余裕のある本書側へ置いた**——Issue #155 が同じ状況で採った形である（上記「`ui/page` を警告帯へ入れた判断」の 3.）。追加は 15 行で、着手時点の残り 45 行を超えていない（同節の「残りを超える追加が要るなら足す前に空けること」） |
 
 ### 改訂の詳細
 

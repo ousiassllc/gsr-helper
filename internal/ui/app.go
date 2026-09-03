@@ -52,7 +52,7 @@ type Options struct {
 	// appconfig.Exists で行う（Load はファイルが無くても既定値を返すため）。
 	FirstRun bool
 	// Audit は破壊的操作の記録先。外部コマンドを伴わない削除を記録するために
-	// page 階層まで配る（page.StateMsg.Audit）。**開けなかった場合も nil に
+	// page 階層まで配る（page.Deps.Audit）。**開けなかった場合も nil に
 	// せず audit.Discard() を渡す**——記録先の nil 判定を page ごとに書かせない
 	// ためで、縮退（記録せずに続行）は Discard 自身が担う。
 	Audit *audit.Logger
@@ -235,13 +235,12 @@ func (a App) state() page.StateMsg {
 		Caps:   a.caps,
 		Styles: a.styles,
 		Keys:   a.keys,
-		Exec:   a.ex,
+		Deps:   page.Deps{Exec: a.ex, Audit: a.opts.Audit},
 		Dark:   a.dark,
 		Color:  a.opts.Color,
 		BodyW:  w,
 		BodyH:  h,
 		Err:    a.disc.Err(),
-		Audit:  a.opts.Audit,
 		Disk: page.DiskState{
 			Thresholds: a.cfg.DiskThresholds,
 			Work:       a.bg.Work.Usage(),

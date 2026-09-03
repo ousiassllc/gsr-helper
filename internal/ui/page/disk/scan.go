@@ -90,7 +90,7 @@ func (m *Model) startScan() tea.Cmd {
 	ctx, cancel := context.WithCancel(context.Background())
 	ch := make(chan disk.Usage)
 	runners := m.st.Result.Runners
-	ex := m.st.Exec
+	ex := m.st.Deps.Exec
 	useDocker := m.st.Caps.Docker
 
 	go func() {

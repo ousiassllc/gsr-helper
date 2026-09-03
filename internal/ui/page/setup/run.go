@@ -47,7 +47,7 @@ type doneMsg struct {
 // Model の写しを goroutine へ持ち込まないよう、必要な値だけを取り出す。
 func (m Model) deps() job.Deps {
 	return job.Deps{
-		Exec: m.st.Exec, Secrets: m.st.Setup.Secrets,
+		Exec: m.st.Deps.Exec, Secrets: m.st.Setup.Secrets,
 		// 差し替えの口はそのまま渡す。ここで nil に潰すと、テストが挿した
 		// 偽物が効かず本物の GitHub を叩く（page.SetupDeps.NewClient）。
 		NewClient: m.st.Setup.NewClient, Fetch: m.st.Setup.Fetch,

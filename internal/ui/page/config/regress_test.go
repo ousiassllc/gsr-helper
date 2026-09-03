@@ -94,9 +94,9 @@ func TestCopyAppliesToTargetsNotSource(t *testing.T) {
 		t.Fatalf("反映が走っていない: %v", err)
 	}
 
-	fake, ok := m.st.Exec.(*exec.Fake)
+	fake, ok := m.st.Deps.Exec.(*exec.Fake)
 	if !ok {
-		t.Fatalf("Fake 以外の Executor: %T", m.st.Exec)
+		t.Fatalf("Fake 以外の Executor: %T", m.st.Deps.Exec)
 	}
 	var got string
 	for _, c := range fake.Calls() {

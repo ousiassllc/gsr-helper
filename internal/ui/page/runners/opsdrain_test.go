@@ -87,8 +87,8 @@ func TestDrainCancelIssuesNoStop(t *testing.T) {
 func TestDrainStopsAfterWaiting(t *testing.T) {
 	st, f := opsState(sampleRunner("build01-1", false))
 	scans := 0
-	base := st.ScanProcs
-	st.ScanProcs = func() ([]runner.Process, error) { scans++; return base() }
+	base := st.Deps.ScanProcs
+	st.Deps.ScanProcs = func() ([]runner.Process, error) { scans++; return base() }
 	m, _ := newModel(t, st)
 
 	m = opsSend(t, m, "d")
