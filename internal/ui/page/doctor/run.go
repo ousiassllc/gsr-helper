@@ -70,7 +70,7 @@ func (m Model) checkInput() doctor.Input {
 	return doctor.Input{
 		Runners:        m.st.Result.Runners,
 		Caps:           m.st.Caps,
-		Exec:           m.st.Exec,
+		Exec:           m.st.Deps.Exec,
 		DiskThresholds: m.st.Disk.Thresholds,
 	}
 }

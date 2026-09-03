@@ -112,7 +112,7 @@ func (m *Model) onApplyChosen(msg tea.Msg) tea.Cmd {
 	}
 
 	in := apply.Input{
-		Exec: m.st.Exec, Runner: runner.Runner{}, Method: apply.FromLabel(chosen.ID),
+		Exec: m.st.Deps.Exec, Runner: runner.Runner{}, Method: apply.FromLabel(chosen.ID),
 		Reload: m.pending.Reload(), Progress: nil, Drain: nil,
 	}
 	targets := m.applyTargets()

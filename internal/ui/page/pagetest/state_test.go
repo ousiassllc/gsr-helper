@@ -16,10 +16,10 @@ import (
 // この検査をフィクスチャ側に 1 つ置くことで、State を使うすべてのタブが不変条件を
 // 引き継ぐ。
 func TestStateAlwaysCarriesExecutor(t *testing.T) {
-	if got := pagetest.State(80, 16); got.Exec == nil {
+	if got := pagetest.State(80, 16); got.Deps.Exec == nil {
 		t.Error("共有状態のフィクスチャが Exec を持たない")
 	}
-	if got := pagetest.State(80, 16, pagetest.SampleRunner()); got.Exec == nil {
+	if got := pagetest.State(80, 16, pagetest.SampleRunner()); got.Deps.Exec == nil {
 		t.Error("runner を渡した共有状態のフィクスチャが Exec を持たない")
 	}
 }
@@ -27,14 +27,14 @@ func TestStateAlwaysCarriesExecutor(t *testing.T) {
 // 共有状態のフィクスチャはプロセス走査を必ず持つ。
 //
 // Exec と同じ理由でここに置く。nil のまま配ると svc 側は procs.Scan に落ち
-// （page.StateMsg.ScanProcs の doc）、ドレイン停止（FR-07）の停止条件が**テストを
+// （page.Deps.ScanProcs の doc）、ドレイン停止（FR-07）の停止条件が**テストを
 // 走らせるホストの /proc** で決まる。落としても現状のテストは緑のままなので、
 // 外れたことに気付けるのはこの 1 件だけである（Issue #155）。
 func TestStateAlwaysCarriesProcScan(t *testing.T) {
-	if got := pagetest.State(80, 16); got.ScanProcs == nil {
+	if got := pagetest.State(80, 16); got.Deps.ScanProcs == nil {
 		t.Error("共有状態のフィクスチャがプロセス走査を持たない")
 	}
-	if got := pagetest.State(80, 16, pagetest.SampleRunner()); got.ScanProcs == nil {
+	if got := pagetest.State(80, 16, pagetest.SampleRunner()); got.Deps.ScanProcs == nil {
 		t.Error("runner を渡した共有状態のフィクスチャがプロセス走査を持たない")
 	}
 }
@@ -48,7 +48,7 @@ func TestStateAlwaysCarriesProcScan(t *testing.T) {
 // せずに即座に停止条件を満たして**空虚に緑**になり、Issue #155 が消したはずの欠陥が
 // そのまま戻る。閉包を実際に呼ぶこの 1 件がその潰しを落とす。
 func TestStateProcScanReportsRunnerWorkers(t *testing.T) {
-	got, err := pagetest.State(80, 16, pagetest.BusyRunner()).ScanProcs()
+	got, err := pagetest.State(80, 16, pagetest.BusyRunner()).Deps.ScanProcs()
 	if err != nil {
 		t.Fatalf("busy な runner の走査が失敗した: %v", err)
 	}
@@ -62,7 +62,7 @@ func TestStateProcScanReportsRunnerWorkers(t *testing.T) {
 	}
 
 	// Workers を持たない runner では空になる（走査がホストの /proc を見ていない）。
-	idle, err := pagetest.State(80, 16, pagetest.SampleRunner()).ScanProcs()
+	idle, err := pagetest.State(80, 16, pagetest.SampleRunner()).Deps.ScanProcs()
 	if err != nil {
 		t.Fatalf("稼働中の runner の走査が失敗した: %v", err)
 	}

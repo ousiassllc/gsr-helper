@@ -133,7 +133,7 @@ func (m *Model) subscribe() tea.Cmd {
 	m.stream.err = errc
 
 	t := m.target
-	ex := m.st.Exec
+	ex := m.st.Deps.Exec
 	go func() {
 		if t.journal {
 			errc <- dlogs.Journal(ctx, ex, t.runner.UnitName, lines)

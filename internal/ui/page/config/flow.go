@@ -165,7 +165,7 @@ func (m Model) others() []runner.Runner {
 
 // commitInputOf は書き込みに渡す値を組み立てる。
 func (m Model) commitInputOf(c edit.Change) edit.CommitInput {
-	ex := m.st.Exec
+	ex := m.st.Deps.Exec
 	return edit.CommitInput{
 		Change: c, Runner: m.target,
 		Client: func(ctx context.Context) (*gh.Client, error) { return m.newClient(ctx, ex) },

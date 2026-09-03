@@ -46,7 +46,7 @@ func TestJournalUsesExecutor(t *testing.T) {
 	fake.SetFunc(func(string, []string) (exec.Result, error) {
 		return exec.Result{Stdout: []byte("[ERROR] unit failed\n"), Stderr: nil, ExitCode: 0}, nil
 	})
-	st.Exec = fake
+	st.Deps.Exec = fake
 
 	m := activated(t, st, 3)
 

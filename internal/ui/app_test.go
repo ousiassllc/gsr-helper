@@ -253,8 +253,8 @@ func TestStateCarriesStartupValues(t *testing.T) {
 	// 監査ログの記録先（Issue #71）。載らないと、外部コマンドを伴わない削除
 	// （internal/disk のファイル削除）が記録先を持てず、確認を経た破壊的操作が
 	// 監査ログに 1 行も残らない。
-	if st.Audit != lg {
-		t.Errorf("StateMsg.Audit = %v, want 渡した Logger（記録先が page へ届いていない）", st.Audit)
+	if st.Deps.Audit != lg {
+		t.Errorf("StateMsg.Deps.Audit = %v, want 渡した Logger（記録先が page へ届いていない）", st.Deps.Audit)
 	}
 	// 設定のディスク閾値（Issue #72）。載らないと Disk タブの要約行が閾値を判定
 	// できず、既定値を表示側に埋め込むことになる。

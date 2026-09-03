@@ -30,7 +30,7 @@ func opsModel(t *testing.T, rs ...runner.Runner) (tea.Model, *exec.Fake) {
 
 	st := pagetest.State(80, 16, rs...)
 	f := exec.NewFake()
-	st.Exec = f
+	st.Deps.Exec = f
 
 	m, _ := jobs.New(1, st).Update(st)
 	return m, f

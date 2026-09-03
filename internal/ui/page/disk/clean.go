@@ -91,7 +91,7 @@ func (m *Model) onResult(msg page.ResultMsg) tea.Cmd {
 
 // startClean は削除計画の実行を始め、進捗表示を開く。
 func (m *Model) startClean(plan disk.CleanPlan) tea.Cmd {
-	job, wait := diskclean.Start(m.tab, m.st.Exec, m.st.Audit, plan)
+	job, wait := diskclean.Start(m.tab, m.st.Deps.Exec, m.st.Deps.Audit, plan)
 	m.clean = job
 	m.notice = ""
 	return tea.Batch(wait, m.openProgress())

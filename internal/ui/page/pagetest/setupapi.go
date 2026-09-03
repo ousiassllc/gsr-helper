@@ -190,7 +190,7 @@ func SetupState(cleanup func(func()), rs ...runner.Runner) (page.StateMsg, *Setu
 //
 // 偽を返すのは差し替えが外れた場合だけで、そのときは検証の組み立てを疑うこと。
 func FakeOf(st page.StateMsg) (*exec.Fake, bool) {
-	f, ok := st.Exec.(*exec.Fake)
+	f, ok := st.Deps.Exec.(*exec.Fake)
 	return f, ok
 }
 

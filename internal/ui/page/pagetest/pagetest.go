@@ -77,23 +77,25 @@ func Caps() appconfig.Caps {
 // フィールドだけを差し替える。
 func State(w, h int, runners ...runner.Runner) page.StateMsg {
 	return page.StateMsg{
-		Result:    runner.Result{Runners: runners},
-		Caps:      Caps(),
-		Styles:    Styles(),
-		Keys:      Keys(),
-		Exec:      exec.NewFake(),
-		ScanProcs: ScanOf(runners...),
-		Dark:      true,
-		BodyW:     w,
-		BodyH:     h,
-		Err:       nil,
+		Result: runner.Result{Runners: runners},
+		Caps:   Caps(),
+		Styles: Styles(),
+		Keys:   Keys(),
+		Deps: page.Deps{
+			Exec:      exec.NewFake(),
+			ScanProcs: ScanOf(runners...),
+		},
+		Dark:  true,
+		BodyW: w,
+		BodyH: h,
+		Err:   nil,
 	}
 }
 
 // ScanOf は渡した runner が持つ Runner.Worker だけを返すプロセス走査を組む。
 //
-// **共有状態から実ホストの /proc を締め出すためにある。** page.StateMsg.ScanProcs が
-// nil だと svc 側は procs.Scan に落ちる（page.StateMsg.ScanProcs の doc）。そうなると
+// **共有状態から実ホストの /proc を締め出すためにある。** page.Deps.ScanProcs が
+// nil だと svc 側は procs.Scan に落ちる（page.Deps.ScanProcs の doc）。そうなると
 // ドレイン停止（FR-07）の停止条件は「テストを走らせるホストに `/opt/runners/*` の
 // worker が居ないこと」になり、居るホストでは待ち時間が無制限である以上、待機が
 // 終わらず cmdtest.Advance が待ち時間切れで panic する（Issue #155）。

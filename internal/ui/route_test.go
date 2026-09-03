@@ -79,7 +79,7 @@ func TestStateCarriesExecutorToEveryTab(t *testing.T) {
 		if len(s.States()) == 0 {
 			t.Fatalf("タブ %d に共有状態が配られていない", i)
 		}
-		if got := s.States()[len(s.States())-1].Exec; got != fake {
+		if got := s.States()[len(s.States())-1].Deps.Exec; got != fake {
 			t.Errorf("タブ %d が受け取った Executor = %v, want 起動時のもの", i, got)
 		}
 	}

@@ -58,7 +58,7 @@ func state(w, h int) StateMsg {
 	return StateMsg{
 		Result: runner.Result{Runners: []runner.Runner{{Dir: testRunnerDir}}},
 		Caps:   appconfig.Caps{Systemd: true, SudoUser: "ousiass"},
-		Exec:   exec.NewFake(),
+		Deps:   Deps{Exec: exec.NewFake()},
 		Keys:   testKeys(),
 		Styles: testStyles(),
 		Dark:   true,
@@ -167,7 +167,7 @@ func wantFullState(t *testing.T, stub *stubModal, w, h int) {
 	if !got.Caps.Systemd || got.Caps.SudoUser == "" {
 		t.Errorf("配られた能力 = %+v, want 渡した値", got.Caps)
 	}
-	if got.Exec == nil {
+	if got.Deps.Exec == nil {
 		t.Error("配られた共有状態に Executor が無い（ドメイン層を呼ぶ道が渡っていない）")
 	}
 	if got.Keys.Global.Help.Help().Key == "" {
