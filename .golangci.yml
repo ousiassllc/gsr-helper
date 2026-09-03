@@ -1,0 +1,54 @@
+version: "2"
+
+linters:
+  default: standard
+  enable:
+    - depguard
+    - errorlint
+    - gocritic
+    - gosec
+    - nolintlint
+    - revive
+  settings:
+    depguard:
+      rules:
+        charm:
+          deny:
+            # Charm は charm.land/<name>/v2 に揃える。v1 系と混ぜると
+            # bubbletea のキー入力 Msg の型が噛み合わず、幅計算と
+            # カラープロファイル判定も二重になる。
+            - pkg: github.com/charmbracelet
+              desc: Charm は charm.land/<name>/v2 を使う（github.com/charmbracelet/* は v2 系の間接依存であり直接 import しない）
+    nolintlint:
+      # 不要になった抑制を検出する（置き換え完了時の除去漏れを防ぐ）
+      allow-unused: false
+      # 抑制には理由コメントを必須にする
+      require-explanation: true
+      # //nolint 単独を禁止し //nolint:gosec のようにリンター名を要求する
+      require-specific: true
+  exclusions:
+    rules:
+      # テストではエラーの取り扱いとパス操作を緩める
+      - path: _test\.go
+        linters:
+          - errcheck
+          - gosec
+
+formatters:
+  enable:
+    - gofmt
+    - gci
+  settings:
+    gci:
+      sections:
+        - standard
+        - default
+        - prefix(github.com/ousiassllc/gsr-helper)
+      # sections の記載順をそのまま適用する。false（既定）だと gci は
+      # 記載順を無視して内蔵の既定順で並べるため、記載順が実効にならない。
+      custom-order: true
+
+issues:
+  # 抑制やエラーを棚卸しできるよう、同種の指摘を打ち切らない
+  max-issues-per-linter: 0
+  max-same-issues: 0

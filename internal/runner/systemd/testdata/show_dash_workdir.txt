@@ -1,0 +1,8 @@
+Id=actions.runner.myorg.host-2.service
+LoadState=loaded
+ActiveState=active
+SubState=running
+UnitFileState=enabled
+WorkingDirectory=-/opt/actions-runner-3
+User=runner
+MainPID=999

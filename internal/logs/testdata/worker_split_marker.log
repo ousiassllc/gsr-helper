@@ -1,0 +1,4 @@
+[2026-08-21 12:05:40Z INFO Worker] Starting Worker
+[2026-08-21 12:05:41Z INFO PipelineDirectoryManager] Loading tracking config if exists: /opt/runners/build01-1/_work/_PipelineMapping/ousiassllc
+[2026-08-21 12:05:41Z WARN JobRunner] Falling back to /etc/docker/daemon.json for registry config.
+[2026-08-21 12:05:42Z INFO JobRunner] Job canceled.

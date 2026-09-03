@@ -1,0 +1,8 @@
+MainPID=0
+User=
+WorkingDirectory=
+Id=actions.runner.myorg.gone.service
+LoadState=not-found
+ActiveState=inactive
+SubState=dead
+UnitFileState=

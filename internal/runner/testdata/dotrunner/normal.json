@@ -1,0 +1,9 @@
+{
+  "agentId": 42,
+  "agentName": "host-1",
+  "poolId": 7,
+  "poolName": "Default",
+  "serverUrl": "https://pipelines.actions.githubusercontent.com/AbCdEf",
+  "gitHubUrl": "https://github.com/myorg/myrepo",
+  "workFolder": "_work"
+}
