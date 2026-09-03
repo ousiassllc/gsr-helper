@@ -9,9 +9,6 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/runner/systemd"
 )
 
-// notFound は systemctl が「ユニットファイルが無い」ことを表す LoadState。
-const notFound = "not-found"
-
 // orphanCheck は孤児ユニット（FR-05）を判定する。
 //
 // 孤児は runner.Discover も検出しているが、check.Input が配られるのは runner
@@ -94,9 +91,10 @@ func scanUnits(ctx context.Context, c check.Check, in check.Input, summary strin
 // 2 つを除外する。**LoadState=not-found** は FR-05 の孤児の定義から外れる
 // （ユニットファイルが既に無い）。**Load が空**のものは systemctl show に
 // 失敗した「状態不明」であり、screens.md 1.6 が孤児区画に出さないと定めて
-// いる。どちらも孤児として出すと誤報になる。
+// いる。どちらも孤児として出すと誤報になる。この 2 つはまとめて
+// `systemd.State.Exists` が偽になる（ユニットの中身を読めない状態）。
 func isOrphan(u systemd.State, dirs map[string]bool) bool {
-	if u.Load == "" || u.Load == notFound {
+	if !u.Exists() {
 		return false
 	}
 	if u.WorkingDir == "" {
