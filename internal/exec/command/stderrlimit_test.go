@@ -110,7 +110,10 @@ func TestCommandRunCapsStderrCapture(t *testing.T) {
 	// 上限の値そのものはリテラルで縛る。下の一致検査は左右とも maxStderrCaptureBytes から
 	// 決まるので、取り込みを縮める退行（例: 1048576 → 8192）でも両辺が一緒に動いて
 	// 緑のまま通ってしまう。1048576 は docs/architecture/security.md が仕様として定めた値で
-	// あり、抜粋の 4 KiB より小さくなった時点で末尾が二重に落ちる。
+	// あり、抜粋の 4 KiB を下回った時点で limit.Head が len(s) <= n の分岐で素通りするため、
+	// 切り詰めが取り込み段だけで起き、limit.Prefix の印が付かない短い抜粋になる（＝抜粋の
+	// 上限が無意味になる）。落ちるのはどちらの段でも先頭であって末尾ではなく、先頭が
+	// 2 段（limit.Buffer → limit.Head）で落ちるのは現在の 1 MiB > 4 KiB の設定のときである。
 	const documentedCapture = 1048576
 	if maxStderrCaptureBytes != documentedCapture {
 		t.Fatalf("maxStderrCaptureBytes = %d, want %d（docs/architecture/security.md）",
