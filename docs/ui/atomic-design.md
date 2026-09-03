@@ -1133,6 +1133,7 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 | `ui/token` | 1217 | 783 | pass |
 | `ui/page/action` | 1184 | 816 | pass |
 | `ui/page/configmodal` | 677 | 1323 | pass |
+| `ui/page/setupmodal` | 675 | 1325 | pass |
 | `ui/template` | 657 | 1343 | pass |
 | `ui/tabset` | 633 | 1367 | pass |
 | `ui/discovery` | 617 | 1383 | pass |
@@ -1146,7 +1147,6 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 | `ui/page/runners/rowview` | 308 | 1692 | pass |
 | `ui/ghscope` | 268 | 1732 | pass |
 | `ui/page/config/itemview` | 256 | 1744 | pass |
-| `ui/page/setupmodal` | 253 | 1747 | pass |
 | `ui/organism/table/tabletest` | 243 | 1757 | pass |
 | `ui/page/logs/filerow` | 233 | 1767 | pass |
 | `ui/startup` | 176 | 1824 | pass |
@@ -1798,6 +1798,7 @@ Issue #31 で `table_test.go` の空振りしていたテスト（`View() != ""`
 | 1.117 | 2026-09-03 | 3 周目レビューの critical 1 件・major 2 件を差分内のテストだけで直した。(1) `internal/buildconfig` の `TestMakeInstallFailsWhenInstallDirIsUnresolvable` の環境へ `GOENV=off` を足した。(2) `internal/exec/command` の `TestRecordedErrorCapsAtMaxRecordedErrorBytes` へ `maxRecordedErrorBytes` が仕様の 4096 と一致することの検査を足し、上を過大申告していた改訂 1.116 の文言を実態へ直した。(3) `internal/ui/page/configmodal` の `TestHookEnvFieldsAcceptExecutablePath` へ「絶対パスだが実在しない値を弾くこと」の検査を足した。併せて「行数の予算」の表を実測へ更新した（`internal/exec/command` 1980 → **1989 行**・残り 11・pass、`internal/buildconfig` 1439 → **1441 行**・残り 559・pass、`ui/page/configmodal` 669 → **677 行**・残り 1323・pass。いずれも並びは変わらない） | (1) `go env` は空の環境変数を無視して env ファイル側の値を返すので、`go env -w GOPATH=...` を書いた環境（Nix・CI イメージ・direnv 等）では GOPATH が空にならず、5 件の主張が落ちるだけでなく `make install` / `make uninstall` が**開発者の `$GOPATH/bin/gsr` を上書きして削除していた**（センチネルを置いて実証済み）。(2) 入力と期待値の両方を `maxRecordedErrorBytes` から導いていたためアサーションが定数値の変化に対して不変で、`docs/architecture/data-model.md`・`docs/architecture/security.md`・`docs/components/overview.md` が定める 4096 を黙って縮める退行を止める検査が 1 本も無かった（実測でも 64 へ改変して緑のまま通った）。(3) hook 欄の配線を `edit.ValidateHook` から `edit.ValidateRoots` へ差し替えても両パッケージが緑のままで、`docs/architecture/security.md` が定める「存在する・実行可能」の半分を配線側で縛れていなかった |
 | 1.118 | 2026-09-03 | Issue #184 を反映。`internal/config/edit` の入力の検証の検査（`TestFormValidators` と `TestSelfValidators`）をテスト専用パッケージ `internal/config/edit/validcheck` へ分け、4 つの手のうち (4) を採った判断と (3) を組み合わせなかった理由を「`internal/config/edit` の入力の検証の検査を `validcheck` へ分けた判断（Issue #184）」として記録した。「行数の予算」の非 UI の表を実測へ更新した（`internal/config/edit` 1995 → **1904 行**・残り 96・pass、`internal/config/edit/validcheck` を **114 行**・残り 1886・pass として追加。並びは `internal/setup` と `internal/runner` の間） | `internal/config/edit` は残りが 5 行で、次にこのディレクトリへ 1 行でも足す Issue が同節の「残りが 1 桁のディレクトリへ 1 行でも足す Issue は、足す前に空けること」に当たる状態だった。足してから空けるのでは、その Issue のスコープに本節の判断が紛れ込む |
 | 1.119 | 2026-09-03 | Issue #183 を反映。`internal/exec/command` から切り詰めの道具（`truncateTail` / `truncateHead` / 断片落としの 2 つ / `limitedBuffer`）を `internal/exec/command/limit` へ切り出し（`Tail` / `Head` / `Prefix` / `Suffix` / `Buffer` を export、上限の 3 定数は `command/limits.go` に残す）、4 つの手のうち (1) を採った判断と (2)(3)(4) を採れなかった理由を「`internal/exec/command` から切り詰めの道具を `limit` へ切り出した判断（Issue #183）」として記録した。「行数の予算」の非 UI の表を実測へ更新した（`internal/exec/command` 1989 → **1888 行**・残り 112・pass、`internal/exec/command/limit` を **285 行**・残り 1715・pass として追加。並びは `internal/runner` の後ろへ下がり、`limit` は `internal/disk/pathguard` と `internal/setup/setuptest` の間） | `dropPartialRuneAtStart` が断片を落とす行は 1 度も実行されていなかった（素材の `stderrflood` が ASCII しか吐かないため、末尾 4 KiB をどこで切っても多バイト文字の途中に当たらない）。回帰テストを足すには先に行数を空ける必要があり、内部テストしか無いこのディレクトリでは (3)(4) がどちらも循環か非公開の大量 export になるため、本番の境界で切るしかなかった |
+| 1.120 | 2026-09-03 | Issue #187 を反映。`internal/ui/page/setupmodal` に回帰テストを 3 ファイル（`helper_test.go` / `confirm_test.go` / `form_test.go`）足した。見るのは包み方——確認ダイアログは決定を**自分の種類で**差し戻すこと（実行前プレビューと入力の破棄を同時に登録した状態で `y` を打って縛る）、`esc` を Overlay ではなくダイアログが先に受けること、追加フォームは完了・中断・破棄の 3 つをどれも `FormKind` で差し戻すこと、huh のテーマを**開くときに渡された共有状態**から組むこと、見出しとフッタが他のモーダルの Model で落ちないこと——である。「行数の予算」の UI の表の `ui/page/setupmodal` を実測へ更新した（253 → **675 行**・残り 1325・pass。並びは `ui/page/configmodal` と `ui/template` の間へ上がった） | テストを 1 本も持たない本番の UI パッケージだった。判断を持つのは**決定の差し戻し先**で、取り違えると「破棄するつもりで押した `y` で実行が始まる」形の事故になる（`ConfirmKind` の doc が挙げている危険そのもの）。打鍵から決定までを 2 段（ダイアログが返す Cmd → `page.WrapModal` の包み → 配り直し）で辿るのは、`dialog.DecidedMsg` を直に流すと包みのタブ番号と種類が壊れていても緑になるためである |
 
 ### 改訂の詳細
 
