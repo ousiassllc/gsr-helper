@@ -19,8 +19,11 @@ import (
 // 差し戻すこと（page 側が 1 つの case で受けられるのはそのためである）、`esc` を
 // Overlay ではなく dialog.Form に受けさせること（入力済みなら破棄の確認を出すため。
 // NewForm が HandlesBack に真を返させている理由）、そして**組み立て関数へ渡す**
-// テーマを開くときに渡された共有状態から組むことである。3 つめを登録時の値で
-// 組むと、起動後に配色が変わったフォームの入力欄が古い配色で描かれる。
+// テーマを開くときに渡された共有状態から組むことである。3 つめを登録時の値で組むと、
+// **組み立て関数が受け取るテーマだけが古くなる**——入力欄の描画そのものは古くならない。
+// 内側が最終的に着る配色は別の経路（page.Overlay.Open が formOpenMsg の直前に流す
+// page.StateMsg のリプレイ）で最新に揃うためである。機構は
+// TestOpenFormPassesThemeBuiltFromGivenState の doc に書いた。
 
 // formTitleText は開く指示に載せる見出し。
 const formTitleText = "runner の追加"
@@ -153,15 +156,18 @@ func TestOpenFormShowsGivenTitle(t *testing.T) {
 
 // 組み立て関数へ渡すテーマは、登録時ではなく**開くときに渡された共有状態**から組む。
 //
-// 登録時の色で組むと、起動後に配色が変わってから開いたフォームの入力欄が古い配色で
-// 描かれる（formModal.open が msg.st を見る理由）。
-//
 // **見ているのは組み立て関数へ渡された引数だけである——フォームが最終的に着る配色は
 // ここでは観測していない。** dialog.Form.SetForm の後に dialog.Form 自身が
-// token.HuhTheme(f.styles, f.color) でテーマを上書きし、formModal.open は Restyle を
-// 呼ばないため、開くときの共有状態の色は内側の dialog.Form へは伝わらない。
-// したがってこの検査の範囲は**配線**——開くときに渡した共有状態が組み立て関数まで
-// 届くこと——に限る。
+// token.HuhTheme(f.styles, f.color) でテーマを上書きするので、formModal.open が組んで
+// 渡したテーマは捨てられる。つまり **open は msg.st を内側の dialog.Form へ直接は
+// 渡さない**（Restyle も呼ばない）。
+//
+// **同じ色は別の経路で内側へ届く。** page.Overlay.Open は formOpenMsg を配る前に最新の
+// 共有状態を配り直し（overlay.go の replay）、その page.StateMsg で f.styles / f.color が
+// 最新になってから SetForm と上書きが走る（overlaystate.go の send は Update を同期で
+// 呼ぶ）。**したがって「開くときの配色が内側へ伝わらない」という症状は起きない。**
+// ここで縛るのは**配線**——開くときに渡した共有状態が組み立て関数まで届くこと——に
+// 限る、というだけである。
 //
 // **色の有無は見出しの太字で見る。** token.HuhTheme が色を使うときだけ
 // `Focused.Title` へ `Foreground(accent).Bold(true)` を与えるためである

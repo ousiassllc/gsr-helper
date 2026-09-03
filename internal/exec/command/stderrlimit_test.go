@@ -76,6 +76,16 @@ func TestCommandRunDoesNotRecordStderrInAudit(t *testing.T) {
 
 func TestCommandRunCapsExitErrorStderr(t *testing.T) {
 	// 画面に出す抜粋は末尾だけ残す。原因は最後の数行に出るためである。
+	//
+	// 上限の値そのものはリテラルで縛る。入力と期待値の両方を maxStderrExcerptBytes から
+	// 導くと同じ定数で動くので、抜粋を縮める退行（例: 4096 → 64）でも緑のまま
+	// 通ってしまう。4096 は docs/architecture/security.md が仕様として定めた値である。
+	const documentedExcerpt = 4096
+	if maxStderrExcerptBytes != documentedExcerpt {
+		t.Fatalf("maxStderrExcerptBytes = %d, want %d（docs/architecture/security.md）",
+			maxStderrExcerptBytes, documentedExcerpt)
+	}
+
 	_, _, err := runStderrFlood(t, floodOverExcerptKiB)
 
 	var exitErr *ExitError
@@ -96,6 +106,17 @@ func TestCommandRunCapsExitErrorStderr(t *testing.T) {
 func TestCommandRunCapsStderrCapture(t *testing.T) {
 	// 暴走した子でメモリを食い潰さないよう、取り込み自体に上限を置く。
 	// それでもプロセスは完走させる（終了コードを観測する必要があるため）。
+	//
+	// 上限の値そのものはリテラルで縛る。下の一致検査は左右とも maxStderrCaptureBytes から
+	// 決まるので、取り込みを縮める退行（例: 1048576 → 8192）でも両辺が一緒に動いて
+	// 緑のまま通ってしまう。1048576 は docs/architecture/security.md が仕様として定めた値で
+	// あり、抜粋の 4 KiB より小さくなった時点で末尾が二重に落ちる。
+	const documentedCapture = 1048576
+	if maxStderrCaptureBytes != documentedCapture {
+		t.Fatalf("maxStderrCaptureBytes = %d, want %d（docs/architecture/security.md）",
+			maxStderrCaptureBytes, documentedCapture)
+	}
+
 	res, _, _ := runStderrFlood(t, floodOverCaptureKiB)
 
 	if len(res.Stderr) != maxStderrCaptureBytes {

@@ -1132,14 +1132,14 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 | `ui/page/runnerdetail` | 1224 | 776 | pass |
 | `ui/token` | 1217 | 783 | pass |
 | `ui/page/action` | 1184 | 816 | pass |
-| `ui/page/setupmodal` | 730 | 1270 | pass |
+| `ui/page/setupmodal` | 736 | 1264 | pass |
 | `ui/page/configmodal` | 677 | 1323 | pass |
 | `ui/template` | 657 | 1343 | pass |
 | `ui/tabset` | 633 | 1367 | pass |
 | `ui/discovery` | 617 | 1383 | pass |
+| `ui/page/disk/confirmmodal` | 559 | 1441 | pass |
 | `ui/molecule/chromebar` | 543 | 1457 | pass |
 | `ui/organism` | 521 | 1479 | pass |
-| `ui/page/disk/confirmmodal` | 498 | 1502 | pass |
 | `ui/page/disk/cleanview` | 491 | 1509 | pass |
 | `ui/chrome` | 490 | 1510 | pass |
 | `ui/hostreq` | 393 | 1607 | pass |
@@ -1186,8 +1186,8 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 | `internal/gh` | 1996 | 4 | pass |
 | `internal/disk` | 1980 | 20 | pass |
 | `internal/setup` | 1970 | 30 | pass |
+| `internal/exec/command` | 1909 | 91 | pass |
 | `internal/config/edit` | 1904 | 96 | pass |
-| `internal/exec/command` | 1888 | 112 | pass |
 | `internal/runner` | 1704 | 296 | pass |
 | `internal/buildconfig/docscheck` | 1497 | 503 | pass |
 | `internal/doctor/jobreq` | 1495 | 505 | pass |
@@ -1802,7 +1802,8 @@ Issue #31 で `table_test.go` の空振りしていたテスト（`View() != ""`
 | 1.121 | 2026-09-03 | Issue #188 を反映。`internal/ui/page/progressmodal` に回帰テストを 1 ファイル（`progressmodal_test.go`）足した。見るのは包み方——`esc` を握りつぶすかを実行中かどうかで決めること（実行中は閉じない・終わったら閉じる、の両方向）、スピナを回す Cmd を**開いたときにだけ**流すこと、差し替えがモーダルを積み増さないこと、フッタが実行中と停止後で入れ替わること、見出しと 2 つの述語が他のモーダルの Model で落ちないこと——である。「行数の予算」の UI の表の `ui/page/progressmodal` を実測へ更新した（140 → **361 行**・残り 1639・pass。並びは `ui/page/diskclean` と `ui/workscan` の間へ上がった） | テストを 1 本も持たない本番の UI パッケージだった。判断は 2 つで、どちらも壊れても静かに動き続ける形である——`esc` の握りつぶしを常に真にすると実行後に画面から出られず、常に偽にすると実行中に閉じられて進捗を見失う（閉じても処理は止まらない）。スピナを差し替えのたびに回すと Tick が 1 件ごとに 1 本積み増し、Tick は自分の次を繋いで回り続けるので止めるまで減らない |
 | 1.122 | 2026-09-03 | Issue #189 を反映。`internal/ui/page/disk/confirmmodal` に回帰テストを 1 ファイル（`confirmmodal_test.go`）足した。見るのは包み方——`y` が承認・`n` が否認として `page.ResultMsg{Kind}` で差し戻ること、`esc` は Overlay が 1 枚閉じるだけで**承認が漏れ出さない**こと、開く指示に載せた文面がそのまま出ること、共有状態の到着で文面が消えないこと、見出しとフッタが他のモーダルの Model で落ちないこと——である。**ヘルパは `ui/page/disk` 側へ 1 行も置いていない**（同ディレクトリの残りは 1 桁である）。「行数の予算」の UI の表の `ui/page/disk/confirmmodal` を実測へ更新した（136 → **382 行**・残り 1618・pass。並びは `ui/hostreq` と `ui/page/diskclean` の間へ上がった） | テストを 1 本も持たない本番の UI パッケージだった。判断は `esc` の扱いで、Setup タブの確認ダイアログとは**逆**である——あちらは自分で受けて破棄の確認を出すが、こちらは `HandlesBack` を nil にして「1 枚閉じる＝キャンセル」に固定してある。閉じるだけで削除が走らないことは「実行の起点が `dialog.DecidedMsg{Confirmed: true}` の 1 本しか無いこと」で担保される設計なので、閉じたときに承認が漏れないことを縛る必要があった |
 | 1.123 | 2026-09-03 | Issue #190 を反映。`internal/ui/page/disk/confirmmodal` が持っていた自前の包み（`modal.wrap`）を落とし、兄弟のモーダル（`page/setupmodal` / `page/progressmodal` / `page/configmodal` / `page/runnerop`）と同じ `page.WrapModal(m.tab, Kind, cmd)` へ寄せた。あわせて同パッケージのテストへ**束（`tea.Batch` / `tea.Sequence` / 入れ子）を渡したときに 1 本ずつ包み直されること**と**Cmd が無いときに包みも Cmd を返さないこと**を足した（`TestWrapExpandsBundles` / `TestWrapKeepsNilAsNil`）。**足したぶんは `wrap_test.go` へ分けた**——同ディレクトリの残りには余裕があるが、1 ファイル 300 行の上限に当たったためである（境界は責務に沿わせた。`confirmmodal_test.go` は打鍵から決定までの往復、`wrap_test.go` は包みそのものの性質）。「行数の予算」の UI の表の `ui/page/disk/confirmmodal` を実測へ更新した（382 → **486 行**・残り 1514・pass。並びは `ui/chrome` と `ui/hostreq` の間へ上がった） | 写しは `cmd()` の結果をそのまま `page.ModalMsg` に入れるので、**束を渡されると取り出されない `[]tea.Cmd` が中身のまま届いて誰も実行しない**（`page.WrapModal` の doc が明記している欠陥である）。`dialog.Confirm` が返す Cmd は決定 1 本だけなので写しでも壊れていなかったが、ダイアログが束を返すようになった瞬間に「`y` を押しても何も起きない」へ変わり、**コンパイルエラーも実行時エラーも出ない**。写しを落とすことで欠陥そのものが消える。変異注入は両方向で確かめた——`page.WrapModal` から束の展開（`expand`）を落とす（＝写しと同じ挙動にする）と新テストが 3 形すべて赤になり、戻すと緑になる。**逆向き（呼び出し元へ写しを戻す）は緑のままである**——`dialog.Confirm` が束を返さないため、この層の打鍵経路では写しと `page.WrapModal` の挙動が区別できない。これは写しが今まで無検査で生き延びられた理由そのものであり、区別できるようにするには `modal.dlg` を差し替え可能にする（インタフェース化する）必要がある。**兄弟の 6 か所がどれも具体型で持っているので、テストのためだけに構造を変えるのではなく、写しを源から消す側を採った。** 束の展開そのものは新テストが直接縛る |
-| 1.124 | 2026-09-04 | レビュー指摘（major 7 件）のうち本書に掛かるぶんを反映。(1) 「`internal/exec/command` から切り詰めの道具を `limit` へ切り出した判断（Issue #183）」節と改訂 1.119 の欄の export の一覧を**`NewBuffer` を含む 6 つ**へ直した。(2) 改訂 1.120 の欄が挙げる検査項目のうち huh のテーマの 1 つを、実際に縛れている範囲（**組み立て関数へ渡す**テーマが開くときの共有状態から組まれること）へ狭めた。(3) 「行数の予算」の UI の表を実測へ更新した（`ui/page/setupmodal` 675 → **730 行**・残り 1270・pass、`ui/page/disk/confirmmodal` 486 → **498 行**・残り 1502・pass、`ui/page/progressmodal` 361 → **369 行**・残り 1631・pass。並びは `setupmodal` が `ui/page/action` と `ui/page/configmodal` の間へ、`disk/confirmmodal` が `ui/organism` と `ui/page/disk/cleanview` の間へ上がり、`progressmodal` は変わらない） | (1) `Buffer` の欄（`buf` / `limit`）は非公開なので `NewBuffer` が唯一の作成手段であり、一覧から落ちていると「`Buffer` は複合リテラルで作れる」と読まれる（旧 `limitedBuffer` はそう作れた）。(2) `formModal.open` が開くときの共有状態を渡すのは組み立て関数の引数までで、`dialog.Form` は `SetForm` の後に自分が持つ配色でテーマを上書きする（`Restyle` は呼ばれない）。**開くときの色は内側のダイアログへ伝わらない**のに、欄の書き方は「テーマを組むこと」まで縛れていると読めた。(3) 3 つのディレクトリへ回帰テストを足したぶん実測が動いた——`esc` をフォーム自身が受けること（Overlay に閉じさせないこと）、差し替えと停止が Cmd を 1 本も返さないこと、閉じる操作で決定が 1 本も出ないことである |
+| 1.124 | 2026-09-04 | レビュー指摘（major 7 件）のうち本書に掛かるぶんを反映。(1) 「`internal/exec/command` から切り詰めの道具を `limit` へ切り出した判断（Issue #183）」節と改訂 1.119 の欄の export の一覧を**`NewBuffer` を含む 6 つ**へ直した。(2) 改訂 1.120 の欄が挙げる検査項目のうち huh のテーマの 1 つを、実際に縛れている範囲（**組み立て関数へ渡す**テーマが開くときの共有状態から組まれること）へ狭めた。(3) 「行数の予算」の UI の表を実測へ更新した（`ui/page/setupmodal` 675 → **730 行**・残り 1270・pass、`ui/page/disk/confirmmodal` 486 → **498 行**・残り 1502・pass、`ui/page/progressmodal` 361 → **369 行**・残り 1631・pass。並びは `setupmodal` が `ui/page/action` と `ui/page/configmodal` の間へ、`disk/confirmmodal` が `ui/organism` と `ui/page/disk/cleanview` の間へ上がり、`progressmodal` は変わらない） | (1) `Buffer` の欄（`buf` / `limit`）は非公開なので `NewBuffer` が唯一の作成手段であり、一覧から落ちていると「`Buffer` は複合リテラルで作れる」と読まれる（旧 `limitedBuffer` はそう作れた）。(2) `formModal.open` が開くときの共有状態を渡すのは組み立て関数の引数までで、`dialog.Form` は `SetForm` の後に自分が持つ配色でテーマを上書きする（`Restyle` は呼ばれない）。**`open` は `msg.st` を内側のダイアログへ直接は渡さない**のに、欄の書き方は「テーマを組むこと」まで縛れていると読めた（同じ色が内側へ届く経路は別にある。改訂 1.125 の (1)）。(3) 3 つのディレクトリへ回帰テストを足したぶん実測が動いた——`esc` をフォーム自身が受けること（Overlay に閉じさせないこと）、差し替えと停止が Cmd を 1 本も返さないこと、閉じる操作で決定が 1 本も出ないことである |
+| 1.125 | 2026-09-04 | 2 周目レビューの major 5 件のうち本書に掛かるぶんを反映。(1) 改訂 1.124 の理由 (2) から「開くときの色は内側のダイアログへ伝わらない」という記述を落とし、`formModal.open` が `msg.st` を内側の `dialog.Form` へ**直接**渡さないことへ限定した。**検査の範囲を「組み立て関数へ渡す引数まで」へ狭めた判断そのものは変えていない。** (2) 「行数の予算」の表を実測へ更新した（`internal/exec/command` 1888 → **1909 行**・残り 91・pass、`ui/page/disk/confirmmodal` 498 → **559 行**・残り 1441・pass、`ui/page/setupmodal` 730 → **736 行**・残り 1264・pass。並びは `internal/exec/command` が `internal/setup` と `internal/config/edit` の間へ、`ui/page/disk/confirmmodal` が `ui/discovery` と `ui/molecule/chromebar` の間へ上がり、`ui/page/setupmodal` は変わらない） | (1) `page.Overlay.Open` は開いていないモーダルへ `formOpenMsg` を配る前に**最新の**共有状態を配り直し（`overlay.go` の `replay`）、その配布は同期である（`overlaystate.go` の `send` が `Update` をその場で呼ぶ）。したがって `f.styles` / `f.color` が最新になってから `SetForm` と上書きが走り、**開くときの配色は内側の `dialog.Form` へ実際に届く**——`open` が組んだテーマ経由ではなくリプレイ経由で、である。**存在しない欠陥を記録した欄は、次の Issue に不要な「修正」を誘発する。** (2) 3 つのディレクトリへ検査を足したぶん実測が動いた——標準エラー出力の抜粋（4096）と取り込み（1048576）の上限が `docs/architecture/security.md` の仕様値と一致すること（どちらも入力と期待値の両方を同じ定数から導いていたため未拘束だった。改訂 1.117 と同じ形で補った）、および `ui/page/disk/confirmmodal` が `page.ModalMsg` を自分で組み立てず包みを `page.WrapModal` に任せていることである |
 
 ### 改訂の詳細
 

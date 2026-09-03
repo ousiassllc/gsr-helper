@@ -1,6 +1,9 @@
 package confirmmodal
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -27,8 +30,10 @@ import (
 // 1 本だけなので写しでも壊れていなかったが、ダイアログが束を返すようになった瞬間に
 // 「y を押しても何も起きない」へ変わり、**コンパイルエラーも実行時エラーも出ない。**
 //
-// **縛るのは `modal.Update` の default が呼ぶ包みそのものである。** その呼び出しが
-// タブ番号と種類を正しく渡すことは `confirmmodal_test.go` の decideVia を通す 3 本が縛る。
+// **この 2 本が縛るのは `page.WrapModal` 単体の性質である**（`modal.Update` を通らない）。
+// その包みを `modal.Update` の default が呼ぶこと——タブ番号と種類を正しく渡すこと——は
+// `confirmmodal_test.go` の decideVia を通す 3 本が縛り、**自前の写しへ戻る退行**は
+// 下の TestUpdateDoesNotBuildModalMsgByHand が構文で縛る。
 // 束の平坦化に `cmdtest.MustMsgs`（Batch と Sequence を区別せず再帰的に辿る＝ランタイムと
 // 同じ規則）を使うのは、包み自身の判定に頼らないためである。
 func TestWrapExpandsBundles(t *testing.T) {
@@ -78,6 +83,62 @@ func TestWrapKeepsNilAsNil(t *testing.T) {
 	if got := page.WrapModal(testTab, Kind, nil); got != nil {
 		t.Error("Cmd が無いのに包みが Cmd を返した")
 	}
+}
+
+// このパッケージは包みを `page.WrapModal` に任せ、`page.ModalMsg` を自分で組み立てない。
+//
+// **打鍵の経路では写しと `page.WrapModal` を挙動で区別できない。** `dialog.Confirm` が返す
+// Cmd は決定 1 本だけで束を返さないため、束を展開しない写しを default へ戻しても、上の
+// 2 本も `confirmmodal_test.go` の 3 本も緑のままである（Issue #190 のコミットに両方向の
+// 変異注入の記録がある）。区別を挙動で付けるには `modal.dlg` を差し替え可能にする
+// （インタフェース化する）ほか無く、テストのために本番の構造を変える判断は #190 で
+// 採らなかった——**その代わりに写しの形そのものをここで構文として縛る。**
+//
+// 写しがしていたのは `page.ModalMsg` を手で組み立てて `page.Do` へ渡すことであり、
+// モーダル宛の包みを作る正規の入口は `page.WrapModal` だけである。「`page.WrapModal` を
+// 呼ぶこと」と「`page.ModalMsg` を手で組み立てないこと」の 2 つを見れば、写しが戻った
+// 時点で必ず赤くなる。構文木で見るのは、同じ名前が doc コメントにも現れるためである。
+func TestUpdateDoesNotBuildModalMsgByHand(t *testing.T) {
+	t.Parallel()
+
+	const src = "confirmmodal.go"
+	file, err := parser.ParseFile(token.NewFileSet(), src, nil, parser.SkipObjectResolution)
+	if err != nil {
+		t.Fatalf("%s を解析できない: %v", src, err)
+	}
+
+	wraps, byHand := 0, 0
+	ast.Inspect(file, func(n ast.Node) bool {
+		switch node := n.(type) {
+		case *ast.CallExpr:
+			if isPageRef(node.Fun, "WrapModal") {
+				wraps++
+			}
+		case *ast.CompositeLit:
+			if isPageRef(node.Type, "ModalMsg") {
+				byHand++
+			}
+		}
+		return true
+	})
+
+	if wraps == 0 {
+		t.Errorf("%s が page.WrapModal を呼んでいない（包みを自前で持っている）", src)
+	}
+	if byHand != 0 {
+		t.Errorf("%s が page.ModalMsg を手で %d か所組み立てている"+
+			"（束を展開する経路が抜け、中身が誰にも実行されない）", src, byHand)
+	}
+}
+
+// isPageRef は式が page パッケージの name を指しているかを返す。
+func isPageRef(expr ast.Expr, name string) bool {
+	sel, ok := expr.(*ast.SelectorExpr)
+	if !ok || sel.Sel.Name != name {
+		return false
+	}
+	pkg, ok := sel.X.(*ast.Ident)
+	return ok && pkg.Name == "page"
 }
 
 // markMsg は束の中身が 1 本ずつ包み直されたことを見るための目印。
