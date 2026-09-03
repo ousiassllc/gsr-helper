@@ -452,6 +452,7 @@ runner 側の設定ファイルの読み書き。
 | `config/dropin` | drop-in の表現と配置（`<root>/<unit>.d/override.conf`）。ユニット名は `.service` 由来で runner 実行ユーザーが書き換えられるため、パス区切りを含む名前を拒む |
 | `config/apply` | 反映方法（[FR-39](../requirements/functional.md)）。ドレイン再起動は `svc` に無いので `svc.Drain` と `svc.Start` を組み合わせる |
 | `config/edit` | 設定項目ごとの変更の組み立て・差分・書き込み・ラベルの API 呼び出し。Config タブから tea に依らない部分を切り出したもの |
+| `config/edit/validcheck` | `config/edit` が huh の `Validate` へ渡す入口（`Validate*`）の回帰テスト。**テスト専用パッケージで実行時のコードを持たない**（`doc.go` のほかは `_test.go` だけである。先例は [`internal/buildconfig`](#internalbuildconfig) の `docscheck` / `docscheck/linebudget`）。分けた判断は [TUI コンポーネント設計](../ui/atomic-design.md#行数の予算) の「`internal/config/edit` の入力の検証の検査を `validcheck` へ分けた判断」 |
 
 **分ける理由は 1 ディレクトリ 2000 行の上限だけではない。** 書き込みの安全策（リンクの拒否・原子的な置き換え・所有者の引き継ぎ）を `fileio` に集めておけば、対象が `.env` / `.path` / drop-in と増えても守り方が分岐しない。
 
@@ -530,14 +531,14 @@ type Executor interface {
 
 #### 分割したパッケージ
 
-行数上限のため 4 つに分ける。依存は **`exec/command` → `exec`・`exec/mask`・`exec/command/limit` の一方向**である。契約（`Executor` / `Result` / `Options`）を最下層に置き、それを実装する側が上に乗る形なので、`exec` はどのサブパッケージも import しない。**`exec/command/limit` はこの中で唯一どこも import しない**（標準ライブラリの `unicode/utf8` だけを使う）——渡されるのは文字列とバイト数だけで、`Command` / `ExitError` / 監査レコードを知らないので、「監査に載せるときだけ印を省く」ような迂回を書けない（判断は[TUI コンポーネント設計](../ui/atomic-design.md#行数の予算)の「`internal/exec/command` から切り詰めの道具を `limit` へ切り出した判断」）。
+行数上限のため 4 つに分ける。依存は **`exec/command` → `exec`・`exec/mask`・`exec/command/limit` の一方向**である。契約（`Executor` / `Result` / `Options`）を最下層に置き、それを実装する側が上に乗る形なので、`exec` はどのサブパッケージも import しない。**内部パッケージを import するのは 4 つのうち `exec/command` だけである**——`exec` / `exec/mask` / `exec/command/limit` はどれも標準ライブラリしか使わず、なかでも `limit` は `unicode/utf8` 1 つで済む。**`limit` だけが上位の型を知らない**——渡されるのは文字列とバイト数だけで、`Command` / `ExitError` / 監査レコードを知らないので、「監査に載せるときだけ印を省く」ような迂回を書けない（判断は[TUI コンポーネント設計](../ui/atomic-design.md#行数の予算)の「`internal/exec/command` から切り詰めの道具を `limit` へ切り出した判断」）。
 
 | パッケージ | 置くもの |
 |-----------|---------|
 | `exec` | `Executor` / `Result` / `Options` / `WithOptions` / `OptionsFrom` / `LookPath` / テスト実装 |
 | `exec/mask` | `Args` / `String` / `Placeholder`。マスクの規則（[セキュリティ設計](../architecture/security.md)） |
 | `exec/command` | 実行実装。`Command` / `New` / `NoSecrets` / `WithTimeout` / `WithAudit` / `WithAuditErrorFunc` / `ExitError` / `AuditError` |
-| `exec/command/limit` | 上限バイト数へ収める道具。`Tail` / `Head`（切り詰めて印を残す。残す端が逆） / `Prefix` / `Suffix`（印）/ `Buffer`（末尾の上限ぶんだけを保持する `io.Writer`）。**上限の値そのものは持たない**——どこに何バイト置くかは `exec/command` の方針である |
+| `exec/command/limit` | 上限バイト数へ収める道具。`Tail` / `Head`（切り詰めて印を残す。残す端が逆） / `Prefix` / `Suffix`（印）/ `Buffer`（末尾の上限ぶんだけを保持する `io.Writer`）/ `NewBuffer(limit int) *Buffer`（**`Buffer` の唯一の作成手段**。欄が非公開なので複合リテラルでは作れない）。**上限の値そのものは持たない**——どこに何バイト置くかは `exec/command` の方針である |
 
 実行前のコマンド表示（確認ダイアログのプレビュー）は `mask.Args(args, secrets...)` を直接呼ぶ。`Executor` は `Run` 1 メソッドに固定されており、プレビュー用のメソッドを生やせないためである。**マスクする秘密情報を明示的に渡すこと。**
 
@@ -735,6 +736,7 @@ interface はこの 3 つに留める。ドメインごとの interface は、�
 | 計画の組み立てと実行 | `internal/setup`。発行コマンド列（トークンの位置がプレースホルダのままであること）、失敗した台で中止して成功分を残すこと、上書きしない名前を網羅 |
 | `pathguard.Validate` | `internal/disk/pathguard`。異常系（`..`、基準外、リンクによる逸脱、基準自身）を網羅 |
 | `Validate*`（ラベル・名前・パス） | `internal/config` のテーブルテスト |
+| `Validate*`（`config/edit` が huh の `Validate` へ渡す入口） | `internal/config/edit/validcheck` のテーブルテスト（`TestFormValidators` は行・hook・ラベル・走査ルート、`TestSelfValidators` は自前設定の割合・更新間隔・監査ログのパス）。**`internal/config/edit` とは別のテスト専用パッケージである**（上記 [`internal/config`](#internalconfig) のサブパッケージ表） |
 | コマンド発行を伴う処理 | 各ドメインで `Executor` のテスト実装に差し替え、発行コマンド列を検証 |
 | マスク処理 | `internal/exec/mask`。キー名ベースと値一致ベースの両方 |
 | UI の表示部品（`atom` / `molecule` / `template`） | 各パッケージ。純粋関数として期待文字列と比較する（[TUI コンポーネント設計](../ui/atomic-design.md#テストの配置)） |
@@ -808,7 +810,8 @@ interface はこの 3 つに留める。ドメインごとの interface は、�
 | 1.60 | 2026-08-25 | PR #176 のレビュー指摘（major 8 件）のうち本書に掛かる 2 点を反映。(1) 「分割したパッケージ」の表に **`buildconfig/docscheck/linebudget` の行を足し**、依存を **`buildconfig` / `docscheck` / `docscheck/linebudget` → `buildconfigtest`** の一方向へ書き直した。あわせて `buildconfigtest` の行に `Atoi` を足し、「置いてよいのは**両方**が使う道具だけ」を「**複数**が使う道具だけ」へ、[`internal/buildconfig`](#internalbuildconfig) の「検査を置く 2 つ」を「3 つ」へそろえた。`docscheck` の行には Issue #174 が足した不変条件テスト一覧表の検査も書き添えた。(2) 改訂 1.51 の欄を「改訂の詳細」へ移した際に強調の開始 `**` が単独行として取り残され、`**` が literal で描画されて (1) の項目の太字が効いていなかったのを、語を変えずに直した | (1) **この表は検査が守っていないので黙って古くなる**——Issue #171 が 4 つ目のパッケージを作ったのに表は 3 つのままで、依存の向きも 2 者を前提にしたままだった。パッケージ表は「新しい検査をどこへ置くか」を最初に引く場所なので、載っていないパッケージは存在しないものとして扱われる。(2) は Issue #170 の移設で入った描画の欠陥である。移したのは **32 小節**（本書 3・[TUI コンポーネント設計](../ui/atomic-design.md#改訂履歴) 27・[開発環境セットアップ](../environment/setup.md#改訂履歴) 2）で、この周で見つけて直したのは本書の改訂 1.51 と同書の改訂 1.49 の **2 件**である。**本欄が当初「残りは同じ形が無いことを確認した」と書いた点検は不十分で、本書の改訂 1.55 に同じ欠陥がもう 1 件残っていた**（改訂 1.61 が直した） |
 | 1.61 | 2026-08-25 | PR #176 の 2 周目レビュー（major 8 件）のうち本書に掛かるぶんを反映。(1) 改訂 1.60 の欄が Issue #170 の移した小節を「**33 小節**」としていたのを、実際に移した **32 小節**へ直し、「壊れていたのはここだけ」という断定も **2 件**（本書の改訂 1.51 と [TUI コンポーネント設計](../ui/atomic-design.md#改訂履歴)の改訂 1.49）へ改めた。(2) その点検漏れの実体として、**改訂 1.55 の欄に同じ描画の欠陥が残っていた**のを直した——「改訂の詳細」へ箇条書きとして移した際に (3)(4)(5) の強調の開始 `**` が前の項目の行末へ取り残され、`**` が literal で描画されて 3 項目とも太字が効いていなかった。語は 1 つも変えていない。(3) 「分割したパッケージ」表の `buildconfigtest` の行に、`RepoRoot` は 3 つとも使うが `Atoi` は `docscheck` と `docscheck/linebudget` の 2 つが使う、と書き分けた。(4) 改訂 1.51 の詳細 (3) の「参照先が1 段落」の空白落ちを直した | (1) の「33」は PR #176 が改訂 1.109 の小節を足した**後**の数であって移した数ではなく、「ここだけ」は実際には 2 件あった。**点検の結果を過大に申告した欄は、次の Issue に再点検を省かせる**——その帰結が (2) で、「残りは同じ形が無い」と述べた当の本書に同じ欠陥がもう 1 件残っていた。(3) は `buildconfigtest` の doc コメントが「置くのは複数が使う道具だけ」と定めた条件の判断材料そのもので、`Atoi` を 3 者共有と書くと条件の緩さが読めない |
 | 1.62 | 2026-09-03 | Issue #175 を反映。改訂 1.58 の行が変更理由のセルを持たないまま入っていたので理由を補った | Markdown は足りないセルを空として描くので、列が欠けても表は崩れず、その版の変更理由だけが黙って空欄になる。同じ欠落が本書・[環境構築](../environment/setup.md)・[TUI コンポーネント設計](../ui/atomic-design.md)で 1 行ずつ起きていた |
-| 1.63 | 2026-09-03 | Issue #183 を反映。「分割したパッケージ」を 3 つから 4 つへ改め、`exec/command/limit`（`Tail` / `Head` / `Prefix` / `Suffix` / `Buffer`）の行を表に足した。依存の一方向の記述に `exec/command/limit` を加え、このパッケージだけがどこも import しないこと（標準ライブラリの `unicode/utf8` のみ）と、その帰結として迂回を書けないことを明記した | 切り詰めの道具を `internal/exec/command` から切り出したため。本節は「3 つに分ける」とサブパッケージ 3 行の表で構成を主張しており、**新設したパッケージが表に無いままだと「`exec` 配下は 3 つである」という誤った主張になる**。依存の向きも同じ段落が一次情報なので、辺を書かないと「その依存は存在しない」と読まれる（改訂 1.29 が同じ形の欠落を是正している） |
+| 1.63 | 2026-09-03 | Issue #183 を反映。「分割したパッケージ」を 3 つから 4 つへ改め、`exec/command/limit`（`Tail` / `Head` / `Prefix` / `Suffix` / `Buffer` / `NewBuffer`）の行を表に足した。依存の一方向の記述に `exec/command/limit` を加え、このパッケージが上位の型（`Command` / `ExitError` / 監査レコード）を知らないこと（使うのは標準ライブラリの `unicode/utf8` だけである）と、その帰結として迂回を書けないことを明記した（当初「唯一どこも import しない」と書いていたのは誤りで、改訂 1.64 の (2) で直した） | 切り詰めの道具を `internal/exec/command` から切り出したため。本節は「3 つに分ける」とサブパッケージ 3 行の表で構成を主張しており、**新設したパッケージが表に無いままだと「`exec` 配下は 3 つである」という誤った主張になる**。依存の向きも同じ段落が一次情報なので、辺を書かないと「その依存は存在しない」と読まれる（改訂 1.29 が同じ形の欠落を是正している） |
+| 1.64 | 2026-09-04 | レビュー指摘（major 7 件）のうち本書に掛かるぶんを反映。(1) 「分割したパッケージ」の `exec/command/limit` の行へ `NewBuffer(limit int) *Buffer` を足した。(2) 同節の「`exec/command/limit` はこの中で唯一どこも import しない」を `go list` の実測に合う限定（**内部パッケージを import するのは `exec/command` だけ**で、`limit` だけが上位の型を知らない）へ直した。同じ誤りを持っていた改訂 1.63 の欄も併せて直した。(3) `internal/config` のサブパッケージ表と「テストの配置」表へ `config/edit/validcheck`（Issue #184 で新設したテスト専用パッケージ）の行を足した | (1) `Buffer` の欄（`buf` / `limit`）は非公開で `NewBuffer` が唯一の作成手段なので、表から落ちていると「`Buffer` は複合リテラルで作れる」と読まれる（旧 `limitedBuffer` はそう作れた）。(2) 実測では `internal/exec` も `internal/exec/mask` も internal パッケージを 1 つも import せず、「唯一」は成立しない。同じ 1 文の前半が「`exec` はどのサブパッケージも import しない」と述べており文内で自己矛盾でもあった。(3) 新設パッケージが本書のどこにも無く、対称の事例（`exec/command/limit`）は `internal/exec` の表に行を持つので扱いが非対称だった。**テスト専用パッケージを載せない方針は無い**——`buildconfig/docscheck` と `docscheck/linebudget` はどちらも `doc.go` と `_test.go` だけだが表に行を持つ |
 
 ### 改訂の詳細
 

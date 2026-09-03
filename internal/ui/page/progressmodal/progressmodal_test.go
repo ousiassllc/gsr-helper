@@ -90,6 +90,14 @@ func wrappedMsgs(t *testing.T, cmd tea.Cmd) []tea.Msg {
 // 差し替えでも流すと、逐次の完了通知 1 件ごとに Tick が 1 本増える。Tick は自分の
 // 次の Tick を繋いで回り続けるので（pane.ProgressList.Stop の doc）、増えたぶんは
 // 止めるまで減らない。
+//
+// **差し替えと停止は Cmd 自体を nil で縛る。** 包まれた Msg を数える形（wrappedMsgs）は
+// ここでは使えない——包み忘れた Cmd は page.TabMsg に入らないので数に上がらず、
+// 「Cmd が nil」と「page.WrapModal を通さない Cmd が流れた」を区別できないからである
+// （SetMsg の case を `return m, m.list.Start()` へ改変すると、Tick は実際に積み増すのに
+// 数は 0 本のままになる）。どちらも約束は「Cmd を 1 本も返さない」ことなので
+// （SetMsg の case は nil を返し、pane.ProgressList.Stop の戻り値も常に nil である）、
+// 包みの中身ではなく Cmd の有無で見る。
 func TestSpinnerStartsOnlyWhenOpened(t *testing.T) {
 	t.Parallel()
 
@@ -98,11 +106,11 @@ func TestSpinnerStartsOnlyWhenOpened(t *testing.T) {
 	if got := wrappedMsgs(t, Open(&o, input("追加中…", 0))); len(got) == 0 {
 		t.Error("開いてもスピナを回す Cmd が流れていない")
 	}
-	if got := wrappedMsgs(t, Set(&o, input("追加中…", 1))); len(got) != 0 {
-		t.Errorf("差し替えで %d 本の Cmd が流れた, want 0（Tick が積み増す）", len(got))
+	if got := Set(&o, input("追加中…", 1)); got != nil {
+		t.Error("差し替えで Cmd が流れた, want nil（Tick が積み増す）")
 	}
-	if got := wrappedMsgs(t, Stop(&o)); len(got) != 0 {
-		t.Errorf("停止で %d 本の Cmd が流れた, want 0", len(got))
+	if got := Stop(&o); got != nil {
+		t.Error("停止で Cmd が流れた, want nil")
 	}
 }
 

@@ -19,7 +19,8 @@ import (
 // nil にして **`esc` を「1 枚閉じる＝キャンセル」に固定してある**（New の doc）。
 // 閉じるだけで削除が走らないことは「実行の起点が
 // `dialog.DecidedMsg{Confirmed: true}` の 1 本しか無いこと」で担保されるので、
-// **閉じたときに承認が漏れ出さないこと**をここで縛る。
+// **閉じたときに決定が 1 本も出ないこと**をここで縛る（`esc` がダイアログへ届く形へ
+// 変わると承認が漏れうる経路が生まれるため、届いていないことを直接見る）。
 //
 // 文面の組み立て（`confirmInput`）は disk パッケージ側にあり、ここは通すだけである。
 
@@ -146,10 +147,16 @@ func TestYesIsForwardedAsConfirmedResult(t *testing.T) {
 	}
 }
 
-// esc は Overlay が 1 枚閉じ、承認は漏れ出さない。
+// esc は Overlay が 1 枚閉じ、決定は 1 本も出ない。
 //
-// **削除の起点は `Confirmed: true` の 1 本だけである**（New の doc）。閉じる操作で
-// 承認が漏れると、キャンセルしたつもりの `esc` でクリーンアップが走る。
+// **削除の起点は `Confirmed: true` の 1 本だけである**（New の doc）。`HandlesBack` が
+// nil なので esc は Overlay が食って閉じるだけで、ダイアログへは届かない——つまり
+// 承認も否認も出ない。
+//
+// **決定が「出ないこと」を縛る。** 中身が `Confirmed: false` であることを見る形
+// （`ok && …Confirmed` の右辺）では何も縛れない——esc で決定が出ないのだから
+// `ok` は常に偽で、右辺は一度も評価されないからである。`HandlesBack` を真へ変える
+// 退行（Setup タブ側の扱いへ揃えてしまう形）はここで赤くなる。
 func TestBackKeyClosesWithoutConfirming(t *testing.T) {
 	t.Parallel()
 
@@ -161,8 +168,13 @@ func TestBackKeyClosesWithoutConfirming(t *testing.T) {
 	if o.Active() {
 		t.Error("esc でモーダルが閉じていない（キャンセルの手段が無い）")
 	}
-	if ok && res.Msg.(dialog.DecidedMsg).Confirmed {
-		t.Error("esc が承認として差し戻された（キャンセルで削除が走る）")
+	if ok {
+		decided, isDecided := res.Msg.(dialog.DecidedMsg)
+		if !isDecided {
+			t.Fatalf("esc で %T が差し戻された, want 決定なし", res.Msg)
+		}
+		t.Errorf("esc で決定が差し戻された（Confirmed = %v）, want 決定なし"+
+			"（esc はダイアログへ届かせない）", decided.Confirmed)
 	}
 }
 
