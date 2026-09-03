@@ -1132,6 +1132,7 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 | `ui/page/runnerdetail` | 1224 | 776 | pass |
 | `ui/token` | 1217 | 783 | pass |
 | `ui/page/action` | 1184 | 816 | pass |
+| `ui/page/configmodal` | 669 | 1331 | pass |
 | `ui/template` | 657 | 1343 | pass |
 | `ui/tabset` | 633 | 1367 | pass |
 | `ui/discovery` | 617 | 1383 | pass |
@@ -1139,7 +1140,6 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 | `ui/organism` | 521 | 1479 | pass |
 | `ui/page/disk/cleanview` | 491 | 1509 | pass |
 | `ui/chrome` | 490 | 1510 | pass |
-| `ui/page/configmodal` | 453 | 1547 | pass |
 | `ui/hostreq` | 393 | 1607 | pass |
 | `ui/page/diskclean` | 372 | 1628 | pass |
 | `ui/workscan` | 337 | 1663 | pass |
@@ -1184,10 +1184,10 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 | `internal/setup/tarball` | 1999 | 1 | pass |
 | `internal/logs` | 1998 | 2 | pass |
 | `internal/gh` | 1996 | 4 | pass |
+| `internal/config/edit` | 1995 | 5 | pass |
 | `internal/exec/command` | 1981 | 19 | pass |
 | `internal/disk` | 1980 | 20 | pass |
 | `internal/setup` | 1970 | 30 | pass |
-| `internal/config/edit` | 1922 | 78 | pass |
 | `internal/runner` | 1704 | 296 | pass |
 | `internal/buildconfig/docscheck` | 1497 | 503 | pass |
 | `internal/doctor/jobreq` | 1495 | 505 | pass |
@@ -1758,6 +1758,7 @@ Issue #31 で `table_test.go` の空振りしていたテスト（`View() != ""`
 | 1.110 | 2026-08-25 | PR #176 の 2 周目レビュー（major 8 件）のうち本書に掛かるぶんを反映。(1) 「`docscheck` から行数の予算の検査を分けた判断（Issue #171）」節の数を**分けた当時（コミット `4898973`）の実測へ戻した**——改訂 1.109 の (3) は「実測へ取り直す」として現在値を書き込んでいたが、本節は `当時` と銘打った過去の記録であり、`budgetProseExcluded` が「載せてよいのは過去の値だけを持つ節」と定めた枠に入っている。分けた側・残った側・`buildconfigtest`・合計の式・「出した側に渡る行数」をすべて当時の値でそろえ、その後の増減は本節ではなく改訂履歴が持つと明記した。(2) 「`internal/buildconfig` を 2 つに分けた判断（Issue #161）」節の「Issue #164 が足した検査がドキュメント側の最大を更新している」という**現在形の断定**を、その 2 ファイルが Issue #171 で `docscheck/linebudget` へ移った事実を踏まえた形へ直し、現在値は `go tool linterly check` への参照に委ねた。(3) 改訂 1.109 の (4) の「移した 33 小節」を **32 小節**へ直し、点検の範囲を本書の 27 小節に限って述べるようにした | (1) は本書自身が「**過去の値は実測へ寄せない**——現在の実測へ書き換えると議論の根拠が消える」と定めている規約への違反で、しかも `当時` の札を付けたまま現在値を置くのは、**検査が見ない場所に偽の記録を残す**ことにあたる。(2) は移動に追随しない現在形の断定で、本書が繰り返し是正してきた形そのものである。(3) の「33」は本 PR が改訂 1.109 の小節を足した**後**の数であって、Issue #170 が移した数ではない |
 | 1.111 | 2026-09-03 | Issue #175 を反映。(1) 改訂 1.104 の行が変更理由のセルを持たないまま入っていたので理由を補った。(2) 「行数の予算」の非 UI の表の `internal/buildconfig/docscheck` を実測へ更新した（1446 → **1497 行**・残り 503・pass。改訂履歴のセル数を見る検査 1 本を足したぶん）。行数が `internal/doctor/jobreq` を上回ったので、行数の多い順の並びを保つため行を 1 つ上へ移した | Markdown は足りないセルを空として描くので、列の欠落は表を崩さずに変更理由だけを黙って空欄にする。行数表は実測しか書かず、`TestLineBudgetTablesMatchLinterly` が行数・残り・判定に加えて**行数の多い順の並び**も突き合わせるため、値だけ直して行の位置を据え置くと落ちる |
 | 1.112 | 2026-09-03 | Issue #181 を反映。「行数の予算」の非 UI の表の `internal/exec/command` を実測へ更新した（1853 → **1981 行**・残り 19・pass。監査レコードの `error` の切り詰め（`truncateTail` / `dropPartialRuneAtEnd`）の回帰テスト 1 ファイルを足したぶん）。行数が `internal/disk` を上回ったので、行数の多い順の並びを保つため行を 3 つ上へ移した。**分割はしていない** | 表は `TestLineBudgetTablesMatchLinterly` が `go tool linterly check --format json` の実測と行数・残り・判定・並びを突き合わせるので、テストを足した時点で表を直さないと `make check` が落ちる。分割しなかったのは足したぶんが上限（2000 行）の内側に収まり警告帯へ入らないためである——本節が分割の是非の判断と理由を残すよう求めているのは警告帯に入るディレクトリへ足すときであり、`internal/exec/command` はまだそこに無い（残りは同じ表の `残り` 列が示す）（Issue #181） |
+| 1.113 | 2026-09-03 | Issue #182 を反映。`internal/ui/page/configmodal` へ入力欄と検証の配線の回帰テストを、`internal/config/edit` へ huh の `Validate` から呼ぶ 4 本の入口（`ValidateLine` / `ValidateHook` / `ValidateLabelInput` / `ValidateRoots`）の単体テストを足したぶん、「行数の予算」の 2 つの表の当該行を実測へ更新した（`ui/page/configmodal` は行数が `ui/page/action` と `ui/template` の間へ、`internal/config/edit` は `internal/gh` と `internal/exec/command` の間へ上がったので、**行数の多い順の並びを保つため行を移した**）。どちらも警告帯（上限の 2000 行超）には入っていない | `configmodal` は「どのフィールドをどの検証に繋ぐか」の判断を持ちながらテストが 1 本も無く、**`.env` の hook のキーだけを強く見る配線（`form.go` の `if k.Hook`）が反転しても消えても `make check` は緑のままだった**。hook の値は runner がジョブごとにシェルで実行するため、[セキュリティ設計](../architecture/security.md)が他のキーより強く見ると定めている箇所である。行数表は実測しか書かない決まりで、`TestLineBudgetTablesMatchLinterly` が行数・残り・判定に加えて並びも見るため、テストを足したら表を更新して行を移す必要がある |
 
 ### 改訂の詳細
 
