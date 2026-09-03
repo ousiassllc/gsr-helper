@@ -1184,10 +1184,10 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 | `internal/setup/tarball` | 1999 | 1 | pass |
 | `internal/logs` | 1998 | 2 | pass |
 | `internal/gh` | 1996 | 4 | pass |
-| `internal/config/edit` | 1995 | 5 | pass |
 | `internal/exec/command` | 1989 | 11 | pass |
 | `internal/disk` | 1980 | 20 | pass |
 | `internal/setup` | 1970 | 30 | pass |
+| `internal/config/edit` | 1904 | 96 | pass |
 | `internal/runner` | 1704 | 296 | pass |
 | `internal/buildconfig/docscheck` | 1497 | 503 | pass |
 | `internal/doctor/jobreq` | 1495 | 505 | pass |
@@ -1203,7 +1203,7 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 | `internal/doctor/check` | 807 | 1193 | pass |
 | `internal/appconfig/confpath` | 782 | 1218 | pass |
 | `internal/setup/job` | 781 | 1219 | pass |
-| `internal/buildconfig/docscheck/linebudget` | 730 | 1270 | pass |
+| `internal/buildconfig/docscheck/linebudget` | 731 | 1269 | pass |
 | `internal/config/fileio` | 708 | 1292 | pass |
 | `internal/doctor` | 681 | 1319 | pass |
 | `internal/config/envfile` | 641 | 1359 | pass |
@@ -1220,6 +1220,7 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 | `internal/disk/pathguard` | 288 | 1712 | pass |
 | `internal/setup/setuptest` | 178 | 1822 | pass |
 | `internal/runner/scope` | 165 | 1835 | pass |
+| `internal/config/edit/validcheck` | 114 | 1886 | pass |
 | `internal/buildconfig/buildconfigtest` | 62 | 1938 | pass |
 
 **残りが 1 桁のディレクトリがどれかは、上下 2 つの行数表の `残り` 列が示す。** 数をここへ写さないのは、写しが増えるほど古くなる場所が増えるからである。**残りが 1 桁のディレクトリへ 1 行でも足す Issue は、足す前に空けること。** 残りが 1 桁でも警告帯に入っていなければ `make check` は通るが、**通ることと余裕があることは違う。**
@@ -1252,6 +1253,20 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 **(1) を採らなかった理由。** 本番で切れる境界は「計画の組み立て（`add.go` / `remove.go` / `update.go`）」と「計画の実行（`apply.go`）」だが、実行は組み立てた `Plan` / `Unit` / `Step` を受け取るので依存は片方向に決まるものの、**増え方は同じ**である（どちらも FR-19〜FR-23 の手順が増えれば一緒に増える）。本節の (1) が求める「依存の向きを強制できる、あるいは増え方が違うまとまり」に当たらない。
 
 結果は Issue #103 当時で 1970 行（残り 30 行）だった。**現在の値は上記「行数の予算」の行数表を見よ。残りは実質ゼロなので、次にこのディレクトリへ手を入れる Issue は 1 行足す前に空けること。** (3) はこの 1 周で使い切った（残る道具は無い）ので、次に採るのはテストの重複削減か、上記の (1)——`apply.go` とその 3 つのテストファイル（`apply_test.go` / `applycancel_test.go` / `applyscope_test.go`）を `internal/setup/setupapply` へ出すこと——である。
+
+##### `internal/config/edit` の入力の検証の検査を `validcheck` へ分けた判断（Issue #184）
+
+着手時点では 1995 行（残り 5 行）で、警告帯には入っていなかったが**次に 1 行足す Issue が本節の「残りが 1 桁のディレクトリへ 1 行でも足す Issue は、足す前に空けること」に当たる**状態だった。Issue #182 が `validate_test.go`（73 行）を足す前の残りは 78 行である。4 つの手のうち **(4) テスト側（検査そのもの）をパッケージ境界で別ディレクトリへ分ける**を採った。
+
+**(4) を採れたのは、増え方が違い互いに依存が無い切れ目が既にあったからである。** `internal/config/edit` のテストは外部テスト（`package edit_test`）で、検査の対象ごとに `change_test.go` / `commit_test.go` / `regress_test.go` / `validate_test.go` に分かれていた。このうち**入力の検証（huh の `Validate` へ渡る `Validate*`）だけが増え方の軸が違う**——編集の側は「何を編集できるか」（FR-37 の drop-in、コピー先、ラベルの API 呼び出し）が増えれば伸びるが、検証が増えるのは**入力として何を弾くか**が変わったときだけで、根拠は `internal/config` と `internal/appconfig` の規則にある。
+
+**(3) と組み合わせる必要は無かった。** 本節の (4) は「分けると `_test.go` の中のヘルパは共有できなくなるので、共通の道具は (3) と組み合わせて 3 つ目のディレクトリへ出すことになる」と断っているが、**移した 2 本は `helper_test.go` の `sample` / `write` / `read` を 1 つも使っていない**。3 つはどれも runner を 1 台こしらえてファイルを読み書きする道具で、値を渡して返り値を見るだけの検証には要らないからである。だから `edittest` に相当する 3 つ目のディレクトリは作っていない。
+
+移したのは `validate_test.go` の `TestFormValidators` と、`regress_test.go` の末尾にあった `TestSelfValidators` の 2 本である。**後者を一緒に動かしたのは、片方だけ残すと境界が読めなくなるからである**——どちらも `Validate*` を値で呼んで通す／弾くを見るだけの検査であり、`regress_test.go` に残る他の 6 本（drop-in の差分・コピーの適用・`SelfValues.Apply` の正規化）とは対象が違う。移動に伴って `regress_test.go` の `errors` の import が不要になったので落とした。
+
+**(1) は採れなかった。** 本番で切れる境界は `self.go`（自身の設定）と残り（runner の設定）だが、`Validate*` は両方に散っており（`ValidateLine` / `ValidateHook` / `ValidateLabelInput` / `ValidateRoots` は `values.go` 系、`ValidatePercent` / `ValidateRefresh` / `ValidateAuditLog` は `self.go`）、検証だけを本番から切り出すと `edit` が自分の入口を持たなくなる。**本番の公開面はそのままにして検査だけを分ける**のが (4) の利点で、ここではそれがそのまま当たる。
+
+結果は Issue #184 当時で `internal/config/edit` が 1904 行（残り 96 行）、`internal/config/edit/validcheck` が 114 行である。**現在の値は上記「行数の予算」の行数表を見よ。**
 
 #### ファイルの行数
 
@@ -1763,6 +1778,7 @@ Issue #31 で `table_test.go` の空振りしていたテスト（`View() != ""`
 | 1.115 | 2026-09-03 | 「行数の予算」の非 UI の表の `internal/buildconfig` を実測へ更新した（1351 → **1403 行**・残り 597・pass。並びは `internal/doctor/jobreq` と `internal/audit` の間へ上がる） | `make install` の既定のインストール先（`INSTALL_DIR`）の回帰テストを 2 本、`makefile_install_test.go` へ足したぶん行数が動いた。表は実測と `TestLineBudgetTablesMatchLinterly` が突き合わせるので、検査だけを足すと落ちる |
 | 1.116 | 2026-09-03 | 「行数の予算」の非 UI の表を実測へ更新した（`internal/buildconfig` 1403 → **1439 行**・残り 561・pass、`internal/exec/command` 1981 → **1980 行**・残り 20・pass。どちらも並びは変わらない——`internal/exec/command` は `internal/disk` と 1980 行で並ぶが、判定は行数の多い順であって同数の行は前後どちらでもよい） | 2 周目レビューの major 2 件（テストが約束を果たしていない形）を直したぶん行数が動いた。`internal/buildconfig` は `make install` のインストール先が `GOPATH/bin` へ落ちる分岐を踏む検査を足したぶん増え、`internal/exec/command` は監査レコードの `error` を長さの上界ではなく完全一致で見る形に置き換えたぶん減った（このとき縛れたのは「切り位置が `maxRecordedErrorBytes` と一致すること」だけで、入力と期待値の両方をその定数から導いていたため**上限の値そのものは未拘束のままだった**——改訂 1.117 で 4096 をリテラルで縛って補った）。表は実測と `TestLineBudgetTablesMatchLinterly` が突き合わせるので、検査を足しても縮めても表を直さないと `make check` が落ちる |
 | 1.117 | 2026-09-03 | 3 周目レビューの critical 1 件・major 2 件を差分内のテストだけで直した。(1) `internal/buildconfig` の `TestMakeInstallFailsWhenInstallDirIsUnresolvable` の環境へ `GOENV=off` を足した。(2) `internal/exec/command` の `TestRecordedErrorCapsAtMaxRecordedErrorBytes` へ `maxRecordedErrorBytes` が仕様の 4096 と一致することの検査を足し、上を過大申告していた改訂 1.116 の文言を実態へ直した。(3) `internal/ui/page/configmodal` の `TestHookEnvFieldsAcceptExecutablePath` へ「絶対パスだが実在しない値を弾くこと」の検査を足した。併せて「行数の予算」の表を実測へ更新した（`internal/exec/command` 1980 → **1989 行**・残り 11・pass、`internal/buildconfig` 1439 → **1441 行**・残り 559・pass、`ui/page/configmodal` 669 → **677 行**・残り 1323・pass。いずれも並びは変わらない） | (1) `go env` は空の環境変数を無視して env ファイル側の値を返すので、`go env -w GOPATH=...` を書いた環境（Nix・CI イメージ・direnv 等）では GOPATH が空にならず、5 件の主張が落ちるだけでなく `make install` / `make uninstall` が**開発者の `$GOPATH/bin/gsr` を上書きして削除していた**（センチネルを置いて実証済み）。(2) 入力と期待値の両方を `maxRecordedErrorBytes` から導いていたためアサーションが定数値の変化に対して不変で、`docs/architecture/data-model.md`・`docs/architecture/security.md`・`docs/components/overview.md` が定める 4096 を黙って縮める退行を止める検査が 1 本も無かった（実測でも 64 へ改変して緑のまま通った）。(3) hook 欄の配線を `edit.ValidateHook` から `edit.ValidateRoots` へ差し替えても両パッケージが緑のままで、`docs/architecture/security.md` が定める「存在する・実行可能」の半分を配線側で縛れていなかった |
+| 1.118 | 2026-09-03 | Issue #184 を反映。`internal/config/edit` の入力の検証の検査（`TestFormValidators` と `TestSelfValidators`）をテスト専用パッケージ `internal/config/edit/validcheck` へ分け、4 つの手のうち (4) を採った判断と (3) を組み合わせなかった理由を「`internal/config/edit` の入力の検証の検査を `validcheck` へ分けた判断（Issue #184）」として記録した。「行数の予算」の非 UI の表を実測へ更新した（`internal/config/edit` 1995 → **1904 行**・残り 96・pass、`internal/config/edit/validcheck` を **114 行**・残り 1886・pass として追加。並びは `internal/setup` と `internal/runner` の間） | `internal/config/edit` は残りが 5 行で、次にこのディレクトリへ 1 行でも足す Issue が同節の「残りが 1 桁のディレクトリへ 1 行でも足す Issue は、足す前に空けること」に当たる状態だった。足してから空けるのでは、その Issue のスコープに本節の判断が紛れ込む |
 
 ### 改訂の詳細
 

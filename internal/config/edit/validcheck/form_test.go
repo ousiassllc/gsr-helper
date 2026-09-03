@@ -1,4 +1,4 @@
-package edit_test
+package validcheck
 
 import (
 	"errors"

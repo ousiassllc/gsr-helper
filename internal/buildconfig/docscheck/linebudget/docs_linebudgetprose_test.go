@@ -86,6 +86,7 @@ var budgetProseUnits = map[string]bool{
 var budgetProseExcluded = []string{
 	"##### `internal/disk` から `pathguard` を切り出した判断（Issue #101）",
 	"##### `internal/setup` のフィクスチャを `setuptest` へ出した判断（Issue #103）",
+	"##### `internal/config/edit` の入力の検証の検査を `validcheck` へ分けた判断（Issue #184）",
 	"#### `ui/page/config` を `page/configmodal` へ分けた判断（Issue #12 / 実施は Issue #104）",
 	"##### `ui/page` を警告帯へ入れた判断（Issue #155）",
 	"##### Issue #159 の空け方——`ui/page` を警告帯から出し、`ui/page/runners` に余裕を作った",
