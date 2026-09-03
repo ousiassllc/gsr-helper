@@ -107,6 +107,7 @@ func TestHookEnvFieldsAcceptExecutablePath(t *testing.T) {
 	if err := os.WriteFile(sh, []byte("#!/bin/sh\n"), 0o700); err != nil {
 		t.Fatalf("hook の作成に失敗: %v", err)
 	}
+	missing := sh + ".none"
 
 	for i, k := range edit.EnvKeys {
 		if !k.Hook {
@@ -117,6 +118,13 @@ func TestHookEnvFieldsAcceptExecutablePath(t *testing.T) {
 			if err := fieldErr(t, envValues(i, in), i); err != nil {
 				t.Errorf("%s に %q を入れて弾かれた: %v", k.Key, in, err)
 			}
+		}
+		// 絶対パスでも実在しなければ弾くこと。通す側と hookProbe（相対パス）だけでは
+		// 「絶対パスかどうか」しか見ておらず、パスを整えるだけで stat しない検証
+		// （edit.ValidateRoots）が代役に立ててしまう。存在と実行可否まで見る検証へ
+		// 繋がっていることをここで縛る（docs/architecture/security.md）。
+		if err := fieldErr(t, envValues(i, missing), i); err == nil {
+			t.Errorf("%s に実在しない絶対パス %q を入れて通した", k.Key, missing)
 		}
 	}
 }

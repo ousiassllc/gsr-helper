@@ -82,13 +82,22 @@ func TestTruncateTailNeverLeavesBrokenUTF8(t *testing.T) {
 func TestRecordedErrorCapsAtMaxRecordedErrorBytes(t *testing.T) {
 	// 監査ログは 1 レコード 1 行の JSONL なので、上限を置かないと 1 回の失敗が
 	// 数 MB の 1 行になる。上限で切ることと、印が付くことを固定する。
-	long := strings.Repeat("x", maxRecordedErrorBytes+1)
+	//
+	// 上限の値そのものはリテラルで縛る。入力と期待値の両方を maxRecordedErrorBytes から
+	// 導くと同じ定数で動くので、切り詰め長を縮める退行（例: 4096 → 64）でも緑のまま
+	// 通ってしまう。4096 は docs/architecture/data-model.md が仕様として定めた値である。
+	const documentedLimit = 4096
+	if maxRecordedErrorBytes != documentedLimit {
+		t.Fatalf("maxRecordedErrorBytes = %d, want %d（docs/architecture/data-model.md）",
+			maxRecordedErrorBytes, documentedLimit)
+	}
+
+	long := strings.Repeat("x", documentedLimit+1)
 
 	got := recordedError(errors.New(long), nil)
 
-	// 上限そのものを縛る。長さの上界だけを見ると、素材が上限をわずかに超えるだけなので
-	// 切り詰め長を縮める退行（例: 上限 4096 → 64）でも緑のまま通ってしまう。
-	if want := long[:maxRecordedErrorBytes] + elisionSuffix; got != want {
+	// 切り位置が上限と一致すること（truncateTail の切り位置の退行を落とす）。
+	if want := long[:documentedLimit] + elisionSuffix; got != want {
 		t.Errorf("recordedError = %d バイト, want %d（上限で切って印を付けた形）", len(got), len(want))
 	}
 

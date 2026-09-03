@@ -131,8 +131,10 @@ func TestMakeInstallOmitsPATHNoticeWhenInstallDirIsOnPATH(t *testing.T) {
 func TestMakeInstallFailsWhenInstallDirIsUnresolvable(t *testing.T) {
 	dir := newModule(t, installModule)
 	// HOME も空にする。go env GOPATH は GOPATH が空なら $HOME/go へ落ちるため、
-	// GOPATH だけ空にしても空にはならない。
-	env := append(slices.Clone(goWorkOff), "GOBIN=", "GOPATH=", "HOME=")
+	// GOPATH だけ空にしても空にはならない。GOENV=off も要る——go env は空の環境変数を
+	// 無視して env ファイル側の値を返すので、go env -w GOPATH=... を書いた環境では
+	// GOPATH が空にならず、開発者の $GOPATH/bin/gsr を上書きして消してしまう。
+	env := append(slices.Clone(goWorkOff), "GOENV=off", "GOBIN=", "GOPATH=", "HOME=")
 
 	for _, target := range []string{"install", "uninstall"} {
 		out, code := runMake(t, dir, env, target)
