@@ -27,9 +27,45 @@ func main() {
 // 起動できるバイナリを置き、インストール先が PATH に無ければ案内を出す。make uninstall は
 // それを消す。名前が gsr でなくなれば、ユーザーは gsr と打って起動できない。
 func TestMakeInstallPutsRunnableGSRInInstallDir(t *testing.T) {
+	// インストール先の解決は 2 つあるので、両方を踏む。GOBIN を置く側だけを見ていると
+	// GOPATH/bin へ落ちる分岐を一度も踏まず、INSTALL_DIR から GOPATH の項を丸ごと
+	// 削っても緑のまま通る。
+	tests := []struct {
+		name string
+		// resolve は base の下にインストール先を決め、その位置と渡す環境変数を返す。
+		resolve func(base string) (installDir string, env []string)
+	}{
+		{
+			name: "GOBIN",
+			resolve: func(base string) (string, []string) {
+				bin := filepath.Join(base, "gobin")
+				return bin, []string{"GOBIN=" + bin}
+			},
+		},
+		{
+			name: "GOBIN が空なら GOPATH/bin",
+			resolve: func(base string) (string, []string) {
+				return filepath.Join(base, "bin"), []string{"GOBIN=", "GOPATH=" + base}
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			testMakeInstallPutsRunnableGSRIn(t, tt.resolve)
+		})
+	}
+}
+
+func testMakeInstallPutsRunnableGSRIn(t *testing.T, resolve func(base string) (string, []string)) {
+	t.Helper()
+
 	dir := newModule(t, installModule)
-	bin := filepath.Join(dir, "bin")
-	env := append(slices.Clone(goWorkOff), "GOBIN="+bin)
+	bin, installEnv := resolve(t.TempDir())
+	// GOENV=off を渡すのは、go env -w が書いた env ファイル（GOENV が指す）に GOBIN や
+	// GOPATH が入っている環境（Nix・CI イメージ・direnv 等）では、環境変数へ空を渡しても
+	// go env がファイル側の値を返してしまい、狙った分岐を踏めなくなるためである。
+	env := append(slices.Clone(goWorkOff), "GOENV=off")
+	env = append(env, installEnv...)
 
 	out, code := runMake(t, dir, env, "install")
 	if code != 0 {

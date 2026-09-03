@@ -86,11 +86,10 @@ func TestRecordedErrorCapsAtMaxRecordedErrorBytes(t *testing.T) {
 
 	got := recordedError(errors.New(long), nil)
 
-	if limit := maxRecordedErrorBytes + len(elisionSuffix); len(got) > limit {
-		t.Errorf("recordedError = %d バイト, want <= %d", len(got), limit)
-	}
-	if !strings.HasSuffix(got, elisionSuffix) {
-		t.Error("上限を超えたのに省略の印が付いていない")
+	// 上限そのものを縛る。長さの上界だけを見ると、素材が上限をわずかに超えるだけなので
+	// 切り詰め長を縮める退行（例: 上限 4096 → 64）でも緑のまま通ってしまう。
+	if want := long[:maxRecordedErrorBytes] + elisionSuffix; got != want {
+		t.Errorf("recordedError = %d バイト, want %d（上限で切って印を付けた形）", len(got), len(want))
 	}
 
 	// 日本語のエラー文が上限を超えると、上限は必ず文字の途中に当たる。
