@@ -10,9 +10,10 @@ import (
 // systemd ユニットの User= を第一の情報源とし、ユニットの実体が無い場合は
 // Listener プロセスの所有者から引く。どちらも取れなければ空を返す。
 func resolveRunAsUser(r Runner, lookup func(uid int) string) string {
-	// Load が埋まっていればユニットの実体がある。show に失敗した場合（Unit だけの
-	// プレースホルダ）と not-found はここで弾き、プロセス側にフォールバックする。
-	if r.Svc != nil && r.Svc.Load != "" && r.Svc.Load != "not-found" {
+	// show に失敗した場合（Unit だけのプレースホルダ）と not-found は
+	// systemd.State.Exists が偽になる。どちらも User= が埋まっていないため、
+	// ここで弾いてプロセス側にフォールバックする。
+	if r.Svc != nil && r.Svc.Exists() {
 		if r.Svc.User != "" {
 			return r.Svc.User
 		}

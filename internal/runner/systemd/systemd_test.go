@@ -98,3 +98,23 @@ func TestParseShow(t *testing.T) {
 		}
 	}
 }
+
+// Exists は「ユニットの中身を読めるか」を返す。実体が無い 2 つの状態
+// （show 失敗のプレースホルダ = Load が空、svc.sh uninstall 後 = not-found）を
+// まとめて偽にする。紐付け・実行ユーザーの決定・孤児の診断の 3 か所が同じ
+// 判定を別々の文字列比較で書いていたため、値と述語をこのパッケージに集めた。
+func TestStateExists(t *testing.T) {
+	tests := []struct {
+		load string
+		want bool
+	}{
+		{"loaded", true},
+		{"", false},           // systemctl show に失敗したプレースホルダ
+		{LoadNotFound, false}, // svc.sh uninstall 後の残骸
+	}
+	for _, tt := range tests {
+		if got := (State{Unit: "u", Load: tt.load}).Exists(); got != tt.want {
+			t.Errorf("State{Load: %q}.Exists() = %v, want %v", tt.load, got, tt.want)
+		}
+	}
+}

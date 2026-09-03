@@ -113,11 +113,6 @@ func attachListener(r *Runner, p procs.Process) {
 	r.Listener = &proc
 }
 
-// loadNotFound は systemd にユニットの実体が無いことを表す LoadState の値。
-// svc.sh uninstall 後に参照だけが残っている場合、list-units --all はこの状態の
-// ユニットを返す。
-const loadNotFound = "not-found"
-
 // attachUnits はユニットを runner に紐付け、孤児ユニットと警告を返す。
 // UnitName（.service ファイル）を第一、WorkingDirectory を第二の照合キーと
 // するため 2 パスに分ける。1 パスで回すと、あるユニットの WorkingDirectory 一致が
@@ -128,7 +123,7 @@ func attachUnits(byUnit, byDir map[string]*Runner, units []systemd.State) ([]sys
 	// 決めたものの両方を立てて、第二パスの対象から外す。
 	handled := make([]bool, len(units))
 	for i, u := range units {
-		if u.Load == loadNotFound {
+		if u.Load == systemd.LoadNotFound {
 			// 実体の無いユニットはどちらの照合キーでも紐付けない。紐付けると
 			// svc.sh uninstall 済みの runner が systemd 管理として表示され、
 			// 存在しないユニットに対してサービス制御を提示してしまう
@@ -139,7 +134,7 @@ func attachUnits(byUnit, byDir map[string]*Runner, units []systemd.State) ([]sys
 			warns = append(warns, fmt.Errorf(
 				"%s: systemd にユニットの実体がありません（LoadState=%s）。"+
 					"svc.sh uninstall 後に参照だけが残っている可能性があります",
-				u.Unit, loadNotFound))
+				u.Unit, systemd.LoadNotFound))
 			continue
 		}
 		if r, ok := byUnit[u.Unit]; ok {

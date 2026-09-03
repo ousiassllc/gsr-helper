@@ -39,6 +39,15 @@ const showConcurrency = 8
 // run.sh 直起動に見える）、呼び出し側が errors.Is で判別できるようにする。
 var ErrListUnits = errors.New("systemctl list-units の実行に失敗しました")
 
+// LoadNotFound は systemd にユニットの実体が無いことを表す LoadState の値。
+// svc.sh uninstall 後に参照だけが残っている場合、list-units --all はこの状態の
+// ユニットを返す。
+//
+// LoadState の語彙は systemctl のものなので、値の定義はこのパッケージに置く。
+// 判定する側（紐付け・実行ユーザーの決定・孤児の診断）に写すと、同じ文字列が
+// 増えた読み手のぶんだけ散らばる。
+const LoadNotFound = "not-found"
+
 // State は systemd ユニットの状態。
 type State struct {
 	Unit       string
@@ -50,6 +59,21 @@ type State struct {
 	User       string // User=。空なら root で起動する
 	MainPID    int
 }
+
+// Exists はユニットの実体があるかを返す。
+//
+// 実体が無い状態は 2 つあり、どちらも Load から見分ける。Load が空なのは
+// systemctl show に失敗したユニット（Scan が Unit だけ埋めて残すプレースホルダ）、
+// LoadNotFound は svc.sh uninstall 後に参照だけが残ったものである。
+// **ユニットの中身（WorkingDirectory / User など）を読んでよいのは真のときだけ**で、
+// どちらの状態でも他のフィールドは埋まっていない。空の User= を root と読むと
+// 全 runner が root 実行として表示される（docs/architecture/data-model.md の
+// 「RunAsUser の決定と UID フォールバック」）。
+//
+// 2 つを区別する必要がある側（紐付けは not-found にだけ警告を出す）は Load を
+// 直接見る。ここでまとめているのは「中身を読めるか」だけを知りたい呼び出し元の
+// ためである。
+func (s State) Exists() bool { return s.Load != "" && s.Load != LoadNotFound }
 
 // Scan は actions.runner.* の systemd ユニットとその状態を集める。
 //
