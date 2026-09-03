@@ -37,6 +37,9 @@ type Options struct {
 }
 
 // Result は探索結果。
+//
+// **コピーはスライスの実体を共有する**（Runner のポインタの扱いは Runner の doc）。
+// 1 周期ぶんの Result は全タブへ同時に配られるので、読み取り専用として扱うこと。
 type Result struct {
 	Runners []Runner
 	// OrphanUnits は actions.runner.* ユニットのうち、対応する runner

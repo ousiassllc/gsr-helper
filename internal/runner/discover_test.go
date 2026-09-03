@@ -193,3 +193,40 @@ func TestMissingProcDirWarnings(t *testing.T) {
 		}
 	}
 }
+
+// Discover は周期ごとに新しい実体を返す。Runner の Svc / Listener はポインタなので、
+// 周期をまたいで同じ実体を返すと、前の周期の Result を持っているタブの表示が
+// 後の周期の書き換えで黙って変わる（Runner の doc の「周期をまたいだ共有は無い」）。
+//
+// 実体の同一性を見るのは、値が同じかどうかでは足りないためである。2 周期の Svc は
+// 同じ内容になるので、比較で違いが出るのはポインタだけである。
+func TestDiscoverReturnsFreshInstancesEachCycle(t *testing.T) {
+	base := normalizeDir(t.TempDir())
+	dir := mkDir(t, filepath.Join(base, "a"), map[string]string{
+		".runner":  `{"agentName":"host-1","gitHubUrl":"https://github.com/myorg/myrepo"}`,
+		".service": u1 + "\n",
+	})
+
+	f := exec.NewFake()
+	f.SetFunc(func(_ string, args []string) (exec.Result, error) {
+		if args[0] == "list-units" {
+			return exec.Result{Stdout: []byte(listOutput(u1))}, nil
+		}
+		return exec.Result{Stdout: []byte("Id=" + u1 + "\nLoadState=loaded\nActiveState=active\n")}, nil
+	})
+	stubProcs(t, []Process{pr(100, ProcListener, dir, zero)})
+
+	opts := Options{Roots: []string{base}, SkipDefaultRoots: true, Exec: f}
+	first := Discover(context.Background(), opts)
+	second := Discover(context.Background(), opts)
+
+	if len(first.Runners) != 1 || len(second.Runners) != 1 {
+		t.Fatalf("Runners = %d / %d 件, want 1 件ずつ", len(first.Runners), len(second.Runners))
+	}
+	if first.Runners[0].Svc == second.Runners[0].Svc {
+		t.Error("Svc が 2 周期で同じ実体を指している")
+	}
+	if first.Runners[0].Listener == second.Runners[0].Listener {
+		t.Error("Listener が 2 周期で同じ実体を指している")
+	}
+}

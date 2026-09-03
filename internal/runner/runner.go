@@ -10,6 +10,16 @@ import (
 )
 
 // Runner は 1 つの runner インスタンス。
+//
+// **コピーはポインタの指す先を共有する。** Svc / Listener は写しても同じ実体を指し、
+// Workers も同じ配列を指す。1 周期ぶんの Result は全タブへ同時に配られるため
+// （internal/ui の page.StateMsg）、受け取った側が書き換えれば他のタブの表示まで
+// 変わる。**Discover の戻り値は読み取り専用として扱い、並べ替えや絞り込みは
+// 写しを作ってから行うこと**（App.tabs / organism.Table と同じ約束）。
+//
+// 周期をまたいだ共有は無い。Discover は毎回 .runner を読み直して新しい実体を
+// 組み立てるので、前の周期の Result を持ち続けても後の周期に書き換えられない
+// （discover_test.go の TestDiscoverReturnsFreshInstancesEachCycle）。
 type Runner struct {
 	Dir     string // シンボリックリンク解決済みの絶対パス
 	Config  Config
