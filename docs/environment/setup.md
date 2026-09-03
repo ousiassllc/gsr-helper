@@ -99,6 +99,8 @@ lint / test / build のコマンド列を Makefile に集約し、**CI と手元
 | `make test` | `go test -race ./...`（競合検出あり） |
 | `make build` | `go build ./...` で全パッケージのコンパイルを検証し、`cmd/gsr-helper` が存在する場合はさらに単一バイナリ `gsr-helper` を生成する |
 | `make run` | `build` を実行してから生成したバイナリを起動する。引数は `ARGS` で渡す（`make run ARGS="--root /path/to/actions-runner"`） |
+| `make install` | インストール先へ `gsr` という名前でバイナリを置く。インストール先は `GOBIN`、無ければ `$(go env GOPATH)/bin`（`go install` と同じ流儀）で、`make install INSTALL_DIR=...` で変えられる。インストール先が `PATH` に無ければ案内を出す |
+| `make uninstall` | `make install` が置いた `gsr` を削除する |
 | `make hooks` | Lefthook を Git Hooks に登録 |
 | `make check` | `fmt-check` → `vet` → `lint` → `linterly` → `test` を順に実行 |
 
@@ -108,6 +110,13 @@ lint / test / build のコマンド列を Makefile に集約し、**CI と手元
 GO   ?= go
 BIN  := gsr-helper
 CMD  := ./cmd/gsr-helper
+
+# install / uninstall が扱うコマンド名。`gsr` と打って起動できるようにする。
+INSTALL_BIN := gsr
+
+# インストール先。go install と同じ流儀で、GOBIN があればそこ、無ければ GOPATH/bin を使う。
+# 絶対パスを直に書かず、sudo の要る場所も既定にしない。make install INSTALL_DIR=... で変えられる。
+INSTALL_DIR ?= $(or $(shell $(GO) env GOBIN),$(shell $(GO) env GOPATH)/bin)
 
 # run に渡す引数。make run ARGS="--root /path/to/actions-runner" のように使う。
 ARGS ?=
@@ -121,7 +130,7 @@ GOFMT ?= $(shell $(GO) env GOROOT)/bin/gofmt
 # ファイルを含み、testdata/ と入れ子 worktree は含まない）になる。
 GOFILES_TMPL := {{range .GoFiles}}{{printf "%s/%s\n" $$.Dir .}}{{end}}{{range .CgoFiles}}{{printf "%s/%s\n" $$.Dir .}}{{end}}{{range .TestGoFiles}}{{printf "%s/%s\n" $$.Dir .}}{{end}}{{range .XTestGoFiles}}{{printf "%s/%s\n" $$.Dir .}}{{end}}{{range .IgnoredGoFiles}}{{printf "%s/%s\n" $$.Dir .}}{{end}}
 
-.PHONY: help tools fmt fmt-check vet lint linterly test build run hooks check
+.PHONY: help tools fmt fmt-check vet lint linterly test build run install uninstall hooks check
 
 help: ## ターゲット一覧を表示する
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -164,6 +173,27 @@ build: ## 全パッケージをコンパイル検証し、エントリポイン�
 
 run: build ## TUI を起動する（make run ARGS="--root /path/to/actions-runner"）
 	./$(BIN) $(ARGS)
+
+install: ## gsr という名前でインストールする（既定は GOBIN、無ければ GOPATH/bin）
+	@dir="$(INSTALL_DIR)"; \
+	if [ -z "$$dir" ]; then \
+		echo "インストール先を決められません（go env GOBIN も GOPATH も空です）" >&2; exit 1; \
+	fi; \
+	mkdir -p "$$dir" || exit 1; \
+	echo "$(GO) build -o $$dir/$(INSTALL_BIN) $(CMD)"; \
+	$(GO) build -o "$$dir/$(INSTALL_BIN)" $(CMD) || exit 1; \
+	case ":$$PATH:" in \
+	*":$$dir:"*) echo "$(INSTALL_BIN) と打って起動できます";; \
+	*) echo "$$dir は PATH にありません。PATH に追加すると $(INSTALL_BIN) と打って起動できます" >&2;; \
+	esac
+
+uninstall: ## インストールした gsr を削除する
+	@dir="$(INSTALL_DIR)"; \
+	if [ -z "$$dir" ]; then \
+		echo "インストール先を決められません（go env GOBIN も GOPATH も空です）" >&2; exit 1; \
+	fi; \
+	echo "rm -f $$dir/$(INSTALL_BIN)"; \
+	rm -f "$$dir/$(INSTALL_BIN)"
 
 hooks: ## Git Hooks を登録する
 	$(GO) tool lefthook install
@@ -368,6 +398,7 @@ updates:
 | go list が失敗したとき make fmt-check は失敗する。終了ステータスを捨てて検査ゲートが静かに通ることがあってはならない。 | `TestFmtCheckFailsWhenGoListFails` |
 | 対象ファイルが 0 件のとき make fmt-check はハングせず失敗する。gofmt を引数なしで起動すると標準入力を読んで待ち続けるため、明示的に検出して終了する必要がある。 | `TestFmtCheckFailsWhenNoGoFiles` |
 | make test は競合検出付きで実行する。CI とローカルの唯一のテスト経路であり、-race が外れると並行処理の退行が緑のまま通過する。 | `TestMakeTestDetectsDataRace` |
+| make install はインストール先（GOBIN、無ければ GOPATH/bin）へ gsr という名前で起動できるバイナリを置き、インストール先が PATH に無ければ案内を出す。make uninstall はそれを消す。名前が gsr でなくなれば、ユーザーは gsr と打って起動できない。 | `TestMakeInstallPutsRunnableGSRInInstallDir` |
 | 抑制には理由コメントとリンター名が必須で、不要になった抑制も検出される。nolintlint を `require-explanation` / `require-specific` / `allow-unused: false` の 3 つすべて有効で使う。 | `TestGolangciEnablesNolintlint` |
 | 抑制の 3 つの取り決め（リンター名の明示・理由コメント・不要になった抑制）を破った `//nolint` が、リポジトリの `.golangci.yml` で実際に落ちる。 | `TestGolangciLintRejectsSloppyNolint` |
 | import は標準ライブラリ / 外部モジュール / 自前パッケージの 3 グループに固定される。gci をこの順のセクションで使い、`custom-order: true` も検査する——これが無いと gci は記載順を無視して内蔵の既定順で並べ、順序の取り決めが実効にならない。 | `TestGolangciEnablesGci` |
@@ -847,6 +878,7 @@ pre-push:
 | 1.45 | 2026-08-25 | PR #176 のレビュー指摘（major 8 件）のうち本書に掛かるぶんを反映。(1) 不変条件テスト一覧表の `TestSetupDocInvariantTableListsEveryTest` の行が範囲を `internal/buildconfig` 直下と `docscheck` の **2 つ**としていたのを、実装どおり `docscheck/linebudget` を含む **3 つ**へ直した（写し元である doc コメントの側を直し、表を作り直した）。(2) doc コメントの折り返しを 1 行に詰める規則が **英数字と日本語が隣り合う折り返しで空白を落としていた**ため、表の説明 **11 行**が詰まった語を持っていた（`root相当まで` / `self-hosted runnerではモジュール` はその代表例である）のを直した | (1) は表が「網羅である」と宣言して読み手の一次情報になっている以上、範囲の過小申告は危険側である——`docscheck/linebudget` の 4 本は表に載っているのに、同じ表の行が「範囲は 2 つ」と述べており、本節 :414 / :416 の記述とも食い違っていた。(2) は**写しを 1 つに減らす**という本節の方針そのものの穴で、doc コメントの折り返し位置という体裁の選択が文書の本文を黙って書き換えていた。突き合わせを ASCII 空白に対して盲目にし、詰めるときに空白を足さない形へ変えたので、この経路は塞がった（検査の振る舞い自体の記録は [TUI コンポーネント設計](../ui/atomic-design.md#改訂履歴)の改訂 1.109 が持つ） |
 | 1.46 | 2026-08-25 | PR #176 の 2 周目レビュー（major 8 件）のうち本書に掛かるぶんを反映。(1) 不変条件テスト一覧表の直後の段落が、説明カラムと doc コメントの照合を「**1 文字違わず一致する**」と述べていたのを、実装（`withoutSpaces` どうしの比較）と表の行の記述にそろえて「**ASCII 空白の有無を除いて一致する**」へ直した。同じ節の「照合は完全一致でよく」も「**空白の有無を除く全文の一致**」へ改めた。(2) 検査の置き場の段落が `buildconfigtest` を「共有する道具」とだけ述べていたのを、`RepoRoot` は 3 つとも使い `Atoi` は 3 つのうち 2 つが使う、と実態へ書き分けた。(3) 改訂 1.45 の (2) が空白落ちで壊れた説明を「2 行」と記録していたのを、実際に直した **11 行**へ改めた | (1) は**表が一次情報だと宣言している節が、その一次情報を守る検査の強さを過大に申告していた**形である——実測でも `count_mode: all` を `count_mode:all` に変えて検査は緑のままであり、「1 文字違わず」を信じた読み手は空白の乱れまで機械的に止まると誤解する。(2)(3) も同じ過大申告の類で、(3) は直した範囲を実際より小さく記録しており、次に同じ欠陥を疑う Issue に「2 行だけの局所的な事故」と読ませる |
 | 1.47 | 2026-09-03 | Issue #175 を反映。(1) 改訂 1.41 の行が変更理由のセルを持たないまま入っていたので理由を補った。(2) 不変条件テスト一覧表へ `TestDocRevisionHistoryRowsHaveEveryColumn` の行を足した——改訂履歴の表の各行が見出し行と同じ数のセルを持つことを、文書ごとに読んだ見出しのセル数と突き合わせる | 同じ欠落が 3 文書で 1 行ずつ起きており、版番号の重複と昇順を見る検査も 1 行の文字数を見る検査も**セルの数え方を持たない**ので拾えなかった。セル数の一致は「見出しと違うセル数の行が無いこと」という不在の形で書けるため、言い回しのパターンを 1 つも増やさずに塞げる |
+| 1.48 | 2026-09-03 | `make install` / `make uninstall` を追加したことを反映。ターゲット一覧表に 2 行を足し、Makefile のコードブロックを実体に同期し、不変条件テスト一覧表へ `TestMakeInstallPutsRunnableGSRInInstallDir` の行を足した。インストール先は `GOBIN`、無ければ `$(go env GOPATH)/bin` とし（`go install` と同じ流儀）、`INSTALL_DIR` で上書きできる | `go install github.com/ousiassllc/gsr-helper/cmd/gsr-helper@latest` は `gsr-helper` という名前で入るため、`gsr` と打って起動できなかった。開発ツリーから短い名前で入れる経路が要る。既定にハードコードした絶対パスや sudo の要る場所を選ばないのは、`go install` の流儀から外れたインストール先を覚え直させないためである。インストール先が `PATH` に無いと「入ったのに起動できない」状態になるので、install 後に案内を出す |
 
 **版番号は表への追加順ではなく、その変更が入った時点で採番している。** 1.22 の日付が直前の 1.21 より古いのはこのためである。1.22 の行はもともと重複した `1.8` として記録されており（`feat/#1` の取り込み時に 2 つの `1.8` を両方残したまま解消した）、重複を解消する際に、既に使われている 1.9〜1.21 と衝突しない番号として 1.22 を割り当てた。既存行の版番号を繰り下げないのは、他の行の変更理由が版番号で参照している箇所（1.12 / 1.13）まで書き換えることになるためである。
 

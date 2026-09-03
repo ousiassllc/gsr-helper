@@ -55,7 +55,7 @@
 | サービス管理 | systemd（`svc.sh install` 済み）と `run.sh` 直起動の両方を検出。制御は systemd 管理下の runner のみ |
 | アーキテクチャ | amd64 / arm64 |
 | Go バージョン | go.mod に記載のバージョン以上。標準ライブラリ以外の依存は下記に限定する |
-| 配布 | `go install github.com/ousiassllc/gsr-helper/cmd/gsr-helper@latest` |
+| 配布 | `go install github.com/ousiassllc/gsr-helper/cmd/gsr-helper@latest`。開発ツリーからは `make install` で `gsr` という名前で入れる（[開発環境](../environment/setup.md#タスクランナー)） |
 
 ### 依存ライブラリ
 
@@ -163,3 +163,4 @@ GitHub Actions の self-hosted runner（`runs-on: [self-hosted, linux, x64]`）�
 | 1.12 | 2026-08-23 | `fsnotify/fsnotify` を導入済みへ更新。監査ログの例外を 1 種から 2 種に改め、ログ追従（`internal/logs` の `Journal`）が発行する `journalctl -u <unit> -n <N>` を追加 | ログ閲覧を実装した（Issue #9）。追従中は 2 秒ごとに同じ読み取りが発行され、記録すると破壊的操作のレコードを押し流す（[セキュリティ設計](../architecture/security.md#記録対象外とする読み取りコマンド)） |
 | 1.13 | 2026-08-23 | 依存ライブラリの表で `huh`（`charm.land/huh/v2`）と `google/go-github`（`v83`）を導入済みへ更新し、それぞれの使用箇所と、go-github を `internal/gh` の外で import しない規則を明記。`bubbles` の状況を「列挙した 8 部品すべてを使用」に改め、間接依存に `harmonica` が加わる理由を注記 | runner の追加・削除・バージョン更新（Issue #8）で `internal/gh` と Setup タブのフォームを実装したため。表が未導入のままだと、フォームや GitHub API を扱う後続 Issue が「まず依存を追加する」ところから設計をやり直す。`bubbles` の「現時点で使うのは 5 部品」も、進捗バー（`progress`）と計時（`stopwatch`）を使い始めた実装と食い違っていた |
 | 1.14 | 2026-08-24 | 安全性要件の監査ログの記録対象を「すべての外部コマンド」から「すべての外部コマンド + 外部コマンドを伴わない破壊的操作（`internal/disk` のファイルの再帰削除）」へ拡張し、記録の起点を層ごとに 1 箇所（`internal/exec/command` の `Run` / `internal/disk` の `removeTarget`）に固定していることを明記。全件記録する破壊的操作の範囲を action（`svc.*` / `runner.*` / `disk.clean`）で限定し、外部コマンドを伴わない破壊的操作のうち `internal/config` 系・`internal/appconfig` のファイル置換と `internal/setup/tarball` の展開先の置換は記録対象外であることを追記 | Issue #71 で監査ログの契約が「外部コマンドと、それに準ずる破壊的操作」へ広がり、[セキュリティ設計](../architecture/security.md#監査ログ) と [コンポーネント設計](../components/overview.md#internalaudit) は追随済みだったが、最上位の非機能要件が外部コマンド限定のままで、docker を含まない削除計画の監査レコードが仕様上は対象外と読めた。逆に拡張後の記述は記録される範囲しか述べておらず、最上位の非機能要件だけを読むと「確認を経る破壊的操作はすべて追跡できる」と読めた——実際に監査レコードを書く（`audit.Logger` の `Write` / `Report` を呼ぶ）のは `internal/disk` と `internal/exec/command` の 2 箇所だけである（`internal/audit` を import するパッケージはこれより多いが、他は `Logger` を生成して配るだけである） |
+| 1.15 | 2026-09-03 | 可搬性の表の `配布` に、開発ツリーからは `make install` で `gsr` という名前で入れることを追記した | `go install` で入る名前は `gsr-helper` であり、`gsr` と打って起動する経路は Makefile 側にしか書かれていなかった。配布方法を引く読み手が両方を 1 か所で見られる必要がある |
