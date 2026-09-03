@@ -1142,6 +1142,7 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 | `ui/page/disk/cleanview` | 491 | 1509 | pass |
 | `ui/chrome` | 490 | 1510 | pass |
 | `ui/hostreq` | 393 | 1607 | pass |
+| `ui/page/disk/confirmmodal` | 382 | 1618 | pass |
 | `ui/page/diskclean` | 372 | 1628 | pass |
 | `ui/page/progressmodal` | 361 | 1639 | pass |
 | `ui/workscan` | 337 | 1663 | pass |
@@ -1151,7 +1152,6 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 | `ui/organism/table/tabletest` | 243 | 1757 | pass |
 | `ui/page/logs/filerow` | 233 | 1767 | pass |
 | `ui/startup` | 176 | 1824 | pass |
-| `ui/page/disk/confirmmodal` | 136 | 1864 | pass |
 
 #### 行数の実測値は表だけが持つ
 
@@ -1800,6 +1800,7 @@ Issue #31 で `table_test.go` の空振りしていたテスト（`View() != ""`
 | 1.119 | 2026-09-03 | Issue #183 を反映。`internal/exec/command` から切り詰めの道具（`truncateTail` / `truncateHead` / 断片落としの 2 つ / `limitedBuffer`）を `internal/exec/command/limit` へ切り出し（`Tail` / `Head` / `Prefix` / `Suffix` / `Buffer` を export、上限の 3 定数は `command/limits.go` に残す）、4 つの手のうち (1) を採った判断と (2)(3)(4) を採れなかった理由を「`internal/exec/command` から切り詰めの道具を `limit` へ切り出した判断（Issue #183）」として記録した。「行数の予算」の非 UI の表を実測へ更新した（`internal/exec/command` 1989 → **1888 行**・残り 112・pass、`internal/exec/command/limit` を **285 行**・残り 1715・pass として追加。並びは `internal/exec/command` が `internal/config/edit` と `internal/runner` の間へ下がり、`limit` が `internal/disk/pathguard` と `internal/setup/setuptest` の間） | `dropPartialRuneAtStart` が断片を落とす行は 1 度も実行されていなかった（素材の `stderrflood` が ASCII しか吐かないため、末尾 4 KiB をどこで切っても多バイト文字の途中に当たらない）。回帰テストを足すには先に行数を空ける必要があり、内部テストしか無いこのディレクトリでは (3)(4) がどちらも循環か非公開の大量 export になるため、本番の境界で切るしかなかった |
 | 1.120 | 2026-09-03 | Issue #187 を反映。`internal/ui/page/setupmodal` に回帰テストを 3 ファイル（`helper_test.go` / `confirm_test.go` / `form_test.go`）足した。見るのは包み方——確認ダイアログは決定を**自分の種類で**差し戻すこと（実行前プレビューと入力の破棄を同時に登録した状態で `y` を打って縛る）、`esc` を Overlay ではなくダイアログが先に受けること、追加フォームは完了・中断・破棄の 3 つをどれも `FormKind` で差し戻すこと、huh のテーマを**開くときに渡された共有状態**から組むこと、見出しとフッタが他のモーダルの Model で落ちないこと——である。「行数の予算」の UI の表の `ui/page/setupmodal` を実測へ更新した（253 → **675 行**・残り 1325・pass。並びは `ui/page/configmodal` と `ui/template` の間へ上がった） | テストを 1 本も持たない本番の UI パッケージだった。判断を持つのは**決定の差し戻し先**で、取り違えると「破棄するつもりで押した `y` で実行が始まる」形の事故になる（`ConfirmKind` の doc が挙げている危険そのもの）。打鍵から決定までを 2 段（ダイアログが返す Cmd → `page.WrapModal` の包み → 配り直し）で辿るのは、`dialog.DecidedMsg` を直に流すと包みのタブ番号と種類が壊れていても緑になるためである |
 | 1.121 | 2026-09-03 | Issue #188 を反映。`internal/ui/page/progressmodal` に回帰テストを 1 ファイル（`progressmodal_test.go`）足した。見るのは包み方——`esc` を握りつぶすかを実行中かどうかで決めること（実行中は閉じない・終わったら閉じる、の両方向）、スピナを回す Cmd を**開いたときにだけ**流すこと、差し替えがモーダルを積み増さないこと、フッタが実行中と停止後で入れ替わること、見出しと 2 つの述語が他のモーダルの Model で落ちないこと——である。「行数の予算」の UI の表の `ui/page/progressmodal` を実測へ更新した（140 → **361 行**・残り 1639・pass。並びは `ui/page/diskclean` と `ui/workscan` の間へ上がった） | テストを 1 本も持たない本番の UI パッケージだった。判断は 2 つで、どちらも壊れても静かに動き続ける形である——`esc` の握りつぶしを常に真にすると実行後に画面から出られず、常に偽にすると実行中に閉じられて進捗を見失う（閉じても処理は止まらない）。スピナを差し替えのたびに回すと Tick が 1 件ごとに 1 本積み増し、Tick は自分の次を繋いで回り続けるので止めるまで減らない |
+| 1.122 | 2026-09-03 | Issue #189 を反映。`internal/ui/page/disk/confirmmodal` に回帰テストを 1 ファイル（`confirmmodal_test.go`）足した。見るのは包み方——`y` が承認・`n` が否認として `page.ResultMsg{Kind}` で差し戻ること、`esc` は Overlay が 1 枚閉じるだけで**承認が漏れ出さない**こと、開く指示に載せた文面がそのまま出ること、共有状態の到着で文面が消えないこと、見出しとフッタが他のモーダルの Model で落ちないこと——である。**ヘルパは `ui/page/disk` 側へ 1 行も置いていない**（同ディレクトリの残りは 1 桁である）。「行数の予算」の UI の表の `ui/page/disk/confirmmodal` を実測へ更新した（136 → **382 行**・残り 1618・pass。並びは `ui/hostreq` と `ui/page/diskclean` の間へ上がった） | テストを 1 本も持たない本番の UI パッケージだった。判断は `esc` の扱いで、Setup タブの確認ダイアログとは**逆**である——あちらは自分で受けて破棄の確認を出すが、こちらは `HandlesBack` を nil にして「1 枚閉じる＝キャンセル」に固定してある。閉じるだけで削除が走らないことは「実行の起点が `dialog.DecidedMsg{Confirmed: true}` の 1 本しか無いこと」で担保される設計なので、閉じたときに承認が漏れないことを縛る必要があった |
 
 ### 改訂の詳細
 
