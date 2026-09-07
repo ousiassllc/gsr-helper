@@ -6,6 +6,8 @@
 
 ## 前提
 
+**`config.sh` を root で走らせるための `RUNNER_ALLOW_RUNASROOT` は gsr-helper が渡す。** 手順に含めない——`config.sh` は uid 0 でこれが空だと `Must not run with sudo` で終了コード 1 になるが、gsr-helper は自身が root のときだけこれを渡す（`setup.RootEnv`。[セキュリティ設計](../architecture/security.md#実装しないこと)）。手でシェルへ export する必要は無い。
+
 - Linux + systemd、`apt` 系ディストリビューション
 - `<runner-user>` は runner を実行するユーザー（`svc.sh install [user]` で指定した、または `systemctl show -p User` で確認できるユーザー）
 
@@ -113,3 +115,4 @@ doctor が検査するのは [FR-43](../requirements/functional.md) が定める
 | 1.3 | 2026-08-22 | 冒頭の「ここに挙げた項目は doctor が検査する」という包括的な宣言を FR-43 / FR-44 の定める範囲に限定し、「C コンパイラ」節と「doctor での検出」節に C コンパイラが doctor の検査対象外である旨を明記 | 1.2 で C コンパイラを番号付きの手順 5 へ昇格させた一方、[FR-43](../requirements/functional.md) の検査対象はパスワード不要 sudo / `docker` / `docker buildx` / docker グループ所属の 4 点のままであり、冒頭の包括宣言と食い違っていた。FR-43 を 5 点へ拡張するのは製品要件の変更であり、開発環境・CI の土台整備を範囲とする本変更のスコープ外と判断したため、要件側ではなく本書の記述を限定する形で切り分けた |
 | 1.4 | 2026-08-23 | 「doctor での検出」の表の `docker` 行の判定方法を「コマンドの存在と `docker info`」から「コマンドの存在（`PATH` の探索のみ）」へ訂正し、表の直後の「これらは起動時にも自動判定し」を、起動時に走るのが `job.sudo` / `job.docker` / `job.buildx` / `job.dockergroup` の 4 項目であることと、daemon の稼働（`docker info` = `docker.daemon`）は FR-43 に含まれず起動時には走らないことに分けて記述 | doctor（Issue #11）の実装では `docker info` を発行するのは分類「docker」の `docker.daemon` で、`Startup()` は偽である。表の 4 行すべてが起動時に走ると読める書き方だったため、**起動時間の予算（[非機能要件](../requirements/non-functional.md)）を守るために意図的に起動経路から外した項目**が、要件どおりに走っていないだけの欠落に見えていた |
 | 1.5 | 2026-09-07 | runner group の対象リポジトリ限定の参照先を [環境構築 / self-hosted runner を使わない理由](../environment/setup.md#self-hosted-runner-を使わない理由) に差し替えた | 参照していた「fork からの PR で self-hosted ジョブを起動しない」節が、CI のホストランナー移行（環境構築の改訂 1.50）で改題されたため |
+| 1.6 | 2026-09-07 | `config.sh` を root で走らせるための `RUNNER_ALLOW_RUNASROOT` は gsr-helper が渡すため、ホスト側の手順には含めないことを「前提」へ追記した | 本書はホスト側で人がやる作業を集めた場所であり、ツールが渡すものを書くと二重に設定させることになる。逆に何も書かないと、root で登録が失敗した人がこの環境変数を手で export する方向へ進む（実機でその状態に当たった） |

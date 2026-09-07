@@ -8,6 +8,7 @@ import (
 
 	"github.com/ousiassllc/gsr-helper/internal/ui/atom"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/setup/report"
 )
 
 // chrome は状態行とフッタを親へ送る Cmd を返す。
@@ -92,10 +93,9 @@ func runTitle(kind string, done, total int) string {
 }
 
 // reportView は結果報告を本文の下に描く。
+//
+// **切り詰めずに折り返す。** 長くなるのは失敗したときであり、そこがいちばん読みたい
+// 場所である（report.Wrap の doc）。
 func (m Model) reportView() string {
-	lines := make([]string, 0, len(m.report))
-	for _, l := range m.report {
-		lines = append(lines, atom.Truncate(l, m.st.BodyW))
-	}
-	return m.st.Styles.Muted.Render(strings.Join(lines, "\n"))
+	return m.st.Styles.Muted.Render(strings.Join(report.Wrap(m.report, m.st.BodyW), "\n"))
 }

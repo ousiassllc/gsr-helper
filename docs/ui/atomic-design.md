@@ -1127,7 +1127,7 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 | `ui/page/pagetest` | 1937 | 63 | pass |
 | `ui/page/logs` | 1927 | 73 | pass |
 | `ui/page/runners` | 1923 | 77 | pass |
-| `ui/page/setup` | 1832 | 168 | pass |
+| `ui/page/setup` | 1833 | 167 | pass |
 | `ui/page/jobs` | 1688 | 312 | pass |
 | `ui/keymap` | 1681 | 319 | pass |
 | `ui/page/doctor` | 1607 | 393 | pass |
@@ -1155,12 +1155,12 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 | `ui/page/progressmodal` | 369 | 1631 | pass |
 | `ui/workscan` | 337 | 1663 | pass |
 | `ui/page/runners/rowview` | 308 | 1692 | pass |
+| `ui/page/setup/report` | 269 | 1731 | pass |
 | `ui/ghscope` | 268 | 1732 | pass |
 | `ui/page/config/itemview` | 256 | 1744 | pass |
 | `ui/organism/table/tabletest` | 243 | 1757 | pass |
 | `ui/page/logs/filerow` | 233 | 1767 | pass |
 | `ui/startup` | 176 | 1824 | pass |
-| `ui/page/setup/report` | 160 | 1840 | pass |
 
 #### 行数の実測値は表だけが持つ
 
@@ -1193,10 +1193,10 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 | `internal/setup/tarball` | 1999 | 1 | pass |
 | `internal/logs` | 1998 | 2 | pass |
 | `internal/gh` | 1996 | 4 | pass |
+| `internal/setup` | 1988 | 12 | pass |
 | `internal/disk` | 1980 | 20 | pass |
-| `internal/exec/command` | 1912 | 88 | pass |
+| `internal/exec/command` | 1974 | 26 | pass |
 | `internal/config/edit` | 1904 | 96 | pass |
-| `internal/setup` | 1852 | 148 | pass |
 | `internal/runner` | 1824 | 176 | pass |
 | `internal/buildconfig/docscheck` | 1497 | 503 | pass |
 | `internal/doctor/jobreq` | 1495 | 505 | pass |
@@ -1839,6 +1839,7 @@ Issue #31 で `table_test.go` の空振りしていたテスト（`View() != ""`
 | 1.132 | 2026-09-07 | 行数の予算の表の `internal/buildconfig` を実測（1408 行 / 残り 592 行）へ更新し、降順の位置へ移した | `make install-system` の回帰テストを足したため（[環境構築](../environment/setup.md#改訂履歴)の改訂 1.52） |
 | 1.133 | 2026-09-07 | 行数の予算の表の `ui/page/setup` を実測（1966 行 / 残り 34 行）へ更新した | 結果報告が API の失敗の Hint を別行に出す修正（[画面仕様](screens.md#改訂履歴)の改訂 1.38）で `result.go` と回帰テストを足したため。**残り 34 行**であり、次にこのディレクトリを触る Issue は先に行数を空けること。あわせて `internal/gh` は残り 4 行で、1 行でも足すと上限を超える（この修正は当初 `APIError.Summary()` を足す形にしていたが、実測 2029 行・警告帯に入ったため `gh` を触らない形へ変えた） |
 | 1.134 | 2026-09-07 | `internal/setup` の命名を `internal/setup/name` へ、`ui/page/setup` の結果報告を `ui/page/setup/report` へ出した。行数の予算の表を実測へ更新して新設した 2 つの行を足し、それぞれの分割の判断を節として残した | どちらも次の修正（root での `config.sh` 実行・結果報告の折り返しと標準出力の掲載）を入れる余地が無かったため、**先に空ける周**として実施した。判断を節に残すのは、次に同じディレクトリへ触る Issue が「何を出せば空くか」を読める形にしておくためである（改訂 1.39 が「次に触る Issue は先に行数を空けること」と記した前例に従う） |
+| 1.135 | 2026-09-07 | 行数の予算の表を実測へ更新した（`internal/setup` 1988 行、`internal/exec/command` 1974 行、`ui/page/setup` 1833 行、`ui/page/setup/report` 269 行） | root での `config.sh` 実行・失敗理由への標準出力の掲載・結果報告の折り返しの 3 点を入れたため。**`internal/setup` と `internal/exec/command` はどちらも上限のすぐ手前である**——次に触る Issue は先に空けること。`internal/setup` の空け方は[コンポーネント設計](../components/overview.md#internalsetup)が既に掲げる方針（「計画（Plan）と実行（Apply）を分離する」）に沿って `Apply` を別パッケージへ出すのが素直である |
 
 ### 改訂の詳細
 

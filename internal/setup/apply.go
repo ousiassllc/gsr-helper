@@ -211,7 +211,7 @@ func runCommand(ctx context.Context, in ApplyInput, u Unit, s Step) error {
 	}
 
 	ctx = exec.WithOptions(ctx, exec.Options{
-		Action: s.Action, Runner: u.Name, Dir: s.Dir, Env: nil, SkipAudit: false,
+		Action: s.Action, Runner: u.Name, Dir: s.Dir, Env: s.Env, SkipAudit: false,
 	})
 
 	_, err := in.Exec.Run(ctx, s.Name, args...)
