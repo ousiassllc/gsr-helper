@@ -1123,11 +1123,11 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 | `ui/page/config` | 1992 | 8 | pass |
 | `ui/page` | 1970 | 30 | pass |
 | `ui/organism/table` | 1969 | 31 | pass |
+| `ui/page/setup` | 1966 | 34 | pass |
 | `ui` | 1943 | 57 | pass |
 | `ui/page/pagetest` | 1937 | 63 | pass |
 | `ui/page/logs` | 1927 | 73 | pass |
 | `ui/page/runners` | 1923 | 77 | pass |
-| `ui/page/setup` | 1890 | 110 | pass |
 | `ui/page/jobs` | 1688 | 312 | pass |
 | `ui/keymap` | 1681 | 319 | pass |
 | `ui/page/doctor` | 1607 | 393 | pass |
@@ -1819,6 +1819,7 @@ Issue #31 で `table_test.go` の空振りしていたテスト（`View() != ""`
 | 1.130 | 2026-09-04 | 「共有状態は `page.StateMsg` で受け取る」の構造体を実装に合わせ、`Exec` / `ScanProcs` / `Audit` を `page.Deps` へまとめた形へ更新した。道具と描画に使う値を分ける理由（変わる理由が違う）と、タブ 1 枚ぶんの道具は `Deps` に置かないこと（`SetupDeps` / `ConfigDeps`）を本文に追記した。「行数の予算」の UI の表を実測へ更新した（`ui/page` 1955 → **1970 行**・残り 30、`ui` 1944 → **1943 行**・残り 57、`ui/page/pagetest` 1935 → **1937 行**・残り 63。いずれも pass。`ui/page` は行数の多い順で `ui/organism/table` の前へ上がる） | `StateMsg` は 16 フィールドまで育ち、**起動時に 1 度決まる配線（`Exec` / `ScanProcs` / `Audit`）が、3 秒ごとに入れ替わる描画用の値の間に平らに挟まっていた。** どちらの性格の値かが名前からしか読めず、タブが増えるたびに同じ形で伸びる。`SetupDeps` / `ConfigDeps` が既に「タブ 1 枚のためにフィールドを増やさない」という理由で分かれているのに、複数のタブが使う道具だけがまとめられていなかった。**`Deps` の doc は 4 行に詰め、詳しい理由は余裕のある本書側へ置いた**——Issue #155 が同じ状況で採った形である（上記「`ui/page` を警告帯へ入れた判断」の 3.）。追加は 15 行で、着手時点の残り 45 行を超えていない（同節の「残りを超える追加が要るなら足す前に空けること」） |
 | 1.131 | 2026-09-07 | 行数の予算の表の `internal/buildconfig` を実測（1358 行 / 残り 642 行）へ更新し、降順の位置へ移した | CI のホストランナー移行（[環境構築](../environment/setup.md#改訂履歴)の改訂 1.50）で `ci_workflow_test.go` の guard 系 3 テストと `guardScript` を落としたため |
 | 1.132 | 2026-09-07 | 行数の予算の表の `internal/buildconfig` を実測（1408 行 / 残り 592 行）へ更新し、降順の位置へ移した | `make install-system` の回帰テストを足したため（[環境構築](../environment/setup.md#改訂履歴)の改訂 1.52） |
+| 1.133 | 2026-09-07 | 行数の予算の表の `ui/page/setup` を実測（1966 行 / 残り 34 行）へ更新した | 結果報告が API の失敗の Hint を別行に出す修正（[画面仕様](screens.md#改訂履歴)の改訂 1.38）で `result.go` と回帰テストを足したため。**残り 34 行**であり、次にこのディレクトリを触る Issue は先に行数を空けること。あわせて `internal/gh` は残り 4 行で、1 行でも足すと上限を超える（この修正は当初 `APIError.Summary()` を足す形にしていたが、実測 2029 行・警告帯に入ったため `gh` を触らない形へ変えた） |
 
 ### 改訂の詳細
 
