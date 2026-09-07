@@ -17,8 +17,8 @@ import (
 var commitSHA = regexp.MustCompile(`^[0-9a-f]{40}$`)
 
 // `.github/workflows/ci.yml` の全ジョブに `timeout-minutes` がある。
-// ハングしたジョブが runner を GitHub 既定の 6 時間まで占有すると、
-// オンラインの runner が 1 台のとき CI 全体が止まる。
+// ハングしたジョブは GitHub 既定の 6 時間まで実行枠を占有し、その間は同時実行の上限を
+// 埋めて後続の run を待たせる。
 func TestCIJobsHaveTimeout(t *testing.T) {
 	for name, job := range loadCIWorkflow(t).Jobs {
 		if job.TimeoutMinutes == nil {
@@ -32,8 +32,8 @@ func TestCIJobsHaveTimeout(t *testing.T) {
 }
 
 // `.github/workflows/ci.yml` のアクションはフルコミット SHA でピン留めされている。
-// 可変タグはタグの移動やアカウント侵害で別のコードに差し替わり、self-hosted runner ではその
-// 被害が root 相当まで増幅する。
+// 可変タグはタグの移動やアカウント侵害で別のコードに差し替わる。差し替わったコードは
+// checkout したソースとビルド成果物、および run に渡る `GITHUB_TOKEN` に触れる。
 func TestCIActionsArePinnedToCommitSHA(t *testing.T) {
 	pinned := 0
 	forEachStep(t, func(job, _ string, step ciStep) {
@@ -53,14 +53,19 @@ func TestCIActionsArePinnedToCommitSHA(t *testing.T) {
 }
 
 // `.github/workflows/ci.yml` の `actions/checkout` が認証情報を作業ディレクトリへ残さない。
-// self-hosted runner は作業ディレクトリを再利用し、キャンセル時は post-job cleanup が完走しない。
+// CI のどの step も認証付きの git 操作を必要としないため、置く理由が無い。既定の true は
+// post-job cleanup での削除に依存するが、`cancel-in-progress` によるキャンセルでは
+// そこまで完走しない可能性がある。
 func TestCICheckoutDoesNotPersistCredentials(t *testing.T) {
 	assertWithValue(t, "actions/checkout", "persist-credentials", false)
 }
 
-// `.github/workflows/ci.yml` の `actions/setup-go` のキャッシュは
-// 無効である。self-hosted runner ではモジュール・ビルドキャッシュがホストに残るため、tar での保存と
-// 展開はやり直しの重複でしかない。
+// `.github/workflows/ci.yml` の `actions/setup-go` のキャッシュは無効である。
+//
+// ホストランナーは run ごとに破棄されるため、self-hosted 時代の「キャッシュはホストに残るので
+// 保存と展開が重複でしかない」という理由（docs/environment/setup.md の改訂 1.15）は失効している。
+// それでも無効のまま据え置くのは、**有効化が所要時間の計測を伴う別の判断**だからである。
+// public リポジトリの標準ランナーは無料なので、短縮は費用に効かない。
 func TestCISetupGoDisablesCache(t *testing.T) {
 	assertWithValue(t, "actions/setup-go", "cache", false)
 }
@@ -73,10 +78,10 @@ func TestCISetupGoDisablesCache(t *testing.T) {
 // 中間コミットの CI 結果が 1 つも残らない**——後から「どのコミットで壊れたか」を run から辿れなく
 // なり、二分探索の足場が消える。
 //
-// concurrency は self-hosted runner の稼働台数の割り当てとキャンセル挙動に直結するため、
-// 台数を空けようとして cancel-in-progress を広げる変更は自然に出てくる（この副作用と見直しの
-// 経緯は docs/environment/setup.md の改訂 1.6 と Issue #16）。**どちらの誤りも CI は緑になる**
-// ——run が消えることと run が失敗することは別だからである。
+// 待ち時間を削ろうとして cancel-in-progress を広げる変更は自然に出てくる（self-hosted の
+// 稼働台数を空ける動機からこの見直しが起きた経緯は docs/environment/setup.md の改訂 1.6 と
+// Issue #16）。**どちらの誤りも CI は緑になる**——run が消えることと run が失敗することは
+// 別だからである。
 func TestCIConcurrencyIsScopedAndKeepsPushRuns(t *testing.T) {
 	got := loadCIWorkflow(t).Concurrency
 

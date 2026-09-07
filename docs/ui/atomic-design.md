@@ -1199,10 +1199,10 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 | `internal/runner` | 1824 | 176 | pass |
 | `internal/buildconfig/docscheck` | 1497 | 503 | pass |
 | `internal/doctor/jobreq` | 1495 | 505 | pass |
-| `internal/buildconfig` | 1441 | 559 | pass |
 | `internal/audit` | 1393 | 607 | pass |
 | `internal/doctor/hostres` | 1383 | 617 | pass |
 | `internal/appconfig` | 1381 | 619 | pass |
+| `internal/buildconfig` | 1358 | 642 | pass |
 | `internal/svc` | 1353 | 647 | pass |
 | `internal/doctor/hostcfg` | 1182 | 818 | pass |
 | `cmd/gsr-helper` | 1077 | 923 | pass |
@@ -1817,6 +1817,7 @@ Issue #31 で `table_test.go` の空振りしていたテスト（`View() != ""`
 | 1.128 | 2026-09-04 | 「行数の予算」の非 UI の表を実測へ更新した（`internal/runner` 1778 → **1774 行**・残り 226、`internal/runner/systemd` 552 → **596 行**・残り 1404、`internal/doctor/hostcfg` 1184 → **1182 行**・残り 818。いずれも pass） | `"not-found"` の定数と「ユニットの実体があるか」の述語を `internal/runner/systemd` へ集約し、`internal/runner` と `internal/doctor/hostcfg` から写しを落としたため。行数は「先に切り出し先を決めること」の判断材料として本節が挙げているので、古い値は判断を誤らせる |
 | 1.129 | 2026-09-04 | 「行数の予算」の非 UI の表の `internal/runner` を実測へ更新した（1774 → **1824 行**・残り 176・pass） | `Runner` / `Result` のコピー時の共有についての注意書きと、周期ごとに新しい実体を返すことを固定する回帰テスト（`TestDiscoverReturnsFreshInstancesEachCycle`）を足したため。行数は「先に切り出し先を決めること」の判断材料として本節が挙げているので、古い値は判断を誤らせる |
 | 1.130 | 2026-09-04 | 「共有状態は `page.StateMsg` で受け取る」の構造体を実装に合わせ、`Exec` / `ScanProcs` / `Audit` を `page.Deps` へまとめた形へ更新した。道具と描画に使う値を分ける理由（変わる理由が違う）と、タブ 1 枚ぶんの道具は `Deps` に置かないこと（`SetupDeps` / `ConfigDeps`）を本文に追記した。「行数の予算」の UI の表を実測へ更新した（`ui/page` 1955 → **1970 行**・残り 30、`ui` 1944 → **1943 行**・残り 57、`ui/page/pagetest` 1935 → **1937 行**・残り 63。いずれも pass。`ui/page` は行数の多い順で `ui/organism/table` の前へ上がる） | `StateMsg` は 16 フィールドまで育ち、**起動時に 1 度決まる配線（`Exec` / `ScanProcs` / `Audit`）が、3 秒ごとに入れ替わる描画用の値の間に平らに挟まっていた。** どちらの性格の値かが名前からしか読めず、タブが増えるたびに同じ形で伸びる。`SetupDeps` / `ConfigDeps` が既に「タブ 1 枚のためにフィールドを増やさない」という理由で分かれているのに、複数のタブが使う道具だけがまとめられていなかった。**`Deps` の doc は 4 行に詰め、詳しい理由は余裕のある本書側へ置いた**——Issue #155 が同じ状況で採った形である（上記「`ui/page` を警告帯へ入れた判断」の 3.）。追加は 15 行で、着手時点の残り 45 行を超えていない（同節の「残りを超える追加が要るなら足す前に空けること」） |
+| 1.131 | 2026-09-07 | 行数の予算の表の `internal/buildconfig` を実測（1358 行 / 残り 642 行）へ更新し、降順の位置へ移した | CI のホストランナー移行（[環境構築](../environment/setup.md#改訂履歴)の改訂 1.50）で `ci_workflow_test.go` の guard 系 3 テストと `guardScript` を落としたため |
 
 ### 改訂の詳細
 
