@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/ousiassllc/gsr-helper/internal/buildconfig/buildconfigtest"
 )
 
 // installModule は make install が起動できるバイナリを作ることを確かめるための最小の
@@ -150,5 +152,53 @@ func TestMakeInstallFailsWhenInstallDirIsUnresolvable(t *testing.T) {
 				t.Errorf("make %s がガードを抜けて %q を実行しようとした\n出力:\n%s", target, forbidden, out)
 			}
 		}
+	}
+}
+
+// systemDirDefault は install-system の配置先の既定。sudo の secure_path に含まれる。
+const systemDirDefault = "SYSTEM_DIR ?= /usr/local/bin"
+
+// make install-system は SYSTEM_DIR へ gsr-helper を置き、make uninstall-system がそれを消す。
+// 既定の SYSTEM_DIR は /usr/local/bin である。sudo は呼び出し側の PATH を引き継がず
+// secure_path だけを探すため、GOBIN や GOPATH/bin を既定にすると sudo gsr-helper が
+// コマンドが見つかりませんで落ちる。
+func TestMakeInstallSystemPutsRunnableBinaryInSystemDir(t *testing.T) {
+	// 既定値を見るのはテストが SYSTEM_DIR を上書きして走るためである。上書きした側だけを
+	// 見ていると、既定を $(go env GOPATH)/bin へ戻す変更でも緑のまま通り、sudo から
+	// 引けないという退行そのものを見逃す。
+	mk, err := os.ReadFile(filepath.Join(buildconfigtest.RepoRoot(t), "Makefile"))
+	if err != nil {
+		t.Fatalf("Makefile を読めない: %v", err)
+	}
+	if !strings.Contains(string(mk), systemDirDefault) {
+		t.Errorf("Makefile に %q が無い（sudo の secure_path に含まれる配置先を既定にすること）", systemDirDefault)
+	}
+
+	dir := newModule(t, installModule)
+	sysDir := t.TempDir()
+	// SUDO= で昇格を外す。テストが root を要求すると CI でも手元でも走らせられない。
+	env := append(slices.Clone(goWorkOff), "GOENV=off")
+	args := []string{"SUDO=", "SYSTEM_DIR=" + sysDir}
+
+	out, code := runMake(t, dir, env, append([]string{"install-system"}, args...)...)
+	if code != 0 {
+		t.Fatalf("make install-system が失敗した: exit=%d\n出力:\n%s", code, out)
+	}
+
+	installed := filepath.Join(sysDir, "gsr-helper")
+	runOut, err := exec.Command(installed).CombinedOutput()
+	if err != nil {
+		t.Fatalf("インストールした gsr-helper を起動できない: %v\n出力:\n%s", err, runOut)
+	}
+	if !strings.Contains(string(runOut), "fixture ok") {
+		t.Errorf("インストールした gsr-helper の出力が想定と違う\n出力:\n%s", runOut)
+	}
+
+	out, code = runMake(t, dir, env, append([]string{"uninstall-system"}, args...)...)
+	if code != 0 {
+		t.Fatalf("make uninstall-system が失敗した: exit=%d\n出力:\n%s", code, out)
+	}
+	if _, err := os.Stat(installed); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("make uninstall-system の後も gsr-helper が残っている（%v）\n出力:\n%s", err, out)
 	}
 }

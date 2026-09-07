@@ -10,6 +10,16 @@ CMD  := ./cmd/gsr-helper
 # なり、sudo の要る場所が既定になったうえ install / uninstall の空チェックが死ぬ）。
 INSTALL_DIR ?= $(or $(shell $(GO) env GOBIN),$(patsubst %,%/bin,$(shell $(GO) env GOPATH)))
 
+# install-system の配置先。sudo は呼び出し側の PATH を引き継がず secure_path だけを
+# 探すため、GOBIN や GOPATH/bin へ置いたバイナリは `sudo $(BIN)` から見えない。既定は
+# secure_path に含まれる /usr/local/bin にする。
+SYSTEM_DIR ?= /usr/local/bin
+
+# install-system / uninstall-system が使う昇格コマンド。ビルドは呼び出したユーザーの
+# ままで行い、配置だけを昇格させる（root のビルドキャッシュを作らないため）。
+# すでに root なら SUDO= で空にできる。
+SUDO ?= sudo
+
 # run に渡す引数。make run ARGS="--root /path/to/actions-runner" のように使う。
 ARGS ?=
 
@@ -22,7 +32,7 @@ GOFMT ?= $(shell $(GO) env GOROOT)/bin/gofmt
 # ファイルを含み、testdata/ と入れ子 worktree は含まない）になる。
 GOFILES_TMPL := {{range .GoFiles}}{{printf "%s/%s\n" $$.Dir .}}{{end}}{{range .CgoFiles}}{{printf "%s/%s\n" $$.Dir .}}{{end}}{{range .TestGoFiles}}{{printf "%s/%s\n" $$.Dir .}}{{end}}{{range .XTestGoFiles}}{{printf "%s/%s\n" $$.Dir .}}{{end}}{{range .IgnoredGoFiles}}{{printf "%s/%s\n" $$.Dir .}}{{end}}
 
-.PHONY: help tools fmt fmt-check vet lint linterly test build run install uninstall hooks check
+.PHONY: help tools fmt fmt-check vet lint linterly test build run install uninstall install-system uninstall-system hooks check
 
 help: ## ターゲット一覧を表示する
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -86,6 +96,13 @@ uninstall: ## インストールした $(BIN) を削除する
 	fi; \
 	echo "rm -f $$dir/$(BIN)"; \
 	rm -f "$$dir/$(BIN)"
+
+install-system: build ## $(SYSTEM_DIR) へ置く（sudo $(BIN) でも起動できるようにする）
+	$(SUDO) install -m 0755 "$(BIN)" "$(SYSTEM_DIR)/$(BIN)"
+	@echo "sudo $(BIN) で起動できます"
+
+uninstall-system: ## $(SYSTEM_DIR) から $(BIN) を削除する
+	$(SUDO) rm -f "$(SYSTEM_DIR)/$(BIN)"
 
 hooks: ## Git Hooks を登録する
 	$(GO) tool lefthook install

@@ -41,6 +41,19 @@ gsr-helper     # これだけで起動する
 
 置き先は `GOBIN`、無ければ `$(go env GOPATH)/bin`（`make install INSTALL_DIR=...` で変えられる）。**そこが `PATH` にあれば `gsr-helper` と打つだけで起動する**。無い場合は `make install` が「`PATH` に追加すると起動できます」と案内を出す。更新は `make install` を打ち直すだけで、同じ場所に上書きされる。削除は `make uninstall`。
 
+**root で動かす**
+
+runner を実運用するには root が要る。`svc.sh install` が systemd ユニットを作り、既定の導入先が `/opt/runners` だからである。ところが **`sudo` は呼び出し側の `PATH` を引き継がない**——`secure_path` だけを探すため、`GOBIN` や `$(go env GOPATH)/bin` に置いたバイナリは root から見えず、`sudo gsr-helper` は「コマンドが見つかりません」になる。`secure_path` が探すディレクトリへ置く。
+
+```sh
+make install-system   # sudo install -m 0755 gsr-helper /usr/local/bin/gsr-helper
+sudo gsr-helper
+```
+
+ビルドは呼び出したユーザーのままで、配置だけを昇格するので root 所有のビルドキャッシュを作らない。配置先は `SYSTEM_DIR=...`、昇格の省略は `SUDO=` で変えられる。削除は `make uninstall-system`。
+
+root でなくても起動し、読める範囲は表示する。できないのは導入とサービス制御である。
+
 ## 使い方
 
 ```sh
@@ -58,7 +71,7 @@ gsr-helper -root /path/to/actions-runner    # 走査ルートを追加（複数�
 
 設定ファイルは `~/.config/gsr-helper/config.yaml`。全項目に既定値があり、ファイルが無くても動く。
 
-監査ログの既定は `/var/log/gsr-helper/audit.jsonl` で、書き込めない場合は**警告して記録なしで続行する**（起動は妨げない）。一般ユーザーで記録も残したいときは、設定の `audit_log` を書き込めるパスに変える。
+監査ログの既定は `/var/log/gsr-helper/audit.jsonl` で、書き込めない場合は**警告して記録なしで続行する**（起動は妨げない）。sudo で起動すれば警告は出ない。一般ユーザーで記録も残したいときは、設定の `audit_log` を書き込めるパスに変える。
 
 ## 開発
 
