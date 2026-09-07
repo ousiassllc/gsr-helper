@@ -8,6 +8,7 @@ import (
 	"github.com/ousiassllc/gsr-helper/internal/exec/mask"
 	"github.com/ousiassllc/gsr-helper/internal/runner"
 	"github.com/ousiassllc/gsr-helper/internal/runner/scope"
+	"github.com/ousiassllc/gsr-helper/internal/setup/name"
 	"github.com/ousiassllc/gsr-helper/internal/setup/valid"
 )
 
@@ -103,7 +104,7 @@ func planNames(spec AddSpec) []string {
 	if len(spec.Names) > 0 {
 		return spec.Names
 	}
-	return Names(spec.NamePrefix, spec.StartIndex, spec.Count)
+	return name.Names(spec.NamePrefix, spec.StartIndex, spec.Count)
 }
 
 // prepareAdd は AddSpec を検証し、正規化した値を書き戻してベースディレクトリを返す。

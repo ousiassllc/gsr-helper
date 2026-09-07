@@ -1,4 +1,10 @@
-package setup
+// Package name は runner 名の連番の規則（FR-11）を持つ。
+//
+// internal/setup から分けたのは、**ホストの状態を一切読まない純粋関数だけ**で
+// あり、計画の組み立て（AddSpec → Plan）とも実行（Apply）とも独立しているため
+// である。1 ディレクトリ 2000 行の上限に対して internal/setup が残り 30 行に
+// なったのを機に分けた（docs/ui/atomic-design.md の行数の予算）。
+package name
 
 import (
 	"strconv"

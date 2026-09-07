@@ -1,16 +1,12 @@
 package setup
 
 import (
-	"errors"
-	"strconv"
-	"strings"
-
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/ousiassllc/gsr-helper/internal/gh"
 	"github.com/ousiassllc/gsr-helper/internal/setup"
 	"github.com/ousiassllc/gsr-helper/internal/ui/organism/dialog"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/progressmodal"
+	"github.com/ousiassllc/gsr-helper/internal/ui/page/setup/report"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page/setupmodal"
 )
 
@@ -64,7 +60,7 @@ func (m *Model) onDone(msg doneMsg) tea.Cmd {
 	}
 
 	m.run.cancel()
-	m.report = reportLines(msg.result, msg.err)
+	m.report = report.Lines(msg.result, msg.err)
 	m.run.title = "完了"
 	cmd := m.updateProgress()
 	m.run = nil
@@ -72,53 +68,4 @@ func (m *Model) onDone(msg doneMsg) tea.Cmd {
 	// スピナを止める。止め忘れると処理を終えた後も Msg が流れ続ける。
 	stop := progressmodal.Stop(&m.overlay)
 	return tea.Batch(cmd, stop)
-}
-
-// reportLines は結果報告の行を組み立てる。
-//
-// 何台目までが成功し、どこで何が失敗したかを示す（FR-15）。成功分は残っている
-// ことも明記する——失敗を見た利用者が、途中まで作った runner を手で消すべきか
-// 判断できるようにするためである。
-func reportLines(res setup.Result, err error) []string {
-	if err == nil {
-		return []string{"完了: " + strconv.Itoa(len(res.Succeeded)) + " 台"}
-	}
-
-	out := make([]string, 0, 4)
-	if res.Failed != "" {
-		out = append(out, "✗ "+res.Failed+" の"+res.Phase+"で失敗しました")
-	}
-	out = append(out, errorLines(err)...)
-
-	// 並びは screens.md の進捗のモックに合わせる（完了 → 未実行 → 残る旨）。
-	if n := len(res.Succeeded); n > 0 {
-		out = append(out, "完了: "+strconv.Itoa(n)+" 台（"+strings.Join(res.Succeeded, ", ")+"）")
-	}
-	if n := len(res.Remaining); n > 0 {
-		out = append(out, "未実行: "+strconv.Itoa(n)+" 台（"+strings.Join(res.Remaining, ", ")+"）")
-	}
-	if len(res.Succeeded) > 0 {
-		out = append(out, strings.Join(res.Succeeded, ", ")+" はそのまま残っています。")
-	}
-	return out
-}
-
-// errorLines は失敗した理由の行を組み立てる。
-//
-// **API の失敗は Hint を独立した行にする。** 結果報告は 1 行ずつ幅で切り詰めて描く
-// （chrome.go の reportView）ため、Hint を末尾へ繋いだ 1 行を渡すと、不足している
-// スコープと `gh auth refresh` のコマンド例だけがちょうど落ちる。403 で利用者が
-// 最も知りたいのはそこである（org の tarball 取得が
-// `[HTTP 403]: GET https://api.gith…` で切れ、理由が読めない実例があった）。
-//
-// 1 行目は Hint を外した文言にする。gh.APIError.Error() が Hint を「。」で末尾へ
-// 繋ぐ形（同型の doc）に依拠しており、繋ぎ方が変われば
-// TestReportLinesPutsAPIHintOnItsOwnLine が落ちる。
-func errorLines(err error) []string {
-	line := firstLine(err.Error())
-	var apiErr *gh.APIError
-	if errors.As(err, &apiErr) && apiErr.Hint != "" {
-		return []string{"  " + strings.TrimSuffix(line, "。"+apiErr.Hint), "  → " + apiErr.Hint}
-	}
-	return []string{"  " + line}
 }

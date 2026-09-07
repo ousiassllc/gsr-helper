@@ -8,6 +8,7 @@ import (
 
 	"github.com/ousiassllc/gsr-helper/internal/runner/scope"
 	"github.com/ousiassllc/gsr-helper/internal/setup"
+	"github.com/ousiassllc/gsr-helper/internal/setup/name"
 	"github.com/ousiassllc/gsr-helper/internal/setup/valid"
 	"github.com/ousiassllc/gsr-helper/internal/ui/page"
 )
@@ -173,7 +174,7 @@ func (v *formValues) spec(st page.StateMsg) (setup.AddSpec, error) {
 
 	return setup.AddSpec{
 		URL: v.url, Scope: sc, NamePrefix: prefix, Count: count,
-		StartIndex: setup.NextIndex(existing, prefix), Names: names,
+		StartIndex: name.NextIndex(existing, prefix), Names: names,
 		Labels: splitLabels(v.labels), WorkDir: work, RunnerGroup: v.runnerGroup,
 		Ephemeral: v.ephemeral, DisableUpdate: false, InstallBase: v.installBase,
 		RunAsUser: "", Version: "", Existing: existing, Busy: busyNames(st),

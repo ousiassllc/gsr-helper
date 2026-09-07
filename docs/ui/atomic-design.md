@@ -1123,11 +1123,11 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 | `ui/page/config` | 1992 | 8 | pass |
 | `ui/page` | 1970 | 30 | pass |
 | `ui/organism/table` | 1969 | 31 | pass |
-| `ui/page/setup` | 1966 | 34 | pass |
 | `ui` | 1943 | 57 | pass |
 | `ui/page/pagetest` | 1937 | 63 | pass |
 | `ui/page/logs` | 1927 | 73 | pass |
 | `ui/page/runners` | 1923 | 77 | pass |
+| `ui/page/setup` | 1832 | 168 | pass |
 | `ui/page/jobs` | 1688 | 312 | pass |
 | `ui/keymap` | 1681 | 319 | pass |
 | `ui/page/doctor` | 1607 | 393 | pass |
@@ -1160,6 +1160,7 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 | `ui/organism/table/tabletest` | 243 | 1757 | pass |
 | `ui/page/logs/filerow` | 233 | 1767 | pass |
 | `ui/startup` | 176 | 1824 | pass |
+| `ui/page/setup/report` | 160 | 1840 | pass |
 
 #### 行数の実測値は表だけが持つ
 
@@ -1193,9 +1194,9 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 | `internal/logs` | 1998 | 2 | pass |
 | `internal/gh` | 1996 | 4 | pass |
 | `internal/disk` | 1980 | 20 | pass |
-| `internal/setup` | 1970 | 30 | pass |
 | `internal/exec/command` | 1912 | 88 | pass |
 | `internal/config/edit` | 1904 | 96 | pass |
+| `internal/setup` | 1852 | 148 | pass |
 | `internal/runner` | 1824 | 176 | pass |
 | `internal/buildconfig/docscheck` | 1497 | 503 | pass |
 | `internal/doctor/jobreq` | 1495 | 505 | pass |
@@ -1229,6 +1230,7 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 | `internal/exec/command/limit` | 285 | 1715 | pass |
 | `internal/setup/setuptest` | 178 | 1822 | pass |
 | `internal/runner/scope` | 165 | 1835 | pass |
+| `internal/setup/name` | 125 | 1875 | pass |
 | `internal/config/edit/validcheck` | 114 | 1886 | pass |
 | `internal/buildconfig/buildconfigtest` | 62 | 1938 | pass |
 
@@ -1262,6 +1264,14 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 **(1) を採らなかった理由。** 本番で切れる境界は「計画の組み立て（`add.go` / `remove.go` / `update.go`）」と「計画の実行（`apply.go`）」だが、実行は組み立てた `Plan` / `Unit` / `Step` を受け取るので依存は片方向に決まるものの、**増え方は同じ**である（どちらも FR-19〜FR-23 の手順が増えれば一緒に増える）。本節の (1) が求める「依存の向きを強制できる、あるいは増え方が違うまとまり」に当たらない。
 
 結果は Issue #103 当時で 1970 行（残り 30 行）だった。**現在の値は上記「行数の予算」の行数表を見よ。残りは実質ゼロなので、次にこのディレクトリへ手を入れる Issue は 1 行足す前に空けること。** (3) はこの 1 周で使い切った（残る道具は無い）ので、次に採るのはテストの重複削減か、上記の (1)——`apply.go` とその 3 つのテストファイル（`apply_test.go` / `applycancel_test.go` / `applyscope_test.go`）を `internal/setup/setupapply` へ出すこと——である。
+
+##### `internal/setup` の命名を `name` へ出した判断
+
+着手時点で上限のすぐ手前にあり、`config.sh` を root で実行できるようにする修正（`Step` へ環境変数を持たせる）を入れる余地が無かったので空けた周である。**現在の値は上記「行数の予算」の行数表を見よ。**
+
+**出したのは `name.go` と `name_test.go` の 2 ファイル**で、`NextIndex` / `RunnerName` / `Names` の 3 つである。切り出し条件を満たすのは、**ホストの状態を一切読まない純粋関数**であり、計画の組み立て（`AddSpec` → `Plan`）とも実行（`Apply`）とも独立しているためである。命名の規則は FR-11 が単独で定めており、追加・削除・更新のどれが増えても増えない——増え方が違うまとまりである。
+
+**別名（`alias.go`）は置かなかった。** 呼び出しは `internal/setup/add.go` の 1 か所と `ui/page/setup/form.go` の 1 か所だけで、`ghtoken` を出したとき（`errors.Is(err, gh.ErrNoToken)` と書いた既存の判定が散っていた。Issue #81）とは事情が違う。別名は数行で済むが、**置けば呼び出し側からは分けたことが見えなくなる**——`internal/setup` が純粋関数を持っているように読めるままになる。
 
 ##### `internal/config/edit` の入力の検証の検査を `validcheck` へ分けた判断（Issue #184）
 
@@ -1487,6 +1497,14 @@ Setup タブは追加・削除・バージョン更新の 3 操作と、フォ�
 **4 周目（Issue #105）がその切り出しを実施し、当時 2081 行から 1883 行（残り 117 行）へ戻した。** 出したのは 2 種類である——追加フォーム（`formmodal.go` → `setupmodal/form.go`）と確認ダイアログ（`confirm.go` の `confirmModal`。実行前プレビューと入力の破棄の 2 つの種類で使い回す 1 つのモーダル）。本節が挙げていた「モーダル 4 種」のうち進捗は既に `page/progressmodal` として出ており、そこには手を入れていない。`page/pagetest/import_test.go` の `shared` マップに `"setupmodal"` を登録してある（足さないとタブとして扱われ `TestOnlyTabsetImportsTabs` が落ちる）。**`shared` への追記だけでは足りない。** [ディレクトリ構成](#ディレクトリ構成)のツリーと[実装状況](#実装状況)の「実装済み」の行にも同じ名前を載せること（`TestDirectoryTreeMatchesShared` / `TestImplementedListCoversSharedPackages` が突き合わせる）。
 
 **タブに残したものが境界を語っている。** モーダルは `organism/dialog` を包んで決定を `page.ResultMsg` で差し戻すだけで、**中身を組み立てない。** 計画から確認ダイアログの中身を作る `confirmInput` / `targetLines` / `commandLines` はタブ側（`confirm.go`）に残した——「追加はディレクトリを、削除・更新は runner 名とスコープを対象として出す」という判断は Setup タブ固有だからである（`page/progressmodal` が「見出しの文言・行の内容は呼び出し側が持つ」としているのと同じ分担）。フォームも同様で、`setupmodal.OpenForm` は組み立て済みの `huh.Form` ではなく**組み立てる関数**（`formValues.build`）を受け取る。何を入力させるかはタブが決め、配色（`token.HuhTheme`）の適用だけがモーダル側に残る。
+
+##### `ui/page/setup` の結果報告を `page/setup/report` へ出した判断
+
+着手時点で上限のすぐ手前にあり、結果報告に折り返しと標準出力の掲載を入れる修正の余地が無かったので空けた周である。**現在の値は上記「行数の予算」の行数表を見よ。**
+
+**出したのは結果報告の組み立て**（本番とテストの 2 ファイル）で、`reportLines` / `errorLines` / `firstLine` とその 3 本のテストである。切り出し条件を満たすのは、**結果（`setup.Result`）とエラーだけを見て文字列の並びを返す純粋関数**であり、`tea.Model` もキー入力も bubbletea も要らないためである。`page/config/itemview` / `page/logs/filerow` / `page/runners/rowview` と同じ位置づけになる。
+
+**副産物として内部テストが 1 本消えた。** `reportLines` は非公開だったため `TestReportLines` は内部テスト（`package setup`）に置くしかなく、フォームの入力の受け皿を確かめるテストと同じファイル（`formvalues_test.go`）に同居していた。`report.Lines` として公開した結果、報告の検証は外部テストから直に書ける。**同居していたこと自体が「置き場所が無かった」ことの現れ**である。
 
 #### 一覧タブを 1 枚足せる余裕（Issue #35 / 実績は Issue #11）
 
@@ -1820,6 +1838,7 @@ Issue #31 で `table_test.go` の空振りしていたテスト（`View() != ""`
 | 1.131 | 2026-09-07 | 行数の予算の表の `internal/buildconfig` を実測（1358 行 / 残り 642 行）へ更新し、降順の位置へ移した | CI のホストランナー移行（[環境構築](../environment/setup.md#改訂履歴)の改訂 1.50）で `ci_workflow_test.go` の guard 系 3 テストと `guardScript` を落としたため |
 | 1.132 | 2026-09-07 | 行数の予算の表の `internal/buildconfig` を実測（1408 行 / 残り 592 行）へ更新し、降順の位置へ移した | `make install-system` の回帰テストを足したため（[環境構築](../environment/setup.md#改訂履歴)の改訂 1.52） |
 | 1.133 | 2026-09-07 | 行数の予算の表の `ui/page/setup` を実測（1966 行 / 残り 34 行）へ更新した | 結果報告が API の失敗の Hint を別行に出す修正（[画面仕様](screens.md#改訂履歴)の改訂 1.38）で `result.go` と回帰テストを足したため。**残り 34 行**であり、次にこのディレクトリを触る Issue は先に行数を空けること。あわせて `internal/gh` は残り 4 行で、1 行でも足すと上限を超える（この修正は当初 `APIError.Summary()` を足す形にしていたが、実測 2029 行・警告帯に入ったため `gh` を触らない形へ変えた） |
+| 1.134 | 2026-09-07 | `internal/setup` の命名を `internal/setup/name` へ、`ui/page/setup` の結果報告を `ui/page/setup/report` へ出した。行数の予算の表を実測へ更新して新設した 2 つの行を足し、それぞれの分割の判断を節として残した | どちらも次の修正（root での `config.sh` 実行・結果報告の折り返しと標準出力の掲載）を入れる余地が無かったため、**先に空ける周**として実施した。判断を節に残すのは、次に同じディレクトリへ触る Issue が「何を出せば空くか」を読める形にしておくためである（改訂 1.39 が「次に触る Issue は先に行数を空けること」と記した前例に従う） |
 
 ### 改訂の詳細
 
