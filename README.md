@@ -22,17 +22,32 @@ doctor は**検出と手順の提示までを行い、変更は実行しない**
 
 ## インストール
 
+ビルドに必要なのは Go だけ。実行は単一バイナリなので Go は要らない。
+
+**開発ツリーから（`gsr` という短い名前で入る）**
+
+```sh
+make install   # go build -o $(go env GOPATH)/bin/gsr ./cmd/gsr-helper
+gsr            # これだけで起動する
+```
+
+置き先は `GOBIN`、無ければ `$(go env GOPATH)/bin`（`make install INSTALL_DIR=...` で変えられる）。**そこが `PATH` にあれば `gsr` と打つだけで起動する**。無い場合は `make install` が「`PATH` に追加すると起動できます」と案内を出す。更新は `make install` を打ち直すだけで、同じ場所に上書きされる。
+
+**リリースを直接入れる（`gsr-helper` という名前で入る）**
+
 ```sh
 go install github.com/ousiassllc/gsr-helper/cmd/gsr-helper@latest
 ```
 
-開発ツリーからは `make install` でも置ける（`gsr` という名前になる。インストール先は `GOBIN`、無ければ `$(go env GOPATH)/bin`）。
+`go install` はパッケージ名をそのまま使うため、コマンド名は `gsr` ではなく `gsr-helper` になる。
 
 ## 使い方
 
+以下は `make install` で入れた場合の `gsr`。`go install` で入れた場合は `gsr-helper` に読み替える。
+
 ```sh
-gsr-helper                                  # 既定のルートを走査して起動
-gsr-helper -root /path/to/actions-runner    # 走査ルートを追加（複数指定可）
+gsr                                  # 既定のルートを走査して起動
+gsr -root /path/to/actions-runner    # 走査ルートを追加（複数指定可）
 ```
 
 | オプション | 説明 |
