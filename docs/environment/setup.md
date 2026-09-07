@@ -143,6 +143,8 @@ GOFILES_TMPL := {{range .GoFiles}}{{printf "%s/%s\n" $$.Dir .}}{{end}}{{range .C
 
 .PHONY: help tools fmt fmt-check vet lint linterly test build run install uninstall install-system uninstall-system hooks check
 
+# 説明は ## のコメントを grep で拾って出すため、$(BIN) のような変数は展開されない。
+# 各ターゲットの ## には名前を直に書くこと。
 help: ## ターゲット一覧を表示する
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
 		| awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -185,7 +187,7 @@ build: ## 全パッケージをコンパイル検証し、エントリポイン�
 run: build ## TUI を起動する（make run ARGS="--root /path/to/actions-runner"）
 	./$(BIN) $(ARGS)
 
-install: ## $(BIN) という名前でインストールする（既定は GOBIN、無ければ GOPATH/bin）
+install: ## gsr-helper という名前でインストールする（既定は GOBIN、無ければ GOPATH/bin）
 	@dir="$(INSTALL_DIR)"; \
 	if [ -z "$$dir" ]; then \
 		echo "インストール先を決められません（go env GOBIN も GOPATH も空です）" >&2; exit 1; \
@@ -198,7 +200,7 @@ install: ## $(BIN) という名前でインストールする（既定は GOBIN�
 	*) echo "$$dir は PATH にありません。PATH に追加すると $(BIN) と打って起動できます" >&2;; \
 	esac
 
-uninstall: ## インストールした $(BIN) を削除する
+uninstall: ## インストールした gsr-helper を削除する
 	@dir="$(INSTALL_DIR)"; \
 	if [ -z "$$dir" ]; then \
 		echo "インストール先を決められません（go env GOBIN も GOPATH も空です）" >&2; exit 1; \
@@ -206,11 +208,11 @@ uninstall: ## インストールした $(BIN) を削除する
 	echo "rm -f $$dir/$(BIN)"; \
 	rm -f "$$dir/$(BIN)"
 
-install-system: build ## $(SYSTEM_DIR) へ置く（sudo $(BIN) でも起動できるようにする）
+install-system: build ## SYSTEM_DIR（既定 /usr/local/bin）へ置く（sudo gsr-helper でも起動できるようにする）
 	$(SUDO) install -m 0755 "$(BIN)" "$(SYSTEM_DIR)/$(BIN)"
 	@echo "sudo $(BIN) で起動できます"
 
-uninstall-system: ## $(SYSTEM_DIR) から $(BIN) を削除する
+uninstall-system: ## SYSTEM_DIR から gsr-helper を削除する
 	$(SUDO) rm -f "$(SYSTEM_DIR)/$(BIN)"
 
 hooks: ## Git Hooks を登録する
@@ -856,6 +858,7 @@ pre-push:
 | 1.50 | 2026-09-07 | CI を self-hosted runner から GitHub ホストランナー（`ubuntu-latest`）へ移した。`guard` ジョブを削除し、「self-hosted runner を使う前提」節を「GitHub ホストランナーで動かす」節へ書き換え（前提の表を run ごとの破棄・`gcc` 同梱・費用に合わせて作り直し、self-hosted へ戻す場合に要る層を承認ポリシー / runner group / ゲートジョブの 3 行として残した）。不変条件表から guard 系 3 行を落として `TestCIJobsUseGitHubHostedRunners` の行を足し、CI 系 4 行の説明を doc コメントの書き換えに合わせた。ci.yml の逐語ブロック・CI 概要表・concurrency の箇条書きも実体へ同期した | リポジトリを public にしたため。`pull_request` はワークフロー定義をマージコミット側から取るので fork の PR は `ci.yml` を改変して実行でき、ワークフロー側のゲートは境界にならない。runner 実行ユーザーはパスワード不要 sudo を前提とする運用（`internal/doctor/jobreq` が検出する対象そのもの）であり、到達されれば実質 root で作業ディレクトリもキャッシュも次のジョブへ残る。public リポジトリの標準ランナーは無料なので、self-hosted に残す費用面の動機も無い |
 | 1.51 | 2026-09-07 | `make install` / `make uninstall` が置くコマンド名を `gsr` から `gsr-helper` へ統一し、`INSTALL_BIN` 変数を廃止して `BIN` に一本化した。ターゲット一覧表・Makefile の逐語ブロック・不変条件テスト一覧表（`TestMakeInstallPutsRunnableGSRInInstallDir` を `TestMakeInstallPutsRunnableBinaryInInstallDir` へ改名、`TestMakeInstallFailsWhenInstallDirIsUnresolvable` の説明の `/bin/gsr` を `/bin/gsr-helper` へ）を同期した | `go install` が置く名前は `gsr-helper` で、`make install` だけが `gsr` という別名を置いていたため、入れ方によってコマンド名が変わる状態だった。README を公開したことで両方の手順が並ぶので、名前が 2 つあること自体が説明の負債になる。同じ値を持つ変数を 2 つ持つ理由も無くなった |
 | 1.52 | 2026-09-07 | `make install-system` / `make uninstall-system` を追加した（配置先 `SYSTEM_DIR` の既定は `/usr/local/bin`、昇格コマンドは `SUDO`。ビルドは呼び出したユーザーのまま行い配置だけを昇格する）。ターゲット一覧表に 2 行、不変条件テスト一覧表に `TestMakeInstallSystemPutsRunnableBinaryInSystemDir` の 1 行を足し、Makefile の逐語ブロックを同期した | `sudo` は呼び出し側の `PATH` を引き継がず `secure_path`（Ubuntu の既定は `/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`）だけを探すため、`make install` が置く `GOBIN` / `GOPATH/bin` のバイナリは `sudo gsr-helper` から見えず「コマンドが見つかりません」になる（実機で発生）。runner の実運用は `svc.sh install` が systemd ユニットを作り既定の導入先が `/opt/runners` であることから root を要するので、sudo で起動できないのは実質的な導線の欠落だった。既定を `secure_path` に含まれるディレクトリにする必要があるため、既定値そのものを検査対象にした |
+| 1.53 | 2026-09-07 | Makefile の `##` の説明文から `$(BIN)` / `$(SYSTEM_DIR)` を外し、名前を直書きに戻した。展開されない理由を `help` の直前にコメントで残し、逐語ブロックを同期した | `help` は `##` のコメントを `grep` と `awk` で文字列として拾うため変数を展開しない。改訂 1.51 / 1.52 で説明文を `$(BIN)` にしたことで、`make help` の出力に `$(BIN)` がそのまま出ていた（実測）。ターゲットの説明は利用者が最初に読む場所なので、参照の一元化より表示の正しさを採る |
 
 **版番号は表への追加順ではなく、その変更が入った時点で採番している。** 1.22 の日付が直前の 1.21 より古いのはこのためである。1.22 の行はもともと重複した `1.8` として記録されており（`feat/#1` の取り込み時に 2 つの `1.8` を両方残したまま解消した）、重複を解消する際に、既に使われている 1.9〜1.21 と衝突しない番号として 1.22 を割り当てた。既存行の版番号を繰り下げないのは、他の行の変更理由が版番号で参照している箇所（1.12 / 1.13）まで書き換えることになるためである。
 

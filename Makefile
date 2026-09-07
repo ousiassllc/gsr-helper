@@ -34,6 +34,8 @@ GOFILES_TMPL := {{range .GoFiles}}{{printf "%s/%s\n" $$.Dir .}}{{end}}{{range .C
 
 .PHONY: help tools fmt fmt-check vet lint linterly test build run install uninstall install-system uninstall-system hooks check
 
+# 説明は ## のコメントを grep で拾って出すため、$(BIN) のような変数は展開されない。
+# 各ターゲットの ## には名前を直に書くこと。
 help: ## ターゲット一覧を表示する
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
 		| awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -76,7 +78,7 @@ build: ## 全パッケージをコンパイル検証し、エントリポイン�
 run: build ## TUI を起動する（make run ARGS="--root /path/to/actions-runner"）
 	./$(BIN) $(ARGS)
 
-install: ## $(BIN) という名前でインストールする（既定は GOBIN、無ければ GOPATH/bin）
+install: ## gsr-helper という名前でインストールする（既定は GOBIN、無ければ GOPATH/bin）
 	@dir="$(INSTALL_DIR)"; \
 	if [ -z "$$dir" ]; then \
 		echo "インストール先を決められません（go env GOBIN も GOPATH も空です）" >&2; exit 1; \
@@ -89,7 +91,7 @@ install: ## $(BIN) という名前でインストールする（既定は GOBIN�
 	*) echo "$$dir は PATH にありません。PATH に追加すると $(BIN) と打って起動できます" >&2;; \
 	esac
 
-uninstall: ## インストールした $(BIN) を削除する
+uninstall: ## インストールした gsr-helper を削除する
 	@dir="$(INSTALL_DIR)"; \
 	if [ -z "$$dir" ]; then \
 		echo "インストール先を決められません（go env GOBIN も GOPATH も空です）" >&2; exit 1; \
@@ -97,11 +99,11 @@ uninstall: ## インストールした $(BIN) を削除する
 	echo "rm -f $$dir/$(BIN)"; \
 	rm -f "$$dir/$(BIN)"
 
-install-system: build ## $(SYSTEM_DIR) へ置く（sudo $(BIN) でも起動できるようにする）
+install-system: build ## SYSTEM_DIR（既定 /usr/local/bin）へ置く（sudo gsr-helper でも起動できるようにする）
 	$(SUDO) install -m 0755 "$(BIN)" "$(SYSTEM_DIR)/$(BIN)"
 	@echo "sudo $(BIN) で起動できます"
 
-uninstall-system: ## $(SYSTEM_DIR) から $(BIN) を削除する
+uninstall-system: ## SYSTEM_DIR から gsr-helper を削除する
 	$(SUDO) rm -f "$(SYSTEM_DIR)/$(BIN)"
 
 hooks: ## Git Hooks を登録する
