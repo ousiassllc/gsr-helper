@@ -1,10 +1,10 @@
-package setup_test
+package name_test
 
 import (
 	"slices"
 	"testing"
 
-	"github.com/ousiassllc/gsr-helper/internal/setup"
+	"github.com/ousiassllc/gsr-helper/internal/setup/name"
 )
 
 func TestNextIndex(t *testing.T) {
@@ -30,10 +30,10 @@ func TestNextIndex(t *testing.T) {
 		"入れ子の連番を誤って拾わない":      {[]string{"build01-1-2"}, "build01", 1},
 	}
 
-	for name, tt := range tests {
-		t.Run(name, func(t *testing.T) {
+	for label, tt := range tests {
+		t.Run(label, func(t *testing.T) {
 			t.Parallel()
-			if got := setup.NextIndex(tt.existing, tt.prefix); got != tt.want {
+			if got := name.NextIndex(tt.existing, tt.prefix); got != tt.want {
 				t.Errorf("NextIndex(%v, %q) = %d, want %d", tt.existing, tt.prefix, got, tt.want)
 			}
 		})
@@ -43,7 +43,7 @@ func TestNextIndex(t *testing.T) {
 func TestNames(t *testing.T) {
 	t.Parallel()
 
-	got := setup.Names("build01", 5, 3)
+	got := name.Names("build01", 5, 3)
 	want := []string{"build01-5", "build01-6", "build01-7"}
 	if !slices.Equal(got, want) {
 		t.Errorf("Names = %v, want %v", got, want)

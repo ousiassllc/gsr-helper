@@ -129,34 +129,6 @@ func TestSpecCarriesEveryWizardInput(t *testing.T) {
 	}
 }
 
-// reportLines は AC-5 の結果報告そのものである。
-//
-// 失敗したときは「どこで止まったか」と「成功分がそのまま残っていること」を必ず出す。
-// **残る旨が消えると、作りかけの runner を手で消すべきか判断できない**（FR-15）。
-func TestReportLines(t *testing.T) {
-	t.Parallel()
-
-	if got := reportLines(setup.Result{Succeeded: []string{"a", "b"}, Failed: "",
-		Phase: "", Err: nil, Remaining: nil}, nil); len(got) != 1 || got[0] != "完了: 2 台" {
-		t.Errorf("成功時の報告 = %q, want [完了: 2 台]", got)
-	}
-
-	res := setup.Result{
-		Succeeded: []string{"build01-1", "build01-2"}, Failed: "build01-3",
-		Phase: "サービス登録", Err: errors.New("boom"), Remaining: []string{"build01-4"},
-	}
-	got := strings.Join(reportLines(res, res.Err), "\n")
-	for _, w := range []string{
-		"✗ build01-3 のサービス登録で失敗しました", "  boom",
-		"完了: 2 台（build01-1, build01-2）", "未実行: 1 台（build01-4）",
-		"build01-1, build01-2 はそのまま残っています。",
-	} {
-		if !strings.Contains(got, w) {
-			t.Errorf("結果報告に %q が無い:\n%s", w, got)
-		}
-	}
-}
-
 // 登録の Cmd は最初の共有状態で 1 度だけ親へ流れる（flushInit）。
 //
 // 印を差し込んで数えるのは、いま登録が返す Cmd がどれも nil で、流れたかを外から

@@ -279,7 +279,7 @@ runner の追加・削除・バージョン更新。最も破壊的な操作を�
 | `PlanRemove(RemoveSpec)` / `PlanUpdate(UpdateSpec)` | 削除・更新の計画。削除は `svc.sh stop` → `svc.sh uninstall` → `config.sh remove --token` の順（FR-17。ユニットが無い runner には `svc.sh` の 2 手順を入れない）、更新は「ドレイン停止 → 展開 → 起動」の順（FR-22） |
 | `Apply(ctx, ApplyInput) (Result, error)` | 計画を順に実行。失敗した時点で中止し、成功分と失敗理由を `Result` に載せて返す（FR-15）。`error` は `Result.Err` と同じもの |
 | `Progress` / `Result` / `StepError` | 1 手順ごとの進捗、実行結果（成功した台 / 失敗した台とフェーズ / 着手しなかった台）、どの台のどのフェーズで失敗したかを保つエラー |
-| `NextIndex(existing []string, prefix string) int` / `RunnerName` / `Names` | 命名の連番決定（**純粋関数**。ホストの状態を一切読まない） |
+| `internal/setup/name` の `NextIndex(existing []string, prefix string) int` / `RunnerName` / `Names` | 命名の連番決定（**純粋関数**。ホストの状態を一切読まない）。行数上限のため別パッケージへ出した（[TUI コンポーネント設計](../ui/atomic-design.md#internalsetup-の命名を-name-へ出した判断)） |
 
 **計画（Plan）と実行（Apply）を分離する。** これにより実行前プレビュー（FR-16）が計画をそのまま表示するだけで実現でき、表示と実行の食い違いが起きない。
 
@@ -678,6 +678,7 @@ bubbletea の Model 群。**内部を Atomic Design で階層化する。** 部�
 | `ui/page/config/itemview` | page | Config タブの設定一覧の 1 行の組み立て（`edit.Summary` → 表示用の値）。純粋関数で `tea.Model` を組み立てずに検証できる。`page/runners/rowview` / `page/disk/cleanview` と同じ位置づけ（Issue #147） |
 | `ui/page/logs/filerow` | page | Logs タブのファイル一覧の 1 行の組み立てと、runner をまたいだ更新時刻順の平坦化。純粋関数（Issue #147） |
 | `ui/page/pagetest/cmdtest` | — | 発行された `tea.Cmd` を走らせ、束（`tea.Batch` / `tea.Sequence`）を辿るテスト用の道具。走らせて待つ側が `RunCmd` / `RunAll` / `Expand` / `Msgs` / `MustMsgs`、束（`tea.Batch` / `tea.Sequence`）の Msg を解くだけで何も走らせないのが `Cmds`、結果から拾う側が `ChromeOf` / `HostReqOf` / `FindMsg`、Model を進める側が `Pump` / `Advance` / `AdvanceQuick`、channel が閉じるのを待つだけなのが `Drained` である。**Cmd を走らせる道具は `Advance` を除いてすべて `timeout` を引数に取る**（Issue #150 / #156）——締め切りの掛かっていない実行が 1 本でも残ると、戻らない Cmd を渡したテストが失敗ではなくハングになる。**`Advance(m, cmd, rounds)` だけが例外で、`timeout` を取らずに既定値 `CmdTimeout` を `MustMsgs` へ渡す**（「ここへ渡す Cmd はいずれも速やかに戻る」前提を panic で強制するため。締め切りを呼び出し側が決めたい往復は `AdvanceQuick(m, cmd, rounds, timeout)` を使う）。既定値 `CmdTimeout`（30 秒）は「必ず戻るはずの Cmd」用で、諦めること自体が目的の待ちには呼び出し側が短い値を渡す。「無い」（`ErrNotFound`）・「Cmd が無い」（`ErrNoCmd`）・「戻らない」（`ErrCmdTimeout`）は必ず分けて返す。`MustMsgs` だけは諦めを `panic` にする（辿り切れる前提の呼び出し側のため。黙って欠かすと静かに緑になる）。`ui/page/pagetest` から**行数上限のため**分けた通常パッケージで、依存は `cmdtest` → `page` の一方向。`pagetest/import_test.go` の `fixtures` に登録してあり、本番コードからの import は検査で止まる（Issue #147 / #150 / #156） |
+| `ui/page/setup/report` | page | Setup タブの結果報告（[FR-15](../requirements/functional.md)）の行の組み立て。結果（`setup.Result`）とエラーだけを見て文字列の並びを返す**純粋関数**で、`tea.Model` もキー入力も持たない。API の失敗は `gh.APIError` の `Hint` を独立した行にする（1 行に詰めると幅で切り詰めたときに理由だけが落ちる。[画面仕様](../ui/screens.md#追加)）。行数上限のため `page/setup` から出した |
 | `ui/page/progressmodal` | page | `organism/pane.ProgressList` を `page.Modal` へ配線する汎用部分。Setup / Disk タブが共有 |
 | `ui/page/diskclean` | page | Disk タブのクリーンアップの**実行**（進捗の channel・行・到着順の突き合わせ・結果報告）。承認の義務はタブ側に残る（`diskclean.Start` を呼ぶのは承認を受けた 1 か所だけ）。タブではないので `shared` へ登録済み |
 | `ui/page/configmodal` | page | Config タブのモーダル 3 種（フォーム / 差分の承認 / 反映方法の選択）と入力欄の組み立て。中身は組み立てず、開く指示を受けて決定を `page.ResultMsg` で差し戻すだけ。タブではないので `shared` へ登録済み |
@@ -816,6 +817,7 @@ interface はこの 3 つに留める。ドメインごとの interface は、�
 | 1.65 | 2026-09-04 | 3 周目レビューの major 4 件のうち本書に掛かるぶんを反映。「分割したパッケージ」の「**`limit` だけが上位の型を知らない**」を実測に合う限定（**`limit` も `exec/mask` もどちらも上位の型を知らない**——渡されるのは文字列と付随する値だけである）へ直した。あわせて改訂 1.64 の (2) の欄に残っていた同じ「だけ」も落とした | 同じ 1 文の前半が「`exec` / `exec/mask` / `exec/command/limit` はどれも標準ライブラリしか使わず」と述べており、**標準ライブラリしか import しないパッケージは定義上それらを参照できない**ので「だけ」は文内で自己矛盾である。実測でも `internal/exec/mask` の import は `slices` と `strings` の 2 つだけで、`mask.String(s string, secrets []string) string` / `mask.Args(args []string, secrets ...string) []string` は `limit.Tail(s string, n int)` と同じく文字列しか受け取らず `Command` / `ExitError` / 監査レコードを 1 つも知らない。**これは改訂 1.64 の (2) が直した過大主張と同型の再発である**——同じ欄が「`go list` の実測に合う限定へ直した」と宣言しているのに同じ 1 文の後半に等価な「だけ」が残っており、**改訂履歴を信じた読者は解消済みだと誤解する。** だから欄の側の「だけ」も一緒に落とした |
 | 1.66 | 2026-09-04 | `internal/runner` の `attach` の箇条書きに、同じ `UnitName` を名乗るディレクトリが複数ある場合は第一パスの索引から落として `WorkingDirectory` に委ね、重複を警告として出す行（`indexByUnitName`）を追加した | ユニット照合を 2 段で行う理由は書かれていたが、第一パスの照合キーが一意でない場合の扱いが書かれておらず、実装は先着で上書きしていた。外れた側の runner は `Svc == nil` になり、systemd 管理でありながら MANAGED 列に `run.sh` と出る。**表示の決定性を保つために必要な処理を集めた節でありながら、当たり外れが半々になる分岐がここだけ暗黙になっていた。** |
 | 1.67 | 2026-09-04 | `ui/page` の責務表の `StateMsg` の欄に、ドメイン層を呼ぶための道具をまとめた `Deps`（`Exec` / `ScanProcs` / `Audit`）を加えた | 本書の責務表が `ui/page` の持ち物の一次情報であり、新しく置いた型が載っていないと「`ui/page` が持つのは列挙された `Msg` と `Overlay` だけである」という誤った主張になる（改訂 1.63 が同じ形の欠落を是正している） |
+| 1.68 | 2026-09-07 | `internal/setup` の命名の行を `internal/setup/name` へ出したことを反映し、`ui/page/setup/report` をサブパッケージ表に追加した | どちらも 1 ディレクトリ 2000 行の上限に当たったため分けた（`internal/setup` は残り 30 行、`ui/page/setup` は残り 34 行だった）。サブパッケージ表は実在するパッケージを本書から辿れるようにするためのもので、載せ落とすと次の Issue が同じ道具を書き直す（改訂 1.32 / 1.47 / 1.48 / 1.49 が同じ理由で追加した前例がある） |
 
 ### 改訂の詳細
 
