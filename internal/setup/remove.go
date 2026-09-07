@@ -15,6 +15,9 @@ var ErrNoTargets = errors.New("対象の runner がありません")
 type RemoveSpec struct {
 	// Runners は削除する runner。
 	Runners []runner.Runner
+	// Root は gsr-helper 自身が root で動いているか（appconfig.Caps.Root）。
+	// 真なら config.sh remove の手順へ RootEnv を渡す。
+	Root bool
 }
 
 // PlanRemove は削除の計画を立てる。
@@ -32,7 +35,7 @@ func PlanRemove(spec RemoveSpec) (Plan, error) {
 		if r.Busy() {
 			busy = append(busy, r.Name())
 		}
-		units = append(units, removeUnit(r))
+		units = append(units, removeUnit(r, spec.Root))
 	}
 
 	return Plan{
@@ -50,17 +53,17 @@ func PlanRemove(spec RemoveSpec) (Plan, error) {
 //
 // サービス化されていない runner には svc.sh の手順を入れない。存在しない
 // ユニットに対する uninstall は必ず失敗し、そこで計画全体が中止されてしまう。
-func removeUnit(r runner.Runner) Unit {
+func removeUnit(r runner.Runner, root bool) Unit {
 	steps := make([]Step, 0, 3)
 	if r.UnitName != "" {
 		steps = append(steps,
 			Step{
 				Kind: StepCommand, Phase: "サービス停止", Name: "./svc.sh", Args: []string{"stop"},
-				Dir: r.Dir, Action: ActionRemove, TokenIndex: NoToken, Keep: nil,
+				Dir: r.Dir, Action: ActionRemove, TokenIndex: NoToken, Keep: nil, Env: nil,
 			},
 			Step{
 				Kind: StepCommand, Phase: "サービス削除", Name: "./svc.sh", Args: []string{"uninstall"},
-				Dir: r.Dir, Action: ActionRemove, TokenIndex: NoToken, Keep: nil,
+				Dir: r.Dir, Action: ActionRemove, TokenIndex: NoToken, Keep: nil, Env: nil,
 			},
 		)
 	}
@@ -69,6 +72,7 @@ func removeUnit(r runner.Runner) Unit {
 	steps = append(steps, Step{
 		Kind: StepCommand, Phase: "登録解除", Name: "./config.sh", Args: args,
 		Dir: r.Dir, Action: ActionRemove, TokenIndex: len(args) - 1, Keep: nil,
+		Env: RootEnv(root),
 	})
 
 	return Unit{Name: r.Name(), Dir: r.Dir, Runner: r, WasRunning: r.Running(), Steps: steps}

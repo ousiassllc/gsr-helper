@@ -62,7 +62,7 @@ func (m *Model) startRemove(targets []runner.Runner) tea.Cmd {
 	m.waiting = true
 
 	seq := m.seq
-	spec := setup.RemoveSpec{Runners: targets}
+	spec := setup.RemoveSpec{Runners: targets, Root: m.st.Caps.Root}
 	// 削除は API を引かずに計画が組める（バージョンを使わない）。それでも同じ
 	// 経路を通すのは、計画の組み立てと承認の流れを 1 本に保つためである。
 	return page.Do(m.tab, func() tea.Msg {

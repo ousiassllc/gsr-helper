@@ -243,6 +243,10 @@ func (c *Command) execute(ctx context.Context, o exec.Options, name string, args
 			Code: res.ExitCode,
 			// 画面に出す抜粋は末尾だけ残す。原因は最後の数行に出るためである。
 			Stderr: limit.Head(mask.String(stderr.String(), secrets), maxStderrExcerptBytes),
+			// 標準出力も同じ規則で残す。理由を標準出力へ書いて終わるコマンドがある
+			// （ExitError.Stdout の doc）。**監査ログには載らない**——Summary が
+			// 出力を含まないためである。
+			Stdout: limit.Head(mask.String(stdout.String(), secrets), maxStderrExcerptBytes),
 			Err:    runErr,
 		}
 	default:

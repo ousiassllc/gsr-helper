@@ -71,19 +71,20 @@ func updateUnit(r runner.Runner) Unit {
 	if running && r.UnitName != "" {
 		steps = append(steps, Step{
 			Kind: StepDrain, Phase: "ドレイン停止", Name: "", Args: nil,
-			Dir: r.Dir, Action: ActionUpdate, TokenIndex: NoToken, Keep: nil,
+			Dir: r.Dir, Action: ActionUpdate, TokenIndex: NoToken, Keep: nil, Env: nil,
 		})
 	}
 
 	steps = append(steps, Step{
 		Kind: StepExtract, Phase: "展開", Name: "", Args: nil,
 		Dir: r.Dir, Action: ActionUpdate, TokenIndex: NoToken, Keep: tarball.PreservedNames(),
+		Env: nil,
 	})
 
 	if running && r.UnitName != "" {
 		steps = append(steps, Step{
 			Kind: StepCommand, Phase: "起動", Name: "./svc.sh", Args: []string{"start"},
-			Dir: r.Dir, Action: ActionUpdate, TokenIndex: NoToken, Keep: nil,
+			Dir: r.Dir, Action: ActionUpdate, TokenIndex: NoToken, Keep: nil, Env: nil,
 		})
 	}
 

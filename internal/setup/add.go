@@ -64,6 +64,9 @@ type AddSpec struct {
 	Existing []string
 	// Busy はジョブ実行中の runner 名。警告の組み立てに使う。
 	Busy []string
+	// Root は gsr-helper 自身が root で動いているか（appconfig.Caps.Root）。
+	// 真なら config.sh の手順へ RootEnv を渡す。
+	Root bool
 }
 
 // PlanAdd は追加の計画を立てる（FR-16）。
@@ -166,23 +169,24 @@ func addUnit(spec AddSpec, name, dir string) Unit {
 	steps := []Step{
 		{
 			Kind: StepMkdir, Phase: "ディレクトリ作成", Name: "", Args: nil,
-			Dir: dir, Action: ActionAdd, TokenIndex: NoToken, Keep: nil,
+			Dir: dir, Action: ActionAdd, TokenIndex: NoToken, Keep: nil, Env: nil,
 		},
 		{
 			Kind: StepExtract, Phase: "展開", Name: "", Args: nil,
-			Dir: dir, Action: ActionAdd, TokenIndex: NoToken, Keep: nil,
+			Dir: dir, Action: ActionAdd, TokenIndex: NoToken, Keep: nil, Env: nil,
 		},
 		{
 			Kind: StepCommand, Phase: "登録", Name: "./config.sh", Args: args,
 			Dir: dir, Action: ActionAdd, TokenIndex: tokenAt, Keep: nil,
+			Env: RootEnv(spec.Root),
 		},
 		{
 			Kind: StepCommand, Phase: "サービス登録", Name: "./svc.sh", Args: installArgs(spec.RunAsUser),
-			Dir: dir, Action: ActionAdd, TokenIndex: NoToken, Keep: nil,
+			Dir: dir, Action: ActionAdd, TokenIndex: NoToken, Keep: nil, Env: nil,
 		},
 		{
 			Kind: StepCommand, Phase: "起動", Name: "./svc.sh", Args: []string{"start"},
-			Dir: dir, Action: ActionAdd, TokenIndex: NoToken, Keep: nil,
+			Dir: dir, Action: ActionAdd, TokenIndex: NoToken, Keep: nil, Env: nil,
 		},
 	}
 

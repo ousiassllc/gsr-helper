@@ -178,6 +178,7 @@ func (v *formValues) spec(st page.StateMsg) (setup.AddSpec, error) {
 		Labels: splitLabels(v.labels), WorkDir: work, RunnerGroup: v.runnerGroup,
 		Ephemeral: v.ephemeral, DisableUpdate: false, InstallBase: v.installBase,
 		RunAsUser: "", Version: "", Existing: existing, Busy: busyNames(st),
+		Root: st.Caps.Root,
 	}, nil
 }
 

@@ -76,6 +76,30 @@ type Step struct {
 	TokenIndex int
 	// Keep は StepExtract のときに上書きしない名前（FR-21）。
 	Keep []string
+	// Env は StepCommand のときに親の環境へ足す環境変数（`KEY=VALUE`）。
+	//
+	// 用途は RootEnv だけである。**どう起動するかは計画の一部**なので手順が持つ。
+	// Apply がコマンド名を見て足す形にすると、計画から何が渡るか読めなくなる。
+	Env []string
+}
+
+// EnvAllowRunAsRoot は config.sh を root で実行するために渡す環境変数。
+//
+// config.sh は uid が 0 で `RUNNER_ALLOW_RUNASROOT` が空だと `Must not run with sudo`
+// を**標準出力へ**書いて終了コード 1 で終わる。gsr-helper は既定の導入先
+// （`/opt/runners`）と systemd の操作のために sudo 起動を前提とするため、渡さないと
+// 追加と削除が必ず登録の手順で失敗する。
+const EnvAllowRunAsRoot = "RUNNER_ALLOW_RUNASROOT=1"
+
+// RootEnv は root のときだけ EnvAllowRunAsRoot を含む並びを返す。
+//
+// **root でないときは渡さない。** config.sh が参照するのは uid 0 のときだけで、
+// 参照されない環境変数を子へ足すと渡した意図が読めなくなる。
+func RootEnv(root bool) []string {
+	if !root {
+		return nil
+	}
+	return []string{EnvAllowRunAsRoot}
 }
 
 // CommandLine は表示用の 1 行を返す。StepCommand 以外は空文字を返す。
