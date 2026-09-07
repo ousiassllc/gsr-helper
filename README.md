@@ -1,84 +1,88 @@
 # gsr-helper
 
-GitHub Actions の self-hosted runner ホストを管理する TUI。runner の増減・稼働確認・障害切り分け・ディスク掃除を 1 画面で完結させる。
+A TUI for operating GitHub Actions self-hosted runner hosts. Add and remove runners, check their state, triage failures, and clean up disk from a single screen.
 
-対象は **Linux + systemd**。1 ホストに複数の runner を並べる構成を想定している。
+Targets **Linux + systemd**, and assumes several runners living side by side on one host.
 
-## なぜあるか
+日本語版: [README.ja.md](README.ja.md)
 
-runner ホストの運用は、状態が 3 か所（runner ディレクトリのファイル・systemd・稼働プロセス）に分散していて 1 コマンドで全体像が出ない。増減は `config.sh` → `svc.sh install` → `svc.sh start` の手順作業になり、停止要因（ディスク満杯・時刻ずれ・OOM・inode 枯渇）は定型なのに切り分けが属人化する。gsr-helper はこれを 1 つの画面に集約する。
+## Why
 
-## できること
+Running a runner host means the state you need is scattered across three places — files in the runner directory, systemd, and the live processes — and no single command shows all of it. Adding a runner is a manual sequence of `config.sh` → `svc.sh install` → `svc.sh start`. The reasons runners stop are routine (a full disk, clock drift, the OOM killer, inode exhaustion), yet the steps to identify which one applies live in someone's head. gsr-helper puts all of it on one screen.
 
-- **検出と一覧** — systemd 管理（`svc.sh install` 済み）と `run.sh` 直起動の両方を検出する
-- **追加 / 削除 / 一括バージョン更新** — 台数指定の一括追加、ウィザードでの個別追加、GitHub からの登録解除、設定を保持したままの差し替え
-- **サービス制御** — start / stop / restart / enable / disable と、ジョブ完了を待つドレイン停止
-- **ログ閲覧** — `_diag/Runner_*.log` / `Worker_*.log` のライブテールと `journalctl` 参照
-- **ディスク内訳とクリーンアップ** — `_work` / `_tool` / `_temp` / `_diag` / docker の分解表示と段階的な削除
-- **環境診断（doctor）** — 到達性・時刻ずれ・OOM 履歴・パーミッション・依存コマンド・ジョブ実行の前提（パスワード不要 sudo / docker / buildx / docker グループ）
-- **設定編集** — `.env` / `.path` / systemd drop-in / ラベル / job hooks
+## What it does
 
-doctor は**検出と手順の提示までを行い、変更は実行しない**。sudoers の書き換え・パッケージの導入・`usermod` は提示するだけである（sudoers を壊すと sudo 自体で復旧できなくなるため）。
+- **Discovery and listing** — finds both systemd-managed runners (those that ran `svc.sh install`) and ones started directly with `run.sh`
+- **Add, remove, bulk version update** — add several at once, add one at a time through a wizard, deregister from GitHub, and swap binaries while keeping configuration
+- **Service control** — start / stop / restart / enable / disable, plus a drain stop that waits for the running job to finish
+- **Log viewing** — live tail of `_diag/Runner_*.log` and `Worker_*.log`, and `journalctl` output
+- **Disk breakdown and cleanup** — `_work` / `_tool` / `_temp` / `_diag` / docker usage split out, with staged deletion
+- **Diagnostics (doctor)** — reachability, clock drift, OOM history, permissions, required commands, and the prerequisites a job needs (passwordless sudo, docker, buildx, docker group membership)
+- **Configuration editing** — `.env`, `.path`, systemd drop-ins, labels, and job hooks
 
-## インストール
+doctor **reports and tells you what to run; it does not change anything.** Editing sudoers, installing packages, and `usermod` are printed as instructions only — a broken sudoers file cannot be repaired with sudo.
 
-ビルドに必要なのは Go だけ。実行は単一バイナリなので Go は要らない。コマンド名はどちらの手順でも `gsr-helper` になる。
+## Install
 
-**リリースを直接入れる**
+Go is the only build requirement; the result is a single binary that needs no Go at runtime. Either route installs the command as `gsr-helper`.
+
+**From a release**
 
 ```sh
 go install github.com/ousiassllc/gsr-helper/cmd/gsr-helper@latest
 ```
 
-**開発ツリーから入れる**
+**From a source tree**
 
 ```sh
 make install   # go build -o $(go env GOPATH)/bin/gsr-helper ./cmd/gsr-helper
-gsr-helper     # これだけで起動する
+gsr-helper     # that is all it takes to start
 ```
 
-置き先は `GOBIN`、無ければ `$(go env GOPATH)/bin`（`make install INSTALL_DIR=...` で変えられる）。**そこが `PATH` にあれば `gsr-helper` と打つだけで起動する**。無い場合は `make install` が「`PATH` に追加すると起動できます」と案内を出す。更新は `make install` を打ち直すだけで、同じ場所に上書きされる。削除は `make uninstall`。
+The destination is `GOBIN`, or `$(go env GOPATH)/bin` when that is unset (override with `make install INSTALL_DIR=...`). **If that directory is on your `PATH`, typing `gsr-helper` starts it.** If it is not, `make install` tells you to add it. To update, run `make install` again — it overwrites in place. `make uninstall` removes it.
 
-## 使い方
+## Usage
 
 ```sh
-gsr-helper                                  # 既定のルートを走査して起動
-gsr-helper -root /path/to/actions-runner    # 走査ルートを追加（複数指定可）
+gsr-helper                                  # scan the default roots and start
+gsr-helper -root /path/to/actions-runner    # add a scan root (repeatable)
 ```
 
-| オプション | 説明 |
-|-----------|------|
-| `-config <path>` | 設定ファイルのパス |
-| `-root <path>` | 追加の走査ルート（複数指定可） |
-| `-refresh <秒>` | 自動更新間隔（1〜3600） |
-| `-no-color` | 色を使わない（`NO_COLOR` も尊重する） |
-| `-version` | バージョンを表示して終了する |
+| Option | Description |
+|--------|-------------|
+| `-config <path>` | Path to the configuration file |
+| `-root <path>` | Additional scan root (repeatable) |
+| `-refresh <seconds>` | Auto-refresh interval (1–3600) |
+| `-no-color` | Disable color (`NO_COLOR` is honored too) |
+| `-version` | Print the version and exit |
 
-設定ファイルは `~/.config/gsr-helper/config.yaml`。全項目に既定値があり、ファイルが無くても動く。
+The configuration file lives at `~/.config/gsr-helper/config.yaml`. Every key has a default, so it runs without one.
 
-監査ログの既定は `/var/log/gsr-helper/audit.jsonl` で、書き込めない場合は**警告して記録なしで続行する**（起動は妨げない）。一般ユーザーで記録も残したいときは、設定の `audit_log` を書き込めるパスに変える。
+The audit log defaults to `/var/log/gsr-helper/audit.jsonl`. When it cannot be written, gsr-helper **warns and continues without recording** rather than refusing to start. To keep an audit trail as an unprivileged user, point `audit_log` at a path you can write.
 
-## 開発
+## Development
 
 ```sh
 make check   # fmt-check / vet / lint / linterly / test
-make run     # ビルドして起動（make run ARGS="-root /path/to/actions-runner"）
+make run     # build and start (make run ARGS="-root /path/to/actions-runner")
 ```
 
-Git Hooks は [lefthook](https://github.com/evilmartians/lefthook) で、pre-commit に整形と lint、pre-push に `make test` が掛かる。詳細は [docs/environment/setup.md](docs/environment/setup.md) を参照。
+Git hooks are managed by [lefthook](https://github.com/evilmartians/lefthook): formatting and lint on pre-commit, `make test` on pre-push.
 
-## ドキュメント
+## Documentation
 
-| 文書 | 内容 |
-|------|------|
-| [docs/overview.md](docs/overview.md) | 目的・背景・スコープ |
-| [docs/requirements/functional.md](docs/requirements/functional.md) | 機能要件 |
-| [docs/architecture/overview.md](docs/architecture/overview.md) | アーキテクチャ |
-| [docs/architecture/security.md](docs/architecture/security.md) | セキュリティ設計（実装しないことの境界を含む） |
-| [docs/operations/runner-host-setup.md](docs/operations/runner-host-setup.md) | ランナーホストのセットアップ |
-| [docs/environment/setup.md](docs/environment/setup.md) | 開発環境・CI・lint |
-| [docs/ui/screens.md](docs/ui/screens.md) | 画面仕様 |
+The design documents are written in Japanese.
 
-## ライセンス
+| Document | Contents |
+|----------|----------|
+| [docs/overview.md](docs/overview.md) | Purpose, background, scope |
+| [docs/requirements/functional.md](docs/requirements/functional.md) | Functional requirements |
+| [docs/architecture/overview.md](docs/architecture/overview.md) | Architecture |
+| [docs/architecture/security.md](docs/architecture/security.md) | Security design, including what is deliberately not implemented |
+| [docs/operations/runner-host-setup.md](docs/operations/runner-host-setup.md) | Setting up a runner host |
+| [docs/environment/setup.md](docs/environment/setup.md) | Development environment, CI, lint |
+| [docs/ui/screens.md](docs/ui/screens.md) | Screen specifications |
+
+## License
 
 [MIT](LICENSE)
