@@ -99,8 +99,8 @@ lint / test / build のコマンド列を Makefile に集約し、**CI と手元
 | `make test` | `go test -race ./...`（競合検出あり） |
 | `make build` | `go build ./...` で全パッケージのコンパイルを検証し、`cmd/gsr-helper` が存在する場合はさらに単一バイナリ `gsr-helper` を生成する |
 | `make run` | `build` を実行してから生成したバイナリを起動する。引数は `ARGS` で渡す（`make run ARGS="--root /path/to/actions-runner"`） |
-| `make install` | インストール先へ `gsr` という名前でバイナリを置く。インストール先は `GOBIN`、無ければ `$(go env GOPATH)/bin`（`go install` と同じ流儀）で、`make install INSTALL_DIR=...` で変えられる。インストール先が `PATH` に無ければ案内を出す。`GOBIN` も `GOPATH` も空のときはインストール先を決められないので、何もせずに失敗する |
-| `make uninstall` | `make install` が置いた `gsr` を削除する |
+| `make install` | インストール先へ `gsr-helper` という名前でバイナリを置く。インストール先は `GOBIN`、無ければ `$(go env GOPATH)/bin`（`go install` と同じ流儀）で、`make install INSTALL_DIR=...` で変えられる。インストール先が `PATH` に無ければ案内を出す。`GOBIN` も `GOPATH` も空のときはインストール先を決められないので、何もせずに失敗する |
+| `make uninstall` | `make install` が置いた `gsr-helper` を削除する |
 | `make hooks` | Lefthook を Git Hooks に登録 |
 | `make check` | `fmt-check` → `vet` → `lint` → `linterly` → `test` を順に実行 |
 
@@ -110,9 +110,6 @@ lint / test / build のコマンド列を Makefile に集約し、**CI と手元
 GO   ?= go
 BIN  := gsr-helper
 CMD  := ./cmd/gsr-helper
-
-# install / uninstall が扱うコマンド名。`gsr` と打って起動できるようにする。
-INSTALL_BIN := gsr
 
 # インストール先。go install と同じ流儀で、GOBIN があればそこ、無ければ GOPATH/bin を使う。
 # 絶対パスを直に書かず、sudo の要る場所も既定にしない。make install INSTALL_DIR=... で変えられる。
@@ -176,26 +173,26 @@ build: ## 全パッケージをコンパイル検証し、エントリポイン�
 run: build ## TUI を起動する（make run ARGS="--root /path/to/actions-runner"）
 	./$(BIN) $(ARGS)
 
-install: ## gsr という名前でインストールする（既定は GOBIN、無ければ GOPATH/bin）
+install: ## $(BIN) という名前でインストールする（既定は GOBIN、無ければ GOPATH/bin）
 	@dir="$(INSTALL_DIR)"; \
 	if [ -z "$$dir" ]; then \
 		echo "インストール先を決められません（go env GOBIN も GOPATH も空です）" >&2; exit 1; \
 	fi; \
 	mkdir -p "$$dir" || exit 1; \
-	echo "$(GO) build -o $$dir/$(INSTALL_BIN) $(CMD)"; \
-	$(GO) build -o "$$dir/$(INSTALL_BIN)" $(CMD) || exit 1; \
+	echo "$(GO) build -o $$dir/$(BIN) $(CMD)"; \
+	$(GO) build -o "$$dir/$(BIN)" $(CMD) || exit 1; \
 	case ":$$PATH:" in \
-	*":$$dir:"*) echo "$(INSTALL_BIN) と打って起動できます";; \
-	*) echo "$$dir は PATH にありません。PATH に追加すると $(INSTALL_BIN) と打って起動できます" >&2;; \
+	*":$$dir:"*) echo "$(BIN) と打って起動できます";; \
+	*) echo "$$dir は PATH にありません。PATH に追加すると $(BIN) と打って起動できます" >&2;; \
 	esac
 
-uninstall: ## インストールした gsr を削除する
+uninstall: ## インストールした $(BIN) を削除する
 	@dir="$(INSTALL_DIR)"; \
 	if [ -z "$$dir" ]; then \
 		echo "インストール先を決められません（go env GOBIN も GOPATH も空です）" >&2; exit 1; \
 	fi; \
-	echo "rm -f $$dir/$(INSTALL_BIN)"; \
-	rm -f "$$dir/$(INSTALL_BIN)"
+	echo "rm -f $$dir/$(BIN)"; \
+	rm -f "$$dir/$(BIN)"
 
 hooks: ## Git Hooks を登録する
 	$(GO) tool lefthook install
@@ -367,9 +364,9 @@ updates:
 | go list が失敗したとき make fmt-check は失敗する。終了ステータスを捨てて検査ゲートが静かに通ることがあってはならない。 | `TestFmtCheckFailsWhenGoListFails` |
 | 対象ファイルが 0 件のとき make fmt-check はハングせず失敗する。gofmt を引数なしで起動すると標準入力を読んで待ち続けるため、明示的に検出して終了する必要がある。 | `TestFmtCheckFailsWhenNoGoFiles` |
 | make test は競合検出付きで実行する。CI とローカルの唯一のテスト経路であり、-race が外れると並行処理の退行が緑のまま通過する。 | `TestMakeTestDetectsDataRace` |
-| make install はインストール先（GOBIN、無ければ GOPATH/bin）へ gsr という名前で起動できるバイナリを置き、インストール先が PATH に無ければ案内を出す。make uninstall はそれを消す。名前が gsr でなくなれば、ユーザーは gsr と打って起動できない。 | `TestMakeInstallPutsRunnableGSRInInstallDir` |
+| make install はインストール先（GOBIN、無ければ GOPATH/bin）へ gsr-helper という名前で起動できるバイナリを置き、インストール先が PATH に無ければ案内を出す。make uninstall はそれを消す。名前が gsr-helper でなくなれば、利用者は README のとおりに打っても起動できない。 | `TestMakeInstallPutsRunnableBinaryInInstallDir` |
 | インストール先が PATH にあるときは、PATH への追加を促す案内を出してはならない。案内が出る側だけを見ていると、案内文を常に出す実装でもテストが通ってしまう。 | `TestMakeInstallOmitsPATHNoticeWhenInstallDirIsOnPATH` |
-| GOBIN も GOPATH も空ならインストール先は決められないので、install / uninstall は何もせず理由を告げて失敗しなければならない。GOPATH が空のときに裸の /bin へ落ちると、sudo の要る system ディレクトリへ書き込もうとし、root では /bin/gsr を作って消してしまう。 | `TestMakeInstallFailsWhenInstallDirIsUnresolvable` |
+| GOBIN も GOPATH も空ならインストール先は決められないので、install / uninstall は何もせず理由を告げて失敗しなければならない。GOPATH が空のときに裸の /bin へ落ちると、sudo の要る system ディレクトリへ書き込もうとし、root では /bin/gsr-helper を作って消してしまう。 | `TestMakeInstallFailsWhenInstallDirIsUnresolvable` |
 | 抑制には理由コメントとリンター名が必須で、不要になった抑制も検出される。nolintlint を `require-explanation` / `require-specific` / `allow-unused: false` の 3 つすべて有効で使う。 | `TestGolangciEnablesNolintlint` |
 | 抑制の 3 つの取り決め（リンター名の明示・理由コメント・不要になった抑制）を破った `//nolint` が、リポジトリの `.golangci.yml` で実際に落ちる。 | `TestGolangciLintRejectsSloppyNolint` |
 | import は標準ライブラリ / 外部モジュール / 自前パッケージの 3 グループに固定される。gci をこの順のセクションで使い、`custom-order: true` も検査する——これが無いと gci は記載順を無視して内蔵の既定順で並べ、順序の取り決めが実効にならない。 | `TestGolangciEnablesGci` |
@@ -837,6 +834,7 @@ pre-push:
 | 1.48 | 2026-09-03 | `make install` / `make uninstall` を追加したことを反映。ターゲット一覧表に 2 行を足し、Makefile のコードブロックを実体に同期し、不変条件テスト一覧表へ `TestMakeInstallPutsRunnableGSRInInstallDir` の行を足した。インストール先は `GOBIN`、無ければ `$(go env GOPATH)/bin` とし（`go install` と同じ流儀）、`INSTALL_DIR` で上書きできる | `go install github.com/ousiassllc/gsr-helper/cmd/gsr-helper@latest` は `gsr-helper` という名前で入るため、`gsr` と打って起動できなかった。開発ツリーから短い名前で入れる経路が要る。既定にハードコードした絶対パスや sudo の要る場所を選ばないのは、`go install` の流儀から外れたインストール先を覚え直させないためである。インストール先が `PATH` に無いと「入ったのに起動できない」状態になるので、install 後に案内を出す |
 | 1.49 | 2026-09-03 | `make install` のレビュー指摘（major 2 件）を反映。(1) Makefile のコードブロックの `INSTALL_DIR` を、`GOPATH` が空のときに空のままになる形（`$(patsubst %,%/bin,...)`）へ直し、意図をコメントに書いた。ターゲット一覧表の `make install` の行にも、`GOBIN` も `GOPATH` も空なら何もせず失敗することを足した。(2) 不変条件テスト一覧表へ `TestMakeInstallOmitsPATHNoticeWhenInstallDirIsOnPATH` と `TestMakeInstallFailsWhenInstallDirIsUnresolvable` の 2 行を足した | `$(shell $(GO) env GOPATH)/bin` は `GOPATH` が空のとき裸の `/bin` に展開され、`$(or)` がそれを非空と見なすため、既定が sudo の要る system ディレクトリになっていた（`HOME` を持たないコンテナや systemd 起動で起きる）。同時に install / uninstall の空チェックが到達不能な死コードになり、改訂 1.48 が記録した「既定にハードコードした絶対パスや sudo の要る場所を選ばない」方針と、`go install` と同じ流儀（`GOPATH` が空なら失敗する）の双方に反していた。root 実行では `make uninstall` が `/bin/gsr` を消しにいく。空チェックが到達可能になったので、それを踏む検査を一覧表へ登録した。PATH の案内の検査は、案内より前に出るビルドコマンドの表示にインストール先のフルパスが含まれるため、パスだけを見る照合では案内を丸ごと削っても緑になっていた——案内文そのものと、案内が出ない側の両方を縛る |
 | 1.50 | 2026-09-07 | CI を self-hosted runner から GitHub ホストランナー（`ubuntu-latest`）へ移した。`guard` ジョブを削除し、「self-hosted runner を使う前提」節を「GitHub ホストランナーで動かす」節へ書き換え（前提の表を run ごとの破棄・`gcc` 同梱・費用に合わせて作り直し、self-hosted へ戻す場合に要る層を承認ポリシー / runner group / ゲートジョブの 3 行として残した）。不変条件表から guard 系 3 行を落として `TestCIJobsUseGitHubHostedRunners` の行を足し、CI 系 4 行の説明を doc コメントの書き換えに合わせた。ci.yml の逐語ブロック・CI 概要表・concurrency の箇条書きも実体へ同期した | リポジトリを public にしたため。`pull_request` はワークフロー定義をマージコミット側から取るので fork の PR は `ci.yml` を改変して実行でき、ワークフロー側のゲートは境界にならない。runner 実行ユーザーはパスワード不要 sudo を前提とする運用（`internal/doctor/jobreq` が検出する対象そのもの）であり、到達されれば実質 root で作業ディレクトリもキャッシュも次のジョブへ残る。public リポジトリの標準ランナーは無料なので、self-hosted に残す費用面の動機も無い |
+| 1.51 | 2026-09-07 | `make install` / `make uninstall` が置くコマンド名を `gsr` から `gsr-helper` へ統一し、`INSTALL_BIN` 変数を廃止して `BIN` に一本化した。ターゲット一覧表・Makefile の逐語ブロック・不変条件テスト一覧表（`TestMakeInstallPutsRunnableGSRInInstallDir` を `TestMakeInstallPutsRunnableBinaryInInstallDir` へ改名、`TestMakeInstallFailsWhenInstallDirIsUnresolvable` の説明の `/bin/gsr` を `/bin/gsr-helper` へ）を同期した | `go install` が置く名前は `gsr-helper` で、`make install` だけが `gsr` という別名を置いていたため、入れ方によってコマンド名が変わる状態だった。README を公開したことで両方の手順が並ぶので、名前が 2 つあること自体が説明の負債になる。同じ値を持つ変数を 2 つ持つ理由も無くなった |
 
 **版番号は表への追加順ではなく、その変更が入った時点で採番している。** 1.22 の日付が直前の 1.21 より古いのはこのためである。1.22 の行はもともと重複した `1.8` として記録されており（`feat/#1` の取り込み時に 2 つの `1.8` を両方残したまま解消した）、重複を解消する際に、既に使われている 1.9〜1.21 と衝突しない番号として 1.22 を割り当てた。既存行の版番号を繰り下げないのは、他の行の変更理由が版番号で参照している箇所（1.12 / 1.13）まで書き換えることになるためである。
 

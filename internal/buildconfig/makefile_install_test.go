@@ -23,10 +23,10 @@ func main() {
 `,
 }
 
-// make install はインストール先（GOBIN、無ければ GOPATH/bin）へ gsr という名前で
+// make install はインストール先（GOBIN、無ければ GOPATH/bin）へ gsr-helper という名前で
 // 起動できるバイナリを置き、インストール先が PATH に無ければ案内を出す。make uninstall は
-// それを消す。名前が gsr でなくなれば、ユーザーは gsr と打って起動できない。
-func TestMakeInstallPutsRunnableGSRInInstallDir(t *testing.T) {
+// それを消す。名前が gsr-helper でなくなれば、利用者は README のとおりに打っても起動できない。
+func TestMakeInstallPutsRunnableBinaryInInstallDir(t *testing.T) {
 	// インストール先の解決は 2 つあるので、両方を踏む。GOBIN を置く側だけを見ていると
 	// GOPATH/bin へ落ちる分岐を一度も踏まず、INSTALL_DIR から GOPATH の項を丸ごと
 	// 削っても緑のまま通る。
@@ -51,12 +51,12 @@ func TestMakeInstallPutsRunnableGSRInInstallDir(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			testMakeInstallPutsRunnableGSRIn(t, tt.resolve)
+			testMakeInstallPutsRunnableBinaryIn(t, tt.resolve)
 		})
 	}
 }
 
-func testMakeInstallPutsRunnableGSRIn(t *testing.T, resolve func(base string) (string, []string)) {
+func testMakeInstallPutsRunnableBinaryIn(t *testing.T, resolve func(base string) (string, []string)) {
 	t.Helper()
 
 	dir := newModule(t, installModule)
@@ -73,7 +73,7 @@ func testMakeInstallPutsRunnableGSRIn(t *testing.T, resolve func(base string) (s
 	}
 
 	// インストール先の一時ディレクトリは PATH に無いので、案内が出ていなければならない。
-	// 案内が無いと、インストールできたのに gsr と打てない理由が利用者に分からない。
+	// 案内が無いと、インストールできたのに gsr-helper と打てない理由が利用者に分からない。
 	// インストール先のパスだけを見ると、案内より前に出るビルドコマンドの表示に当たって
 	// 無条件に真になる（案内を丸ごと削っても緑になる）ので、案内文そのものを見る。
 	for _, want := range []string{bin, "PATH にありません", "PATH に追加すると"} {
@@ -82,16 +82,16 @@ func testMakeInstallPutsRunnableGSRIn(t *testing.T, resolve func(base string) (s
 		}
 	}
 
-	installed := filepath.Join(bin, "gsr")
+	installed := filepath.Join(bin, "gsr-helper")
 	if _, err := os.Stat(installed); err != nil {
-		t.Fatalf("インストール先に gsr が無い: %v\n出力:\n%s", err, out)
+		t.Fatalf("インストール先に gsr-helper が無い: %v\n出力:\n%s", err, out)
 	}
 	runOut, err := exec.Command(installed).CombinedOutput()
 	if err != nil {
-		t.Fatalf("インストールした gsr を起動できない: %v\n出力:\n%s", err, runOut)
+		t.Fatalf("インストールした gsr-helper を起動できない: %v\n出力:\n%s", err, runOut)
 	}
 	if !strings.Contains(string(runOut), "fixture ok") {
-		t.Errorf("インストールした gsr の出力が想定と違う\n出力:\n%s", runOut)
+		t.Errorf("インストールした gsr-helper の出力が想定と違う\n出力:\n%s", runOut)
 	}
 
 	out, code = runMake(t, dir, env, "uninstall")
@@ -99,7 +99,7 @@ func testMakeInstallPutsRunnableGSRIn(t *testing.T, resolve func(base string) (s
 		t.Fatalf("make uninstall が失敗した: exit=%d\n出力:\n%s", code, out)
 	}
 	if _, err := os.Stat(installed); !errors.Is(err, os.ErrNotExist) {
-		t.Errorf("make uninstall の後も gsr が残っている（%v）\n出力:\n%s", err, out)
+		t.Errorf("make uninstall の後も gsr-helper が残っている（%v）\n出力:\n%s", err, out)
 	}
 }
 
@@ -120,20 +120,20 @@ func TestMakeInstallOmitsPATHNoticeWhenInstallDirIsOnPATH(t *testing.T) {
 	if strings.Contains(out, "PATH にありません") {
 		t.Errorf("PATH にあるインストール先へ PATH 追加の案内が出ている\n出力:\n%s", out)
 	}
-	if !strings.Contains(out, "gsr と打って起動できます") {
-		t.Errorf("gsr と打って起動できる旨の表示が無い\n出力:\n%s", out)
+	if !strings.Contains(out, "gsr-helper と打って起動できます") {
+		t.Errorf("gsr-helper と打って起動できる旨の表示が無い\n出力:\n%s", out)
 	}
 }
 
 // GOBIN も GOPATH も空ならインストール先は決められないので、install / uninstall は何もせず
 // 理由を告げて失敗しなければならない。GOPATH が空のときに裸の /bin へ落ちると、sudo の要る
-// system ディレクトリへ書き込もうとし、root では /bin/gsr を作って消してしまう。
+// system ディレクトリへ書き込もうとし、root では /bin/gsr-helper を作って消してしまう。
 func TestMakeInstallFailsWhenInstallDirIsUnresolvable(t *testing.T) {
 	dir := newModule(t, installModule)
 	// HOME も空にする。go env GOPATH は GOPATH が空なら $HOME/go へ落ちるため、
 	// GOPATH だけ空にしても空にはならない。GOENV=off も要る——go env は空の環境変数を
 	// 無視して env ファイル側の値を返すので、go env -w GOPATH=... を書いた環境では
-	// GOPATH が空にならず、開発者の $GOPATH/bin/gsr を上書きして消してしまう。
+	// GOPATH が空にならず、開発者の $GOPATH/bin/gsr-helper を上書きして消してしまう。
 	env := append(slices.Clone(goWorkOff), "GOENV=off", "GOBIN=", "GOPATH=", "HOME=")
 
 	for _, target := range []string{"install", "uninstall"} {
