@@ -2,7 +2,6 @@ package buildconfig
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -12,9 +11,6 @@ import (
 
 	"github.com/ousiassllc/gsr-helper/internal/buildconfig/buildconfigtest"
 )
-
-// guardJobName は self-hosted runner を使うジョブの前段に置くゲートジョブ名。
-const guardJobName = "guard"
 
 // yamlStrings は string / []string のどちらでも書ける YAML フィールドを受ける。
 type yamlStrings []string
@@ -34,15 +30,13 @@ func (s *yamlStrings) UnmarshalYAML(node *yaml.Node) error {
 }
 
 type ciStep struct {
-	Name string            `yaml:"name"`
-	Env  map[string]string `yaml:"env"`
-	Run  string            `yaml:"run"`
-	Uses string            `yaml:"uses"`
-	With map[string]any    `yaml:"with"`
+	Name string         `yaml:"name"`
+	Run  string         `yaml:"run"`
+	Uses string         `yaml:"uses"`
+	With map[string]any `yaml:"with"`
 }
 
 type ciJob struct {
-	Needs          yamlStrings `yaml:"needs"`
 	RunsOn         yamlStrings `yaml:"runs-on"`
 	TimeoutMinutes *int        `yaml:"timeout-minutes"`
 	Steps          []ciStep    `yaml:"steps"`
@@ -86,110 +80,28 @@ func isSelfHosted(runsOn yamlStrings) bool {
 	return slices.Contains(runsOn, "self-hosted")
 }
 
-// `guard` ジョブ自身は GitHub ホストランナーで動く。ゲートを self-hosted 上で
-// 走らせると、fork の PR がゲート自身をホスト上で実行できてしまい、ゲートを置く意味が無い。
-func TestCIGuardJobDoesNotUseSelfHostedRunner(t *testing.T) {
-	wf := loadCIWorkflow(t)
+// `.github/workflows/ci.yml` のジョブはすべて GitHub ホストランナーで動く。
+//
+// **self-hosted runner を使う形へ戻さない。** このリポジトリは public であり、
+// `pull_request` はワークフロー定義をマージコミット側（fork の変更を含む側）から取るため、
+// fork の PR がホスト上で任意のコードを実行できる形になる。runner 実行ユーザーは
+// パスワード不要 sudo を持つ運用が前提（internal/doctor/jobreq がそれを検出する）なので、
+// 到達されれば実質 root であり、作業ディレクトリもビルドキャッシュも次のジョブへ残る。
+//
+// public リポジトリの標準ランナーは無料なので、self-hosted へ戻す費用面の動機も無い
+// （docs/environment/setup.md の「CI/CD」）。
+func TestCIJobsUseGitHubHostedRunners(t *testing.T) {
+	jobs := loadCIWorkflow(t).Jobs
 
-	guard, ok := wf.Jobs[guardJobName]
-	if !ok {
-		t.Fatalf("ci.yml に %q ジョブが無い", guardJobName)
-	}
-	if isSelfHosted(guard.RunsOn) {
-		t.Errorf("%q ジョブが self-hosted runner を使っている: %v", guardJobName, guard.RunsOn)
-	}
-	if len(guard.RunsOn) == 0 {
-		t.Errorf("%q ジョブに runs-on が無い", guardJobName)
-	}
-}
-
-// `.github/workflows/ci.yml` の self-hosted runner を使うジョブは、必ず `needs: guard` で
-// ゲートジョブに依存する。`if:` による skip では required status check に対して success 扱いに
-// なり、マージを機械的に止められない。
-func TestCISelfHostedJobsDependOnGuard(t *testing.T) {
-	wf := loadCIWorkflow(t)
-
-	selfHosted := 0
-	for name, job := range wf.Jobs {
-		if !isSelfHosted(job.RunsOn) {
+	for name, job := range jobs {
+		if len(job.RunsOn) == 0 {
+			t.Errorf("ジョブ %q に runs-on が無い", name)
 			continue
 		}
-		selfHosted++
-		if !slices.Contains(job.Needs, guardJobName) {
-			t.Errorf("self-hosted ジョブ %q が needs: %s を持たない（needs=%v）", name, guardJobName, job.Needs)
+		if isSelfHosted(job.RunsOn) {
+			t.Errorf("ジョブ %q が self-hosted runner を使っている: %v", name, job.RunsOn)
 		}
 	}
-	if selfHosted == 0 {
-		t.Fatal("self-hosted runner を使うジョブが 1 つも無い（テストの前提が崩れている）")
-	}
-}
-
-// `.github/workflows/ci.yml` の `guard` は許可リスト形である（`push` と
-// 同一リポジトリの `pull_request` 以外は失敗する）。
-// 判定値は `EVENT_NAME` / `HEAD_REPO` / `BASE_REPO` の env 経由で渡り、ゲートの `run:` に `${{` を
-// 直書きしない（head リポジトリ名を通した式インジェクションの余地を残さないため）。
-// 許可していないトリガーを `on:` に足したときに既定が「実行しない」側へ倒れる必要がある。
-func TestCIGuardScriptAllowsOnlySameRepositoryEvents(t *testing.T) {
-	script, env := guardScript(t)
-
-	const baseRepo = "ousiassllc/gsr-helper"
-	tests := []struct {
-		name      string
-		eventName string
-		headRepo  string
-		wantAllow bool
-	}{
-		{"main への push は実行する", "push", "", true},
-		{"同一リポジトリのブランチからの PR は実行する", "pull_request", baseRepo, true},
-		{"fork からの PR は実行しない", "pull_request", "attacker/gsr-helper", false},
-		{"許可していない workflow_dispatch は実行しない", "workflow_dispatch", "", false},
-		{"許可していない merge_group は実行しない", "merge_group", "", false},
-		{"head リポジトリが空の PR は実行しない", "pull_request", "", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cmd := exec.Command("bash", "-e", "-c", script)
-			cmd.Env = append(os.Environ(),
-				"EVENT_NAME="+tt.eventName,
-				"HEAD_REPO="+tt.headRepo,
-				"BASE_REPO="+baseRepo,
-			)
-			out, err := cmd.CombinedOutput()
-
-			if gotAllow := err == nil; gotAllow != tt.wantAllow {
-				t.Fatalf("ゲートの判定が期待と違う: allow=%v want=%v\n出力:\n%s", gotAllow, tt.wantAllow, out)
-			}
-		})
-	}
-
-	// 判定に使う値はすべて env 経由で渡す（run: 内へ式を直接埋め込むと
-	// head リポジトリ名を通したスクリプトインジェクションの余地が残る）。
-	for _, key := range []string{"EVENT_NAME", "HEAD_REPO", "BASE_REPO"} {
-		if _, ok := env[key]; !ok {
-			t.Errorf("ゲートの step に env %s が無い", key)
-		}
-	}
-	if strings.Contains(script, "${{") {
-		t.Errorf("ゲートの run: に GitHub Actions の式が直接埋め込まれている:\n%s", script)
-	}
-}
-
-// guardScript はゲートジョブの判定スクリプトと、その step の env を返す。
-func guardScript(t *testing.T) (string, map[string]string) {
-	t.Helper()
-
-	guard, ok := loadCIWorkflow(t).Jobs[guardJobName]
-	if !ok {
-		t.Fatalf("ci.yml に %q ジョブが無い", guardJobName)
-	}
-	for _, step := range guard.Steps {
-		if step.Run != "" {
-			return step.Run, step.Env
-		}
-	}
-	t.Fatalf("%q ジョブに run: を持つ step が無い", guardJobName)
-	return "", nil
 }
 
 // どのワークフローも `pull_request_target` を使わない。fork の PR に対してベースリポジトリ側の

@@ -110,7 +110,7 @@
 
 ### CI
 
-GitHub Actions の self-hosted runner（`runs-on: [self-hosted, linux, x64]`）で以下を実行する。前提は [環境構築 / self-hosted runner を使う前提](../environment/setup.md#self-hosted-runner-を使う前提) を参照。
+GitHub Actions の GitHub ホストランナー（`runs-on: ubuntu-latest`）で以下を実行する。前提は [環境構築 / GitHub ホストランナーで動かす](../environment/setup.md#github-ホストランナーで動かす) を参照。
 
 - `gofmt` による整形チェック（`make fmt-check`）
 - `go vet`（`make vet`）
@@ -164,3 +164,4 @@ GitHub Actions の self-hosted runner（`runs-on: [self-hosted, linux, x64]`）�
 | 1.13 | 2026-08-23 | 依存ライブラリの表で `huh`（`charm.land/huh/v2`）と `google/go-github`（`v83`）を導入済みへ更新し、それぞれの使用箇所と、go-github を `internal/gh` の外で import しない規則を明記。`bubbles` の状況を「列挙した 8 部品すべてを使用」に改め、間接依存に `harmonica` が加わる理由を注記 | runner の追加・削除・バージョン更新（Issue #8）で `internal/gh` と Setup タブのフォームを実装したため。表が未導入のままだと、フォームや GitHub API を扱う後続 Issue が「まず依存を追加する」ところから設計をやり直す。`bubbles` の「現時点で使うのは 5 部品」も、進捗バー（`progress`）と計時（`stopwatch`）を使い始めた実装と食い違っていた |
 | 1.14 | 2026-08-24 | 安全性要件の監査ログの記録対象を「すべての外部コマンド」から「すべての外部コマンド + 外部コマンドを伴わない破壊的操作（`internal/disk` のファイルの再帰削除）」へ拡張し、記録の起点を層ごとに 1 箇所（`internal/exec/command` の `Run` / `internal/disk` の `removeTarget`）に固定していることを明記。全件記録する破壊的操作の範囲を action（`svc.*` / `runner.*` / `disk.clean`）で限定し、外部コマンドを伴わない破壊的操作のうち `internal/config` 系・`internal/appconfig` のファイル置換と `internal/setup/tarball` の展開先の置換は記録対象外であることを追記 | Issue #71 で監査ログの契約が「外部コマンドと、それに準ずる破壊的操作」へ広がり、[セキュリティ設計](../architecture/security.md#監査ログ) と [コンポーネント設計](../components/overview.md#internalaudit) は追随済みだったが、最上位の非機能要件が外部コマンド限定のままで、docker を含まない削除計画の監査レコードが仕様上は対象外と読めた。逆に拡張後の記述は記録される範囲しか述べておらず、最上位の非機能要件だけを読むと「確認を経る破壊的操作はすべて追跡できる」と読めた——実際に監査レコードを書く（`audit.Logger` の `Write` / `Report` を呼ぶ）のは `internal/disk` と `internal/exec/command` の 2 箇所だけである（`internal/audit` を import するパッケージはこれより多いが、他は `Logger` を生成して配るだけである） |
 | 1.15 | 2026-09-03 | 可搬性の表の `配布` に、開発ツリーからは `make install` で `gsr` という名前で入れることを追記した | `go install` で入る名前は `gsr-helper` であり、`gsr` と打って起動する経路は Makefile 側にしか書かれていなかった。配布方法を引く読み手が両方を 1 か所で見られる必要がある |
+| 1.16 | 2026-09-07 | CI の実行環境を self-hosted runner から GitHub ホストランナー（`runs-on: ubuntu-latest`）へ改め、参照先を [環境構築 / GitHub ホストランナーで動かす](../environment/setup.md#github-ホストランナーで動かす) に差し替えた | リポジトリの public 化に伴い、fork の PR が管理対象ホスト上で任意のコードを実行できる形を避けるため（判断の記録は環境構築の改訂 1.50） |

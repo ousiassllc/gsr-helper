@@ -225,23 +225,23 @@ check: fmt-check vet lint linterly test ## すべてのチェックを実行す�
 | 項目 | 内容 |
 |------|------|
 | プラットフォーム | GitHub Actions |
-| ランナー | self-hosted（`runs-on: [self-hosted, linux, x64]`） |
-| トリガー | `main` への push、および PR |
-| ジョブ | fork ガードの `guard`（GitHub ホストランナー）と、それに依存する `lint` / `test` / `build` の 3 本を並列実行 |
+| ランナー | GitHub ホストランナー（`runs-on: ubuntu-latest`） |
+| トリガー | `main` / `dev` への push、および PR |
+| ジョブ | `lint` / `test` / `build` の 3 本を並列実行 |
 | 設定の不変条件 | `internal/buildconfig` とその `docscheck` のテストが `ci.yml` / `Makefile` / `lefthook.yml` / lint 設定に加え、`docs/` 配下のドキュメントの不変条件を検証する。`test` ジョブで実行されるため、CI で機械的に守られる |
 | デプロイ | なし（配布は `go install`。[非機能要件 / 可搬性](../requirements/non-functional.md#可搬性)） |
 
-`lint` / `test` / `build` を並列にするのは、lint が落ちてもテスト結果が同時に得られるようにするためである。この 3 つの間に依存はなく、いずれも fork ガードの `guard` ジョブだけに依存する（[fork からの PR で self-hosted ジョブを起動しない](#fork-からの-pr-で-self-hosted-ジョブを起動しない)）。
+`lint` / `test` / `build` を並列にするのは、lint が落ちてもテスト結果が同時に得られるようにするためである。この 3 つの間に依存はなく、`needs` を持たない（[GitHub ホストランナーで動かす](#github-ホストランナーで動かす)）。
 
 `permissions` は `contents: read` のみを与える。CI はリポジトリへの書き込みを行わない。
 
 `concurrency` はグループを `${{ github.workflow }}-${{ github.ref }}` とし、`cancel-in-progress` を `${{ github.event_name == 'pull_request' }}` にする。
 
 - **`group` にワークフロー名を含める。** リテラルの `ci-<ref>` にすると group はリポジトリ内の全ワークフローで共有されるため、将来 `release.yml` 等が同じ group を使うと相互にキャンセルし合う。
-- `github.ref` は `main` への push が `refs/heads/main`、PR が `refs/pull/<番号>/merge` になるため、**push と PR でグループが衝突しない**（GitHub Actions の仕様）。
+- `github.ref` は保護ブランチへの push が `refs/heads/<名前>`、PR が `refs/pull/<番号>/merge` になるため、**push と PR でグループが衝突しない**（GitHub Actions の仕様）。
 - concurrency は run 単位で効くため、**同一 run 内の `lint` / `test` / `build` の 3 ジョブは互いをキャンセルしない**。
-- PR に追加 push すると同じ PR の前の run がキャンセルされ、runner が即座に解放される。**オンラインの runner が限られる self-hosted 環境では、待ち行列の膨張を抑える効果が大きい**。
-- **`main` への push ではキャンセルしない。** `cancel-in-progress: true` を無条件にすると、連続マージで先行する `main` の run がキャンセルされ「一度も検証されていない `main` コミット」が生まれる。`main` は `go install` による配布元なので、これは避ける。
+- PR に追加 push すると同じ PR の前の run がキャンセルされ、実行枠が即座に解放される。ホストランナーにも同時実行の上限があるため、**待ち行列の膨張を抑える効果は残る**。
+- **保護ブランチへの push ではキャンセルしない。** `cancel-in-progress: true` を無条件にすると、連続マージで先行する run がキャンセルされ「一度も検証されていない `main` コミット」が生まれる。`main` は `go install` による配布元なので、これは避ける。
 
 ### ワークフロー定義
 
@@ -252,7 +252,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
   pull_request:
 
 permissions:
@@ -261,41 +261,12 @@ permissions:
 concurrency:
   # group にワークフロー名を含め、将来追加するワークフローと相互キャンセルしない。
   group: ${{ github.workflow }}-${{ github.ref }}
-  # main への push はキャンセルしない（未検証の main コミットを作らない）。
+  # 保護ブランチへの push はキャンセルしない（未検証のコミットを作らない）。
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  guard:
-    # self-hosted runner を使うジョブの前段ゲート。GitHub ホストランナーで動かし、
-    # 許可したトリガー以外では「失敗」して後続を止める（skip ではないため
-    # required status check として fork PR のマージを機械的に止められる）。
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: トリガーと head リポジトリを検証する
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
-          BASE_REPO: ${{ github.repository }}
-        run: |
-          case "$EVENT_NAME" in
-            push)
-              exit 0
-              ;;
-            pull_request)
-              if [ "$HEAD_REPO" = "$BASE_REPO" ]; then
-                exit 0
-              fi
-              echo "fork ($HEAD_REPO) からの PR では self-hosted runner のジョブを実行しない" >&2
-              exit 1
-              ;;
-          esac
-          echo "許可していないトリガー ($EVENT_NAME) では self-hosted runner のジョブを実行しない" >&2
-          exit 1
-
   lint:
-    needs: guard
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -312,8 +283,7 @@ jobs:
       - run: go tool lefthook validate
 
   test:
-    needs: guard
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -326,8 +296,7 @@ jobs:
       - run: make test
 
   build:
-    needs: guard
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -370,7 +339,7 @@ updates:
 
 ### 設定ファイルの不変条件をテストで守る
 
-`.github/workflows/ci.yml` / `Makefile` / `lefthook.yml` / `.golangci.yml` / `.linterly.yml` / `.github/dependabot.yml` は、取り決めを破ってもコンパイルエラーにならず、通常のテストでも検知できない。とくに **self-hosted runner を使うジョブを 1 本追加した人が `needs: guard` を書き忘れると、fork ガードを迂回する退行が静かに入る**。`actionlint` はカスタムルールを持てないため、この種の不変条件は検出できない。
+`.github/workflows/ci.yml` / `Makefile` / `lefthook.yml` / `.golangci.yml` / `.linterly.yml` / `.github/dependabot.yml` は、取り決めを破ってもコンパイルエラーにならず、通常のテストでも検知できない。とくに **ジョブを 1 本追加した人が `runs-on` に `self-hosted` を書くと、public リポジトリで fork の PR が管理対象ホスト上で任意のコードを実行できる退行が静かに入る**。`actionlint` はカスタムルールを持てないため、この種の不変条件は検出できない。
 
 同じことが `docs/` 配下のドキュメントにも当てはまる。仕様書のコードブロックが設定ファイルの実体から乖離しても、改訂履歴の版番号が重複・逆順になっても、コンパイルエラーにも通常のテストの失敗にもならない。
 
@@ -382,14 +351,12 @@ updates:
 
 | 守っている不変条件 | 破ったときに落ちるテスト |
 |---|---|
-| `.github/workflows/ci.yml` の self-hosted runner を使うジョブは、必ず `needs: guard` でゲートジョブに依存する。`if:` による skip では required status check に対して success 扱いになり、マージを機械的に止められない。 | `TestCISelfHostedJobsDependOnGuard` |
-| `.github/workflows/ci.yml` の `guard` は許可リスト形である（`push` と同一リポジトリの `pull_request` 以外は失敗する）。判定値は `EVENT_NAME` / `HEAD_REPO` / `BASE_REPO` の env 経由で渡り、ゲートの `run:` に `${{` を直書きしない（head リポジトリ名を通した式インジェクションの余地を残さないため）。許可していないトリガーを `on:` に足したときに既定が「実行しない」側へ倒れる必要がある。 | `TestCIGuardScriptAllowsOnlySameRepositoryEvents` |
-| `guard` ジョブ自身は GitHub ホストランナーで動く。ゲートを self-hosted 上で走らせると、fork の PR がゲート自身をホスト上で実行できてしまい、ゲートを置く意味が無い。 | `TestCIGuardJobDoesNotUseSelfHostedRunner` |
+| `.github/workflows/ci.yml` のジョブはすべて GitHub ホストランナーで動く。 | `TestCIJobsUseGitHubHostedRunners` |
 | どのワークフローも `pull_request_target` を使わない。fork の PR に対してベースリポジトリ側の権限でワークフローが動き、fork ガードの意味が失われる。 | `TestWorkflowsDoNotUsePullRequestTarget` |
-| `.github/workflows/ci.yml` のアクションはフルコミット SHA でピン留めされている。可変タグはタグの移動やアカウント侵害で別のコードに差し替わり、self-hosted runner ではその被害が root 相当まで増幅する。 | `TestCIActionsArePinnedToCommitSHA` |
-| `.github/workflows/ci.yml` の全ジョブに `timeout-minutes` がある。ハングしたジョブが runner を GitHub 既定の 6 時間まで占有すると、オンラインの runner が 1 台のとき CI 全体が止まる。 | `TestCIJobsHaveTimeout` |
-| `.github/workflows/ci.yml` の `actions/checkout` が認証情報を作業ディレクトリへ残さない。self-hosted runner は作業ディレクトリを再利用し、キャンセル時は post-job cleanup が完走しない。 | `TestCICheckoutDoesNotPersistCredentials` |
-| `.github/workflows/ci.yml` の `actions/setup-go` のキャッシュは無効である。self-hosted runner ではモジュール・ビルドキャッシュがホストに残るため、tar での保存と展開はやり直しの重複でしかない。 | `TestCISetupGoDisablesCache` |
+| `.github/workflows/ci.yml` のアクションはフルコミット SHA でピン留めされている。可変タグはタグの移動やアカウント侵害で別のコードに差し替わる。差し替わったコードは checkout したソースとビルド成果物、および run に渡る `GITHUB_TOKEN` に触れる。 | `TestCIActionsArePinnedToCommitSHA` |
+| `.github/workflows/ci.yml` の全ジョブに `timeout-minutes` がある。ハングしたジョブは GitHub 既定の 6 時間まで実行枠を占有し、その間は同時実行の上限を埋めて後続の run を待たせる。 | `TestCIJobsHaveTimeout` |
+| `.github/workflows/ci.yml` の `actions/checkout` が認証情報を作業ディレクトリへ残さない。CI のどの step も認証付きの git 操作を必要としないため、置く理由が無い。既定の true は post-job cleanup での削除に依存するが、`cancel-in-progress` によるキャンセルではそこまで完走しない可能性がある。 | `TestCICheckoutDoesNotPersistCredentials` |
+| `.github/workflows/ci.yml` の `actions/setup-go` のキャッシュは無効である。 | `TestCISetupGoDisablesCache` |
 | `.github/workflows/ci.yml` の `concurrency` が他ワークフローと衝突せず、`main` への push の run をキャンセルしない。 | `TestCIConcurrencyIsScopedAndKeepsPushRuns` |
 | SHA ピン留めした版へ追従するため、Dependabot の github-actions を有効にする。 | `TestDependabotWatchesGitHubActions` |
 | make fmt-check は入れ子の git worktree（.claude/worktrees/ 配下）を対象にしない。リポジトリルート自体が Go パッケージになっても、対象がディレクトリではなくファイル単位で解決されるため gofmt がファイルシステムを再帰しない。 | `TestFmtCheckSkipsNestedWorktree` |
@@ -457,54 +424,39 @@ updates:
 
 **検査は「上限を超える行が無いこと」だけを見る。** `TestDocRevisionHistoryRowsFitInBudget` が `docs/` 配下の改訂履歴を持つ全文書を走査し、超えた行を文書名と版番号つきで報告する。**言い回しは一切見ない**——「書きすぎた欄」を文言のパターンで拾う手は収束しないことを、行数の散文の検査が 2 周かけて確かめている（[TUI コンポーネント設計](../ui/atomic-design.md#行数の実測値は表だけが持つ)）。文字数の不在だけを見る形なら、新しい書き方を考えなくてよい。
 
-### self-hosted runner を使う前提
+### GitHub ホストランナーで動かす
 
-CI は GitHub ホストランナーではなく self-hosted runner で実行する。本ツールが管理する対象そのものの上で CI が回るため、以下を前提とする。
+CI は GitHub ホストランナー（`ubuntu-latest`）で実行する。**self-hosted runner は使わない。**
 
 | 項目 | 前提 |
 |------|------|
-| runner の所在 | org（`ousiassllc`）レベルに登録された runner を使う。リポジトリレベルには登録しない |
-| ラベル | `self-hosted` / `linux` / `x64` の 3 つを AND で要求する。1 つでも欠けるとジョブはエラーにならず無期限に `queued` で止まる（[ランナーホストのセットアップ](../operations/runner-host-setup.md#ラベル)） |
-| OS | Linux（amd64）。対象 OS と一致するため、GitHub ホストランナーでは検証できない `systemctl` / `journalctl` 前提の挙動もそのまま確認できる |
-| ワークスペース | ジョブ間で作業ディレクトリが再利用される。`actions/checkout` の既定（`clean: true`）に依存し、ビルド成果物を残す前提のステップを書かない |
-| ツールの導入 | Go は `actions/setup-go` がツールキャッシュへ導入する。ホストに Go を事前インストールしない（バージョンの二重管理を避ける） |
-| C コンパイラ | `make test` は `-race` 付きで実行され、`-race` は cgo を必要とするため `gcc` がホストに必要である。`setup-go` は C コンパイラを導入しない（[ランナーホストのセットアップ](../operations/runner-host-setup.md#c-コンパイラ)） |
-| 並列実行 | `lint` / `test` / `build` の 3 ジョブが同時に走るため、runner は 3 台以上を稼働させる。台数が足りない場合はジョブが順番待ちになるだけで失敗はしない。前段の `guard` は GitHub ホストランナーで動くため self-hosted の台数を消費しない |
-| 権限 | CI ジョブは runner の実行ユーザー権限で動く。`sudo` を必要とするテストを CI に置かない（`Executor` のテスト実装で代替する。[非機能要件 / 保守性・テスト](../requirements/non-functional.md#保守性テスト)） |
+| OS | `ubuntu-latest`（Linux / amd64）。対象 OS と一致するが、`systemctl` / `journalctl` を実際に操作する検証はできない（テスト実装の `Executor` で代替する。[非機能要件 / 保守性・テスト](../requirements/non-functional.md#保守性テスト)） |
+| ワークスペース | run ごとに破棄される。作業ディレクトリもキャッシュもジョブ間で共有されないため、成果物を残す前提のステップを書かない |
+| ツールの導入 | Go は `actions/setup-go` がツールキャッシュへ導入する。`go-version-file: go.mod` で参照し、バージョンを二重管理しない |
+| C コンパイラ | `make test` は `-race` 付きで実行され、`-race` は cgo を必要とする。`ubuntu-latest` は `gcc` を同梱するため追加の導入は要らない（`setup-go` は C コンパイラを導入しない） |
+| 並列実行 | `lint` / `test` / `build` の 3 ジョブが同時に走る。ジョブ間に依存は無く `needs` を持たない |
+| 費用 | public リポジトリの標準ランナーは無料である。`ubuntu-latest` より大きい larger runner を指定すると public でも課金される |
+| 権限 | `permissions` は `contents: read` のみ。`sudo` を必要とするテストを CI に置かない |
 
-#### fork からの PR で self-hosted ジョブを起動しない
+#### self-hosted runner を使わない理由
 
-self-hosted runner でワークフローを実行することは、**そのワークフローに runner の実行ユーザー権限を与える**ことを意味する。[セキュリティ設計](../architecture/security.md#パスワード不要-sudo-の要求への対応)のとおり `NOPASSWD: ALL` の付与は「その runner で実行される任意のワークフローに実質 root を与える」ことに等しい。fork からの PR は第三者が書いた任意のコードを含むため、そのまま self-hosted runner で走らせるとホストが第三者の実行環境になる。
+self-hosted runner でワークフローを実行することは、**そのワークフローに runner の実行ユーザー権限を与える**ことを意味する。[セキュリティ設計](../architecture/security.md#パスワード不要-sudo-の要求への対応)のとおり `NOPASSWD: ALL` の付与は「その runner で実行される任意のワークフローに実質 root を与える」ことに等しく、本ツールが管理する対象ホストはまさにその設定を前提とする（有無を検出するのは `internal/doctor/jobreq` である）。
 
-**本リポジトリは private であり、fork も無効である**（実測: `gh api repos/ousiassllc/gsr-helper` が `"visibility": "private"` / `"allow_forking": false`）。当初 public だったが、org（`ousiassllc`）レベルに登録した runner が **public リポジトリのジョブを引き取らず `queued` のまま停止した**ため private へ切り替えた。org の runner group は既定で public リポジトリへ runner を提供しない設定であり、これが直接の原因だった。private 化により runner がジョブを拾えるようになり、同時に**外部の第三者が fork PR を送る経路そのものが無くなる**。
+**本リポジトリは public である。** `pull_request` はワークフロー定義をマージコミット側（= PR の内容を含む側）から取るため、fork の PR は `.github/workflows/ci.yml` を改変した状態で実行される。したがってワークフロー側にゲートジョブを置いても**セキュリティ境界にはならない**——fork 側でゲートごと削除できる。ゲートが止められるのは事故（トリガーの追加ミス、善意の fork PR）だけである。
 
-したがって以下の脅威モデルは、**リポジトリへのアクセス権を持つ範囲（org メンバー・コラボレーター）**を対象とする。ただし将来 public へ戻す場合はそのまま外部第三者に対する分析として読める内容なので、記述は残す。
+**費用でも self-hosted に残す動機が無い。** public リポジトリの標準ランナーは無料であり、実行時間を気にする理由がない。self-hosted 側にはホストの電気代と管理の手間が残る。
 
-**防御は多層で構成する。ワークフロー側のゲートはその 1 層にすぎず、単体では境界にならない。**
+fork からの PR は、そのまま CI を通してよい。ホストランナー上で動き、`GITHUB_TOKEN` は `contents: read` に限られ、secrets も渡らない。
 
-| 層 | 手段 | 位置づけ | 現状 |
-|----|------|---------|------|
-| 一次防御 | リポジトリを private にし fork を無効化する | 外部第三者が fork PR を送る経路そのものを塞ぐ | 適用中（`allow_forking: false`） |
-| 一次防御 | org runner group の対象リポジトリ限定 | 同じ runner を掴めるリポジトリを絞る。既定では public リポジトリへ提供しないため、public へ戻す場合は runner group 側を明示的に許可しない限り CI が `queued` で止まる | 手順は[ランナーホストのセットアップ](../operations/runner-host-setup.md#runner-group-の対象リポジトリ)に記録。設定変更は org 管理者の作業 |
-| 一次防御 | fork PR の承認ポリシー | public へ戻す場合の実質的な境界。「全外部貢献者に承認必須」にする | **private では設定できない**（実測: `gh api repos/ousiassllc/gsr-helper/actions/permissions/fork-pr-contributor-approval` が 422 `Fork PR approval is not allowed for private repositories.`）。public へ戻す際に `all_external_contributors` を設定する |
-| 補助 | ワークフローの `guard` ジョブ | 事故防止と runner 負荷削減。トリガーの追加ミスと善意の fork PR による誤起動を止める。required status check に**指定して初めて**マージも機械的に止められる | **ジョブは適用中だが、required status check への指定は未設定**（実測: `gh api repos/ousiassllc/gsr-helper/branches/main/protection` が 404 `Branch not protected`、`gh api repos/ousiassllc/gsr-helper/rulesets` が `[]`）。指定はリポジトリ設定側の作業 |
+**self-hosted へ戻す場合に必要になるもの。** ワークフロー側の対処だけでは足りず、リポジトリ設定側が一次防御になる。
 
-ワークフロー側は、self-hosted runner を使う全ジョブの前段に **GitHub ホストランナー上で動く `guard` ジョブ**を置き、`needs: guard` で依存させる（定義は[ワークフロー定義](#ワークフロー定義)の `ci.yml` を参照）。`guard` の判定は次のとおりである。
+| 層 | 手段 | 位置づけ |
+|----|------|---------|
+| 一次防御 | fork PR の承認ポリシーを `all_external_contributors` にする | 既定の `first_time_contributors` は**一度コミットが取り込まれた人を以後承認不要**にするため、境界として足りない |
+| 一次防御 | org runner group の対象リポジトリ限定 | 同じ runner を掴めるリポジトリを絞る（手順は[ランナーホストのセットアップ](../operations/runner-host-setup.md#runner-group-の対象リポジトリ)。設定変更は org 管理者の作業）。既定では public リポジトリへ runner を提供しないため、許可しない限りジョブは `queued` のまま止まる（public だった時期に実際に起きた） |
+| 補助 | ワークフローのゲートジョブ | 事故防止のみ。`if:` による skip ではなく**失敗**するジョブにする——skip は required status check に対して success として報告され、マージを止められない |
 
-- `push`（`main`）では常に成功する
-- `pull_request` では **head が同一リポジトリのブランチである場合のみ**成功する
-- **それ以外のトリガーではすべて失敗する**（許可リスト形）
-- 判定に使う値は `run:` 内へ式を直接埋め込まず `env:` 経由で渡す。head リポジトリ名を通したスクリプトインジェクションの余地を残さないためである
-
-**ジョブ単位の `if:` ではなくゲートジョブにする理由。** `if:` で条件を満たさないジョブは `skipped` になるが、GitHub のドキュメントは「スキップされたジョブはステータスを Success として報告する。required check であっても PR のマージを妨げない」「required status check は保護ブランチへ変更を加える前に `successful` / `skipped` / `neutral` のいずれかである必要がある」と明記している。つまり `if:` で skip する設計では、将来 `lint` / `test` / `build` を required status check に指定しても、**CI が一度も走っていないのに 3 つとも緑になりマージ可能に見える**。`guard` は skip ではなく**失敗**するため、required status check に指定すればマージを機械的に止められる。したがって **required status check には `guard` を指定する**（`lint` / `test` / `build` は `needs: guard` により skip されるので、それらを指定してもマージは止まらない）。**これは指定して初めて効く運用であり、現時点では上表のとおり未設定である。**
-
-**許可リスト形にする理由。** 従前の条件 `github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository` は「`pull_request` でなければ無条件に実行する」**ブロックリスト形**だった。`merge_group` や `workflow_dispatch` を `on:` に足すと左辺が true になって短絡し、fork チェックが評価されないまま実行される。`guard` は `push` と同一リポジトリの `pull_request` だけを許可し、それ以外は既定で失敗するため、トリガーを足したときに「実行しない」側へ倒れる。**トリガーを追加する際は `guard` の許可リストも更新する**（merge queue を導入する場合は `merge_group` を `on:` と `guard` の双方に足す。足さないと required status check が報告されずキューが詰まる）。
-
-**このゲートもセキュリティ境界にはならない。** `pull_request` イベントでは、ワークフロー定義自体がマージコミット側（= PR の内容を含む側）から取られる（GitHub のドキュメントは `pull_request_target` を「`pull_request` イベントのようにマージコミットのコンテキストではなく、ベースリポジトリの既定ブランチのコンテキストで実行される」と対比して説明している）。つまり **fork 側で `.github/workflows/ci.yml` の `guard` ジョブごと削除でき、その改変版が `pull_request` の実行に使われる。**したがってゲートは事故防止と runner 負荷削減に有効で、マージゲートとしては required status check に指定した場合に限り働く（前段・上表のとおり現時点では未設定）が、悪意ある第三者を止めるのはリポジトリ設定側である。
-
-fork からの PR を検証する場合は、内容を確認した上で同一リポジトリ内のブランチへ取り込み、そのブランチの PR で CI を通す。`pull_request_target` は使わない（fork の PR に対してベース側の権限でワークフローが動くため、この対策の意味が失われる）。
-
-**実際の fork PR での実測は行えない。** private かつ `allow_forking: false` のため fork を作成する経路が存在しない。代わりに `guard` の判定ロジックは `internal/buildconfig` の回帰テストが `ci.yml` から実スクリプトを取り出して実行し、`push` / 同一リポジトリの PR / fork からの PR / 未許可トリガーを検証している。public へ戻す際は、承認ポリシーの設定とあわせて実 fork PR での確認を行う。
+`pull_request_target` は使わない（fork の PR に対してベース側の権限でワークフローが動き、この判断の意味が失われる）。`TestWorkflowsDoNotUsePullRequestTarget` が全ワークフローを走査して機械的に守る。
 
 ### 将来の拡張候補
 
@@ -884,6 +836,7 @@ pre-push:
 | 1.47 | 2026-09-03 | Issue #175 を反映。(1) 改訂 1.41 の行が変更理由のセルを持たないまま入っていたので理由を補った。(2) 不変条件テスト一覧表へ `TestDocRevisionHistoryRowsHaveEveryColumn` の行を足した——改訂履歴の表の各行が見出し行と同じ数のセルを持つことを、文書ごとに読んだ見出しのセル数と突き合わせる | 同じ欠落が 3 文書で 1 行ずつ起きており、版番号の重複と昇順を見る検査も 1 行の文字数を見る検査も**セルの数え方を持たない**ので拾えなかった。セル数の一致は「見出しと違うセル数の行が無いこと」という不在の形で書けるため、言い回しのパターンを 1 つも増やさずに塞げる |
 | 1.48 | 2026-09-03 | `make install` / `make uninstall` を追加したことを反映。ターゲット一覧表に 2 行を足し、Makefile のコードブロックを実体に同期し、不変条件テスト一覧表へ `TestMakeInstallPutsRunnableGSRInInstallDir` の行を足した。インストール先は `GOBIN`、無ければ `$(go env GOPATH)/bin` とし（`go install` と同じ流儀）、`INSTALL_DIR` で上書きできる | `go install github.com/ousiassllc/gsr-helper/cmd/gsr-helper@latest` は `gsr-helper` という名前で入るため、`gsr` と打って起動できなかった。開発ツリーから短い名前で入れる経路が要る。既定にハードコードした絶対パスや sudo の要る場所を選ばないのは、`go install` の流儀から外れたインストール先を覚え直させないためである。インストール先が `PATH` に無いと「入ったのに起動できない」状態になるので、install 後に案内を出す |
 | 1.49 | 2026-09-03 | `make install` のレビュー指摘（major 2 件）を反映。(1) Makefile のコードブロックの `INSTALL_DIR` を、`GOPATH` が空のときに空のままになる形（`$(patsubst %,%/bin,...)`）へ直し、意図をコメントに書いた。ターゲット一覧表の `make install` の行にも、`GOBIN` も `GOPATH` も空なら何もせず失敗することを足した。(2) 不変条件テスト一覧表へ `TestMakeInstallOmitsPATHNoticeWhenInstallDirIsOnPATH` と `TestMakeInstallFailsWhenInstallDirIsUnresolvable` の 2 行を足した | `$(shell $(GO) env GOPATH)/bin` は `GOPATH` が空のとき裸の `/bin` に展開され、`$(or)` がそれを非空と見なすため、既定が sudo の要る system ディレクトリになっていた（`HOME` を持たないコンテナや systemd 起動で起きる）。同時に install / uninstall の空チェックが到達不能な死コードになり、改訂 1.48 が記録した「既定にハードコードした絶対パスや sudo の要る場所を選ばない」方針と、`go install` と同じ流儀（`GOPATH` が空なら失敗する）の双方に反していた。root 実行では `make uninstall` が `/bin/gsr` を消しにいく。空チェックが到達可能になったので、それを踏む検査を一覧表へ登録した。PATH の案内の検査は、案内より前に出るビルドコマンドの表示にインストール先のフルパスが含まれるため、パスだけを見る照合では案内を丸ごと削っても緑になっていた——案内文そのものと、案内が出ない側の両方を縛る |
+| 1.50 | 2026-09-07 | CI を self-hosted runner から GitHub ホストランナー（`ubuntu-latest`）へ移した。`guard` ジョブを削除し、「self-hosted runner を使う前提」節を「GitHub ホストランナーで動かす」節へ書き換え（前提の表を run ごとの破棄・`gcc` 同梱・費用に合わせて作り直し、self-hosted へ戻す場合に要る層を承認ポリシー / runner group / ゲートジョブの 3 行として残した）。不変条件表から guard 系 3 行を落として `TestCIJobsUseGitHubHostedRunners` の行を足し、CI 系 4 行の説明を doc コメントの書き換えに合わせた。ci.yml の逐語ブロック・CI 概要表・concurrency の箇条書きも実体へ同期した | リポジトリを public にしたため。`pull_request` はワークフロー定義をマージコミット側から取るので fork の PR は `ci.yml` を改変して実行でき、ワークフロー側のゲートは境界にならない。runner 実行ユーザーはパスワード不要 sudo を前提とする運用（`internal/doctor/jobreq` が検出する対象そのもの）であり、到達されれば実質 root で作業ディレクトリもキャッシュも次のジョブへ残る。public リポジトリの標準ランナーは無料なので、self-hosted に残す費用面の動機も無い |
 
 **版番号は表への追加順ではなく、その変更が入った時点で採番している。** 1.22 の日付が直前の 1.21 より古いのはこのためである。1.22 の行はもともと重複した `1.8` として記録されており（`feat/#1` の取り込み時に 2 つの `1.8` を両方残したまま解消した）、重複を解消する際に、既に使われている 1.9〜1.21 と衝突しない番号として 1.22 を割り当てた。既存行の版番号を繰り下げないのは、他の行の変更理由が版番号で参照している箇所（1.12 / 1.13）まで書き換えることになるためである。
 
