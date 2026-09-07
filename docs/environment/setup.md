@@ -101,6 +101,8 @@ lint / test / build のコマンド列を Makefile に集約し、**CI と手元
 | `make run` | `build` を実行してから生成したバイナリを起動する。引数は `ARGS` で渡す（`make run ARGS="--root /path/to/actions-runner"`） |
 | `make install` | インストール先へ `gsr-helper` という名前でバイナリを置く。インストール先は `GOBIN`、無ければ `$(go env GOPATH)/bin`（`go install` と同じ流儀）で、`make install INSTALL_DIR=...` で変えられる。インストール先が `PATH` に無ければ案内を出す。`GOBIN` も `GOPATH` も空のときはインストール先を決められないので、何もせずに失敗する |
 | `make uninstall` | `make install` が置いた `gsr-helper` を削除する |
+| `make install-system` | `SYSTEM_DIR`（既定 `/usr/local/bin`）へ `gsr-helper` を置く。**`sudo gsr-helper` を通すためのターゲットである**——sudo は呼び出し側の `PATH` を引き継がず `secure_path` だけを探すため、`make install` が置く `GOBIN` / `GOPATH/bin` のバイナリは root から見えない。ビルドは呼び出したユーザーのまま行い、配置だけを `SUDO`（既定 `sudo`）で昇格する。root で実行するなら `SUDO=` で空にできる |
+| `make uninstall-system` | `make install-system` が置いた `gsr-helper` を削除する |
 | `make hooks` | Lefthook を Git Hooks に登録 |
 | `make check` | `fmt-check` → `vet` → `lint` → `linterly` → `test` を順に実行 |
 
@@ -117,6 +119,16 @@ CMD  := ./cmd/gsr-helper
 # なり、sudo の要る場所が既定になったうえ install / uninstall の空チェックが死ぬ）。
 INSTALL_DIR ?= $(or $(shell $(GO) env GOBIN),$(patsubst %,%/bin,$(shell $(GO) env GOPATH)))
 
+# install-system の配置先。sudo は呼び出し側の PATH を引き継がず secure_path だけを
+# 探すため、GOBIN や GOPATH/bin へ置いたバイナリは `sudo $(BIN)` から見えない。既定は
+# secure_path に含まれる /usr/local/bin にする。
+SYSTEM_DIR ?= /usr/local/bin
+
+# install-system / uninstall-system が使う昇格コマンド。ビルドは呼び出したユーザーの
+# ままで行い、配置だけを昇格させる（root のビルドキャッシュを作らないため）。
+# すでに root なら SUDO= で空にできる。
+SUDO ?= sudo
+
 # run に渡す引数。make run ARGS="--root /path/to/actions-runner" のように使う。
 ARGS ?=
 
@@ -129,7 +141,7 @@ GOFMT ?= $(shell $(GO) env GOROOT)/bin/gofmt
 # ファイルを含み、testdata/ と入れ子 worktree は含まない）になる。
 GOFILES_TMPL := {{range .GoFiles}}{{printf "%s/%s\n" $$.Dir .}}{{end}}{{range .CgoFiles}}{{printf "%s/%s\n" $$.Dir .}}{{end}}{{range .TestGoFiles}}{{printf "%s/%s\n" $$.Dir .}}{{end}}{{range .XTestGoFiles}}{{printf "%s/%s\n" $$.Dir .}}{{end}}{{range .IgnoredGoFiles}}{{printf "%s/%s\n" $$.Dir .}}{{end}}
 
-.PHONY: help tools fmt fmt-check vet lint linterly test build run install uninstall hooks check
+.PHONY: help tools fmt fmt-check vet lint linterly test build run install uninstall install-system uninstall-system hooks check
 
 help: ## ターゲット一覧を表示する
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -193,6 +205,13 @@ uninstall: ## インストールした $(BIN) を削除する
 	fi; \
 	echo "rm -f $$dir/$(BIN)"; \
 	rm -f "$$dir/$(BIN)"
+
+install-system: build ## $(SYSTEM_DIR) へ置く（sudo $(BIN) でも起動できるようにする）
+	$(SUDO) install -m 0755 "$(BIN)" "$(SYSTEM_DIR)/$(BIN)"
+	@echo "sudo $(BIN) で起動できます"
+
+uninstall-system: ## $(SYSTEM_DIR) から $(BIN) を削除する
+	$(SUDO) rm -f "$(SYSTEM_DIR)/$(BIN)"
 
 hooks: ## Git Hooks を登録する
 	$(GO) tool lefthook install
@@ -366,6 +385,7 @@ updates:
 | make test は競合検出付きで実行する。CI とローカルの唯一のテスト経路であり、-race が外れると並行処理の退行が緑のまま通過する。 | `TestMakeTestDetectsDataRace` |
 | make install はインストール先（GOBIN、無ければ GOPATH/bin）へ gsr-helper という名前で起動できるバイナリを置き、インストール先が PATH に無ければ案内を出す。make uninstall はそれを消す。名前が gsr-helper でなくなれば、利用者は README のとおりに打っても起動できない。 | `TestMakeInstallPutsRunnableBinaryInInstallDir` |
 | インストール先が PATH にあるときは、PATH への追加を促す案内を出してはならない。案内が出る側だけを見ていると、案内文を常に出す実装でもテストが通ってしまう。 | `TestMakeInstallOmitsPATHNoticeWhenInstallDirIsOnPATH` |
+| make install-system は SYSTEM_DIR へ gsr-helper を置き、make uninstall-system がそれを消す。既定の SYSTEM_DIR は /usr/local/bin である。sudo は呼び出し側の PATH を引き継がず secure_path だけを探すため、GOBIN や GOPATH/bin を既定にすると sudo gsr-helper がコマンドが見つかりませんで落ちる。 | `TestMakeInstallSystemPutsRunnableBinaryInSystemDir` |
 | GOBIN も GOPATH も空ならインストール先は決められないので、install / uninstall は何もせず理由を告げて失敗しなければならない。GOPATH が空のときに裸の /bin へ落ちると、sudo の要る system ディレクトリへ書き込もうとし、root では /bin/gsr-helper を作って消してしまう。 | `TestMakeInstallFailsWhenInstallDirIsUnresolvable` |
 | 抑制には理由コメントとリンター名が必須で、不要になった抑制も検出される。nolintlint を `require-explanation` / `require-specific` / `allow-unused: false` の 3 つすべて有効で使う。 | `TestGolangciEnablesNolintlint` |
 | 抑制の 3 つの取り決め（リンター名の明示・理由コメント・不要になった抑制）を破った `//nolint` が、リポジトリの `.golangci.yml` で実際に落ちる。 | `TestGolangciLintRejectsSloppyNolint` |
@@ -835,6 +855,7 @@ pre-push:
 | 1.49 | 2026-09-03 | `make install` のレビュー指摘（major 2 件）を反映。(1) Makefile のコードブロックの `INSTALL_DIR` を、`GOPATH` が空のときに空のままになる形（`$(patsubst %,%/bin,...)`）へ直し、意図をコメントに書いた。ターゲット一覧表の `make install` の行にも、`GOBIN` も `GOPATH` も空なら何もせず失敗することを足した。(2) 不変条件テスト一覧表へ `TestMakeInstallOmitsPATHNoticeWhenInstallDirIsOnPATH` と `TestMakeInstallFailsWhenInstallDirIsUnresolvable` の 2 行を足した | `$(shell $(GO) env GOPATH)/bin` は `GOPATH` が空のとき裸の `/bin` に展開され、`$(or)` がそれを非空と見なすため、既定が sudo の要る system ディレクトリになっていた（`HOME` を持たないコンテナや systemd 起動で起きる）。同時に install / uninstall の空チェックが到達不能な死コードになり、改訂 1.48 が記録した「既定にハードコードした絶対パスや sudo の要る場所を選ばない」方針と、`go install` と同じ流儀（`GOPATH` が空なら失敗する）の双方に反していた。root 実行では `make uninstall` が `/bin/gsr` を消しにいく。空チェックが到達可能になったので、それを踏む検査を一覧表へ登録した。PATH の案内の検査は、案内より前に出るビルドコマンドの表示にインストール先のフルパスが含まれるため、パスだけを見る照合では案内を丸ごと削っても緑になっていた——案内文そのものと、案内が出ない側の両方を縛る |
 | 1.50 | 2026-09-07 | CI を self-hosted runner から GitHub ホストランナー（`ubuntu-latest`）へ移した。`guard` ジョブを削除し、「self-hosted runner を使う前提」節を「GitHub ホストランナーで動かす」節へ書き換え（前提の表を run ごとの破棄・`gcc` 同梱・費用に合わせて作り直し、self-hosted へ戻す場合に要る層を承認ポリシー / runner group / ゲートジョブの 3 行として残した）。不変条件表から guard 系 3 行を落として `TestCIJobsUseGitHubHostedRunners` の行を足し、CI 系 4 行の説明を doc コメントの書き換えに合わせた。ci.yml の逐語ブロック・CI 概要表・concurrency の箇条書きも実体へ同期した | リポジトリを public にしたため。`pull_request` はワークフロー定義をマージコミット側から取るので fork の PR は `ci.yml` を改変して実行でき、ワークフロー側のゲートは境界にならない。runner 実行ユーザーはパスワード不要 sudo を前提とする運用（`internal/doctor/jobreq` が検出する対象そのもの）であり、到達されれば実質 root で作業ディレクトリもキャッシュも次のジョブへ残る。public リポジトリの標準ランナーは無料なので、self-hosted に残す費用面の動機も無い |
 | 1.51 | 2026-09-07 | `make install` / `make uninstall` が置くコマンド名を `gsr` から `gsr-helper` へ統一し、`INSTALL_BIN` 変数を廃止して `BIN` に一本化した。ターゲット一覧表・Makefile の逐語ブロック・不変条件テスト一覧表（`TestMakeInstallPutsRunnableGSRInInstallDir` を `TestMakeInstallPutsRunnableBinaryInInstallDir` へ改名、`TestMakeInstallFailsWhenInstallDirIsUnresolvable` の説明の `/bin/gsr` を `/bin/gsr-helper` へ）を同期した | `go install` が置く名前は `gsr-helper` で、`make install` だけが `gsr` という別名を置いていたため、入れ方によってコマンド名が変わる状態だった。README を公開したことで両方の手順が並ぶので、名前が 2 つあること自体が説明の負債になる。同じ値を持つ変数を 2 つ持つ理由も無くなった |
+| 1.52 | 2026-09-07 | `make install-system` / `make uninstall-system` を追加した（配置先 `SYSTEM_DIR` の既定は `/usr/local/bin`、昇格コマンドは `SUDO`。ビルドは呼び出したユーザーのまま行い配置だけを昇格する）。ターゲット一覧表に 2 行、不変条件テスト一覧表に `TestMakeInstallSystemPutsRunnableBinaryInSystemDir` の 1 行を足し、Makefile の逐語ブロックを同期した | `sudo` は呼び出し側の `PATH` を引き継がず `secure_path`（Ubuntu の既定は `/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`）だけを探すため、`make install` が置く `GOBIN` / `GOPATH/bin` のバイナリは `sudo gsr-helper` から見えず「コマンドが見つかりません」になる（実機で発生）。runner の実運用は `svc.sh install` が systemd ユニットを作り既定の導入先が `/opt/runners` であることから root を要するので、sudo で起動できないのは実質的な導線の欠落だった。既定を `secure_path` に含まれるディレクトリにする必要があるため、既定値そのものを検査対象にした |
 
 **版番号は表への追加順ではなく、その変更が入った時点で採番している。** 1.22 の日付が直前の 1.21 より古いのはこのためである。1.22 の行はもともと重複した `1.8` として記録されており（`feat/#1` の取り込み時に 2 つの `1.8` を両方残したまま解消した）、重複を解消する際に、既に使われている 1.9〜1.21 と衝突しない番号として 1.22 を割り当てた。既存行の版番号を繰り下げないのは、他の行の変更理由が版番号で参照している箇所（1.12 / 1.13）まで書き換えることになるためである。
 

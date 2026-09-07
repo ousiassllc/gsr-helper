@@ -41,6 +41,19 @@ gsr-helper     # that is all it takes to start
 
 The destination is `GOBIN`, or `$(go env GOPATH)/bin` when that is unset (override with `make install INSTALL_DIR=...`). **If that directory is on your `PATH`, typing `gsr-helper` starts it.** If it is not, `make install` tells you to add it. To update, run `make install` again — it overwrites in place. `make uninstall` removes it.
 
+**Running as root**
+
+Managing runners for real needs root: `svc.sh install` writes a systemd unit, and the default install base is `/opt/runners`. But `sudo` does not inherit your `PATH` — it searches only `secure_path`, so a binary sitting in `GOBIN` or `$(go env GOPATH)/bin` is invisible and `sudo gsr-helper` fails with "command not found". Install it where `secure_path` looks:
+
+```sh
+make install-system   # sudo install -m 0755 gsr-helper /usr/local/bin/gsr-helper
+sudo gsr-helper
+```
+
+The build runs as you and only the copy is elevated, so no root-owned build cache appears. Override the destination with `SYSTEM_DIR=...`, and drop the elevation with `SUDO=` if you are already root. `make uninstall-system` removes it.
+
+Without root gsr-helper still starts and shows whatever it can read; you just cannot install or control services.
+
 ## Usage
 
 ```sh
@@ -58,7 +71,7 @@ gsr-helper -root /path/to/actions-runner    # add a scan root (repeatable)
 
 The configuration file lives at `~/.config/gsr-helper/config.yaml`. Every key has a default, so it runs without one.
 
-The audit log defaults to `/var/log/gsr-helper/audit.jsonl`. When it cannot be written, gsr-helper **warns and continues without recording** rather than refusing to start. To keep an audit trail as an unprivileged user, point `audit_log` at a path you can write.
+The audit log defaults to `/var/log/gsr-helper/audit.jsonl`. When it cannot be written, gsr-helper **warns and continues without recording** rather than refusing to start. Running under `sudo` makes the warning go away; to keep an audit trail as an unprivileged user, point `audit_log` at a path you can write.
 
 ## Development
 
