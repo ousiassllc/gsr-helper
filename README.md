@@ -90,11 +90,16 @@ The design documents are written in Japanese.
 |----------|----------|
 | [docs/overview.md](docs/overview.md) | Purpose, background, scope |
 | [docs/requirements/functional.md](docs/requirements/functional.md) | Functional requirements |
+| [docs/requirements/non-functional.md](docs/requirements/non-functional.md) | Non-functional requirements |
 | [docs/architecture/overview.md](docs/architecture/overview.md) | Architecture |
+| [docs/architecture/data-model.md](docs/architecture/data-model.md) | Data model |
 | [docs/architecture/security.md](docs/architecture/security.md) | Security design, including what is deliberately not implemented |
+| [docs/api/external-interfaces.md](docs/api/external-interfaces.md) | External interfaces (GitHub API and external commands) |
+| [docs/components/overview.md](docs/components/overview.md) | Component design |
+| [docs/ui/screens.md](docs/ui/screens.md) | Screen specifications |
+| [docs/ui/atomic-design.md](docs/ui/atomic-design.md) | TUI component design (Atomic Design) |
 | [docs/operations/runner-host-setup.md](docs/operations/runner-host-setup.md) | Setting up a runner host |
 | [docs/environment/setup.md](docs/environment/setup.md) | Development environment, CI, lint |
-| [docs/ui/screens.md](docs/ui/screens.md) | Screen specifications |
 
 ## License
 
