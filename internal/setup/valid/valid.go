@@ -22,6 +22,11 @@ var (
 	ErrLeadingDash = errors.New("先頭が - の値は使えません（コマンドのオプションと解釈されます）")
 	// ErrBadNameChar は runner 名に使えない文字が含まれる場合のエラー。
 	ErrBadNameChar = errors.New("runner 名に使える文字は英数字と - _ . だけです")
+	// ErrDotName は runner 名が . または .. の場合のエラー。
+	//
+	// 名前はそのままインストール先の 1 パス要素になるため、. はインストール先自身、
+	// .. はその親ディレクトリを指してしまう。
+	ErrDotName = errors.New("runner 名に . と .. は使えません")
 	// ErrNameTooLong は runner 名が長すぎる場合のエラー。
 	ErrNameTooLong = errors.New("runner 名が長すぎます")
 	// ErrDuplicateName は既存 runner と名前が重複する場合のエラー。
@@ -87,6 +92,9 @@ func Name(name string, existing []string) error {
 	}
 	if strings.HasPrefix(name, "-") {
 		return fmt.Errorf("runner 名 %q: %w", name, ErrLeadingDash)
+	}
+	if name == "." || name == ".." {
+		return fmt.Errorf("runner 名 %q: %w", name, ErrDotName)
 	}
 	if len(name) > maxNameLen {
 		return fmt.Errorf("runner 名 %q: %w（%d 文字まで）", name, ErrNameTooLong, maxNameLen)
