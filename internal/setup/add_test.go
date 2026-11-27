@@ -246,6 +246,8 @@ func TestPlanAddValidatesExplicitNames(t *testing.T) {
 		"既存と重複":    {[]string{"build01-1"}, []string{"build01-1"}, valid.ErrDuplicateName},
 		"先頭が -":    {[]string{"-rf"}, nil, valid.ErrLeadingDash},
 		"使えない文字":   {[]string{"a b"}, nil, valid.ErrBadNameChar},
+		"ドット 1 つ":  {[]string{"."}, nil, valid.ErrDotName},
+		"親ディレクトリ":  {[]string{".."}, nil, valid.ErrDotName},
 		"指定どうしで重複": {[]string{"dup", "dup"}, nil, valid.ErrDuplicateName},
 	}
 
@@ -257,8 +259,12 @@ func TestPlanAddValidatesExplicitNames(t *testing.T) {
 			spec.Names = tt.names
 			spec.Existing = tt.existing
 
-			if _, err := setup.PlanAdd(spec); !errors.Is(err, tt.want) {
+			plan, err := setup.PlanAdd(spec)
+			if !errors.Is(err, tt.want) {
 				t.Errorf("err = %v, want %v", err, tt.want)
+			}
+			if len(plan.Units) != 0 {
+				t.Errorf("検証に落ちたのに計画が作られた: %v", plan.Dirs())
 			}
 		})
 	}
