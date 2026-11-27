@@ -12,7 +12,7 @@
 | 対象 OS | Linux（amd64 / arm64） |
 | 成果物 | 単一バイナリ `gsr-helper` |
 | タスクランナー | Makefile |
-| CI | GitHub Actions（self-hosted runner） |
+| CI | GitHub Actions（GitHub ホストランナー、`ubuntu-latest`） |
 | Lint | golangci-lint + `go vet` |
 | Format | gofmt（標準） + gci（import のグループ分け）。どちらも golangci-lint の `formatters` として動く |
 | 行数管理 | Linterly |
@@ -147,7 +147,7 @@ GOFILES_TMPL := {{range .GoFiles}}{{printf "%s/%s\n" $$.Dir .}}{{end}}{{range .C
 # 各ターゲットの ## には名前を直に書くこと。
 help: ## ターゲット一覧を表示する
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
-		| awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
+		| awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
 
 tools: ## 依存モジュールと開発ツールを取得する
 	$(GO) mod download
@@ -327,11 +327,11 @@ jobs:
       - run: make build
 ```
 
-**`actions/setup-go` のキャッシュは `cache: false` で無効にする。** self-hosted runner ではジョブ間でホストが変わらず、モジュールキャッシュ（`GOMODCACHE`）とビルドキャッシュ（`GOCACHE`）はホスト側にそのまま残る。`actions/checkout` の `clean: true` は作業ディレクトリを掃除するだけでこれらには触れない。したがって `setup-go` のキャッシュ機構は、既に手元にあるものを tar で固めて保存し次回展開し直すだけの重複であり、速度上の利点がない。
+**`actions/setup-go` のキャッシュは `cache: false` で無効にする。** GitHub ホストランナーは run ごとに VM が破棄され、モジュールキャッシュ（`GOMODCACHE`）もビルドキャッシュ（`GOCACHE`）もジョブ間で残らない。キャッシュを有効にすると、毎回 Actions のキャッシュ領域から blob をダウンロードして展開し、post-job でまた固めて保存する往復が加わる。それが依存の取得とコンパイルを毎回やり直すより速くなるかは計測しないと分からず、`go.sum` が 98KB ある（tool ディレクティブで golangci-lint の依存閉包を抱えるため）ので blob も小さくない。public リポジトリの標準ランナーは無料なので、短縮できても費用には効かない。したがって**有効化は所要時間の計測を伴う別の判断**とし、計測するまでは無効のまま据え置く（`TestCISetupGoDisablesCache`）。
 
-加えて、同一の runner ホストで**実障害が記録されている**: runner が 13 台同居した状態で `setup-go` の `tar -xf cache.tzst` / `unzstd` が D state のまま 26 分滞留し、load average 47 に達してジョブが timeout で cancelled になった。gsr-helper は tool ディレクティブで golangci-lint の依存閉包を抱えるため `go.sum` が 98KB あり、キャッシュ blob が大きくこの問題を踏みやすい。
+この判断は self-hosted 時代から引き継いでいる。当時の根拠（ホスト側にキャッシュが残るので保存と展開が重複でしかない、runner 13 台同居の状態で `tar -xf cache.tzst` / `unzstd` が D state のまま 26 分滞留し load average 47 に達してジョブが timeout で cancelled になった実障害）はホストランナーでは成り立たないが、self-hosted へ戻す場合は再び成り立つ。
 
-**アクションはフルコミット SHA でピン留めする。** `actions/checkout@v5` のような可変タグは、タグの付け替えや上流アカウントの侵害で参照先のコードが差し替わる。[セキュリティ設計](../architecture/security.md#パスワード不要-sudo-の要求への対応)のとおり self-hosted runner のワークフローは実質 root 相当で動くため、この脅威モデルでは被害がホスト全体に及ぶ。版の追従は `.github/dependabot.yml` の `github-actions` エコシステムに任せる（人手ではタグの移動を追えない）。SHA の隣にはバージョンをコメントで残し、読んだときに版が分かるようにする。
+**アクションはフルコミット SHA でピン留めする。** `actions/checkout@v5` のような可変タグは、タグの付け替えや上流アカウントの侵害で参照先のコードが差し替わる。差し替えられたアクションは CI の run の中で任意のコードを実行できる。ホストランナーでは被害が run ごとに破棄される VM の中、かつ `contents: read` の `GITHUB_TOKEN` の範囲に限られるが、検証結果を偽装できる点は変わらない（self-hosted runner では[セキュリティ設計](../architecture/security.md#パスワード不要-sudo-の要求への対応)のとおりワークフローが実質 root 相当で動くため被害がホスト全体に及ぶので、戻す場合はいっそう重要になる）。版の追従は `.github/dependabot.yml` の `github-actions` エコシステムに任せる（人手ではタグの移動を追えない）。SHA の隣にはバージョンをコメントで残し、読んだときに版が分かるようにする。
 
 ```yaml
 version: 2
@@ -345,9 +345,9 @@ updates:
       interval: weekly
 ```
 
-**`actions/checkout` には `persist-credentials: false` を指定する。** 既定では `GITHUB_TOKEN` をローカルの `.git/config` に書き込み、post-job cleanup で削除する。しかし `cancel-in-progress` によるキャンセルでは cleanup が完走しない可能性があり、self-hosted runner は**作業ディレクトリを再利用する**ため、トークンが残留する窓が開く（次回の `actions/checkout` が行う `git clean -ffdx` は `.git` 自体を対象にしないので自動的には消えない）。CI のどの step も認証付きの git 操作を必要としない。
+**`actions/checkout` には `persist-credentials: false` を指定する。** 既定では `GITHUB_TOKEN` をローカルの `.git/config` に書き込み、post-job cleanup で削除する。ホストランナーはワークスペースが run ごとに破棄されるため、トークンが次の run へ残留することは無い。それでも指定するのは、CI のどの step も認証付きの git 操作を必要としないので、トークンを置く理由が無いからである（最小権限）。置かなければ、同じジョブの後続 step が起動するコードから `.git/config` 経由でトークンが読めてしまう経路を最初から作らずに済む。なお self-hosted runner は**作業ディレクトリを再利用する**ので、`cancel-in-progress` によるキャンセルで cleanup が完走しなければトークンが次の run へ残留する窓が開く（次回の `actions/checkout` が行う `git clean -ffdx` は `.git` 自体を対象にしないので自動的には消えない）。この残留の窓は self-hosted 時代の根拠で、ホストランナーでは成り立たない。
 
-**全ジョブに `timeout-minutes` を設定する。** 指定が無いと GitHub 既定の 6 時間までジョブが runner を占有する。オンラインの runner が 1 台しかない状況では、1 ジョブのハングが CI 全体を止める。
+**全ジョブに `timeout-minutes` を設定する。** 指定が無いと GitHub 既定の 6 時間までジョブが実行枠を占有し、同時実行の上限に達していると後続の run が待たされる。1 ジョブのハングが CI 全体を止めうる点は、ホストランナーでも self-hosted runner でも変わらない。
 
 `lint` ジョブは `make check` を 1 step で呼ばず、`make fmt-check` / `make vet` / `make lint` / `make linterly` を**個別の step として列挙する**。どのチェックで落ちたかが run の一覧から分かるためである。そのぶん「実行すべきチェックの集合」が Makefile の `check` と CI の step 列の 2 箇所に存在するため、**`check` にターゲットを追加する際は CI の step も更新する**必要がある。
 
@@ -586,17 +586,16 @@ issues:
 - **`gosec` の G204（可変引数での外部コマンド実行）は `internal/exec` に集中する。** 外部プロセス実行は Executor 1 本に集約する設計（[アーキテクチャ設計](../architecture/overview.md#外部コマンドの実行)）のため、抑制箇所も 1 箇所に収まる。ドメイン層に G204 の抑制が現れた場合は、**抑制ではなく設計違反**として `exec` 層経由に直す。
 - **この方針は現在満たされている。** かつて `internal/runner` の `systemctl show` 呼び出しに置いていた暫定の G204 抑制は、集約先の `internal/exec` が実装された時点で除去した。現在 G204 に相当する抑制は `internal/exec/command/command.go` の 1 箇所だけで、これは方針どおりの位置である。
 - **テストファイル（`_test.go`）に対する `errcheck` / `gosec` の除外は、上記「ファイル単位・パッケージ単位の抑制は使わない」方針の明示的な例外である。** `.golangci.yml` の `exclusions.rules` で `path: _test\.go` に対して除外している。テストではエラーの取り扱い（後片付けの `Close` など）とパス操作（一時ディレクトリ配下のパス組み立て）を緩め、テストの記述量を抑えることが目的である。本番コードのパス検証とエラー処理の厳しさは落とさない。**この 2 リンター・`_test.go` 限定以外の除外は `exclusions` に追加しない。**
-- **ツリーに現存する `//nolint` は次の 11 件（うち G304 が 9 件）で、すべて本番コードの行単位・理由付き・`gosec` 指定である。** いずれも方針上許容する恒久的な抑制で、除去の予定はない。
+- **ツリーに現存する `//nolint` は次の 7 件（うち G304 が 5 件）で、すべて本番コードの行単位・理由付き・`gosec` 指定である。** いずれも方針上許容する恒久的な抑制で、除去の予定はない。
 
   | ファイル | 件数 | 抑制している検査 | 対象と根拠 |
   |---|---|---|---|
   | `internal/exec/command/command.go` | 1 | 可変引数での外部コマンド実行（G204） | シェルを経由せず実行ファイルと引数配列を直接渡すため、メタ文字によるコマンド注入が成立しない。`-` で始まる値によるオプションインジェクションは入力検証（`internal/setup`）の責務 |
   | `internal/ui/page/action/allow.go` | 1 | ハードコードされた資格情報（G101）の誤検知 | 認証を促す画面上の説明文であり、資格情報を含まない |
-  | `internal/runner/config.go` | 3 | 変数を使ったファイル読み取り（G304） | `.runner` / `bin/runnerversion` / `.service`。下記「事前条件に依拠する根拠」 |
+  | `internal/runner/config.go` | 1 | 変数を使ったファイル読み取り（G304） | `readSmallFile` の 1 箇所。`.runner` / `bin/runnerversion` / `.service` はここを通る。下記「事前条件に依拠する根拠」 |
   | `internal/runner/procs/procs.go` | 1 | 同上（G304） | `/proc/<PID>/cmdline`。下記「数値検証による根拠」 |
   | `internal/appconfig/config.go` | 1 | 同上（G304） | `path` は利用者が指定した設定ファイルの位置そのもの（読み込みが本関数の目的）。`Clean` 済みで、内容は `Config` の形にのみデコードする |
   | `internal/audit/open.go` | 2 | 同上（G304） | `path` は非特権ユーザーが持つ設定ファイル（`audit_log`）由来の実質的な外部入力。`O_EXCL` / `O_NOFOLLOW` と fd 上の検証で安全性を担保する |
-  | `internal/logs/tail.go` | 2 | 同上（G304） | 追従するログのパス。利用者が Logs タブの一覧から選ぶもので、その一覧は `logs.List` が runner ディレクトリ配下の `_diag` から `Runner_*.log` / `Worker_*.log` だけを列挙したものである。2 件は `Tail` の最初の `os.Open` と、ログが同名で作り直されたときに開き直す `reopen` の `os.Open` で、**開くのは同じ `path` 変数**なので根拠も同一である。下記「事前条件に依拠する根拠」 |
 
   **この表は `//nolint` の「行」を数えたものであり、G コード別の件数を `golangci-lint` の出力から機械的に検算することはできない。** `nolintlint` の `require-specific` が要求するのはリンター名であって規則 ID ではないため、ツリー内の抑制はいずれも G コードを書かない `//nolint:gosec` の形である。上表の「抑制している検査」列は、各行の nolint の理由コメントと対象コードから読み取ったものである。G コード別に裏取りしたい場合は抑制を外して `go tool golangci-lint run` を走らせる。
 
@@ -604,10 +603,8 @@ issues:
 
   **`_test.go` に実際の抑制指示（有効な `//nolint` ディレクティブ）は 1 つも無い。** `countNolintInTree` が `_test.go` を走査対象から除いているのは、上の判定とは**独立した第 2 の理由**による——`.golangci.yml` が `_test.go` に対する `errcheck` / `gosec` を除外しており、そもそも抑制を書く必要が無いためである。
 
-  **G304 の抑制の安全性の根拠は一括では説明できない。** 9 件は次の 4 種類に分かれる（内訳は 5 + 1 + 1 + 2 件で、表の G304 の件数と一致する）。
-  - **事前条件に依拠する根拠（5 件）。** `internal/runner/config.go` の 3 件はパスが「ディレクトリ + 固定名」で組み立てられているが、**そのディレクトリが外部入力でないことは呼び出し側の事前条件に依拠する**。`LoadConfig` は exported で `dir` を呼び出し側が自由に渡せるうえ、`Discover` の `Options.Roots`（「追加の走査ルート。既定ルートに追加される」）により**走査ルート自体を呼び出し側が指定できる**設計であり、`collectDirs` は `IsRunnerDir` で絞るだけなので dir が外部入力由来になる経路は閉じていない。したがって「呼び出し側が `Discover` が解決した runner ディレクトリを渡す」という事前条件のもとで安全である、というのが正確な根拠であり、これを doc コメントと nolint の理由に明記している。
-
-    `internal/logs/tail.go` の 2 件も**同じ種類**である。`Tail` は exported で `path` を丸ごと呼び出し側から受け取るため、パスの安全性は「`logs.List` が列挙したログのパスを渡す」という事前条件に依拠する。`List` は `<runner.Dir>/_diag` を `os.ReadDir` で読み、`kindOf` が受け付ける `Runner_*.log` / `Worker_*.log` だけを残すので、その事前条件のもとでは runner ディレクトリ配下の診断ログ以外を開くことはない。**`internal/runner/config.go` との違いは、パスを自分で組み立てるか丸ごと受け取るかだけ**であり、根拠の形（呼び出し側の事前条件）は同じなので分類も同じにする。2 件のうち後者は `reopen` にあり、runner がログを同名で作り直したときに開き直す処理である。**開き直しでパスは変わらない**（`Tail` が受け取った `path` をそのまま使う）ため、追加の根拠は要らない。
+  **G304 の抑制の安全性の根拠は一括では説明できない。** 5 件は次の 4 種類に分かれる（内訳は 1 + 1 + 1 + 2 件で、表の G304 の件数と一致する）。
+  - **事前条件に依拠する根拠（1 件）。** `internal/runner/config.go` の 1 件（`readSmallFile`）はパスが「ディレクトリ + 固定名」で組み立てられているが、**そのディレクトリが外部入力でないことは呼び出し側の事前条件に依拠する**。`LoadConfig` は exported で `dir` を呼び出し側が自由に渡せるうえ、`Discover` の `Options.Roots`（「追加の走査ルート。既定ルートに追加される」）により**走査ルート自体を呼び出し側が指定できる**設計であり、`collectDirs` は `IsRunnerDir` で絞るだけなので dir が外部入力由来になる経路は閉じていない。したがって「呼び出し側が `Discover` が解決した runner ディレクトリを渡す」という事前条件のもとで安全である、というのが正確な根拠であり、これを doc コメントと nolint の理由に明記している。ただし `readSmallFile` 自身が `O_NOFOLLOW` でリンクを辿らず、`O_NONBLOCK` で FIFO の `open(2)` を即座に返させ、開いた fd 上で通常ファイルかを確かめて 16 KiB の上限で読むため、事前条件が満たされたうえでも runner 実行ユーザーによるリンク・FIFO・巨大ファイルへのすり替えは成立しない（Issue #208）。
   - **数値検証による根拠（1 件）。** `internal/runner/procs/procs.go` の 1 件は `/proc/<PID>/cmdline` であり「探索済みディレクトリ + 固定名」ではない。`<PID>` は `strconv.Atoi` で数値であることを検証済みのものだけを使う、という別の根拠で安全である。
   - **明示指定のパスと読み取り方に依拠する根拠（1 件）。** `internal/appconfig/config.go` の 1 件は `os.Open` をそのまま使い、`O_NOFOLLOW` も開いた fd 上の検証も行わない。`path` が利用者の指定した設定ファイルの位置そのもの（読み込みが本関数の目的）であること、`Clean` 済みであること、`io.LimitReader` による上限（`maxConfigSize`）付きで読むこと、内容を `Config` の形にのみデコードすることが根拠である。
   - **開いた後の検証による根拠（2 件）。** `internal/audit/open.go` の 2 件は、パスが非特権ユーザーの持つ設定ファイル（`audit_log`）由来の実質的な外部入力であり、外部入力でないとは主張しない。新規作成時は `O_EXCL` / `O_NOFOLLOW` で「今この呼び出しで作った」ことを保証し、既存ファイルを開く場合は `O_NOFOLLOW` と直後の `validateAuditFile` による開いた fd 上の検証で安全性を担保する。
@@ -684,7 +681,7 @@ update_check: false
 - **`warning_threshold: 10` はコメントアウトしてはいけない。** 値そのものは linterly v0.3.3 の既定値と同一で（`internal/config/config.go` の `DefaultWarningThreshold = 10`。`count_mode: all` / `default_excludes: true` も同様に既定値）、`max_lines_per_file` / `max_lines_per_directory` と同じ「デフォルト値を使う」という理由でコメントアウトできそうに見えるが、この 1 行は **`rules:` セクションを非空に保つ構造上の役割**を担っている。`rules:` 配下を全てコメントアウトすると必須チェック（`v.IsSet("rules")`）に引っかかり、実測で `Error: "rules" section is required` の **exit 2** になる。
 - `count_mode: all`（コメント・空行を含む全行を数える）は変更しない。
 - `language: ja` は出力メッセージの言語指定である。
-- **`update_check: false` は外向き HTTP を止めるための指定である。** 既定は `true` で、linterly v0.3.3 は `rootCmd.PersistentPreRun` から毎回 `startUpdateCheck()` を呼び、GitHub Releases へ問い合わせる。`make linterly` / `make check` / pre-commit / CI のすべてで発生するため、self-hosted runner の不要な egress と、新バージョン検出時に CI ログへ混入する想定外の出力の原因になる（実測: `strace -f -e trace=connect` で `linterly check` の外向き接続が 3 件 → 0 件になった）。`--no-update-check` / `LINTERLY_NO_UPDATE_CHECK` でも抑止できるが、設定ファイルに書けば実行経路をまたいで 1 箇所で済む。
+- **`update_check: false` は外向き HTTP を止めるための指定である。** 既定は `true` で、linterly v0.3.3 は `rootCmd.PersistentPreRun` から毎回 `startUpdateCheck()` を呼び、GitHub Releases へ問い合わせる。`make linterly` / `make check` / pre-commit / CI のすべてで発生するため、不要な外向き通信（self-hosted runner では egress として現れる）と、新バージョン検出時に CI ログへ混入する想定外の出力の原因になる（実測: `strace -f -e trace=connect` で `linterly check` の外向き接続が 3 件 → 0 件になった）。`--no-update-check` / `LINTERLY_NO_UPDATE_CHECK` でも抑止できるが、設定ファイルに書けば実行経路をまたいで 1 箇所で済む。
 
 `.linterlyignore`:
 
@@ -859,6 +856,9 @@ pre-push:
 | 1.51 | 2026-09-07 | `make install` / `make uninstall` が置くコマンド名を `gsr` から `gsr-helper` へ統一し、`INSTALL_BIN` 変数を廃止して `BIN` に一本化した。ターゲット一覧表・Makefile の逐語ブロック・不変条件テスト一覧表（`TestMakeInstallPutsRunnableGSRInInstallDir` を `TestMakeInstallPutsRunnableBinaryInInstallDir` へ改名、`TestMakeInstallFailsWhenInstallDirIsUnresolvable` の説明の `/bin/gsr` を `/bin/gsr-helper` へ）を同期した | `go install` が置く名前は `gsr-helper` で、`make install` だけが `gsr` という別名を置いていたため、入れ方によってコマンド名が変わる状態だった。README を公開したことで両方の手順が並ぶので、名前が 2 つあること自体が説明の負債になる。同じ値を持つ変数を 2 つ持つ理由も無くなった |
 | 1.52 | 2026-09-07 | `make install-system` / `make uninstall-system` を追加した（配置先 `SYSTEM_DIR` の既定は `/usr/local/bin`、昇格コマンドは `SUDO`。ビルドは呼び出したユーザーのまま行い配置だけを昇格する）。ターゲット一覧表に 2 行、不変条件テスト一覧表に `TestMakeInstallSystemPutsRunnableBinaryInSystemDir` の 1 行を足し、Makefile の逐語ブロックを同期した | `sudo` は呼び出し側の `PATH` を引き継がず `secure_path`（Ubuntu の既定は `/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`）だけを探すため、`make install` が置く `GOBIN` / `GOPATH/bin` のバイナリは `sudo gsr-helper` から見えず「コマンドが見つかりません」になる（実機で発生）。runner の実運用は `svc.sh install` が systemd ユニットを作り既定の導入先が `/opt/runners` であることから root を要するので、sudo で起動できないのは実質的な導線の欠落だった。既定を `secure_path` に含まれるディレクトリにする必要があるため、既定値そのものを検査対象にした |
 | 1.53 | 2026-09-07 | Makefile の `##` の説明文から `$(BIN)` / `$(SYSTEM_DIR)` を外し、名前を直書きに戻した。展開されない理由を `help` の直前にコメントで残し、逐語ブロックを同期した | `help` は `##` のコメントを `grep` と `awk` で文字列として拾うため変数を展開しない。改訂 1.51 / 1.52 で説明文を `$(BIN)` にしたことで、`make help` の出力に `$(BIN)` がそのまま出ていた（実測）。ターゲットの説明は利用者が最初に読む場所なので、参照の一元化より表示の正しさを採る |
+| 1.54 | 2026-11-28 | 「抑制の方針」の棚卸しを `internal/runner/config.go` の 3 件から 1 件へ改め、総数を 11 件（G304 は 9 件）から **9 件（G304 は 7 件）**、事前条件に依拠する根拠の内訳を 5 件から 3 件へ更新した | `.runner` / `bin/runnerversion` / `.service` の読み取りを 1 つの `readSmallFile`（上限付き・`O_NOFOLLOW` / `O_NONBLOCK`・通常ファイル確認）へ集約し、3 箇所の `os.ReadFile` と抑制を 1 件に減らしたため（Issue #208） |
+| 1.55 | 2026-11-28 | 「抑制の方針」の `//nolint` の棚卸しから `internal/logs/tail.go`（G304 の 2 件）を除いた。総数を 9 件から 7 件（うち G304 が 7 件から 5 件）、G304 の内訳を 3 + 1 + 1 + 2 から 1 + 1 + 1 + 2、「事前条件に依拠する根拠」を 3 件から 1 件へ改めた（同日の改訂 1.54 の後に統合したため、1.54 の値を起点にしている） | `Tail` と `reopen` が `os.Open` をやめ、`O_NOFOLLOW \| O_NONBLOCK` と通常ファイルの確認を行う `openRegular`（`syscall.Open`）で開くようになり、該当の抑制が不要になったため（Issue #210）。`TestSetupDocNolintInventoryMatchesTree` が棚卸しの実体との一致を検証する |
+| 1.56 | 2026-11-28 | Issue #212 / #213 / #219 / #226 を反映。(1) 概要表の CI を GitHub ホストランナー（`ubuntu-latest`）へ直した（1.50 の取りこぼし）。(2) `cache: false` の根拠を、ホストランナー（run ごとに VM が破棄される）に当てはまる「有効化は計測を伴う別の判断なので据え置く」へ書き直し、self-hosted 時代の根拠と実障害は「引き継いだ判断」として残した。(3) `persist-credentials: false`（トークンを置く理由が無い最小権限）・アクションの SHA ピン留め・`timeout-minutes`・`update_check` の根拠から self-hosted 前提を外し、self-hosted の場合との違いを併記した。(4) 改訂 1.6 の `concurrency` の記述に、当時の時点の記述であることを注記した。(5) Makefile の逐語ブロックの `help` の `printf` 幅を `%-12s` から `%-16s` へ同期した | 1.50 で CI を GitHub ホストランナーへ移した際、概要表と一部の根拠の段落が self-hosted 前提のまま残り、同じ文書の「GitHub ホストランナーで動かす」節と矛盾していた。実装側の `internal/buildconfig` の doc コメントは既に「self-hosted 時代の理由は失効している」と書き換え済みで、仕様書だけが旧根拠だった。`%-12s` は最長ターゲット `uninstall-system`（16 文字）より狭く、`make help` の 2 行で説明文の開始桁がずれていた |
 
 **版番号は表への追加順ではなく、その変更が入った時点で採番している。** 1.22 の日付が直前の 1.21 より古いのはこのためである。1.22 の行はもともと重複した `1.8` として記録されており（`feat/#1` の取り込み時に 2 つの `1.8` を両方残したまま解消した）、重複を解消する際に、既に使われている 1.9〜1.21 と衝突しない番号として 1.22 を割り当てた。既存行の版番号を繰り下げないのは、他の行の変更理由が版番号で参照している箇所（1.12 / 1.13）まで書き換えることになるためである。
 
@@ -885,7 +885,7 @@ CI/CD 節に `concurrency` の説明と、`lint` ジョブの step を個別に�
 PR レビューで、仕様書の記述が同じ差分で導入した設定ファイルおよびコードと食い違う箇所が指摘されたため。
 Git Hooks は `fmt` の `{staged_files}` スコープのため make を経由できない（`lint` / `linterly` / `test` を寄せるかは Issue #18）。
 `.claude/` は linterly の `default_excludes` に含まれるため `.linterlyignore` への追記は不要であることを実測で確認した（`--no-default-excludes` 指定時のみ検出される）。
-`concurrency` は self-hosted runner の稼働台数と実行中ジョブのキャンセル挙動に直結し、`main` の連続 push で中間コミットの CI 結果が残らない副作用がある（見直しは Issue #16）。
+`concurrency` は self-hosted runner の稼働台数と実行中ジョブのキャンセル挙動に直結し、`main` の連続 push で中間コミットの CI 結果が残らない副作用がある（見直しは Issue #16。この版の時点の記述で、現行は GitHub ホストランナー前提で CI/CD 節に書いてある）。
 `ManagedBy` の切り出しは `discover.go` が 329 行で linterly の `warn` 帯（301〜330 行）に入っていたためで、終了コードは 0 であり `make check` は分割前でも通っていた。
 「上限に当たった場合は数値を上げるのではなく分割を検討する」方針に従った対応であり、`error`（331 行以上）を避けるための必須対応ではない。
 Issue #2 の影響範囲は「`internal/` 配下のソースコードは変更しない」としていたが、`.golangci.yml` の導入で gosec 5 件・revive 4 件が出るため、`make check` を通す最小対応としてコメント追加と純粋な移動のみを行った。

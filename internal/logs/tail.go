@@ -59,7 +59,7 @@ const (
 func Tail(ctx context.Context, path string, out chan<- Line) error {
 	defer close(out)
 
-	f, err := os.Open(path) //nolint:gosec // G304 表示対象のログは利用者が一覧から選ぶ。パスは runner の _diag 配下を List が列挙したもの。
+	f, err := openRegular(path)
 	if err != nil {
 		return fmt.Errorf("%s を開けません: %w", path, err)
 	}
@@ -131,7 +131,7 @@ func Tail(ctx context.Context, path string, out chan<- Line) error {
 // 画面が理由なく止まるが、先頭から読めば最悪でも「読み過ぎる」だけで、以後の
 // 追記にはきちんと追従できる。打ち切るより読み過ぎるほうがましである。
 func reopen(f *os.File, path string, off int64) (*os.File, int64) {
-	nf, err := os.Open(path) //nolint:gosec // G304 表示対象のログは利用者が一覧から選ぶ。パスは runner の _diag 配下を List が列挙したもの。
+	nf, err := openRegular(path)
 	if err != nil {
 		return f, off
 	}
@@ -160,7 +160,8 @@ func seekTail(f *os.File) (int64, error) {
 		return 0, fmt.Errorf("%s を読み出せません: %w", f.Name(), err)
 	}
 	r := bufio.NewReaderSize(f, readBufBytes)
-	_, n, complete, err := readLine(r)
+	// 開いたのは通常ファイルなので読みは有限である。キャンセルを見る必要は無い。
+	_, n, complete, err := readLine(context.Background(), r)
 	if err != nil && !errors.Is(err, io.EOF) {
 		return 0, fmt.Errorf("%s を読み出せません: %w", f.Name(), err)
 	}
@@ -193,7 +194,10 @@ func emit(ctx context.Context, f *os.File, off int64, out chan<- Line) (int64, e
 
 	r := bufio.NewReaderSize(f, readBufBytes)
 	for {
-		text, n, complete, err := readLine(r)
+		text, n, complete, err := readLine(ctx, r)
+		if ctx.Err() != nil {
+			return off, nil
+		}
 		if err != nil && !errors.Is(err, io.EOF) {
 			return off, fmt.Errorf("%s を読み出せません: %w", f.Name(), err)
 		}
@@ -213,9 +217,17 @@ func emit(ctx context.Context, f *os.File, off int64, out chan<- Line) (int64, e
 //
 // 本文は maxLineBytes で打ち切るが、消費したバイト数は打ち切らない。読み出し位置は
 // 実際に読んだぶんだけ進める必要があるためである。
-func readLine(r *bufio.Reader) (text string, n int64, complete bool, err error) {
+//
+// 改行が来ない入力が続く間は ErrBufferFull で回り続けるので、周回ごとに ctx を
+// 見る。通常ファイルしか開かない（openRegular）ので通常は有限だが、読み出し中に
+// 巨大なファイルへ育った場合に、キャンセルで確実に抜けられるようにする多重防御である。
+// キャンセルされたら ctx.Err() を返す。
+func readLine(ctx context.Context, r *bufio.Reader) (text string, n int64, complete bool, err error) {
 	var b strings.Builder
 	for {
+		if err := ctx.Err(); err != nil {
+			return "", n, false, err
+		}
 		chunk, rerr := r.ReadSlice('\n')
 		n += int64(len(chunk))
 		if room := maxLineBytes - b.Len(); room > 0 {

@@ -156,7 +156,7 @@ gh auth refresh -h github.com -s admin:org
 | `./config.sh remove --token <token>` | 登録解除 | FR-17 |
 | `./svc.sh install [user]` | systemd ユニットの作成 | FR-10 |
 | `./svc.sh uninstall` | ユニットの削除 | FR-17。**サービス化されていない runner には発行しない**（存在しないユニットへの `uninstall` は必ず失敗し、そこで計画全体が中止される） |
-| `./svc.sh start` / `stop` / `status` | サービス操作 | `systemctl` と等価。ユニット名の解決を任せられる場面で使う |
+| `./svc.sh start` / `stop` | サービス操作 | `systemctl` と等価。ユニット名の解決を任せられる場面で使う。**`status` は発行しない**（状態は `systemctl show` で読む） |
 
 `config.sh` は対話入力を要求しないよう、必要な引数をすべて与えて実行する。
 
@@ -189,7 +189,7 @@ gh auth refresh -h github.com -s admin:org
 | ファイルシステムの統計（容量・inode） | 残量の取得 | FR-29、doctor |
 | ディレクトリの再帰走査 | ディスク使用量の集計 | FR-27。外部の `du` は使わず自前で走査し、進捗を出せるようにする |
 | `git` / `node` などの存在とバージョン | 依存コマンドの確認 | doctor |
-| `sudo -l -U <runner-user>` | パスワード不要 sudo（`NOPASSWD`）の判定 | FR-43。**出力は権限情報のため監査ログに残さない**（[セキュリティ設計](../architecture/security.md#パスワード不要-sudo-の要求への対応)） |
+| `sudo -n -l -U <runner-user>` | パスワード不要 sudo（`NOPASSWD`）の判定 | FR-43。**`-n`（非対話）を必ず付ける**（付けないと sudo が端末へパスワードを要求し、TUI の画面が壊れ、起動時の自動判定（FR-44）が入力待ちで止まる）。**出力は権限情報のため監査ログに残さない**（[セキュリティ設計](../architecture/security.md#パスワード不要-sudo-の要求への対応)） |
 | `os/user.LookupId`（`/etc/passwd`・NSS 経由） | UID から runner 実行ユーザー名の解決（`RunAsUser`） | FR-01、FR-43。**引けない場合は UID の 10 進表記を使う**（静的リンクで NSS が使えないビルド、LDAP 上のユーザー）。[データモデル](../architecture/data-model.md#runasuser-の決定と-uid-フォールバック) |
 | `/etc/group` の参照（`os/user` 経由） | runner 実行ユーザーの docker グループ所属の判定 | FR-43 |
 | `/proc/<pid>/status` の `Groups` | 稼働中の `Runner.Listener` に docker グループが反映されているかの判定 | FR-43。`usermod` 後に runner を再起動していない状態を検出する |
@@ -202,8 +202,8 @@ TCP 接続の成否とレイテンシを確認する。到達先は runner が�
 |-------|------|
 | `github.com:443` | git 操作 |
 | `api.github.com:443` | API |
-| `*.actions.githubusercontent.com:443` | Actions のサービス（runner の待ち受け先） |
-| `pkg.actions.githubusercontent.com:443` / `ghcr.io:443` | パッケージ・コンテナイメージの取得 |
+| `pipelines.actions.githubusercontent.com:443` | ジョブの受信。`*.actions.githubusercontent.com` はワイルドカードで接続できないため、この 1 ホストを代表に確認する |
+| `pkg-containers.githubusercontent.com:443` | パッケージ・コンテナイメージの取得（`ghcr.io` は確認しない） |
 | results-receiver（`results-receiver.actions.githubusercontent.com:443`） | ログ・成果物のアップロード |
 
 プロキシ環境変数（`https_proxy` / `http_proxy` / `no_proxy`）が設定されている場合はそれを経由した到達性を確認し、runner の `.env` に設定されたプロキシとホストの環境変数が食い違っていないかも判定する。
@@ -226,3 +226,4 @@ TCP 接続の成否とレイテンシを確認する。到達先は runner が�
 | 1.11 | 2026-08-23 | エンドポイント表に `GET /rate_limit`（保有スコープの確認）を追加し、実際に呼んでいるのは 4 つではなく 5 つであると訂正。systemd の表に doctor の `systemctl show <unit> --no-pager -p Restart -p WorkingDirectory -p Environment` を追加し、`journalctl -k --since` に `--no-pager` を補い、`timedatectl show` の 1 行を `show -p NTPSynchronized -p NTP -p TimeUSec` と `timesync-status --no-pager` の 2 行へ分割。表の直後の注記に、doctor の `systemctl show` は記録対象であることを `journalctl` と同じ形で明記。gh CLI の表から `gh auth status` の行を削除し、本ツールが発行する `gh` は `gh auth token` だけであることと、401 の案内に出る `gh auth status` は利用者が打つコマンドであることを注記 | doctor（Issue #11）の実装と表が食い違っていた。**本節は「外部との接点の全量」を定める表なので、載っていないコマンドは無いものとして扱われる**——`/rate_limit` が抜けたまま「呼んでいるのは 4 つ」と断言しており、doctor の `systemctl show` が抜けたまま「`show` は記録しない」と読める注記が残っていた。`gh auth status` は実装が無いうえ、[画面仕様](../ui/screens.md#共通レイアウト)の「`gh` の認証ユーザー名は出さない」とも用途の記述が矛盾していた。`timedatectl` を 2 行に分けたのは、機械可読な `show-timesync` にオフセットのプロパティが無く（`busctl introspect org.freedesktop.timesync1` で確認）、算出済みのずれを出すのは `timesync-status` だけであるため、どちらを発行するかが仕様から一意に決まる必要があるからである |
 | 1.12 | 2026-08-24 | 「必要なトークンスコープ」の可否判定を、認証の有無までで判定するという記述から **保有スコープを起動後に 1 度だけ引いて共有状態に載せ、不足していれば `n` / `D` を塞ぐ**（`u` は塞がない）へ改め、塞がない 4 条件（判定前 / 取得失敗 / スコープの概念を持たないトークン / 登録先が判定できない）を表にした。判定が効くのは `n` / `D` だが、**表示だけでなく実行も止まるのは `D` だけである**こと（一括操作では 1 台でも不足すれば Setup タブへの引き渡し自体が起こらず操作全体が中止される。`internal/ui/page/runners` の `setupBlocked`）と、`n` は対象の runner を持たないため 4 条件の 4 つ目に当たって押下を塞がず、フッタのグレーアウトが実行の可否と一致しないことを明記した。グレーアウトの出どころも、`n` が詳細画面の操作リストに載らない点を含めて書き分けた。1.10 の「可否は認証の有無までで判定し続ける」に撤回の注記を付けた | Issue #79（PR #90）が `internal/ui/page/action` の `missingScope` でスコープ不足の判定を実装したため。同 PR が [画面仕様](../ui/screens.md#無効な操作の表示) を「フッタと詳細画面の操作リストの双方で `n` / `D` を塞ぐ」へ書き換えており、本書だけが「認証の有無までで判定する」と述べて 2 文書が正面から矛盾していた。**本書は外部との接点の全量を定める文書なので、可否の判定にスコープを使わないと書かれていると、後続 Issue が塞ぐ判定を余計な実装として外しうる** |
 | 1.13 | 2026-09-07 | `APIError.Error()` が Hint を「。」で末尾へ繋ぐことと、1 行に切り詰めて表示する画面はその繋ぎを外して Hint を別行に出すことを明記した | 追加の結果報告が 1 行ずつ幅で切り詰める作りのため、Hint を末尾に繋いだ 1 行を渡すと不足スコープと `gh auth refresh` のコマンド例だけが落ちていた（org の tarball 取得が `[HTTP 403]: GET https://api.gith…` で切れた実例）。表示の約束を型の側の doc と本書の両方に残す |
+| 1.14 | 2026-11-28 | ネットワーク到達性チェックの表を実装（`reachEndpoints`）の 5 件と 1 対 1 にそろえた（`*.actions…` の行を代表の `pipelines.actions.githubusercontent.com:443` に、パッケージ・コンテナの行を `pkg-containers.githubusercontent.com:443` のみに改め、`ghcr.io` を外した）。外部コマンド表の `./svc.sh` から `status` を外し、`sudo -l -U` を `sudo -n -l -U` に直して `-n` の理由を添えた | 表が実装の確認しない宛先（`pkg.actions…` / `ghcr.io`）を確認済みと読ませていた（Issue #215）。`svc.sh status` はどこからも発行されず、`sudo` の `-n` は付けないと画面が壊れる必須の引数なのに落ちていた（Issue #216。`internal/setup/add.go` / `remove.go`、`internal/doctor/jobreq/sudo.go`） |
