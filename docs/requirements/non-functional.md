@@ -55,7 +55,7 @@
 | サービス管理 | systemd（`svc.sh install` 済み）と `run.sh` 直起動の両方を検出。制御は systemd 管理下の runner のみ |
 | アーキテクチャ | amd64 / arm64 |
 | Go バージョン | go.mod に記載のバージョン以上。標準ライブラリ以外の依存は下記に限定する |
-| 配布 | `go install github.com/ousiassllc/gsr-helper/cmd/gsr-helper@latest`。開発ツリーからは `make install` で `gsr` という名前で入れる（[開発環境](../environment/setup.md#タスクランナー)） |
+| 配布 | `go install github.com/ousiassllc/gsr-helper/cmd/gsr-helper@latest`。開発ツリーからは `make install` で `gsr-helper` という名前で入れる（`make install-system` なら `/usr/local/bin`。[開発環境](../environment/setup.md#タスクランナー)） |
 
 ### 依存ライブラリ
 
@@ -67,7 +67,7 @@
 | `charm.land/bubbles/v2` | `table` / `viewport` / `textinput` / `key` / `help` / `spinner` / `progress` / `stopwatch` | 一覧・ログ表示・キー定義・進捗・計時を自前実装せずに済む。使う部品と担当する organism の対応は [TUI コンポーネント設計](../ui/atomic-design.md#organism-一覧) に定める | 導入済み（列挙した 8 部品すべてを使用。`progress` は Setup タブの一括処理の進捗バー、`spinner` / `stopwatch` はドレイン待機と進捗表示） |
 | `charm.land/lipgloss/v2` | スタイリングと表示幅の計算 | 端末のカラープロファイル判定を任せられる。全角を含む文字列の幅計算も `lipgloss.Width` に寄せる | 導入済み |
 | `huh`（Charm。v2 系） | 対話フォーム | 入力検証・条件分岐・確認ステップを備え、`tea.Model` として既存画面に組み込める。フォームを自前実装する理由がない | 導入済み（`charm.land/huh/v2`）。使うのは `internal/ui/token` の `HuhTheme`（テーマの組み立て）・`organism/dialog.Form`（ラッパー）・`ui/page/setup` の追加フォーム・`ui/page/config` の設定編集と初回設定ウィザードの 4 箇所 |
-| `google/go-github` | GitHub API クライアント | トークン取得・ラベル操作・runner 情報取得。API のバージョン差分をライブラリに任せる | 導入済み（`github.com/google/go-github/v83`）。**import してよいのは `internal/gh` だけ**で、go-github の型は同パッケージの外へ出さない。ラベル操作は FR-35（設定編集）のものなので未使用 |
+| `google/go-github` | GitHub API クライアント | トークン取得・ラベル操作・runner 情報取得。API のバージョン差分をライブラリに任せる | 導入済み（`github.com/google/go-github/v83`）。**import してよいのは `internal/gh` だけ**で、go-github の型は同パッケージの外へ出さない。ラベル操作は FR-35（設定編集）の Config タブが使用中（取得 `RunnerLabels` と置換 `ReplaceRunnerLabels`。追加の POST と個別削除の DELETE は未実装。[外部インターフェース](../api/external-interfaces.md#github-rest-api)） |
 | `fsnotify/fsnotify` | ファイル監視 | ログのライブテールでポーリングを避ける。`inotify` を直に扱わずに済み、Linux 以外でも同じコードが動く | 導入済み（`internal/logs` の `Tail`）。**追加ではなく直接依存への昇格である**——`golangci-lint` の推移依存として `go.mod` に既に載っていた |
 | `gopkg.in/yaml.v3` | 設定ファイルの読み書き | 自前設定を人が手編集できる形式（コメント可）にするため。監査ログは JSON Lines なので標準ライブラリで扱う | 導入済み |
 
@@ -165,3 +165,4 @@ GitHub Actions の GitHub ホストランナー（`runs-on: ubuntu-latest`）で
 | 1.14 | 2026-08-24 | 安全性要件の監査ログの記録対象を「すべての外部コマンド」から「すべての外部コマンド + 外部コマンドを伴わない破壊的操作（`internal/disk` のファイルの再帰削除）」へ拡張し、記録の起点を層ごとに 1 箇所（`internal/exec/command` の `Run` / `internal/disk` の `removeTarget`）に固定していることを明記。全件記録する破壊的操作の範囲を action（`svc.*` / `runner.*` / `disk.clean`）で限定し、外部コマンドを伴わない破壊的操作のうち `internal/config` 系・`internal/appconfig` のファイル置換と `internal/setup/tarball` の展開先の置換は記録対象外であることを追記 | Issue #71 で監査ログの契約が「外部コマンドと、それに準ずる破壊的操作」へ広がり、[セキュリティ設計](../architecture/security.md#監査ログ) と [コンポーネント設計](../components/overview.md#internalaudit) は追随済みだったが、最上位の非機能要件が外部コマンド限定のままで、docker を含まない削除計画の監査レコードが仕様上は対象外と読めた。逆に拡張後の記述は記録される範囲しか述べておらず、最上位の非機能要件だけを読むと「確認を経る破壊的操作はすべて追跡できる」と読めた——実際に監査レコードを書く（`audit.Logger` の `Write` / `Report` を呼ぶ）のは `internal/disk` と `internal/exec/command` の 2 箇所だけである（`internal/audit` を import するパッケージはこれより多いが、他は `Logger` を生成して配るだけである） |
 | 1.15 | 2026-09-03 | 可搬性の表の `配布` に、開発ツリーからは `make install` で `gsr` という名前で入れることを追記した | `go install` で入る名前は `gsr-helper` であり、`gsr` と打って起動する経路は Makefile 側にしか書かれていなかった。配布方法を引く読み手が両方を 1 か所で見られる必要がある |
 | 1.16 | 2026-09-07 | CI の実行環境を self-hosted runner から GitHub ホストランナー（`runs-on: ubuntu-latest`）へ改め、参照先を [環境構築 / GitHub ホストランナーで動かす](../environment/setup.md#github-ホストランナーで動かす) に差し替えた | リポジトリの public 化に伴い、fork の PR が管理対象ホスト上で任意のコードを実行できる形を避けるため（判断の記録は環境構築の改訂 1.50） |
+| 1.17 | 2026-11-28 | 可搬性の表の `配布` を、`make install` が置く名前 `gsr-helper`（`make install-system` なら `/usr/local/bin`）へ訂正した。依存ライブラリ表の `google/go-github` 行の「ラベル操作は未使用」を、Config タブ（FR-35）が取得と置換を使用中であることへ改めた。なお 1.15 が書いた `gsr` は当時の記録であり、現在は `gsr-helper` である | 1.15 が書いた `gsr` は、環境構築 1.51 で `gsr-helper` へ統一された後も本書だけ取り残されており、`gsr` と打っても起動できない（Issue #211 / #225）。`go-github` 行はラベル操作を実装済み（`internal/gh` の `RunnerLabels` / `ReplaceRunnerLabels` を `internal/config/edit` が呼ぶ）で、外部インターフェースの記述と食い違っていた（Issue #214） |
