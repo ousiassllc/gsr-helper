@@ -96,12 +96,19 @@ func Run(ctx context.Context, in Input) (setup.Result, error) {
 	tokens := newTokenCache(c, in.Deps.Secrets)
 	defer tokens.forget()
 
-	ball, err := in.tarball(ctx, c)
+	// tarball の置き場は Run が所有し、成功・失敗・キャンセルのどれでも消す。
+	// 取得に失敗した場合 tarball.Fetch はファイルしか消さないため、ここで持たないと残る。
+	dir, err := in.tarballDir()
 	if err != nil {
 		return failed(in.Plan, err), err
 	}
-	if ball != "" {
-		defer func() { _ = os.Remove(ball) }()
+	if dir != "" {
+		defer func() { _ = os.RemoveAll(dir) }()
+	}
+
+	ball, err := in.tarball(ctx, c, dir)
+	if err != nil {
+		return failed(in.Plan, err), err
 	}
 
 	return setup.Apply(ctx, setup.ApplyInput{
@@ -115,8 +122,16 @@ func Run(ctx context.Context, in Input) (setup.Result, error) {
 	})
 }
 
-// tarball は必要なら tarball を取得して展開元のパスを返す。不要なら空文字。
-func (in Input) tarball(ctx context.Context, c *gh.Client) (string, error) {
+// tarballDir は tarball を置く一時ディレクトリを作る。tarball が不要なら作らず空文字を返す。
+func (in Input) tarballDir() (string, error) {
+	if !in.Plan.NeedsTarball {
+		return "", nil
+	}
+	return os.MkdirTemp("", "gsr-helper-runner-")
+}
+
+// tarball は必要なら dir へ tarball を取得して展開元のパスを返す。不要なら空文字。
+func (in Input) tarball(ctx context.Context, c *gh.Client, dir string) (string, error) {
 	if !in.Plan.NeedsTarball {
 		return "", nil
 	}
@@ -132,11 +147,6 @@ func (in Input) tarball(ctx context.Context, c *gh.Client) (string, error) {
 	}
 
 	d, err := gh.PickDownload(list, "linux", gh.HostArch())
-	if err != nil {
-		return "", err
-	}
-
-	dir, err := os.MkdirTemp("", "gsr-helper-runner-")
 	if err != nil {
 		return "", err
 	}
