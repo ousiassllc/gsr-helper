@@ -1196,8 +1196,8 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 | `internal/setup` | 1994 | 6 | pass |
 | `internal/disk` | 1980 | 20 | pass |
 | `internal/exec/command` | 1974 | 26 | pass |
+| `internal/runner` | 1942 | 58 | pass |
 | `internal/config/edit` | 1904 | 96 | pass |
-| `internal/runner` | 1824 | 176 | pass |
 | `internal/buildconfig/docscheck` | 1497 | 503 | pass |
 | `internal/doctor/jobreq` | 1495 | 505 | pass |
 | `internal/buildconfig` | 1408 | 592 | pass |
@@ -1842,6 +1842,7 @@ Issue #31 で `table_test.go` の空振りしていたテスト（`View() != ""`
 | 1.135 | 2026-09-07 | 行数の予算の表を実測へ更新した（`internal/setup` 1988 行、`internal/exec/command` 1974 行、`ui/page/setup` 1833 行、`ui/page/setup/report` 269 行） | root での `config.sh` 実行・失敗理由への標準出力の掲載・結果報告の折り返しの 3 点を入れたため。**`internal/setup` と `internal/exec/command` はどちらも上限のすぐ手前である**——次に触る Issue は先に空けること。`internal/setup` の空け方は[コンポーネント設計](../components/overview.md#internalsetup)が既に掲げる方針（「計画（Plan）と実行（Apply）を分離する」）に沿って `Apply` を別パッケージへ出すのが素直である |
 | 1.136 | 2026-11-28 | 改訂の詳細の「改訂 1.80」にあった[コンポーネント設計](../components/overview.md#依存関係)へのリンクのアンカーを、存在しない `#依存の方向` から実在する `#依存関係` へ直した | リンク先の文書に `依存の方向` という見出しは無く（あるのは `## 依存関係` と `### 依存の規則`）、アンカーが解決しなかった（Issue #227）。記録の本文は変えていない |
 | 1.137 | 2026-11-28 | 行数の予算の表を実測へ更新した（`internal/setup` 1994 行・残り 6、`internal/setup/job` 915 行、`internal/setup/valid` 491 行） | runner 名の `.` / `..` 拒否（Issue #206）と、tarball の一時ディレクトリを `job.Run` が所有して片付ける修正（Issue #207）の回帰テストを足したため。**`internal/setup` は残り 6 行で、次に触る Issue は先に空けること** |
+| 1.138 | 2026-11-28 | 行数の予算の表の `internal/runner` を実測（1942 行 / 残り 58 行）へ更新した | `Discover` が読む `.runner` / `bin/runnerversion` / `.service` を、上限付き・`O_NOFOLLOW` / `O_NONBLOCK`・通常ファイル確認で開く `readSmallFile` と回帰テスト（`readsmall_test.go`）を足したため（Issue #208。[コンポーネント設計](../components/overview.md#改訂履歴)の改訂 1.70）。**残り 58 行**であり、次にこのディレクトリを触る Issue は先に行数を空けること |
 
 ### 改訂の詳細
 

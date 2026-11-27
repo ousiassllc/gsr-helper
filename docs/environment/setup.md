@@ -586,13 +586,13 @@ issues:
 - **`gosec` の G204（可変引数での外部コマンド実行）は `internal/exec` に集中する。** 外部プロセス実行は Executor 1 本に集約する設計（[アーキテクチャ設計](../architecture/overview.md#外部コマンドの実行)）のため、抑制箇所も 1 箇所に収まる。ドメイン層に G204 の抑制が現れた場合は、**抑制ではなく設計違反**として `exec` 層経由に直す。
 - **この方針は現在満たされている。** かつて `internal/runner` の `systemctl show` 呼び出しに置いていた暫定の G204 抑制は、集約先の `internal/exec` が実装された時点で除去した。現在 G204 に相当する抑制は `internal/exec/command/command.go` の 1 箇所だけで、これは方針どおりの位置である。
 - **テストファイル（`_test.go`）に対する `errcheck` / `gosec` の除外は、上記「ファイル単位・パッケージ単位の抑制は使わない」方針の明示的な例外である。** `.golangci.yml` の `exclusions.rules` で `path: _test\.go` に対して除外している。テストではエラーの取り扱い（後片付けの `Close` など）とパス操作（一時ディレクトリ配下のパス組み立て）を緩め、テストの記述量を抑えることが目的である。本番コードのパス検証とエラー処理の厳しさは落とさない。**この 2 リンター・`_test.go` 限定以外の除外は `exclusions` に追加しない。**
-- **ツリーに現存する `//nolint` は次の 11 件（うち G304 が 9 件）で、すべて本番コードの行単位・理由付き・`gosec` 指定である。** いずれも方針上許容する恒久的な抑制で、除去の予定はない。
+- **ツリーに現存する `//nolint` は次の 9 件（うち G304 が 7 件）で、すべて本番コードの行単位・理由付き・`gosec` 指定である。** いずれも方針上許容する恒久的な抑制で、除去の予定はない。
 
   | ファイル | 件数 | 抑制している検査 | 対象と根拠 |
   |---|---|---|---|
   | `internal/exec/command/command.go` | 1 | 可変引数での外部コマンド実行（G204） | シェルを経由せず実行ファイルと引数配列を直接渡すため、メタ文字によるコマンド注入が成立しない。`-` で始まる値によるオプションインジェクションは入力検証（`internal/setup`）の責務 |
   | `internal/ui/page/action/allow.go` | 1 | ハードコードされた資格情報（G101）の誤検知 | 認証を促す画面上の説明文であり、資格情報を含まない |
-  | `internal/runner/config.go` | 3 | 変数を使ったファイル読み取り（G304） | `.runner` / `bin/runnerversion` / `.service`。下記「事前条件に依拠する根拠」 |
+  | `internal/runner/config.go` | 1 | 変数を使ったファイル読み取り（G304） | `readSmallFile` の 1 箇所。`.runner` / `bin/runnerversion` / `.service` はここを通る。下記「事前条件に依拠する根拠」 |
   | `internal/runner/procs/procs.go` | 1 | 同上（G304） | `/proc/<PID>/cmdline`。下記「数値検証による根拠」 |
   | `internal/appconfig/config.go` | 1 | 同上（G304） | `path` は利用者が指定した設定ファイルの位置そのもの（読み込みが本関数の目的）。`Clean` 済みで、内容は `Config` の形にのみデコードする |
   | `internal/audit/open.go` | 2 | 同上（G304） | `path` は非特権ユーザーが持つ設定ファイル（`audit_log`）由来の実質的な外部入力。`O_EXCL` / `O_NOFOLLOW` と fd 上の検証で安全性を担保する |
@@ -604,8 +604,8 @@ issues:
 
   **`_test.go` に実際の抑制指示（有効な `//nolint` ディレクティブ）は 1 つも無い。** `countNolintInTree` が `_test.go` を走査対象から除いているのは、上の判定とは**独立した第 2 の理由**による——`.golangci.yml` が `_test.go` に対する `errcheck` / `gosec` を除外しており、そもそも抑制を書く必要が無いためである。
 
-  **G304 の抑制の安全性の根拠は一括では説明できない。** 9 件は次の 4 種類に分かれる（内訳は 5 + 1 + 1 + 2 件で、表の G304 の件数と一致する）。
-  - **事前条件に依拠する根拠（5 件）。** `internal/runner/config.go` の 3 件はパスが「ディレクトリ + 固定名」で組み立てられているが、**そのディレクトリが外部入力でないことは呼び出し側の事前条件に依拠する**。`LoadConfig` は exported で `dir` を呼び出し側が自由に渡せるうえ、`Discover` の `Options.Roots`（「追加の走査ルート。既定ルートに追加される」）により**走査ルート自体を呼び出し側が指定できる**設計であり、`collectDirs` は `IsRunnerDir` で絞るだけなので dir が外部入力由来になる経路は閉じていない。したがって「呼び出し側が `Discover` が解決した runner ディレクトリを渡す」という事前条件のもとで安全である、というのが正確な根拠であり、これを doc コメントと nolint の理由に明記している。
+  **G304 の抑制の安全性の根拠は一括では説明できない。** 7 件は次の 4 種類に分かれる（内訳は 3 + 1 + 1 + 2 件で、表の G304 の件数と一致する）。
+  - **事前条件に依拠する根拠（3 件）。** `internal/runner/config.go` の 1 件（`readSmallFile`）はパスが「ディレクトリ + 固定名」で組み立てられているが、**そのディレクトリが外部入力でないことは呼び出し側の事前条件に依拠する**。`LoadConfig` は exported で `dir` を呼び出し側が自由に渡せるうえ、`Discover` の `Options.Roots`（「追加の走査ルート。既定ルートに追加される」）により**走査ルート自体を呼び出し側が指定できる**設計であり、`collectDirs` は `IsRunnerDir` で絞るだけなので dir が外部入力由来になる経路は閉じていない。したがって「呼び出し側が `Discover` が解決した runner ディレクトリを渡す」という事前条件のもとで安全である、というのが正確な根拠であり、これを doc コメントと nolint の理由に明記している。ただし `readSmallFile` 自身が `O_NOFOLLOW` でリンクを辿らず、`O_NONBLOCK` で FIFO の `open(2)` を即座に返させ、開いた fd 上で通常ファイルかを確かめて 16 KiB の上限で読むため、事前条件が満たされたうえでも runner 実行ユーザーによるリンク・FIFO・巨大ファイルへのすり替えは成立しない（Issue #208）。
 
     `internal/logs/tail.go` の 2 件も**同じ種類**である。`Tail` は exported で `path` を丸ごと呼び出し側から受け取るため、パスの安全性は「`logs.List` が列挙したログのパスを渡す」という事前条件に依拠する。`List` は `<runner.Dir>/_diag` を `os.ReadDir` で読み、`kindOf` が受け付ける `Runner_*.log` / `Worker_*.log` だけを残すので、その事前条件のもとでは runner ディレクトリ配下の診断ログ以外を開くことはない。**`internal/runner/config.go` との違いは、パスを自分で組み立てるか丸ごと受け取るかだけ**であり、根拠の形（呼び出し側の事前条件）は同じなので分類も同じにする。2 件のうち後者は `reopen` にあり、runner がログを同名で作り直したときに開き直す処理である。**開き直しでパスは変わらない**（`Tail` が受け取った `path` をそのまま使う）ため、追加の根拠は要らない。
   - **数値検証による根拠（1 件）。** `internal/runner/procs/procs.go` の 1 件は `/proc/<PID>/cmdline` であり「探索済みディレクトリ + 固定名」ではない。`<PID>` は `strconv.Atoi` で数値であることを検証済みのものだけを使う、という別の根拠で安全である。
@@ -859,6 +859,7 @@ pre-push:
 | 1.51 | 2026-09-07 | `make install` / `make uninstall` が置くコマンド名を `gsr` から `gsr-helper` へ統一し、`INSTALL_BIN` 変数を廃止して `BIN` に一本化した。ターゲット一覧表・Makefile の逐語ブロック・不変条件テスト一覧表（`TestMakeInstallPutsRunnableGSRInInstallDir` を `TestMakeInstallPutsRunnableBinaryInInstallDir` へ改名、`TestMakeInstallFailsWhenInstallDirIsUnresolvable` の説明の `/bin/gsr` を `/bin/gsr-helper` へ）を同期した | `go install` が置く名前は `gsr-helper` で、`make install` だけが `gsr` という別名を置いていたため、入れ方によってコマンド名が変わる状態だった。README を公開したことで両方の手順が並ぶので、名前が 2 つあること自体が説明の負債になる。同じ値を持つ変数を 2 つ持つ理由も無くなった |
 | 1.52 | 2026-09-07 | `make install-system` / `make uninstall-system` を追加した（配置先 `SYSTEM_DIR` の既定は `/usr/local/bin`、昇格コマンドは `SUDO`。ビルドは呼び出したユーザーのまま行い配置だけを昇格する）。ターゲット一覧表に 2 行、不変条件テスト一覧表に `TestMakeInstallSystemPutsRunnableBinaryInSystemDir` の 1 行を足し、Makefile の逐語ブロックを同期した | `sudo` は呼び出し側の `PATH` を引き継がず `secure_path`（Ubuntu の既定は `/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`）だけを探すため、`make install` が置く `GOBIN` / `GOPATH/bin` のバイナリは `sudo gsr-helper` から見えず「コマンドが見つかりません」になる（実機で発生）。runner の実運用は `svc.sh install` が systemd ユニットを作り既定の導入先が `/opt/runners` であることから root を要するので、sudo で起動できないのは実質的な導線の欠落だった。既定を `secure_path` に含まれるディレクトリにする必要があるため、既定値そのものを検査対象にした |
 | 1.53 | 2026-09-07 | Makefile の `##` の説明文から `$(BIN)` / `$(SYSTEM_DIR)` を外し、名前を直書きに戻した。展開されない理由を `help` の直前にコメントで残し、逐語ブロックを同期した | `help` は `##` のコメントを `grep` と `awk` で文字列として拾うため変数を展開しない。改訂 1.51 / 1.52 で説明文を `$(BIN)` にしたことで、`make help` の出力に `$(BIN)` がそのまま出ていた（実測）。ターゲットの説明は利用者が最初に読む場所なので、参照の一元化より表示の正しさを採る |
+| 1.54 | 2026-11-28 | 「抑制の方針」の棚卸しを `internal/runner/config.go` の 3 件から 1 件へ改め、総数を 11 件（G304 は 9 件）から **9 件（G304 は 7 件）**、事前条件に依拠する根拠の内訳を 5 件から 3 件へ更新した | `.runner` / `bin/runnerversion` / `.service` の読み取りを 1 つの `readSmallFile`（上限付き・`O_NOFOLLOW` / `O_NONBLOCK`・通常ファイル確認）へ集約し、3 箇所の `os.ReadFile` と抑制を 1 件に減らしたため（Issue #208） |
 
 **版番号は表への追加順ではなく、その変更が入った時点で採番している。** 1.22 の日付が直前の 1.21 より古いのはこのためである。1.22 の行はもともと重複した `1.8` として記録されており（`feat/#1` の取り込み時に 2 つの `1.8` を両方残したまま解消した）、重複を解消する際に、既に使われている 1.9〜1.21 と衝突しない番号として 1.22 を割り当てた。既存行の版番号を繰り下げないのは、他の行の変更理由が版番号で参照している箇所（1.12 / 1.13）まで書き換えることになるためである。
 
