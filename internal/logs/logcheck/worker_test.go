@@ -1,4 +1,4 @@
-package logs_test
+package logcheck_test
 
 import (
 	"os"
@@ -84,10 +84,10 @@ func TestParseWorker(t *testing.T) {
 // ファイル名で _diag の外へ出ようとしても読まない。
 //
 // ParseWorker は exported で呼び出し側を選べないため、閉じ込めをコメントの約束に
-// せず io/fs の側で担保している（os.DirFS が fs.ValidPath を要求する）。
+// せず fs.ValidPath の検査で担保している。
 func TestParseWorkerDoesNotEscapeDirectory(t *testing.T) {
 	escapes := []string{
-		filepath.Join("..", "logs.go"),
+		filepath.Join("..", "worker_test.go"),
 		filepath.Join("..", "testdata", "worker_tracking_config.log"),
 		"/etc/hostname",
 	}

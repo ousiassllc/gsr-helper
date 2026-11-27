@@ -364,7 +364,9 @@ runner の追加・削除・バージョン更新。最も破壊的な操作を�
 | `ParseWorker(dir, name) (JobInfo, error)` | Worker ログからジョブのリポジトリ名と作業ディレクトリを取り出す（Jobs タブの `REPOSITORY` / `_work`） |
 | `WorkspaceFallback(workDir, repository) string` | 作業ディレクトリがログから取れない場合の `<_work>/<repo>/<repo>` |
 
-**`ParseWorker` はパスを 1 本の文字列で受けず、ディレクトリとファイル名を分けて受ける。** 読み出しを `os.DirFS` で `_diag` の中に閉じ、`..` や絶対パスを含む名前を `io/fs` に弾かせるためである。exported で呼び出し側を選べない関数なので、閉じ込めをコメントの約束にしない。
+**`ParseWorker` はパスを 1 本の文字列で受けず、ディレクトリとファイル名を分けて受ける。** `..` や絶対パスを含む名前を `fs.ValidPath` で弾き、`_diag` の外を読ませないためである。exported で呼び出し側を選べない関数なので、閉じ込めをコメントの約束にしない。
+
+**`_diag` の中身は信用しない（Issue #210）。** `_diag` は runner 実行ユーザー（ジョブが任意のコードを走らせる）が書き換えられるので、`Runner_x.log` の名前で FIFO やデバイスへのリンクを置かれうる。`List` は通常ファイル（`info.Mode().IsRegular()`）だけを返し、`Tail` / 開き直し / `ParseWorker` は `O_NOFOLLOW | O_NONBLOCK` で開いて通常ファイルであることを確かめてから読む（`internal/logs` 内の `openRegular`。`config/fileio` と同じ流儀だが、依存の向きを増やさないため import せず小さく持つ）。さらに行の読み出しは周回ごとに `ctx` を見るので、改行の来ない入力でもキャンセルで抜けられる。
 
 **抽出は 1 行ずつ行い、両方の値が見つかった時点で読むのをやめる。** マーカー以降をファイル全体から探すと、途中で切れたログで次の行のログ本文まで巻き込み、改行を含む値が列に出て表の描画が崩れる。取り出し口はいずれもジョブ開始直後に出るので、正常なログでは先頭のわずかしか読まない。
 
@@ -373,6 +375,8 @@ runner の追加・削除・バージョン更新。最も破壊的な操作を�
 **取り出せなくてもエラーにしない。** 開けない・形式が想定外・まだ書かれていない、いずれも空の `JobInfo` を返し、呼び出し側が `-` に縮退する。ジョブの一覧が解析の失敗で落ちてはならない。
 
 型名にパッケージ名を重ねない規約に従い、ログファイル 1 件は `File` と呼ぶ（`logs.LogFile` とはしない）。
+
+`internal/logs/logcheck` は `List` / `ParseWorker` / `Tail` を公開 API 越しに検査するテスト専用パッケージで、実行時のコードを持たない（Worker ログ解析の検査と `testdata` もここにある）。1 ディレクトリ 2000 行の上限を空けるために分けた（[TUI コンポーネント設計](../ui/atomic-design.md#行数の予算)。先例は `config/edit/validcheck`）。
 
 **`Tail` / `Journal` は戻るときに `out` を閉じる。** 受け手（`ui/page/logs`）は閉じたことで購読の終わりを知り、読み直しの `tea.Cmd` を発行し続けずに済む。したがって `out` は 1 本の購読専用に作る。
 
@@ -820,6 +824,7 @@ interface はこの 3 つに留める。ドメインごとの interface は、�
 | 1.67 | 2026-09-04 | `ui/page` の責務表の `StateMsg` の欄に、ドメイン層を呼ぶための道具をまとめた `Deps`（`Exec` / `ScanProcs` / `Audit`）を加えた | 本書の責務表が `ui/page` の持ち物の一次情報であり、新しく置いた型が載っていないと「`ui/page` が持つのは列挙された `Msg` と `Overlay` だけである」という誤った主張になる（改訂 1.63 が同じ形の欠落を是正している） |
 | 1.68 | 2026-09-07 | `internal/setup` の命名の行を `internal/setup/name` へ出したことを反映し、`ui/page/setup/report` をサブパッケージ表に追加した | どちらも 1 ディレクトリ 2000 行の上限に当たったため分けた（`internal/setup` は残り 30 行、`ui/page/setup` は残り 34 行だった）。サブパッケージ表は実在するパッケージを本書から辿れるようにするためのもので、載せ落とすと次の Issue が同じ道具を書き直す（改訂 1.32 / 1.47 / 1.48 / 1.49 が同じ理由で追加した前例がある） |
 | 1.69 | 2026-09-07 | `internal/setup` の要素表へ `Step.Env` の説明と `RootEnv` / `EnvAllowRunAsRoot` の行を足し、`exec/command` の行に `ExitError` が標準出力の抜粋も持つことを、`ui/page/setup/report` の行に `Wrap` を追記した | root で `config.sh` が `Must not run with sudo` で必ず失敗する状態と、その理由が標準出力に出るため画面に何も出なかった状態を直したため。要素表と分割したパッケージの表はどちらも「何がそこにあるか」の一次情報であり、足した公開 API を載せないと次の Issue が同じ道具を書き直す |
+| 1.70 | 2026-11-28 | `internal/logs` の節に、`_diag` の FIFO・デバイスへのリンクで固まらないよう `List` を通常ファイルに限り、`Tail` / `ParseWorker` を `O_NOFOLLOW \| O_NONBLOCK` + 通常ファイル確認で開くことを追記し、`ParseWorker` の閉じ込めを `os.DirFS` から `fs.ValidPath` へ改めた。公開 API 越しの検査を置くテスト専用パッケージ `internal/logs/logcheck` を追記した | `_diag` は runner 実行ユーザーが書き換えられ、FIFO への `Runner_x.log` で追従・解析の goroutine が固まる、`/dev/zero` へのリンクで CPU を回し続ける不具合があった（Issue #210）。`.env` 側は対策済みで、ログ側だけが同じ脅威に無防備だった |
 
 ### 改訂の詳細
 

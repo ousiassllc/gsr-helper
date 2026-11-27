@@ -3,7 +3,7 @@ package logs
 import (
 	"bufio"
 	"io"
-	"os"
+	"io/fs"
 	"path/filepath"
 	"strings"
 )
@@ -65,10 +65,10 @@ type JobInfo struct {
 // 作業ディレクトリを取り出す（Issue #68）。
 //
 // **パスを 1 本の文字列で受けず、ディレクトリとファイル名を分けて受ける。** 名前は
-// List / LatestWorker が列挙した logs.File.Name をそのまま渡す想定で、読み出しは
-// os.DirFS で dir の中に閉じる。io/fs は `..` や絶対パスを含む名前を fs.ErrInvalid で
-// 弾くため、**`_diag` の外を読ませない**ことをコメントの約束ではなく型と標準ライブラリ
-// の側で担保できる。1 本のパスで受けると、name 側に何が入っていても filepath が
+// List / LatestWorker が列挙した logs.File.Name をそのまま渡す想定で、名前は
+// fs.ValidPath で検査して dir の中に閉じる。`..` や絶対パスを含む名前は弾かれるため、
+// **`_diag` の外を読ませない**ことをコメントの約束ではなく標準ライブラリの側で担保できる。
+// 開くときは openRegular で、FIFO・デバイス・リンクを読まず、open(2) でも固まらない。1 本のパスで受けると、name 側に何が入っていても filepath が
 // 素直に解決してしまい、この関数だけでは防げない。
 //
 // **開けない・読めない・想定した形式が無い、いずれの場合もエラーにせず空の JobInfo を
@@ -80,7 +80,12 @@ type JobInfo struct {
 // 戻り値に error を残しているのは List / Tail など他の logs パッケージの関数と
 // 型を揃えるためで、今日の実装は常に nil を返す。
 func ParseWorker(dir, name string) (JobInfo, error) {
-	f, err := os.DirFS(dir).Open(name)
+	// 閉じ込めは fs.ValidPath で担保する（os.DirFS の Open と同じ検査）。開く段は
+	// FIFO・デバイス・リンクで固まらないよう openRegular に任せる。
+	if !fs.ValidPath(name) {
+		return JobInfo{}, nil
+	}
+	f, err := openRegular(filepath.Join(dir, name))
 	if err != nil {
 		return JobInfo{}, nil
 	}

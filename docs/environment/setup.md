@@ -586,7 +586,7 @@ issues:
 - **`gosec` の G204（可変引数での外部コマンド実行）は `internal/exec` に集中する。** 外部プロセス実行は Executor 1 本に集約する設計（[アーキテクチャ設計](../architecture/overview.md#外部コマンドの実行)）のため、抑制箇所も 1 箇所に収まる。ドメイン層に G204 の抑制が現れた場合は、**抑制ではなく設計違反**として `exec` 層経由に直す。
 - **この方針は現在満たされている。** かつて `internal/runner` の `systemctl show` 呼び出しに置いていた暫定の G204 抑制は、集約先の `internal/exec` が実装された時点で除去した。現在 G204 に相当する抑制は `internal/exec/command/command.go` の 1 箇所だけで、これは方針どおりの位置である。
 - **テストファイル（`_test.go`）に対する `errcheck` / `gosec` の除外は、上記「ファイル単位・パッケージ単位の抑制は使わない」方針の明示的な例外である。** `.golangci.yml` の `exclusions.rules` で `path: _test\.go` に対して除外している。テストではエラーの取り扱い（後片付けの `Close` など）とパス操作（一時ディレクトリ配下のパス組み立て）を緩め、テストの記述量を抑えることが目的である。本番コードのパス検証とエラー処理の厳しさは落とさない。**この 2 リンター・`_test.go` 限定以外の除外は `exclusions` に追加しない。**
-- **ツリーに現存する `//nolint` は次の 11 件（うち G304 が 9 件）で、すべて本番コードの行単位・理由付き・`gosec` 指定である。** いずれも方針上許容する恒久的な抑制で、除去の予定はない。
+- **ツリーに現存する `//nolint` は次の 9 件（うち G304 が 7 件）で、すべて本番コードの行単位・理由付き・`gosec` 指定である。** いずれも方針上許容する恒久的な抑制で、除去の予定はない。
 
   | ファイル | 件数 | 抑制している検査 | 対象と根拠 |
   |---|---|---|---|
@@ -596,7 +596,6 @@ issues:
   | `internal/runner/procs/procs.go` | 1 | 同上（G304） | `/proc/<PID>/cmdline`。下記「数値検証による根拠」 |
   | `internal/appconfig/config.go` | 1 | 同上（G304） | `path` は利用者が指定した設定ファイルの位置そのもの（読み込みが本関数の目的）。`Clean` 済みで、内容は `Config` の形にのみデコードする |
   | `internal/audit/open.go` | 2 | 同上（G304） | `path` は非特権ユーザーが持つ設定ファイル（`audit_log`）由来の実質的な外部入力。`O_EXCL` / `O_NOFOLLOW` と fd 上の検証で安全性を担保する |
-  | `internal/logs/tail.go` | 2 | 同上（G304） | 追従するログのパス。利用者が Logs タブの一覧から選ぶもので、その一覧は `logs.List` が runner ディレクトリ配下の `_diag` から `Runner_*.log` / `Worker_*.log` だけを列挙したものである。2 件は `Tail` の最初の `os.Open` と、ログが同名で作り直されたときに開き直す `reopen` の `os.Open` で、**開くのは同じ `path` 変数**なので根拠も同一である。下記「事前条件に依拠する根拠」 |
 
   **この表は `//nolint` の「行」を数えたものであり、G コード別の件数を `golangci-lint` の出力から機械的に検算することはできない。** `nolintlint` の `require-specific` が要求するのはリンター名であって規則 ID ではないため、ツリー内の抑制はいずれも G コードを書かない `//nolint:gosec` の形である。上表の「抑制している検査」列は、各行の nolint の理由コメントと対象コードから読み取ったものである。G コード別に裏取りしたい場合は抑制を外して `go tool golangci-lint run` を走らせる。
 
@@ -604,10 +603,8 @@ issues:
 
   **`_test.go` に実際の抑制指示（有効な `//nolint` ディレクティブ）は 1 つも無い。** `countNolintInTree` が `_test.go` を走査対象から除いているのは、上の判定とは**独立した第 2 の理由**による——`.golangci.yml` が `_test.go` に対する `errcheck` / `gosec` を除外しており、そもそも抑制を書く必要が無いためである。
 
-  **G304 の抑制の安全性の根拠は一括では説明できない。** 9 件は次の 4 種類に分かれる（内訳は 5 + 1 + 1 + 2 件で、表の G304 の件数と一致する）。
-  - **事前条件に依拠する根拠（5 件）。** `internal/runner/config.go` の 3 件はパスが「ディレクトリ + 固定名」で組み立てられているが、**そのディレクトリが外部入力でないことは呼び出し側の事前条件に依拠する**。`LoadConfig` は exported で `dir` を呼び出し側が自由に渡せるうえ、`Discover` の `Options.Roots`（「追加の走査ルート。既定ルートに追加される」）により**走査ルート自体を呼び出し側が指定できる**設計であり、`collectDirs` は `IsRunnerDir` で絞るだけなので dir が外部入力由来になる経路は閉じていない。したがって「呼び出し側が `Discover` が解決した runner ディレクトリを渡す」という事前条件のもとで安全である、というのが正確な根拠であり、これを doc コメントと nolint の理由に明記している。
-
-    `internal/logs/tail.go` の 2 件も**同じ種類**である。`Tail` は exported で `path` を丸ごと呼び出し側から受け取るため、パスの安全性は「`logs.List` が列挙したログのパスを渡す」という事前条件に依拠する。`List` は `<runner.Dir>/_diag` を `os.ReadDir` で読み、`kindOf` が受け付ける `Runner_*.log` / `Worker_*.log` だけを残すので、その事前条件のもとでは runner ディレクトリ配下の診断ログ以外を開くことはない。**`internal/runner/config.go` との違いは、パスを自分で組み立てるか丸ごと受け取るかだけ**であり、根拠の形（呼び出し側の事前条件）は同じなので分類も同じにする。2 件のうち後者は `reopen` にあり、runner がログを同名で作り直したときに開き直す処理である。**開き直しでパスは変わらない**（`Tail` が受け取った `path` をそのまま使う）ため、追加の根拠は要らない。
+  **G304 の抑制の安全性の根拠は一括では説明できない。** 7 件は次の 4 種類に分かれる（内訳は 3 + 1 + 1 + 2 件で、表の G304 の件数と一致する）。
+  - **事前条件に依拠する根拠（3 件）。** `internal/runner/config.go` の 3 件はパスが「ディレクトリ + 固定名」で組み立てられているが、**そのディレクトリが外部入力でないことは呼び出し側の事前条件に依拠する**。`LoadConfig` は exported で `dir` を呼び出し側が自由に渡せるうえ、`Discover` の `Options.Roots`（「追加の走査ルート。既定ルートに追加される」）により**走査ルート自体を呼び出し側が指定できる**設計であり、`collectDirs` は `IsRunnerDir` で絞るだけなので dir が外部入力由来になる経路は閉じていない。したがって「呼び出し側が `Discover` が解決した runner ディレクトリを渡す」という事前条件のもとで安全である、というのが正確な根拠であり、これを doc コメントと nolint の理由に明記している。
   - **数値検証による根拠（1 件）。** `internal/runner/procs/procs.go` の 1 件は `/proc/<PID>/cmdline` であり「探索済みディレクトリ + 固定名」ではない。`<PID>` は `strconv.Atoi` で数値であることを検証済みのものだけを使う、という別の根拠で安全である。
   - **明示指定のパスと読み取り方に依拠する根拠（1 件）。** `internal/appconfig/config.go` の 1 件は `os.Open` をそのまま使い、`O_NOFOLLOW` も開いた fd 上の検証も行わない。`path` が利用者の指定した設定ファイルの位置そのもの（読み込みが本関数の目的）であること、`Clean` 済みであること、`io.LimitReader` による上限（`maxConfigSize`）付きで読むこと、内容を `Config` の形にのみデコードすることが根拠である。
   - **開いた後の検証による根拠（2 件）。** `internal/audit/open.go` の 2 件は、パスが非特権ユーザーの持つ設定ファイル（`audit_log`）由来の実質的な外部入力であり、外部入力でないとは主張しない。新規作成時は `O_EXCL` / `O_NOFOLLOW` で「今この呼び出しで作った」ことを保証し、既存ファイルを開く場合は `O_NOFOLLOW` と直後の `validateAuditFile` による開いた fd 上の検証で安全性を担保する。
@@ -859,6 +856,7 @@ pre-push:
 | 1.51 | 2026-09-07 | `make install` / `make uninstall` が置くコマンド名を `gsr` から `gsr-helper` へ統一し、`INSTALL_BIN` 変数を廃止して `BIN` に一本化した。ターゲット一覧表・Makefile の逐語ブロック・不変条件テスト一覧表（`TestMakeInstallPutsRunnableGSRInInstallDir` を `TestMakeInstallPutsRunnableBinaryInInstallDir` へ改名、`TestMakeInstallFailsWhenInstallDirIsUnresolvable` の説明の `/bin/gsr` を `/bin/gsr-helper` へ）を同期した | `go install` が置く名前は `gsr-helper` で、`make install` だけが `gsr` という別名を置いていたため、入れ方によってコマンド名が変わる状態だった。README を公開したことで両方の手順が並ぶので、名前が 2 つあること自体が説明の負債になる。同じ値を持つ変数を 2 つ持つ理由も無くなった |
 | 1.52 | 2026-09-07 | `make install-system` / `make uninstall-system` を追加した（配置先 `SYSTEM_DIR` の既定は `/usr/local/bin`、昇格コマンドは `SUDO`。ビルドは呼び出したユーザーのまま行い配置だけを昇格する）。ターゲット一覧表に 2 行、不変条件テスト一覧表に `TestMakeInstallSystemPutsRunnableBinaryInSystemDir` の 1 行を足し、Makefile の逐語ブロックを同期した | `sudo` は呼び出し側の `PATH` を引き継がず `secure_path`（Ubuntu の既定は `/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`）だけを探すため、`make install` が置く `GOBIN` / `GOPATH/bin` のバイナリは `sudo gsr-helper` から見えず「コマンドが見つかりません」になる（実機で発生）。runner の実運用は `svc.sh install` が systemd ユニットを作り既定の導入先が `/opt/runners` であることから root を要するので、sudo で起動できないのは実質的な導線の欠落だった。既定を `secure_path` に含まれるディレクトリにする必要があるため、既定値そのものを検査対象にした |
 | 1.53 | 2026-09-07 | Makefile の `##` の説明文から `$(BIN)` / `$(SYSTEM_DIR)` を外し、名前を直書きに戻した。展開されない理由を `help` の直前にコメントで残し、逐語ブロックを同期した | `help` は `##` のコメントを `grep` と `awk` で文字列として拾うため変数を展開しない。改訂 1.51 / 1.52 で説明文を `$(BIN)` にしたことで、`make help` の出力に `$(BIN)` がそのまま出ていた（実測）。ターゲットの説明は利用者が最初に読む場所なので、参照の一元化より表示の正しさを採る |
+| 1.54 | 2026-11-28 | 「抑制の方針」の `//nolint` の棚卸しから `internal/logs/tail.go`（G304 の 2 件）を除いた。総数を 11 件から 9 件（うち G304 が 9 件から 7 件）、G304 の内訳を 5 + 1 + 1 + 2 から 3 + 1 + 1 + 2、「事前条件に依拠する根拠」を 5 件から 3 件へ改めた | `Tail` と `reopen` が `os.Open` をやめ、`O_NOFOLLOW \| O_NONBLOCK` と通常ファイルの確認を行う `openRegular`（`syscall.Open`）で開くようになり、該当の抑制が不要になったため（Issue #210）。`TestSetupDocNolintInventoryMatchesTree` が棚卸しの実体との一致を検証する |
 
 **版番号は表への追加順ではなく、その変更が入った時点で採番している。** 1.22 の日付が直前の 1.21 より古いのはこのためである。1.22 の行はもともと重複した `1.8` として記録されており（`feat/#1` の取り込み時に 2 つの `1.8` を両方残したまま解消した）、重複を解消する際に、既に使われている 1.9〜1.21 と衝突しない番号として 1.22 を割り当てた。既存行の版番号を繰り下げないのは、他の行の変更理由が版番号で参照している箇所（1.12 / 1.13）まで書き換えることになるためである。
 
