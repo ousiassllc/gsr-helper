@@ -77,7 +77,9 @@ type File struct {
 // runner（追加した直後、`run.sh` を起動していない）で一覧全体を失敗させないためで
 // ある。読めない理由がそれ以外（権限など）のときはエラーを返す。
 //
-// 対象は `Runner_*.log` と `Worker_*.log` だけである。`_diag` には runner 本体が
+// 対象は通常ファイルの `Runner_*.log` と `Worker_*.log` だけである。`_diag` は runner
+// 実行ユーザーが書き換えられるので、同じ名前のシンボリックリンク・FIFO・デバイスは
+// 載せない（Tail / ParseWorker が開く先を通常ファイルに限るのと揃える）。`_diag` には runner 本体が
 // 使う別形式のファイル（`.json` の診断情報など）も置かれるため、拡張子と接頭辞の
 // 両方で絞る。
 //
@@ -95,9 +97,6 @@ func List(r runner.Runner) ([]File, error) {
 
 	out := make([]File, 0, len(ents))
 	for _, e := range ents {
-		if e.IsDir() {
-			continue
-		}
 		kind, ok := kindOf(e.Name())
 		if !ok {
 			continue
@@ -106,6 +105,10 @@ func List(r runner.Runner) ([]File, error) {
 		if err != nil {
 			// 列挙してから情報を取るまでの間に消えたファイル（runner 側のローテーション）
 			// は飛ばす。一覧全体を失敗させる理由にはならない。
+			continue
+		}
+		// e.Info() は Lstat 相当なので、リンクは通常ファイルにならない。
+		if !info.Mode().IsRegular() {
 			continue
 		}
 		out = append(out, File{

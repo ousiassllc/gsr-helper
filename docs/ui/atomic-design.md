@@ -1191,12 +1191,12 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 | ディレクトリ | 行数 | 残り | 判定 |
 |------------|------|------|------|
 | `internal/setup/tarball` | 1999 | 1 | pass |
-| `internal/logs` | 1998 | 2 | pass |
 | `internal/gh` | 1996 | 4 | pass |
 | `internal/setup` | 1994 | 6 | pass |
 | `internal/disk` | 1980 | 20 | pass |
 | `internal/exec/command` | 1974 | 26 | pass |
 | `internal/runner` | 1942 | 58 | pass |
+| `internal/logs` | 1924 | 76 | pass |
 | `internal/config/edit` | 1904 | 96 | pass |
 | `internal/buildconfig/docscheck` | 1497 | 503 | pass |
 | `internal/doctor/jobreq` | 1495 | 505 | pass |
@@ -1225,6 +1225,7 @@ runner に対する操作は **11 個すべてが実装済み**である。サ�
 | `internal/config/dropin` | 484 | 1516 | pass |
 | `internal/runner/procs` | 426 | 1574 | pass |
 | `internal/gh/ghtoken` | 418 | 1582 | pass |
+| `internal/logs/logcheck` | 376 | 1624 | pass |
 | `internal/config/apply` | 354 | 1646 | pass |
 | `internal/disk/pathguard` | 288 | 1712 | pass |
 | `internal/exec/command/limit` | 285 | 1715 | pass |
@@ -1843,6 +1844,7 @@ Issue #31 で `table_test.go` の空振りしていたテスト（`View() != ""`
 | 1.136 | 2026-11-28 | 改訂の詳細の「改訂 1.80」にあった[コンポーネント設計](../components/overview.md#依存関係)へのリンクのアンカーを、存在しない `#依存の方向` から実在する `#依存関係` へ直した | リンク先の文書に `依存の方向` という見出しは無く（あるのは `## 依存関係` と `### 依存の規則`）、アンカーが解決しなかった（Issue #227）。記録の本文は変えていない |
 | 1.137 | 2026-11-28 | 行数の予算の表を実測へ更新した（`internal/setup` 1994 行・残り 6、`internal/setup/job` 915 行、`internal/setup/valid` 491 行） | runner 名の `.` / `..` 拒否（Issue #206）と、tarball の一時ディレクトリを `job.Run` が所有して片付ける修正（Issue #207）の回帰テストを足したため。**`internal/setup` は残り 6 行で、次に触る Issue は先に空けること** |
 | 1.138 | 2026-11-28 | 行数の予算の表の `internal/runner` を実測（1942 行 / 残り 58 行）へ更新した | `Discover` が読む `.runner` / `bin/runnerversion` / `.service` を、上限付き・`O_NOFOLLOW` / `O_NONBLOCK`・通常ファイル確認で開く `readSmallFile` と回帰テスト（`readsmall_test.go`）を足したため（Issue #208。[コンポーネント設計](../components/overview.md#改訂履歴)の改訂 1.70）。**残り 58 行**であり、次にこのディレクトリを触る Issue は先に行数を空けること |
+| 1.139 | 2026-11-28 | 行数の予算の表（UI 層の外）の `internal/logs` を 1924 行・残り 76 行へ更新し、新設のテスト専用パッケージ `internal/logs/logcheck`（376 行）の行を足した | `_diag` の FIFO・デバイスへのリンクで追従・解析が固まる不具合（Issue #210）の修正で `internal/logs` に開く処理の共通化と回帰テストを入れる余地が無かった（当時 1998 行・残り 2 行）ため、公開 API 越しのテストと Worker ログ解析のテストを `logcheck` へ出した。先例は `config/edit/validcheck` |
 
 ### 改訂の詳細
 
