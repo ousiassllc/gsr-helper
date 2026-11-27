@@ -4,11 +4,56 @@ package runner
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 )
+
+// maxSmallFileBytes は runner ディレクトリ直下で読む小さなファイル（.runner /
+// bin/runnerversion / .service）の上限。いずれも実際は数百バイト〜数 KB である。
+const maxSmallFileBytes = 16 << 10
+
+var (
+	errNotRegular = errors.New("通常ファイルではありません")
+	errTooLarge   = errors.New("ファイルが大きすぎます")
+)
+
+// readSmallFile は path を最大 maxSmallFileBytes まで読む。
+//
+// runner ディレクトリは runner 実行ユーザーが書き換えられるため、os.ReadFile では
+// /dev/zero へのリンク（EOF が来ずメモリを食い続ける）や FIFO（open(2) が書き手を
+// 待って戻らない）が成立する。O_NOFOLLOW でリンクを辿らず、O_NONBLOCK で FIFO の
+// open を即座に返させ、開いた fd 上で通常ファイルかを確かめる（確認と open を別操作に
+// すると TOCTOU になる）。internal/config/fileio に同じ守りがあるが、runner は他の
+// ドメインパッケージに依存しないため再利用せず最小限をここに置く（docs/components/overview.md）。
+func readSmallFile(path string) ([]byte, error) {
+	//nolint:gosec // 呼び出し元は探索済み runner ディレクトリ + 固定名で組み立てる（LoadConfig の事前条件）。リンク・FIFO・サイズは本関数が防ぐ。
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+
+	fi, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !fi.Mode().IsRegular() {
+		return nil, fmt.Errorf("%s: %w", path, errNotRegular)
+	}
+	b, err := io.ReadAll(io.LimitReader(f, maxSmallFileBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(b) > maxSmallFileBytes {
+		return nil, fmt.Errorf("%s: %w（上限 %d バイト）", path, errTooLarge, maxSmallFileBytes)
+	}
+	return b, nil
+}
 
 // Config は runner ディレクトリ直下の .runner ファイルの内容。
 type Config struct {
@@ -51,8 +96,7 @@ func parseConfig(b []byte) (Config, error) {
 // どの runner かの手がかりは増えない。
 func LoadConfig(dir string) (Config, error) {
 	path := filepath.Join(dir, ".runner")
-	//nolint:gosec // dir は Discover が解決した runner ディレクトリという事前条件（直上の doc コメント）に依存。path は dir + 固定名 ".runner"。
-	b, err := os.ReadFile(path)
+	b, err := readSmallFile(path)
 	if err != nil {
 		return Config{}, fmt.Errorf("%s: .runner の読み込みに失敗しました: %w", dir, err)
 	}
@@ -63,10 +107,9 @@ func LoadConfig(dir string) (Config, error) {
 	return cfg, nil
 }
 
-// readVersion は <dir>/bin/runnerversion を読む。無ければ空文字を返す。
+// readVersion は <dir>/bin/runnerversion を読む。無い・読めない場合は空文字を返す。
 func readVersion(dir string) string {
-	//nolint:gosec // 探索済み runner ディレクトリ + 固定パス "bin/runnerversion"。パスに外部入力は入らない。
-	b, err := os.ReadFile(filepath.Join(dir, "bin", "runnerversion"))
+	b, err := readSmallFile(filepath.Join(dir, "bin", "runnerversion"))
 	if err != nil {
 		return ""
 	}
@@ -75,10 +118,9 @@ func readVersion(dir string) string {
 
 // readUnitName は <dir>/.service を読む。svc.sh install が systemd ユニット名を
 // ここに書き出すため、ディレクトリとユニットを確実に紐付けられる。
-// サービス化されていなければ空文字を返す。
+// サービス化されていない・読めない場合は空文字を返す。
 func readUnitName(dir string) string {
-	//nolint:gosec // 探索済み runner ディレクトリ + 固定名 ".service"。パスに外部入力は入らない。
-	b, err := os.ReadFile(filepath.Join(dir, ".service"))
+	b, err := readSmallFile(filepath.Join(dir, ".service"))
 	if err != nil {
 		return ""
 	}
