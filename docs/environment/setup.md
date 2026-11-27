@@ -12,7 +12,7 @@
 | 対象 OS | Linux（amd64 / arm64） |
 | 成果物 | 単一バイナリ `gsr-helper` |
 | タスクランナー | Makefile |
-| CI | GitHub Actions（self-hosted runner） |
+| CI | GitHub Actions（GitHub ホストランナー、`ubuntu-latest`） |
 | Lint | golangci-lint + `go vet` |
 | Format | gofmt（標準） + gci（import のグループ分け）。どちらも golangci-lint の `formatters` として動く |
 | 行数管理 | Linterly |
@@ -147,7 +147,7 @@ GOFILES_TMPL := {{range .GoFiles}}{{printf "%s/%s\n" $$.Dir .}}{{end}}{{range .C
 # 各ターゲットの ## には名前を直に書くこと。
 help: ## ターゲット一覧を表示する
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
-		| awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
+		| awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
 
 tools: ## 依存モジュールと開発ツールを取得する
 	$(GO) mod download
@@ -327,11 +327,11 @@ jobs:
       - run: make build
 ```
 
-**`actions/setup-go` のキャッシュは `cache: false` で無効にする。** self-hosted runner ではジョブ間でホストが変わらず、モジュールキャッシュ（`GOMODCACHE`）とビルドキャッシュ（`GOCACHE`）はホスト側にそのまま残る。`actions/checkout` の `clean: true` は作業ディレクトリを掃除するだけでこれらには触れない。したがって `setup-go` のキャッシュ機構は、既に手元にあるものを tar で固めて保存し次回展開し直すだけの重複であり、速度上の利点がない。
+**`actions/setup-go` のキャッシュは `cache: false` で無効にする。** GitHub ホストランナーは run ごとに VM が破棄され、モジュールキャッシュ（`GOMODCACHE`）もビルドキャッシュ（`GOCACHE`）もジョブ間で残らない。キャッシュを有効にすると、毎回 Actions のキャッシュ領域から blob をダウンロードして展開し、post-job でまた固めて保存する往復が加わる。それが依存の取得とコンパイルを毎回やり直すより速くなるかは計測しないと分からず、`go.sum` が 98KB ある（tool ディレクティブで golangci-lint の依存閉包を抱えるため）ので blob も小さくない。public リポジトリの標準ランナーは無料なので、短縮できても費用には効かない。したがって**有効化は所要時間の計測を伴う別の判断**とし、計測するまでは無効のまま据え置く（`TestCISetupGoDisablesCache`）。
 
-加えて、同一の runner ホストで**実障害が記録されている**: runner が 13 台同居した状態で `setup-go` の `tar -xf cache.tzst` / `unzstd` が D state のまま 26 分滞留し、load average 47 に達してジョブが timeout で cancelled になった。gsr-helper は tool ディレクティブで golangci-lint の依存閉包を抱えるため `go.sum` が 98KB あり、キャッシュ blob が大きくこの問題を踏みやすい。
+この判断は self-hosted 時代から引き継いでいる。当時の根拠（ホスト側にキャッシュが残るので保存と展開が重複でしかない、runner 13 台同居の状態で `tar -xf cache.tzst` / `unzstd` が D state のまま 26 分滞留し load average 47 に達してジョブが timeout で cancelled になった実障害）はホストランナーでは成り立たないが、self-hosted へ戻す場合は再び成り立つ。
 
-**アクションはフルコミット SHA でピン留めする。** `actions/checkout@v5` のような可変タグは、タグの付け替えや上流アカウントの侵害で参照先のコードが差し替わる。[セキュリティ設計](../architecture/security.md#パスワード不要-sudo-の要求への対応)のとおり self-hosted runner のワークフローは実質 root 相当で動くため、この脅威モデルでは被害がホスト全体に及ぶ。版の追従は `.github/dependabot.yml` の `github-actions` エコシステムに任せる（人手ではタグの移動を追えない）。SHA の隣にはバージョンをコメントで残し、読んだときに版が分かるようにする。
+**アクションはフルコミット SHA でピン留めする。** `actions/checkout@v5` のような可変タグは、タグの付け替えや上流アカウントの侵害で参照先のコードが差し替わる。差し替えられたアクションは CI の run の中で任意のコードを実行できる。ホストランナーでは被害が run ごとに破棄される VM の中、かつ `contents: read` の `GITHUB_TOKEN` の範囲に限られるが、検証結果を偽装できる点は変わらない（self-hosted runner では[セキュリティ設計](../architecture/security.md#パスワード不要-sudo-の要求への対応)のとおりワークフローが実質 root 相当で動くため被害がホスト全体に及ぶので、戻す場合はいっそう重要になる）。版の追従は `.github/dependabot.yml` の `github-actions` エコシステムに任せる（人手ではタグの移動を追えない）。SHA の隣にはバージョンをコメントで残し、読んだときに版が分かるようにする。
 
 ```yaml
 version: 2
@@ -345,9 +345,9 @@ updates:
       interval: weekly
 ```
 
-**`actions/checkout` には `persist-credentials: false` を指定する。** 既定では `GITHUB_TOKEN` をローカルの `.git/config` に書き込み、post-job cleanup で削除する。しかし `cancel-in-progress` によるキャンセルでは cleanup が完走しない可能性があり、self-hosted runner は**作業ディレクトリを再利用する**ため、トークンが残留する窓が開く（次回の `actions/checkout` が行う `git clean -ffdx` は `.git` 自体を対象にしないので自動的には消えない）。CI のどの step も認証付きの git 操作を必要としない。
+**`actions/checkout` には `persist-credentials: false` を指定する。** 既定では `GITHUB_TOKEN` をローカルの `.git/config` に書き込み、post-job cleanup で削除する。ホストランナーはワークスペースが run ごとに破棄されるため、トークンが次の run へ残留することは無い。それでも指定するのは、CI のどの step も認証付きの git 操作を必要としないので、トークンを置く理由が無いからである（最小権限）。置かなければ、同じジョブの後続 step が起動するコードから `.git/config` 経由でトークンが読めてしまう経路を最初から作らずに済む。なお self-hosted runner は**作業ディレクトリを再利用する**ので、`cancel-in-progress` によるキャンセルで cleanup が完走しなければトークンが次の run へ残留する窓が開く（次回の `actions/checkout` が行う `git clean -ffdx` は `.git` 自体を対象にしないので自動的には消えない）。この残留の窓は self-hosted 時代の根拠で、ホストランナーでは成り立たない。
 
-**全ジョブに `timeout-minutes` を設定する。** 指定が無いと GitHub 既定の 6 時間までジョブが runner を占有する。オンラインの runner が 1 台しかない状況では、1 ジョブのハングが CI 全体を止める。
+**全ジョブに `timeout-minutes` を設定する。** 指定が無いと GitHub 既定の 6 時間までジョブが実行枠を占有し、同時実行の上限に達していると後続の run が待たされる。1 ジョブのハングが CI 全体を止めうる点は、ホストランナーでも self-hosted runner でも変わらない。
 
 `lint` ジョブは `make check` を 1 step で呼ばず、`make fmt-check` / `make vet` / `make lint` / `make linterly` を**個別の step として列挙する**。どのチェックで落ちたかが run の一覧から分かるためである。そのぶん「実行すべきチェックの集合」が Makefile の `check` と CI の step 列の 2 箇所に存在するため、**`check` にターゲットを追加する際は CI の step も更新する**必要がある。
 
@@ -684,7 +684,7 @@ update_check: false
 - **`warning_threshold: 10` はコメントアウトしてはいけない。** 値そのものは linterly v0.3.3 の既定値と同一で（`internal/config/config.go` の `DefaultWarningThreshold = 10`。`count_mode: all` / `default_excludes: true` も同様に既定値）、`max_lines_per_file` / `max_lines_per_directory` と同じ「デフォルト値を使う」という理由でコメントアウトできそうに見えるが、この 1 行は **`rules:` セクションを非空に保つ構造上の役割**を担っている。`rules:` 配下を全てコメントアウトすると必須チェック（`v.IsSet("rules")`）に引っかかり、実測で `Error: "rules" section is required` の **exit 2** になる。
 - `count_mode: all`（コメント・空行を含む全行を数える）は変更しない。
 - `language: ja` は出力メッセージの言語指定である。
-- **`update_check: false` は外向き HTTP を止めるための指定である。** 既定は `true` で、linterly v0.3.3 は `rootCmd.PersistentPreRun` から毎回 `startUpdateCheck()` を呼び、GitHub Releases へ問い合わせる。`make linterly` / `make check` / pre-commit / CI のすべてで発生するため、self-hosted runner の不要な egress と、新バージョン検出時に CI ログへ混入する想定外の出力の原因になる（実測: `strace -f -e trace=connect` で `linterly check` の外向き接続が 3 件 → 0 件になった）。`--no-update-check` / `LINTERLY_NO_UPDATE_CHECK` でも抑止できるが、設定ファイルに書けば実行経路をまたいで 1 箇所で済む。
+- **`update_check: false` は外向き HTTP を止めるための指定である。** 既定は `true` で、linterly v0.3.3 は `rootCmd.PersistentPreRun` から毎回 `startUpdateCheck()` を呼び、GitHub Releases へ問い合わせる。`make linterly` / `make check` / pre-commit / CI のすべてで発生するため、不要な外向き通信（self-hosted runner では egress として現れる）と、新バージョン検出時に CI ログへ混入する想定外の出力の原因になる（実測: `strace -f -e trace=connect` で `linterly check` の外向き接続が 3 件 → 0 件になった）。`--no-update-check` / `LINTERLY_NO_UPDATE_CHECK` でも抑止できるが、設定ファイルに書けば実行経路をまたいで 1 箇所で済む。
 
 `.linterlyignore`:
 
@@ -859,6 +859,7 @@ pre-push:
 | 1.51 | 2026-09-07 | `make install` / `make uninstall` が置くコマンド名を `gsr` から `gsr-helper` へ統一し、`INSTALL_BIN` 変数を廃止して `BIN` に一本化した。ターゲット一覧表・Makefile の逐語ブロック・不変条件テスト一覧表（`TestMakeInstallPutsRunnableGSRInInstallDir` を `TestMakeInstallPutsRunnableBinaryInInstallDir` へ改名、`TestMakeInstallFailsWhenInstallDirIsUnresolvable` の説明の `/bin/gsr` を `/bin/gsr-helper` へ）を同期した | `go install` が置く名前は `gsr-helper` で、`make install` だけが `gsr` という別名を置いていたため、入れ方によってコマンド名が変わる状態だった。README を公開したことで両方の手順が並ぶので、名前が 2 つあること自体が説明の負債になる。同じ値を持つ変数を 2 つ持つ理由も無くなった |
 | 1.52 | 2026-09-07 | `make install-system` / `make uninstall-system` を追加した（配置先 `SYSTEM_DIR` の既定は `/usr/local/bin`、昇格コマンドは `SUDO`。ビルドは呼び出したユーザーのまま行い配置だけを昇格する）。ターゲット一覧表に 2 行、不変条件テスト一覧表に `TestMakeInstallSystemPutsRunnableBinaryInSystemDir` の 1 行を足し、Makefile の逐語ブロックを同期した | `sudo` は呼び出し側の `PATH` を引き継がず `secure_path`（Ubuntu の既定は `/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`）だけを探すため、`make install` が置く `GOBIN` / `GOPATH/bin` のバイナリは `sudo gsr-helper` から見えず「コマンドが見つかりません」になる（実機で発生）。runner の実運用は `svc.sh install` が systemd ユニットを作り既定の導入先が `/opt/runners` であることから root を要するので、sudo で起動できないのは実質的な導線の欠落だった。既定を `secure_path` に含まれるディレクトリにする必要があるため、既定値そのものを検査対象にした |
 | 1.53 | 2026-09-07 | Makefile の `##` の説明文から `$(BIN)` / `$(SYSTEM_DIR)` を外し、名前を直書きに戻した。展開されない理由を `help` の直前にコメントで残し、逐語ブロックを同期した | `help` は `##` のコメントを `grep` と `awk` で文字列として拾うため変数を展開しない。改訂 1.51 / 1.52 で説明文を `$(BIN)` にしたことで、`make help` の出力に `$(BIN)` がそのまま出ていた（実測）。ターゲットの説明は利用者が最初に読む場所なので、参照の一元化より表示の正しさを採る |
+| 1.55 | 2026-11-28 | Issue #212 / #213 / #219 / #226 を反映。(1) 概要表の CI を GitHub ホストランナー（`ubuntu-latest`）へ直した（1.50 の取りこぼし）。(2) `cache: false` の根拠を、ホストランナー（run ごとに VM が破棄される）に当てはまる「有効化は計測を伴う別の判断なので据え置く」へ書き直し、self-hosted 時代の根拠と実障害は「引き継いだ判断」として残した。(3) `persist-credentials: false`（トークンを置く理由が無い最小権限）・アクションの SHA ピン留め・`timeout-minutes`・`update_check` の根拠から self-hosted 前提を外し、self-hosted の場合との違いを併記した。(4) 改訂 1.6 の `concurrency` の記述に、当時の時点の記述であることを注記した。(5) Makefile の逐語ブロックの `help` の `printf` 幅を `%-12s` から `%-16s` へ同期した | 1.50 で CI を GitHub ホストランナーへ移した際、概要表と一部の根拠の段落が self-hosted 前提のまま残り、同じ文書の「GitHub ホストランナーで動かす」節と矛盾していた。実装側の `internal/buildconfig` の doc コメントは既に「self-hosted 時代の理由は失効している」と書き換え済みで、仕様書だけが旧根拠だった。`%-12s` は最長ターゲット `uninstall-system`（16 文字）より狭く、`make help` の 2 行で説明文の開始桁がずれていた |
 
 **版番号は表への追加順ではなく、その変更が入った時点で採番している。** 1.22 の日付が直前の 1.21 より古いのはこのためである。1.22 の行はもともと重複した `1.8` として記録されており（`feat/#1` の取り込み時に 2 つの `1.8` を両方残したまま解消した）、重複を解消する際に、既に使われている 1.9〜1.21 と衝突しない番号として 1.22 を割り当てた。既存行の版番号を繰り下げないのは、他の行の変更理由が版番号で参照している箇所（1.12 / 1.13）まで書き換えることになるためである。
 
@@ -885,7 +886,7 @@ CI/CD 節に `concurrency` の説明と、`lint` ジョブの step を個別に�
 PR レビューで、仕様書の記述が同じ差分で導入した設定ファイルおよびコードと食い違う箇所が指摘されたため。
 Git Hooks は `fmt` の `{staged_files}` スコープのため make を経由できない（`lint` / `linterly` / `test` を寄せるかは Issue #18）。
 `.claude/` は linterly の `default_excludes` に含まれるため `.linterlyignore` への追記は不要であることを実測で確認した（`--no-default-excludes` 指定時のみ検出される）。
-`concurrency` は self-hosted runner の稼働台数と実行中ジョブのキャンセル挙動に直結し、`main` の連続 push で中間コミットの CI 結果が残らない副作用がある（見直しは Issue #16）。
+`concurrency` は self-hosted runner の稼働台数と実行中ジョブのキャンセル挙動に直結し、`main` の連続 push で中間コミットの CI 結果が残らない副作用がある（見直しは Issue #16。この版の時点の記述で、現行は GitHub ホストランナー前提で CI/CD 節に書いてある）。
 `ManagedBy` の切り出しは `discover.go` が 329 行で linterly の `warn` 帯（301〜330 行）に入っていたためで、終了コードは 0 であり `make check` は分割前でも通っていた。
 「上限に当たった場合は数値を上げるのではなく分割を検討する」方針に従った対応であり、`error`（331 行以上）を避けるための必須対応ではない。
 Issue #2 の影響範囲は「`internal/` 配下のソースコードは変更しない」としていたが、`.golangci.yml` の導入で gosec 5 件・revive 4 件が出るため、`make check` を通す最小対応としてコメント追加と純粋な移動のみを行った。
